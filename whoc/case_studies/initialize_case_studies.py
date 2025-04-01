@@ -144,8 +144,8 @@ case_studies = {
                                                                 f"../examples/mpc_wake_steering_florisstandin/floris_gch_{9}.yaml")]},
                     "lut_path": {"group": 0, "vals": [os.path.join(os.path.dirname(whoc_file), 
                                                                 f"../examples/mpc_wake_steering_florisstandin/lookup_tables/lut_{9}.csv")]},
-                   "case_names": {"group": 1, "vals": ["Greedy", "LUT", "Previous"]},
-                   "warm_start": {"group": 1, "vals": ["greedy", "lut", "previous"]}
+                   "case_names": {"group": 1, "vals": ["Previous", "LUT", "Greedy"]},
+                   "warm_start": {"group": 1, "vals": ["previous", "lut", "greedy"]}
                    },
     "horizon_length": {"controller_class": {"group": 0, "vals": ["MPC"]},
                         "floris_input_file": {"group": 0, "vals": [os.path.join(os.path.dirname(whoc_file), 
@@ -374,10 +374,17 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
     if stoptime != "auto": 
         whoc_config["hercules_comms"]["helics"]["config"]["stoptime"] = stoptime = int(stoptime)
     
-    if "slsqp_solver_sweep" not in case_studies or "controller_dt" not in case_studies["slsqp_solver_sweep"]:
+    if ("slsqp_solver_sweep" not in case_studies or "controller_dt" not in case_studies["slsqp_solver_sweep"]) \
+        and ("horizon_length" not in case_studies or "controller_dt" not in case_studies["horizon_length"]):
         max_controller_dt = whoc_config["controller"]["controller_dt"]
-    else:
+    elif ("slsqp_solver_sweep" in case_studies and "controller_dt" in case_studies["slsqp_solver_sweep"]) \
+        and ("horizon_length"  in case_studies and "controller_dt" in case_studies["horizon_length"]):
+         max_controller_dt = max(case_studies["slsqp_solver_sweep"]["controller_dt"]["vals"] +
+                                 case_studies["horizon_length"]["controller_dt"]["vals"]) 
+    elif ("slsqp_solver_sweep" in case_studies and "controller_dt" in case_studies["slsqp_solver_sweep"]):
         max_controller_dt = max(case_studies["slsqp_solver_sweep"]["controller_dt"]["vals"])
+    elif ("horizon_length"  in case_studies and "controller_dt" in case_studies["horizon_length"]):
+        max_controller_dt = max(case_studies["horizon_length"]["controller_dt"]["vals"]) 
     
     if "horizon_length" not in case_studies or "n_horizon" not in case_studies["horizon_length"]:
         max_n_horizon = whoc_config["controller"]["n_horizon"]
@@ -413,7 +420,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         
         # wind_field_config["n_preview_steps"] = whoc_config["controller"]["n_horizon"] * int(whoc_config["controller"]["controller_dt"] / whoc_config["simulation_dt"])
         wind_field_config["n_preview_steps"] = int(wind_field_config["simulation_max_time"] / whoc_config["simulation_dt"]) \
-            + max_n_horizon * int(max_controller_dt/ whoc_config["simulation_dt"])
+            + (max_n_horizon + 1) * int(max_controller_dt/ whoc_config["simulation_dt"])
         wind_field_config["n_samples_per_init_seed"] = 1
         wind_field_config["regenerate_distribution_params"] = False
         wind_field_config["distribution_params_path"] = os.path.join(save_dir, "wind_field_data", "wind_preview_distribution_params.pkl")  
@@ -519,7 +526,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         start_case_idx = len(input_dicts)
         input_dicts = input_dicts + [copy.deepcopy(whoc_config) for i in range(len(case_list))]
 
-        # make adjustements based on case study
+        # make adjustments based on case study
         for c, case in enumerate(case_list):
             for property_name, property_value in case.items():
                 if property_name in input_dicts[start_case_idx + c]["controller"]:
@@ -598,10 +605,10 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                 LookupBasedWakeSteeringController._optimize_lookup_table(
                     floris_config_path=floris_input_file, uncertain=uncertain_flag, yaw_limits=yaw_limits, 
                     parallel=multiprocessor is not None,
-                    sorted_target_tids=sorted(target_turbine_indices) if target_turbine_indices != "all" else "all", lut_path=lut_path, generate_lut=True)
+                    sorted_target_tids=sorted(target_turbine_indices) if target_turbine_indices != "all" else "all", 
+                    lut_path=lut_path, generate_lut=True)
                 
                 lut_cases.add(new_case)
-
                 input_dicts[start_case_idx + c]["controller"]["generate_lut"] = False
             
             # TODO rename this by index with only config updates from case inside
@@ -614,7 +621,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
 
     prediction_timedelta = max(inp["wind_forecast"]["prediction_timedelta"] for inp in input_dicts if inp["controller"]["wind_forecast_class"]) \
             if any(inp["controller"]["wind_forecast_class"] for inp in input_dicts) else pd.Timedelta(seconds=0)
-    horizon_timedelta = max(pd.Timedelta(seconds=inp["controller"]["n_horizon"] * inp["controller"]["controller_dt"]) for inp in input_dicts if inp["controller"]["n_horizon"]) \
+    horizon_timedelta = max(pd.Timedelta(seconds=(inp["controller"]["n_horizon"] + 1) * inp["controller"]["controller_dt"]) for inp in input_dicts if inp["controller"]["n_horizon"]) \
             if any(inp["controller"]["controller_class"] == "MPC" for inp in input_dicts) else pd.Timedelta(seconds=0)
     # stoptime -= prediction_timedelta.total_seconds()
     # assert stoptime > 0, "increase stoptime parameter and/or decresease prediction_timedetla, as stoptime < prediction_timedelta"

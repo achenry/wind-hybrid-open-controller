@@ -7,7 +7,8 @@ mamba activate whoc
 
 git clone https://github.com/achenry/wind-hybrid-open-controller.git
 cd wind-hybrid-open-controller && git checkout feature/mpc && python setup.py develop && cd ..
-git clone https://github.com/NREL/floris.git
+git clone https://github.com/achenry/floris
+cd floris && git checkout feature/mpc & cd ..
 git clone https://github.com/achenry/hercules.git
 cd hercules && git checkout develop && cd ..
 git clone https://github.com/NREL/moa_python.git

@@ -867,7 +867,6 @@ class MPC(ControllerBase):
         
         elif simulation_input_dict["controller"]["wind_preview_type"] == "perfect":
             def wind_preview_func(current_freestream_measurements, time_step, seed=None, return_interval_values=False, n_intervals=None, max_std_dev=None):
-                # TODO HIGH check that this is returning true future wind mag/dir based on proper computation from horz/vert components
                 wind_preview_data = {
                     "FreestreamWindMag": np.zeros((self.n_wind_preview_samples, self.n_horizon + 1)), 
                     "FreestreamWindDir": np.zeros((self.n_wind_preview_samples, self.n_horizon + 1))
@@ -891,19 +890,14 @@ class MPC(ControllerBase):
 
         if self.warm_start == "lut" or self.warm_start == "constrained_lut":
             
-            self.fi_lut = ControlledFlorisModel(yaw_limits=simulation_input_dict["controller"]["yaw_limits"],
-                                        simulation_dt=simulation_input_dict["simulation_dt"],
-                                        yaw_rate=simulation_input_dict["controller"]["yaw_rate"],
-                                        config_path=simulation_input_dict["controller"]["floris_input_file"])
-
-            lut_input_dict = dict(simulation_input_dict)
-            # lut_input_dict["controller"]["use_lut_filtered_wind_dir"] = False
-            # lut_input_dict["controller"]["controller_dt"] = self.simulation_dt
-            self.ctrl_lut = LookupBasedWakeSteeringController(self.fi_lut, simulation_input_dict=lut_input_dict, 
-                                                    lut_path=simulation_input_dict["controller"]["lut_path"], 
-                                                    generate_lut=simulation_input_dict["controller"]["generate_lut"], 
-                                                    wind_field_ts=kwargs["wind_field_ts"])
-
+            self.ctrl_lut = LookupBasedWakeSteeringController._optimize_lookup_table(
+                    floris_config_path=simulation_input_dict["controller"]["floris_input_file"], 
+                    uncertain=self.uncertain, 
+                    yaw_limits=simulation_input_dict["controller"]["yaw_limits"], 
+                    parallel=None,
+                    sorted_target_tids=sorted(self.target_turbine_indices) if self.target_turbine_indices != "all" else "all", 
+                    lut_path=simulation_input_dict["controller"]["lut_path"], generate_lut=False)
+                
         self.Q = self.alpha
         self.R = (1 - self.alpha)
         self.nu = simulation_input_dict["controller"]["nu"]
@@ -1015,7 +1009,6 @@ class MPC(ControllerBase):
         n_solve_states = self.n_horizon * n_solve_turbines
         delta_yaw = self.controller_dt * (self.yaw_rate / self.yaw_norm_const) * opt_var_dict["control_inputs"]
         dyn_state_cons = np.zeros(n_solve_states)
-        # TODO HIGH does it make sense to apply mod here
         dyn_state_cons[:n_solve_turbines:] = opt_var_dict["states"][:n_solve_turbines] - np.mod(self.initial_state[solve_turbine_ids] + delta_yaw[:n_solve_turbines], 1)
         dyn_state_cons[n_solve_turbines:] = opt_var_dict["states"][n_solve_turbines:] - np.mod(opt_var_dict["states"][:-n_solve_turbines] + delta_yaw[n_solve_turbines:], 1)
 
@@ -1110,7 +1103,6 @@ class MPC(ControllerBase):
         solve OCP to minimize objective over future horizon
         """
         
-        # TODO HIGH only run compute_controls when new amr reading comes in (ie with new timestamp), also in LUT and Greedy, keep track of curent_time independently of measurements_dict
         # current_wind_directions = np.atleast_2d(self.measurements_dict["wind_directions"])
         if (self._last_measured_time is not None) and self._last_measured_time == self.measurements_dict["time"]:
             pass
@@ -1194,7 +1186,6 @@ class MPC(ControllerBase):
                                                                     max_std_dev=self.max_std_dev)
                 self.wind_preview_samples = self.wind_preview_intervals
             else: # use for extreme constraints, lut warm up
-                # TODO HIGH make sure perfect 
                 self.wind_preview_intervals, self.wind_preview_interval_probs = self.wind_preview_func(self.current_freestream_measurements, 
                                                                    time_step,
                                                                     seed=self.seed,
@@ -1539,7 +1530,9 @@ class MPC(ControllerBase):
         
         if self.warm_start == "previous":
             current_time = self.measurements_dict["time"]
-            if current_time > 0:
+            if (current_time - self.init_time).total_seconds() > 0:
+                # if this is not the first time step, 
+                # set the yaw setpoints and changes based on previous solutions time shifted by 1, repeating the states from the last time ste[]
                 self.init_sol = {
                     "states": np.clip(np.concatenate([
                      self.opt_sol["states"][self.n_turbines:], self.opt_sol["states"][-self.n_turbines:]
@@ -1549,14 +1542,15 @@ class MPC(ControllerBase):
                         ]), -1, 1)
                 }
             else:
-                next_yaw_setpoints = (self.yaw_IC / self.yaw_norm_const) * np.ones((self.n_horizon * self.n_turbines,))
+                # if this is the first time step, set the yaw setpoints to the yaw initial conditions, and the yaw change to 0
+                next_yaw_setpoints = np.tile((self.yaw_IC / self.yaw_norm_const), (self.n_horizon,))
                 current_control_inputs = np.zeros((self.n_horizon * self.n_turbines,))
                 self.init_sol["states"] = next_yaw_setpoints
                 self.init_sol["control_inputs"] = current_control_inputs
 
         elif self.warm_start == "lut":
             # TODO HIGH filtered wind dir not in use here? do
-            target_yaw_offsets = self.ctrl_lut.wake_steering_interpolant(self.wind_preview_intervals[f"FreestreamWindDir"][int(self.wind_preview_intervals[f"FreestreamWindDir"].shape[0] // 2), :-1], 
+            target_yaw_offsets = self.ctrl_lut(self.wind_preview_intervals[f"FreestreamWindDir"][int(self.wind_preview_intervals[f"FreestreamWindDir"].shape[0] // 2), :-1], 
                                                        self.wind_preview_intervals[f"FreestreamWindMag"][int(self.wind_preview_intervals[f"FreestreamWindDir"].shape[0] // 2), :-1])
             target_yaw_setpoints = np.rint((np.atleast_2d([self.wind_preview_intervals[f"FreestreamWindDir"][int(self.wind_preview_intervals[f"FreestreamWindDir"].shape[0] // 2), :-1]]).T - target_yaw_offsets) / self.yaw_increment) * self.yaw_increment
             
@@ -1794,7 +1788,6 @@ class MPC(ControllerBase):
             
             if compute_constraints:
                 if self.use_state_cons:
-                    # TODO HIGH store information regarding activation of constraints
                     if self.state_con_type == "extreme":
                         funcs["state_cons"] = self.state_rules(opt_var_dict, 
                                                             {
