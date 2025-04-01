@@ -11,6 +11,8 @@ Need csv containing 'true' wake characteristics at each turbine (variables) at e
 # sbatch ...
 import pickle
 import gc
+from mpi4py import MPI
+from mpi4py.futures import MPICommExecutor
 
 import whoc
 from functools import partial
@@ -533,11 +535,18 @@ def generate_wind_preview_ts(config, case_idx, wind_field_data):
 
 
 
-def generate_multi_wind_ts(wf, save_dir, save_name="", init_seeds=None, return_params=False, parallel=True):
+def generate_multi_wind_ts(wf, save_dir, save_name="", init_seeds=None, return_params=False, multiprocessor="cf"):
 
-    if parallel:		
-        with ProcessPoolExecutor() as generate_wind_fields:
-            futures = [generate_wind_fields.submit(generate_wind_ts, 
+    if multiprocessor is not None:
+        if multiprocessor == "mpi":
+            comm_size = MPI.COMM_WORLD.Get_size()
+            executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+        elif multiprocessor == "cf":
+            executor = ProcessPoolExecutor()
+        with executor as gen_wf_exec:
+            if multiprocessor == "mpi":
+                gen_wf_exec.max_workers = comm_size	
+            futures = [gen_wf_exec.submit(generate_wind_ts, 
                                               wf=wf, from_gaussian=True, save_dir=save_dir, save_name=save_name, return_params=return_params, 
                                               case_idx=case_idx, init_seed=init_seeds[case_idx]) 
                        for case_idx in range(len(init_seeds))]

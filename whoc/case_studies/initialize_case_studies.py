@@ -434,7 +434,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             wind_field_config["regenerate_distribution_params"] = True # set to True to regenerate from constructed mean and covaraicne
             full_wf = WindField(**wind_field_config)
             os.makedirs(wind_field_dir, exist_ok=True)
-            wind_field_data = generate_multi_wind_ts(full_wf, wind_field_dir, init_seeds=[seed + i for i in range(n_seeds)])
+            wind_field_data = generate_multi_wind_ts(full_wf, wind_field_dir, init_seeds=[seed + i for i in range(n_seeds)], multiprocessor=multiprocessor)
             write_abl_velocity_timetable([wfd.df for wfd in wind_field_data], wind_field_dir) # then use these timetables in amr precursor
             # write_abl_velocity_timetable(wind_field_data, wind_field_dir) # then use these timetables in amr precursor
             lpf_alpha = np.exp(-(1 / whoc_config["controller"]["lpf_time_const"]) * whoc_config["simulation_dt"])

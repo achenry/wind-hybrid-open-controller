@@ -35,7 +35,7 @@ def generate_freestream_wind(hercules_input_dict, wind_field_config, wind_field_
     if len(wind_field_filenames) < n_seeds or regenerate_wind_field:
         wind_field_config["regenerate_distribution_params"] = True
         wf = WindField(**wind_field_config)
-        generate_multi_wind_ts(wf, wind_field_config, seeds=[seed + i for i in range(n_seeds)])
+        generate_multi_wind_ts(wf, wind_field_config, seeds=[seed + i for i in range(n_seeds)], multiprocessor="cf")
         wind_field_filenames = [f"case_{i}.csv" for i in range(n_seeds)]
         regenerate_wind_field = True
 
