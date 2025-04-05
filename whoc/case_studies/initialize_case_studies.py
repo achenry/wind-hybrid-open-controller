@@ -44,27 +44,15 @@ case_studies = {
                                     # "use_filtered_wind_dir": {"group": 1, "vals": [True, True]},
                                     # "use_lut_filtered_wind_dir": {"group": 1, "vals": [True, True]},
                                     "controller_dt": {"group": 1, "vals": [180]},
-<<<<<<< HEAD
                                     #"case_names": {"group": 1, "vals": ["LUT"]},
                                     "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
-=======
-                                    "case_names": {"group": 1, "vals": ["LUT"]},
-                                    "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController"]},
-                                     "target_turbine_indices": {"group": 1, "vals": ["4,", "4,6"]},
->>>>>>> c2a195ea99f4fdcabbb187c6edc8f0c4ffd382f5
                                     "use_filtered_wind_dir": {"group": 1, "vals": [True]},
                                     "use_lut_filtered_wind_dir": {"group": 1, "vals": [True]},
                                     "simulation_dt": {"group": 0, "vals": [60]},
                                     "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/smarteole_farm.yaml"]},
-<<<<<<< HEAD
                                     "lut_path": {"group": 0, "vals": ["../../examples/inputs/lut_smarteole_farm_(1, 2)_uncertainFalse.csv"]},
                                     "uncertain": {"group": 3, "vals": [False, False]},
                                     "wind_forecast_class": {"group": 3, "vals": ["KalmanFilterForecast", "PerfectForecast"]},
-=======
-                                    "lut_path": {"group": 0, "vals": ["../../examples/inputs/smarteole_farm_lut.csv"]},
-                                    "uncertain": {"group": 3, "vals": [True]},
-                                    "wind_forecast_class": {"group": 3, "vals": ["KalmanFilterForecast"]},
->>>>>>> c2a195ea99f4fdcabbb187c6edc8f0c4ffd382f5
                                     "prediction_timedelta": {"group": 4, "vals": [240]},
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]}
                                     },
