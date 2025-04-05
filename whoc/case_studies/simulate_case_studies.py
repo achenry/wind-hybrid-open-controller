@@ -7,6 +7,10 @@ from memory_profiler import profile
 from whoc.interfaces.controlled_floris_interface import ControlledFlorisModel
 from whoc.wind_field.WindField import first_ord_filter
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> c2a195ea99f4fdcabbb187c6edc8f0c4ffd382f5
 def simulate_controller(controller_class, wind_forecast_class, simulation_input_dict, **kwargs):
     print(f'Entering simulate_controller function')
     results_dir = os.path.join(kwargs["save_dir"], kwargs['case_family'])
@@ -270,6 +274,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
             stddev_turbine_wind_speed_horz_ts = np.vstack(stddev_turbine_wind_speed_horz_ts)[:-(n_truncate_steps), :].astype(float)
             stddev_turbine_wind_speed_vert_ts = np.vstack(stddev_turbine_wind_speed_vert_ts)[:-(n_truncate_steps), :].astype(float)
         turbine_offline_status_ts = np.vstack(turbine_offline_status_ts)[:-(n_truncate_steps), :]
+
 
         yaw_angles_ts = np.vstack(yaw_angles_ts)
         init_yaw_angles_ts = np.vstack(init_yaw_angles_ts)
