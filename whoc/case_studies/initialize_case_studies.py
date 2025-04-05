@@ -673,10 +673,5 @@ case_families = ["baseline_controllers", "solver_type", # 0, 1
                     "gradient_type", "n_wind_preview_samples", # 9, 10
                     "generate_sample_figures", "baseline_controllers_3", # 11, 12
                     "cost_func_tuning_small", "sr_solve", # 13, 14
-<<<<<<< HEAD
                     "baseline_controllers_preview_flasc", "baseline_controllers_preview_awaken", # 15, 16
                     "baseline_controllers_preview_flasc_perfect"] #17
-=======
-                    "baseline_controllers_forecasters_flasc", "baseline_controllers_forecasters_awaken", # 15, 16
-                    "baseline_controllers_preview_flasc_perfect"] # 17
->>>>>>> c2a195ea99f4fdcabbb187c6edc8f0c4ffd382f5
