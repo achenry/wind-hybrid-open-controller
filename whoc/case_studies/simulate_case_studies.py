@@ -244,7 +244,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         k += int(ctrl.controller_dt / simulation_input_dict["simulation_dt"])
     else:
         for tt in np.arange(t, t + ctrl.controller_dt, simulation_input_dict["simulation_dt"]):
-            fi.time += pd.Timedelta(seconds=ctrl.controller_dt)
+            
             last_measurements = fi.get_measurements()
             
             # Note these are results from previous time step
@@ -259,7 +259,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
             stddev_turbine_wind_speed_horz_ts += [[np.nan] * fi_full.n_turbines]
             stddev_turbine_wind_speed_vert_ts += [[np.nan] * fi_full.n_turbines]
             turbine_offline_status_ts += [np.isclose(last_measurements["turbine_powers"], 0, atol=1e-3)]
-
+            fi.time += pd.Timedelta(seconds=ctrl.controller_dt)
         turbine_wind_mag_ts = np.vstack(turbine_wind_mag_ts)[:-(n_future_steps + 1), :]
         turbine_wind_dir_ts = np.vstack(turbine_wind_dir_ts)[:-(n_future_steps + 1), :]
         if wind_forecast_class:
