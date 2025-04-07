@@ -3,13 +3,13 @@
 ##SBATCH --mem=0
 #SBATCH --nodes=4
 #SBATCH --ntasks-per-node=64
-#SBATCH --time=36:00:00
+#SBATCH --time=48:00:00
 #SBATCH --partition=amilan
 #SBATCH --qos=long
 ##SBATCH --nodes=1
 ##SBATCH --ntasks-per-node=12
-##SBATCH --time=01:00:00
-##SBATCH --partition=atesting
+##SBATCH --time=06:00:00
+##SBATCH --partition=amilan
 
 # load modules
 module purge
@@ -20,4 +20,4 @@ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/projects/aohe7145/software/anaconda/env
 
 echo $SLURM_NTASKS
 #mpirun -np $SLURM_NTASKS python run_case_studies.py 0 1 2 3 4 5 6 -rs -st 120 -ns 1 -p -m mpi -sd /projects/aohe7145/toolboxes/whoc_env/wind-hybrid-open-controller/examples/floris_case_studies -wcnf /projects/aohe7145/toolboxes/whoc_env/wind-hybrid-open-controller/examples/hercules_input_001.yaml -wf floris
-mpirun -np $SLURM_NTASKS python run_case_studies.py 0 1 2 3 4 5 6 -rs -st 3600 -ns 6 -p -m mpi -sd /projects/aohe7145/toolboxes/whoc_env/wind-hybrid-open-controller/examples/floris_case_studies -wcnf /projects/aohe7145/toolboxes/whoc_env/wind-hybrid-open-controller/examples/hercules_input_001.yaml -wf floris 
+mpirun -np $SLURM_NTASKS python run_case_studies.py 0 1 2 3 4 5 6 -rrs -st 3600 -ns 6 -p -m mpi -sd /projects/aohe7145/toolboxes/whoc_env/wind-hybrid-open-controller/examples/floris_case_studies -wcnf /projects/aohe7145/toolboxes/whoc_env/wind-hybrid-open-controller/examples/hercules_input_001.yaml -wf floris 
