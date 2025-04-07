@@ -1425,7 +1425,7 @@ def plot_power_increase_vs_prediction_time(plot_df, save_dir):
     
     ax.set(title="Percentage Power Increase vs. Prediction Time for Different Forecasters",
            xlabel="Prediction Time (s)", ylabel="% Power Increase")
-    ax.legend(title="Forecaster")
+    # ax.legend(title="Forecaster")
     ax.grid(True)
     
     # Save the figure

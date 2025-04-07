@@ -98,10 +98,10 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     turbine_offline_status_ts = []
     predicted_wind_speeds_ts = []
     # predicted_time_ts = []
-    # predicted_turbine_wind_speed_horz_ts = []
-    # predicted_turbine_wind_speed_vert_ts = []
-    # stddev_turbine_wind_speed_horz_ts = []
-    # stddev_turbine_wind_speed_vert_ts = []
+    predicted_turbine_wind_speed_horz_ts = []
+    predicted_turbine_wind_speed_vert_ts = []
+    stddev_turbine_wind_speed_horz_ts = []
+    stddev_turbine_wind_speed_vert_ts = []
     
     convergence_time_ts = []
 
@@ -268,28 +268,34 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         n_truncate_steps = (n_future_steps + 1) + int(ctrl.controller_dt - (simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"] % ctrl.controller_dt)) // simulation_input_dict["simulation_dt"]
         turbine_wind_mag_ts = np.vstack(turbine_wind_mag_ts)[:-(n_truncate_steps), :]
         turbine_wind_dir_ts = np.vstack(turbine_wind_dir_ts)[:-(n_truncate_steps), :]
+        init_yaw_angles_ts = np.vstack(init_yaw_angles_ts)
+
         if wind_forecast_class:
             predicted_turbine_wind_speed_horz_ts = np.vstack(predicted_turbine_wind_speed_horz_ts)[:-(n_truncate_steps), :].astype(float)
             predicted_turbine_wind_speed_vert_ts = np.vstack(predicted_turbine_wind_speed_vert_ts)[:-(n_truncate_steps), :].astype(float)
             stddev_turbine_wind_speed_horz_ts = np.vstack(stddev_turbine_wind_speed_horz_ts)[:-(n_truncate_steps), :].astype(float)
             stddev_turbine_wind_speed_vert_ts = np.vstack(stddev_turbine_wind_speed_vert_ts)[:-(n_truncate_steps), :].astype(float)
-        turbine_offline_status_ts = np.vstack(turbine_offline_status_ts)[:-(n_truncate_steps), :]
+            turbine_offline_status_ts = np.vstack(turbine_offline_status_ts)[:-(n_truncate_steps), :]
+            turbine_powers_ts = turbine_powers_ts[:-n_truncate_steps]
+            init_yaw_angles_ts = init_yaw_angles_ts[:-n_truncate_steps]
+
 
 
         yaw_angles_ts = np.vstack(yaw_angles_ts)
-        init_yaw_angles_ts = np.vstack(init_yaw_angles_ts)
         yaw_angles_change_ts = np.diff(yaw_angles_ts, axis=0)[:-n_future_steps, :]
 
         yaw_angles_ts = yaw_angles_ts[:-(n_future_steps + 1), :]
         turbine_powers_ts = np.vstack(turbine_powers_ts)
         
     n_truncate_steps = (int(ctrl.controller_dt - (simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"] % ctrl.controller_dt)) % ctrl.controller_dt) // simulation_input_dict["simulation_dt"]
-    turbine_wind_mag_ts = turbine_wind_mag_ts[:(-n_truncate_steps) or None, :]
-    turbine_wind_dir_ts = turbine_wind_dir_ts[:(-n_truncate_steps) or None, :]
-    turbine_offline_status_ts = turbine_offline_status_ts[:(-n_truncate_steps) or None, :]
+    # turbine_wind_mag_ts = turbine_wind_mag_ts[:(-n_truncate_steps) or None, :]
+    # turbine_wind_dir_ts = turbine_wind_dir_ts[:(-n_truncate_steps) or None, :]
+    #turbine_offline_status_ts = turbine_offline_status_ts[:(-n_truncate_steps) or None, :]
     yaw_angles_change_ts = yaw_angles_change_ts[:(-n_truncate_steps) or None, :]
     yaw_angles_ts = yaw_angles_ts[:(-n_truncate_steps) or None, :]
-    turbine_powers_ts = turbine_powers_ts[:(-n_truncate_steps) or None, :]
+    convergence_time_ts = convergence_time_ts[:-n_truncate_steps]
+    opt_cost_terms_ts = opt_cost_terms_ts[:-n_truncate_steps]
+
     
     running_opt_cost_terms_ts = np.zeros_like(opt_cost_terms_ts)
     Q = simulation_input_dict["controller"]["alpha"]
@@ -303,10 +309,12 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     #                                 out=np.zeros_like(turbine_powers_ts))
     norm_turbine_powers = turbine_powers_ts / ctrl.rated_turbine_power
     norm_yaw_angle_changes = yaw_angles_change_ts / (ctrl.controller_dt * ctrl.yaw_rate)
-    
+    # norm_yaw_angle_changes = norm_yaw_angle_changes[:-n_truncate_steps]
+
     running_opt_cost_terms_ts[:, 0] = np.sum(np.stack([-0.5 * (norm_turbine_powers[:, i])**2 * Q for i in range(ctrl.n_turbines)], axis=1), axis=1)
     running_opt_cost_terms_ts[:, 1] = np.sum(np.stack([0.5 * (norm_yaw_angle_changes[:, i])**2 * R for i in range(ctrl.n_turbines)], axis=1), axis=1)
-    
+    #running_opt_cost_terms_ts = running_opt_cost_terms_ts[:(-n_truncate_steps) or None, :]
+
     # may be longer than following: int(simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"] // simulation_input_dict["simulation_dt"]), if controller step goes beyond
     results_data = {
         "CaseFamily": [kwargs["case_family"]] * yaw_angles_ts.shape[0], 

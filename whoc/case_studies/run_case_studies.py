@@ -822,7 +822,7 @@ if __name__ == "__main__":
                         ] = full_config[col]  
 
                 # Filter data for the two forecast types
-                forecasters_df = mpc_df.loc[mpc_df["wind_forecast_class"] != "PerfectForecast", :]
+                forecasters_df = mpc_df.loc[mpc_df["wind_forecast_class"] == "KalmanFilterForecast", :]
                 perfect_df = mpc_df.loc[mpc_df["wind_forecast_class"] == "PerfectForecast", :]
 
                 if "prediction_timedelta" in forecasters_df.columns and "prediction_timedelta" in perfect_df.columns:
