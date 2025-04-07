@@ -2,7 +2,8 @@ import pandas as pd
 import numpy as np
 import os
 from time import perf_counter
-from memory_profiler import profile
+# from memory_profiler import profile
+import re
 
 from whoc.interfaces.controlled_floris_interface import ControlledFlorisModel
 from whoc.wind_field.WindField import first_ord_filter
@@ -40,7 +41,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
                                 uncertain=simulation_input_dict["controller"]["uncertain"],
                                 turbine_signature=kwargs["turbine_signature"],
                                 tid2idx_mapping=kwargs["tid2idx_mapping"])
-    print(f'simulation_input_dict')
+     
     if simulation_input_dict["controller"]["target_turbine_indices"] != "all":
         fi_full = ControlledFlorisModel(t0=kwargs["wind_field_ts"]["time"].iloc[0],
                                yaw_limits=simulation_input_dict["controller"]["yaw_limits"],
@@ -95,10 +96,12 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     turbine_wind_mag_ts = []
     turbine_wind_dir_ts = []
     turbine_offline_status_ts = []
-    predicted_turbine_wind_speed_horz_ts = []
-    predicted_turbine_wind_speed_vert_ts = []
-    stddev_turbine_wind_speed_horz_ts = []
-    stddev_turbine_wind_speed_vert_ts = []
+    predicted_wind_speeds_ts = []
+    # predicted_time_ts = []
+    # predicted_turbine_wind_speed_horz_ts = []
+    # predicted_turbine_wind_speed_vert_ts = []
+    # stddev_turbine_wind_speed_horz_ts = []
+    # stddev_turbine_wind_speed_vert_ts = []
     
     convergence_time_ts = []
 
@@ -178,14 +181,16 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
             turbine_wind_dir_ts += [ctrl.measurements_dict["wind_directions"]]
             
             if wind_forecast_class:
-                predicted_turbine_wind_speed_horz_ts += [ctrl.controls_dict["predicted_wind_speeds_horz"]]
-                predicted_turbine_wind_speed_vert_ts += [ctrl.controls_dict["predicted_wind_speeds_vert"]]
-                if ctrl.uncertain:
-                    stddev_turbine_wind_speed_horz_ts += [ctrl.controls_dict["stddev_wind_speeds_horz"]]
-                    stddev_turbine_wind_speed_vert_ts += [ctrl.controls_dict["stddev_wind_speeds_vert"]]
-                else:
-                    stddev_turbine_wind_speed_horz_ts += [[np.nan] * fi_full.n_turbines]
-                    stddev_turbine_wind_speed_vert_ts += [[np.nan] * fi_full.n_turbines]
+                predicted_wind_speeds_ts += [ctrl.controls_dict["predicted_wind_speeds"]]
+                # predicted_time_ts += [ctrl.controls_dict["predicted_time"]]
+                # predicted_turbine_wind_speed_horz_ts += [ctrl.controls_dict["predicted_wind_speeds_horz"]]
+                # predicted_turbine_wind_speed_vert_ts += [ctrl.controls_dict["predicted_wind_speeds_vert"]]
+                # if ctrl.uncertain:
+                #     stddev_turbine_wind_speed_horz_ts += [ctrl.controls_dict["stddev_wind_speeds_horz"]]
+                #     stddev_turbine_wind_speed_vert_ts += [ctrl.controls_dict["stddev_wind_speeds_vert"]]
+                # else:
+                #     stddev_turbine_wind_speed_horz_ts += [[np.nan] * fi_full.n_turbines]
+                #     stddev_turbine_wind_speed_vert_ts += [[np.nan] * fi_full.n_turbines]
             # turbine_offline_status_ts += [fi.offline_status[tt, :]]
             turbine_offline_status_ts += [np.isclose(ctrl.measurements_dict["turbine_powers"], 0, atol=1e-3)]
             
@@ -245,7 +250,6 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         k += int(ctrl.controller_dt / simulation_input_dict["simulation_dt"])
     else:
         for tt in np.arange(t, t + ctrl.controller_dt, simulation_input_dict["simulation_dt"]):
-            fi.time += pd.Timedelta(seconds=ctrl.controller_dt)
             last_measurements = fi.get_measurements()
             
             # Note these are results from previous time step
@@ -274,22 +278,19 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
 
         yaw_angles_ts = np.vstack(yaw_angles_ts)
         init_yaw_angles_ts = np.vstack(init_yaw_angles_ts)
-        yaw_angles_change_ts = np.diff(yaw_angles_ts, axis=0)
+        yaw_angles_change_ts = np.diff(yaw_angles_ts, axis=0)[:-n_future_steps, :]
 
-        yaw_angles_change_ts = yaw_angles_change_ts[:-(n_truncate_steps - 1) or None, :]
-        yaw_angles_ts = yaw_angles_ts[:-(n_truncate_steps), :]
-        init_yaw_angles_ts = init_yaw_angles_ts[:-(n_truncate_steps), :]
-        turbine_powers_ts = np.vstack(turbine_powers_ts)[:-(n_truncate_steps), :]
-        opt_cost_terms_ts = opt_cost_terms_ts[:-(n_future_steps)]
-        convergence_time_ts = convergence_time_ts[:-(n_future_steps)]
-
-        # predicted_turbine_wind_mag_ts = np.sqrt(predicted_turbine_wind_speed_horz_ts**2 + predicted_turbine_wind_speed_vert_ts**2)
-        # predicted_turbine_wind_dir_ts = 180.0 + np.rad2deg(np.arctan2(predicted_turbine_wind_speed_horz_ts, predicted_turbine_wind_speed_vert_ts))
-
-    # greedy_turbine_powers_ts = np.vstack(greedy_turbine_powers_ts)
-    # opt_cost_terms_ts = np.vstack(opt_cost_terms_ts)
-    # running_opt_cost_terms_ts = np.vstack(running_opt_cost_terms_ts)
-
+        yaw_angles_ts = yaw_angles_ts[:-(n_future_steps + 1), :]
+        turbine_powers_ts = np.vstack(turbine_powers_ts)
+        
+    n_truncate_steps = (int(ctrl.controller_dt - (simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"] % ctrl.controller_dt)) % ctrl.controller_dt) // simulation_input_dict["simulation_dt"]
+    turbine_wind_mag_ts = turbine_wind_mag_ts[:(-n_truncate_steps) or None, :]
+    turbine_wind_dir_ts = turbine_wind_dir_ts[:(-n_truncate_steps) or None, :]
+    turbine_offline_status_ts = turbine_offline_status_ts[:(-n_truncate_steps) or None, :]
+    yaw_angles_change_ts = yaw_angles_change_ts[:(-n_truncate_steps) or None, :]
+    yaw_angles_ts = yaw_angles_ts[:(-n_truncate_steps) or None, :]
+    turbine_powers_ts = turbine_powers_ts[:(-n_truncate_steps) or None, :]
+    
     running_opt_cost_terms_ts = np.zeros_like(opt_cost_terms_ts)
     Q = simulation_input_dict["controller"]["alpha"]
     R = (1 - simulation_input_dict["controller"]["alpha"]) 
@@ -357,17 +358,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         },
         "TotalRunningOptimizationCost": np.sum(running_opt_cost_terms_ts, axis=1),
     }
-    # TODO make floris data uniform with scada data
-    #if kwargs["wf_source"] == "scada":
-    #    results_data.update({
-    #        **{
-    #            f"TrueTurbineWindSpeedHorz_{idx2tid_mapping[i]}": kwargs["wind_field_ts"][f"ws_horz_{idx2tid_mapping[i]}"] for i in range(fi_full.n_turbines)
-    #        },
-    #        **{
-    #            f"TrueTurbineWindSpeedVert_{idx2tid_mapping[i]}": kwargs["wind_field_ts"][f"ws_vert_{idx2tid_mapping[i]}"] for i in range(fi_full.n_turbines)
-    #        },
-    #    })
-
+    
     if kwargs["wf_source"] == "scada":
         results_data.update({
             **{
@@ -381,21 +372,6 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
                 for i in range(fi_full.n_turbines)
             },
         })
-    
-    if wind_forecast_class:
-        results_data.update({**{
-                f"PredictedTurbineWindSpeedHorz_{idx2tid_mapping[i]}": predicted_turbine_wind_speed_horz_ts[:, i] for i in range(fi_full.n_turbines)
-            },
-            **{
-                f"PredictedTurbineWindSpeedVert_{idx2tid_mapping[i]}": predicted_turbine_wind_speed_vert_ts[:, i] for i in range(fi_full.n_turbines)
-            },
-            **{
-                f"StddevTurbineWindSpeedHorz_{idx2tid_mapping[i]}": stddev_turbine_wind_speed_horz_ts[:, i] for i in range(fi_full.n_turbines)
-            },
-            **{
-                f"StddevTurbineWindSpeedVert_{idx2tid_mapping[i]}": stddev_turbine_wind_speed_vert_ts[:, i] for i in range(fi_full.n_turbines)
-            }})
-        results_data["PredictedTime"] = results_data["Time"] + wind_forecast.prediction_timedelta.total_seconds()
 
     if hasattr(ctrl, "state_cons_activated"):
         results_data.update({
@@ -404,6 +380,24 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         })
 
     results_df = pd.DataFrame(results_data)
+    
+    if wind_forecast_class:
+        predicted_wind_speeds_ts = pd.concat(predicted_wind_speeds_ts, axis=0).groupby("time").agg("last").reset_index(names=["time"])
+        predicted_wind_speeds_ts["time"] = (predicted_wind_speeds_ts["time"] - ctrl.init_time).dt.total_seconds().astype(int)
+        # results_df = pd.concat([results_df, predicted_wind_speeds_ts], axis=1)
+        # sd_ws_vert_cols
+        cols = ["time"] + ctrl.mean_ws_horz_cols + ctrl.mean_ws_vert_cols + ((ctrl.sd_ws_horz_cols + ctrl.sd_ws_vert_cols) if ctrl.uncertain else [])
+        predicted_wind_speeds_ts = predicted_wind_speeds_ts[cols].rename(columns={
+            src: f"PredictedTurbineWindSpeed{re.search('(?<=ws_)\\w+(?=_\\d+)', src).group().capitalize()}_{re.search('(?<=_)\\d+$', src).group()}"
+            for src in ctrl.mean_ws_horz_cols + ctrl.mean_ws_vert_cols})
+        predicted_wind_speeds_ts = predicted_wind_speeds_ts.rename(columns={"time": "Time"})
+        if ctrl.uncertain:
+            predicted_wind_speeds_ts = predicted_wind_speeds_ts[cols].rename(columns={
+                src: f"StddevTurbineWindSpeed{re.search('(?<=ws_)\\w+(?=_\\d+)', src).group().capitalize()}_{re.search('(?<=_)\\d+$', src).group()}"
+                for src in ctrl.sd_ws_horz_cols + ctrl.sd_ws_vert_cols})
+        predicted_wind_speeds_ts[["CaseFamily", "CaseName", "WindSeed"]] = results_df[["CaseFamily", "CaseName", "WindSeed"]].iloc[0]
+        results_df = results_df.merge(predicted_wind_speeds_ts, on=["CaseFamily", "CaseName", "WindSeed", "Time"], how="outer")
+    
     results_df.to_csv(os.path.join(results_dir, fn))
     print(f"Saved {fn}")
     

@@ -196,9 +196,9 @@ class GreedyController(ControllerBase):
             
             if self.verbose:
                 if self.wind_forecast:
-                    logging.info(f"filtered forecasted wind directions = {wind_dirs[-1, self.sorted_tids]}")
+                    logging.info(f"filtered forecasted wind directions = {wind_dirs[self.sorted_tids]}")
                 else:
-                    logging.info(f"filtered current wind directions = {wind_dirs[-1, self.sorted_tids]}")
+                    logging.info(f"filtered current wind directions = {wind_dirs[self.sorted_tids]}")
             
         # only get wind_dirs corresponding to target_turbine_ids
         wind_dirs = wind_dirs[self.sorted_tids]
@@ -253,11 +253,14 @@ class GreedyController(ControllerBase):
         self.init_sol["control_inputs"] = (constrained_yaw_setpoints - self.controls_dict["yaw_angles"]) * (self.yaw_norm_const / (self.yaw_rate * self.controller_dt))
 
         if self.wind_forecast:
+            
             newest_predictions = forecasted_wind_field.loc[
                 forecasted_wind_field["time"] <= self.current_time + max(pd.Timedelta(self.controller_dt, unit="s"), self.wind_forecast.prediction_timedelta), :]
-            self.controls_dict = {"yaw_angles": list(constrained_yaw_setpoints), 
-                                    "predicted_wind_speeds_horz": newest_predictions[self.mean_ws_horz_cols].values,
-                                    "predicted_wind_speeds_vert": newest_predictions[self.mean_ws_horz_cols].values
+            self.controls_dict = {"yaw_angles": list(constrained_yaw_setpoints),
+                                  "predicted_wind_speeds": newest_predictions[["time"] + self.mean_ws_horz_cols + self.mean_ws_vert_cols]
+                                    # "predicted_time":  newest_predictions["time"].values,
+                                    # "predicted_wind_speeds_horz": newest_predictions[self.mean_ws_horz_cols].values,
+                                    # "predicted_wind_speeds_vert": newest_predictions[self.mean_ws_horz_cols].values
                                     }
         else:
             self.controls_dict = {"yaw_angles": list(constrained_yaw_setpoints)} 

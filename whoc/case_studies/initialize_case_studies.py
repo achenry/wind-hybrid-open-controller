@@ -6,7 +6,9 @@ import sys
 from glob import glob
 from itertools import product
 from functools import partial
-from memory_profiler import profile
+# from memory_profiler import profile
+from wind_forecasting.preprocessing.data_module import DataModule
+from whoc.wind_forecast.WindForecast import generate_wind_field_df
 #from line_profiler import profile
 # from datetime import timedelta
 
@@ -35,7 +37,6 @@ elif sys.platform == "win32" or sys.platform == "cygwin":  # Add Windows check
 
 # sequential_pyopt is best solver, stochastic is best preview type
 case_studies = {
-                                
     "baseline_controllers_preview_flasc_perfect": {
                                     # "controller_dt": {"group": 1, "vals": [120, 120]},
                                     # # "case_names": {"group": 1, "vals": ["LUT", "Greedy"]},
@@ -56,8 +57,8 @@ case_studies = {
                                     "prediction_timedelta": {"group": 4, "vals": [240]},
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]}
                                     },
-    "baseline_controllers_forecasters_flasc": {"controller_dt": {"group": 0, "vals": [60]},
-                                               "simulation_dt": {"group": 0, "vals": [60]},
+    "baseline_controllers_forecasters_flasc": {"controller_dt": {"group": 0, "vals": [5]},
+                                               "simulation_dt": {"group": 0, "vals": [1]},
                                                "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/smarteole_farm.yaml"]},
                                                 # "lut_path": {"group": 0, "vals": ["../../examples/inputs/smarteole_farm_lut.csv"]},
                                                "use_filtered_wind_dir": {"group": 0, "vals": [True]},
@@ -83,6 +84,28 @@ case_studies = {
                                                 "prediction_timedelta": {"group": 3, "vals": [60, 120, 180]},
                                                 }
                                     },
+    "baseline_controllers_perfect_forecaster_awaken": {
+        "controller_dt": {"group": 0, "vals": [5]},
+        "use_filtered_wind_dir": {"group": 0, "vals": [True]},
+        "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
+        "simulation_dt": {"group": 0, "vals": [1]},
+        "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
+        # "lut_path": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4_lut.csv"]},
+        "yaw_limits": {"group": 0, "vals": ["-15,15"]},
+        "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
+        "target_turbine_indices": {"group": 1, "vals": ["74,73", "4,"]},
+        "uncertain": {"group": 1, "vals": [False, False]},
+        "wind_forecast_class": {"group": 1, "vals": ["PerfectForecast", "PerfectForecast"]},
+        # "controller_class": {"group": 1, "vals": ["GreedyController"]},
+        # "target_turbine_indices": {"group": 1, "vals": ["4,"]},
+        # "uncertain": {"group": 1, "vals": [False]},
+        # "wind_forecast_class": {"group": 1, "vals": ["PerfectForecast"]},
+        # "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController"]},
+        # "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73"]},
+        # "uncertain": {"group": 1, "vals": [False, True]},
+        # "wind_forecast_class": {"group": 1, "vals": ["PerfectForecast", "PerfectForecast"]},
+        "prediction_timedelta": {"group": 2, "vals": [60, 120, 180, 240, 300, 360, 420, 480, 540, 600, 660, 720, 780, 840, 900, 960, 1020, 1080]},
+        },
     "baseline_controllers_forecasters_awaken": {"controller_dt": {"group": 0, "vals": [5]},
                                     "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController", 
                                                                               "LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController",
@@ -396,6 +419,11 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
 
     os.makedirs(save_dir, exist_ok=True)
     
+    simulation_dt = set(np.concatenate([case_studies[k]["simulation_dt"]["vals"] for k in case_study_keys]))
+    assert len(simulation_dt) == 1, "There may only be a single value of 'simulation_dt'."
+    simulation_dt = list(simulation_dt)[0]
+    # simulation_timedelta = pd.Timedelta(seconds=list(simulation_dt)[0])
+    
     if stoptime != "auto": 
         whoc_config["hercules_comms"]["helics"]["config"]["stoptime"] = stoptime = int(stoptime)
     
@@ -412,8 +440,13 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
     if (whoc_config["controller"]["target_turbine_indices"] is not None) and ((num_target_turbines := len(whoc_config["controller"]["target_turbine_indices"])) < whoc_config["controller"]["num_turbines"]):
         # need to change num_turbines, floris_input_file, lut_path
         whoc_config["controller"]["num_turbines"] = num_target_turbines
+        lut_path = whoc_config["controller"]["lut_path"]
+        floris_input_file = os.path.splitext(os.path.basename(whoc_config["controller"]["floris_input_file"]))[0]
+        yaw_limits = (whoc_config["controller"]["yaw_limits"])[1]
+        target_turbine_indices = whoc_config["controller"]["target_turbine_indices"]
+        uncertain_flag = whoc_config["controller"]["uncertain"]
         whoc_config["controller"]["lut_path"] = os.path.join(os.path.dirname(whoc_config["controller"]["lut_path"]), 
-                                                            f"lut_{num_target_turbines}.csv")
+                                                            f"lut_{floris_input_file}_{target_turbine_indices}_uncertain{uncertain_flag}_yawlimits{yaw_limits}.csv")
         whoc_config["controller"]["target_turbine_indices"] = tuple(whoc_config["controller"]["target_turbine_indices"])
         
     if whoc_config["controller"]["target_turbine_indices"] is None:
@@ -496,32 +529,40 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             whoc_config["hercules_comms"]["helics"]["config"]["stoptime"] = stoptime = min([d.total_seconds() if hasattr(d, 'total_seconds') else d for d in durations])
 
     elif wf_source == "scada":
-        # pull ws_horz, ws_vert, nacelle_direction, normalization_consts from awaken data and run for ML, SVR
-        wind_field_ts = pl.scan_parquet(model_config["dataset"]["data_path"])
-        wind_field_norm_consts = pd.read_csv(model_config["dataset"]["normalization_consts_path"], index_col=None)
-        norm_min_cols = [col for col in wind_field_norm_consts if "_min" in col]
-        norm_max_cols = [col for col in wind_field_norm_consts if "_max" in col]
-        data_min = wind_field_norm_consts[norm_min_cols].values.flatten()
-        data_max = wind_field_norm_consts[norm_max_cols].values.flatten()
-        norm_min_cols = [col.replace("_min", "") for col in norm_min_cols]
-        norm_max_cols = [col.replace("_max", "") for col in norm_max_cols]
-        feature_range = (-1, 1)
-        norm_scale = ((feature_range[1] - feature_range[0]) / (data_max - data_min))
-        norm_min = feature_range[0] - (data_min * norm_scale)
+        data_module = DataModule(data_path=model_config["dataset"]["data_path"], 
+                             normalization_consts_path=model_config["dataset"]["normalization_consts_path"],
+                             denormalize=True, 
+                             n_splits=1, #model_config["dataset"]["n_splits"],
+                            continuity_groups=None, train_split=(1.0 - model_config["dataset"]["val_split"] - model_config["dataset"]["test_split"]),
+                                val_split=model_config["dataset"]["val_split"], test_split=model_config["dataset"]["test_split"],
+                                prediction_length=model_config["dataset"]["prediction_length"], context_length=model_config["dataset"]["context_length"],
+                                target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
+                                freq=f"{simulation_dt}s", target_suffixes=model_config["dataset"]["target_turbine_ids"],
+                                    per_turbine_target=model_config["dataset"]["per_turbine_target"], as_lazyframe=False, dtype=pl.Float32)
+    
+        if not os.path.exists(data_module.train_ready_data_path):
+            data_module.generate_datasets()
+            reload = True
+        else:
+            reload = False
         
-        wind_field_ts = [df.to_pandas() for df in wind_field_ts.with_columns([(cs.starts_with(col) - norm_min[c]) 
-                                                    / norm_scale[c] 
-                                                    for c, col in enumerate(norm_min_cols)])\
-                                         .collect().partition_by("continuity_group")]
+        # pull ws_horz, ws_vert, nacelle_direction, normalization_consts from awaken data and run for ML, SVR
+        data_module.generate_splits(splits=["test"], save=True, reload=reload)
+        test_dataset = generate_wind_field_df(data_module.test_dataset, data_module.target_cols, data_module.feat_dynamic_real_cols)
+        del data_module
+        
+        wind_field_ts = [df.to_pandas() for df in test_dataset.partition_by("split")]
         
         wind_field_ts = sorted(wind_field_ts, reverse=True, key=lambda df: df["time"].iloc[-1] - df["time"].iloc[0])
         wind_field_ts = wind_field_ts[:n_seeds]
-        # pl.DataFrame(wind_field_ts[0]).select(180+pl.arctan2(pl.mean_horizontal(cs.starts_with("ws_horz")), pl.mean_horizontal(cs.starts_with("ws_vert"))).degrees()).select(pl.all().mean()) 
-        # if stoptime != "auto":
-        #     # wind_field_ts = [df for df in wind_field_ts if (df["time"].iloc[-1] - df["time"].iloc[0]).total_seconds() >= stoptime]
-        # wind_field_ts = [df.loc[(df["time"] - df["time"].iloc[0]).dt.total_seconds() <= stoptime] for df in wind_field_ts]
-            
-        # n_seeds = len(wind_field_ts) 
+        
+        print(f"Loaded and normalized SCADA wind field from {model_config['dataset']['data_path']} with dt = {wind_field_ts[0]['time'].diff().iloc[1]}")
+        
+        # make sure wind_dt == simulation_dt
+        if simulation_dt != wind_field_ts[0]["time"].diff().iloc[1].total_seconds():
+            print(f"Resampling to {simulation_dt} seconds.")
+            wind_field_ts = [wf.set_index("time").resample(f"{simulation_dt}s").mean().reset_index(names=["time"]) for wf in wind_field_ts]
+        
         wind_field_config = {}
         
         if stoptime == "auto": 
@@ -608,11 +649,12 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                     os.path.dirname(lut_path), 
                     f"lut_{floris_input_file}_{target_turbine_indices}_uncertain{uncertain_flag}_yawlimits{yaw_limits}.csv")
             # **{k: v for k, v in input_dicts[start_case_idx + c]["wind_forecast"].items() if isinstance(k, str) and "_kwargs" in k} 
-            assert input_dicts[start_case_idx + c]["controller"]["controller_dt"] >= input_dicts[start_case_idx + c]["simulation_dt"]
+            assert input_dicts[start_case_idx + c]["controller"]["controller_dt"] >= input_dicts[start_case_idx + c]["simulation_dt"], "controller_dt must be greater than or equal to simulation_dt"
              
             # regenerate floris lookup tables for all wind farms included
             # generate LUT for combinations of lut_path/floris_input_file, yaw_limits, uncertain, and target_turbine_indices that arise together
             if regenerate_lut:
+                
                 floris_input_file = input_dicts[start_case_idx + c]["controller"]["floris_input_file"]
                 lut_path = input_dicts[start_case_idx + c]["controller"]["lut_path"] 
                 uncertain_flag = input_dicts[start_case_idx + c]["controller"]["uncertain"] 
@@ -621,6 +663,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                 if (new_case := tuple([floris_input_file, lut_path, uncertain_flag, yaw_limits, target_turbine_indices])) in lut_cases:
                     continue
                 
+                print(f"Regenerating LUT {lut_path}")
                 LookupBasedWakeSteeringController._optimize_lookup_table(
                     floris_config_path=floris_input_file, uncertain=uncertain_flag, yaw_limits=yaw_limits, 
                     parallel=multiprocessor is not None,
@@ -674,4 +717,4 @@ case_families = ["baseline_controllers", "solver_type", # 0, 1
                     "generate_sample_figures", "baseline_controllers_3", # 11, 12
                     "cost_func_tuning_small", "sr_solve", # 13, 14
                     "baseline_controllers_forecasters_flasc", "baseline_controllers_forecasters_awaken", # 15, 16
-                    "baseline_controllers_preview_flasc_perfect"] #17
+                    "baseline_controllers_preview_flasc_perfect", "baseline_controllers_perfect_forecaster_awaken"] # 17 18
