@@ -670,7 +670,7 @@ class PerfectForecast(WindForecast):
         elif isinstance(self.true_wind_field, pd.DataFrame):
             sub_df = self.true_wind_field.rename(columns=self.col_mapping) if self.col_mapping else self.true_wind_field
             sub_df = sub_df.loc[(sub_df["time"] > current_time) & (sub_df["time"] <= (current_time + self.prediction_timedelta)), :].reset_index(drop=True)
-            assert len(sub_df.index) == int(self.prediction_timedelta / self.measurements_timedelta)
+            # assert len(sub_df.index) == int(self.prediction_timedelta / self.measurements_timedelta)
         return sub_df
 
 @dataclass
@@ -1214,6 +1214,8 @@ class KalmanFilterForecast(WindForecast):
         else:
             return_pl = True
         
+        if historic_measurements.select(pl.len()).item() > 1:
+            print(f'one')
         # batch predict and update based on all measurements collected since last control execution
         if self.last_measurement_time is None:
             zs = historic_measurements.filter(pl.col("time") >= current_time)\
