@@ -840,3 +840,9 @@ if __name__ == "__main__":
                 # Display the prepared data (for debugging)
                 print(plot_df.head())
                 plot_power_increase_vs_prediction_time(plot_df, args.save_dir)
+
+                plotting_cases = [("baseline_controllers_preview_flasc_perfect", "controller_class_LookupBasedWakeSteeringController_controller_dt_180_prediction_timedelta_240_target_turbine_indices_6,4_uncertain_False_wind_forecast_class_PerfectForecast"),   
+                                    ("baseline_controllers_preview_flasc_perfect", "controller_class_LookupBasedWakeSteeringController_controller_dt_180_prediction_timedelta_240_target_turbine_indices_6,4_uncertain_False_wind_forecast_class_KalmanFilterForecast"),
+                                    ("baseline_controllers_preview_flasc_perfect", "controller_class_LookupBasedWakeSteeringController_controller_dt_180_prediction_timedelta_180_target_turbine_indices_6,4_uncertain_False_wind_forecast_class_PerfectForecast")]
+                plot_simulations(
+                        time_series_df, plotting_cases, args.save_dir, include_power=True, legend_loc="outer", single_plot=False) 

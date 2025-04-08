@@ -297,7 +297,7 @@ def plot_simulations(time_series_df, plotting_cases, save_dir, include_power=Tru
                 fig, _ = plot_yaw_power_ts(case_name_df, os.path.join(save_dir, case_family, f"yaw_power_ts_{case_name}.png"), include_power=include_power, legend_loc=legend_loc,
                                         controller_dt=None, include_filtered_wind_dir=(case_family=="baseline_controllers_3"), single_plot=single_plot)
                                     #    controller_dt=input_config["controller"]["dt"])
-
+        
     if False:
         # TODO why is the target setpoint always 252? If the equality across turbines is due to the dynamic constraint, why are the differences across time-steps not equal?
         x = results_dfs["baseline_controllers_LUT"][[col for col in results_dfs["baseline_controllers_LUT"] if "TurbineYawAngle_" in col]]
@@ -848,7 +848,7 @@ def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, 
         
         if include_yaw:
             ax_idx = 0
-            sns.lineplot(data=seed_df, x="Time", y="FreestreamWindDir", label="Wind dir.", color="black", ax=ax[ax_idx])
+            sns.lineplot(data=seed_df.reset_index(), x="Time", y="FreestreamWindDir", label="Wind dir.", color="black", ax=ax[ax_idx])
             if include_filtered_wind_dir:
                 sns.lineplot(data=seed_df, x="Time", y="FilteredFreestreamWindDir", label="Filtered wind dir.", color="black", linestyle="--", ax=ax[ax_idx])
             
