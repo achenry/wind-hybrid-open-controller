@@ -54,7 +54,7 @@ case_studies = {
                                     "lut_path": {"group": 0, "vals": ["../../examples/inputs/lut_smarteole_farm_(1, 2)_uncertainFalse.csv"]},
                                     "uncertain": {"group": 3, "vals": [False]}, #, False]},
                                     "wind_forecast_class": {"group": 3, "vals": ["KalmanFilterForecast"]},#, ""PerfectForecast]},
-                                    "prediction_timedelta": {"group": 4, "vals": [60]}, # 120]},
+                                    "prediction_timedelta": {"group": 4, "vals": [60, 120, 180]}, # 120]},
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]}
                                     },
     "baseline_controllers_forecasters_flasc": {"controller_dt": {"group": 0, "vals": [5]},
@@ -741,4 +741,4 @@ case_families = ["baseline_controllers", "solver_type", # 0, 1
                     "generate_sample_figures", "baseline_controllers_3", # 11, 12
                     "cost_func_tuning_small", "sr_solve", # 13, 14
                     "baseline_controllers_forecasters_flasc", "baseline_controllers_forecasters_awaken", # 15, 16
-                    "baseline_controllers_perfect_forecaster_flasc", "baseline_controllers_perfect_forecaster_awaken"] # 17, 18
+                    "baseline_controllers_preview_flasc_perfect", "baseline_controllers_perfect_forecaster_awaken"] # 17, 18

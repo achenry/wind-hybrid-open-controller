@@ -1201,13 +1201,13 @@ class KalmanFilterForecast(WindForecast):
         if self.last_measurement_time is None:
             # zs = historic_measurements.filter(pl.col("time") >= current_time)\
             #                           .gather_every(n=self.n_prediction_interval)
-            zs = historic_measurements.filter(((current_time - pl.col("time")).mod(self.prediction_interval) == 0))
+            zs = historic_measurements.filter(((current_time - pl.col("time")).cast(pl.Duration(time_unit="ns")).dt.total_microseconds().mod(self.prediction_interval.total_seconds() * 1e6) == 0))
         else:
             # collect all the measurments, prediction_timedelta apart, taken in the last n_controller time steps since predict_point was last called
             # zs = historic_measurements.filter(pl.col("time") >= (self.last_measurement_time + self.prediction_interval))\
             #                           .gather_every(n=self.n_prediction_interval)
             zs = historic_measurements.filter(pl.col("time") >= (self.last_measurement_time + self.prediction_interval))\
-                                      .filter(((current_time - pl.col("time")).mod(self.prediction_interval) == 0))
+                                      .filter(((current_time - pl.col("time")).cast(pl.Duration(time_unit="ns")).dt.total_microseconds().mod(self.prediction_interval.total_seconds() * 1e6) == 0))
             assert zs.select(pl.len()).item() == 0 or zs.select(pl.col("time").last()).item() == self.last_measurement_time + self.prediction_interval
         
         if zs.select(pl.len()).item() == 0:

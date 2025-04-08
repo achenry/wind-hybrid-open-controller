@@ -252,7 +252,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
             
             # Note these are results from previous time step
             yaw_angles_ts += [last_measurements["yaw_angles"]]
-            init_yaw_angles_ts += [[ctrl.init_sol["states"][i] * ctrl.yaw_norm_const for i in range(ctrl.n_turbines)]]
+            # init_yaw_angles_ts += [[ctrl.init_sol["states"][i] * ctrl.yaw_norm_const for i in range(ctrl.n_turbines)]]
             turbine_powers_ts += [last_measurements["turbine_powers"]]
             turbine_wind_mag_ts += [last_measurements["wind_speeds"]]
             turbine_wind_dir_ts += [last_measurements["wind_directions"]]
@@ -266,7 +266,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         n_truncate_steps = (n_future_steps + 1) + int(ctrl.controller_dt - (simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"] % ctrl.controller_dt)) // simulation_input_dict["simulation_dt"]
         turbine_wind_mag_ts = np.vstack(turbine_wind_mag_ts)[:-(n_truncate_steps), :]
         turbine_wind_dir_ts = np.vstack(turbine_wind_dir_ts)[:-(n_truncate_steps), :]
-        init_yaw_angles_ts = np.vstack(init_yaw_angles_ts)
+        # init_yaw_angles_ts = np.vstack(init_yaw_angles_ts)
 
         if wind_forecast_class:
             predicted_turbine_wind_speed_horz_ts = np.vstack(predicted_turbine_wind_speed_horz_ts)[:-(n_truncate_steps), :].astype(float)
@@ -275,7 +275,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
             stddev_turbine_wind_speed_vert_ts = np.vstack(stddev_turbine_wind_speed_vert_ts)[:-(n_truncate_steps), :].astype(float)
             turbine_offline_status_ts = np.vstack(turbine_offline_status_ts)[:-(n_truncate_steps), :]
             turbine_powers_ts = turbine_powers_ts[:-n_truncate_steps]
-            init_yaw_angles_ts = init_yaw_angles_ts[:-n_truncate_steps]
+            # init_yaw_angles_ts = init_yaw_angles_ts[:-n_truncate_steps]
 
 
 
@@ -292,7 +292,9 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     #turbine_offline_status_ts = turbine_offline_status_ts[:(-n_truncate_steps) or None, :]
     yaw_angles_change_ts = yaw_angles_change_ts[:(-n_truncate_steps) or None, :]
     yaw_angles_ts = yaw_angles_ts[:(-n_truncate_steps) or None, :] # TODO LOW first element allows for greater change than yaw_rate
-    turbine_powers_ts = turbine_powers_ts[:(-n_truncate_steps) or None, :]
+    # turbine_powers_ts = turbine_powers_ts[:(-n_truncate_steps) or None, :]
+    opt_cost_terms_ts = opt_cost_terms_ts[:-n_truncate_steps]
+    convergence_time_ts = convergence_time_ts[:-n_truncate_steps]
     
     running_opt_cost_terms_ts = np.zeros_like(opt_cost_terms_ts)
     Q = simulation_input_dict["controller"]["alpha"]
