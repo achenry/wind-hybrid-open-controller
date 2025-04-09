@@ -38,23 +38,29 @@ elif sys.platform == "win32" or sys.platform == "cygwin":  # Add Windows check
 # sequential_pyopt is best solver, stochastic is best preview type
 case_studies = {
     "baseline_controllers_preview_flasc_perfect": {
-                                    # "controller_dt": {"group": 1, "vals": [120, 120]},
-                                    # # "case_names": {"group": 1, "vals": ["LUT", "Greedy"]},
                                     "target_turbine_indices": {"group": 1, "vals": ["6,4", "6,"]},
-                                    # "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
-                                    # "use_filtered_wind_dir": {"group": 1, "vals": [True, True]},
-                                    # "use_lut_filtered_wind_dir": {"group": 1, "vals": [True, True]},
-                                    "controller_dt": {"group": 1, "vals": [180]},
-                                    #"case_names": {"group": 1, "vals": ["LUT"]},
-                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
-                                    "use_filtered_wind_dir": {"group": 1, "vals": [True]},
-                                    "use_lut_filtered_wind_dir": {"group": 1, "vals": [True]},
+                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
+                                    "controller_dt": {"group": 0, "vals": [60]},
+                                    "use_filtered_wind_dir": {"group": 0, "vals": [True]},
+                                    "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
                                     "simulation_dt": {"group": 0, "vals": [60]},
                                     "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/smarteole_farm.yaml"]},
-                                    "lut_path": {"group": 0, "vals": ["../../examples/inputs/lut_smarteole_farm_(1, 2)_uncertainFalse.csv"]},
-                                    "uncertain": {"group": 3, "vals": [False]}, #, False]},
-                                    "wind_forecast_class": {"group": 3, "vals": ["KalmanFilterForecast"]},#, ""PerfectForecast]},
-                                    "prediction_timedelta": {"group": 4, "vals": [60, 120, 180]}, # 120]},
+                                    "uncertain": {"group": 3, "vals": [False]},
+                                    "wind_forecast_class": {"group": 3, "vals": ["KalmanFilterForecast"]}, #, "PerfectForecast"]},
+                                    "prediction_timedelta": {"group": 4, "vals": [60]}, #, 120, 180]},
+                                    "yaw_limits": {"group": 0, "vals": ["-15,15"]}
+                                    },
+    "baseline_controllers_forecasters_test_awaken": {
+                                    "target_turbine_indices": {"group": 1, "vals": ["6,4", "6,"]},
+                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
+                                    "controller_dt": {"group": 0, "vals": [5]},
+                                    "use_filtered_wind_dir": {"group": 0, "vals": [True]},
+                                    "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
+                                    "simulation_dt": {"group": 0, "vals": [1]},
+                                    "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
+                                    "uncertain": {"group": 3, "vals": [False, False]},
+                                    "wind_forecast_class": {"group": 3, "vals": ["KalmanFilterForecast", "PerfectForecast"]},
+                                    "prediction_timedelta": {"group": 4, "vals": [60, 120, 180]},
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]}
                                     },
     "baseline_controllers_forecasters_flasc": {"controller_dt": {"group": 0, "vals": [5]},
@@ -104,7 +110,7 @@ case_studies = {
         # "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73"]},
         # "uncertain": {"group": 1, "vals": [False, True]},
         # "wind_forecast_class": {"group": 1, "vals": ["PerfectForecast", "PerfectForecast"]},
-        "prediction_timedelta": {"group": 2, "vals": [60, 120, 180]} #240, 300, 360, 420, 480, 540, 600, 660, 720, 780, 840, 900, 960, 1020, 1080]},
+        "prediction_timedelta": {"group": 2, "vals": [60, 120, 180, 240, 300, 360, 420, 480, 540, 600, 660, 720, 780, 840, 900, 960, 1020, 1080]},
         },
     "baseline_controllers_perfect_forecaster_flasc": {
         "controller_dt": {"group": 0, "vals": [5]},
@@ -741,4 +747,5 @@ case_families = ["baseline_controllers", "solver_type", # 0, 1
                     "generate_sample_figures", "baseline_controllers_3", # 11, 12
                     "cost_func_tuning_small", "sr_solve", # 13, 14
                     "baseline_controllers_forecasters_flasc", "baseline_controllers_forecasters_awaken", # 15, 16
-                    "baseline_controllers_preview_flasc_perfect", "baseline_controllers_perfect_forecaster_awaken"] # 17, 18
+                    "baseline_controllers_preview_flasc_perfect", "baseline_controllers_perfect_forecaster_awaken", # 17, 18
+                    "baseline_controllers_forecasters_test_flasc", "baseline_controllers_forecasters_test_awaken"] # 19, 20

@@ -710,7 +710,7 @@ class PreviewForecast(WindForecast):
             self.cluster_turbines = [np.arange(self.n_turbines)] * self.n_turbines
         
     def predict_point(self, historic_measurements: Union[pd.DataFrame, pl.DataFrame], current_time):
-        # TODO check not including current time
+        
         pred_slice = self.get_pred_interval(current_time)
         pred_slice = pred_slice[-1:] # pred_slice.filter(pred_slice == current_time + self.prediction_timedelta)
         outputs = self._get_ws_cols(historic_measurements)
@@ -1201,13 +1201,13 @@ class KalmanFilterForecast(WindForecast):
         if self.last_measurement_time is None:
             # zs = historic_measurements.filter(pl.col("time") >= current_time)\
             #                           .gather_every(n=self.n_prediction_interval)
-            zs = historic_measurements.filter(((current_time - pl.col("time")).cast(pl.Duration(time_unit="ns")).dt.total_microseconds().mod(self.prediction_interval.total_seconds() * 1e6) == 0))
+            zs = historic_measurements.filter(((current_time - pl.col("time")).dt.total_microseconds().mod(self.prediction_interval.total_seconds() * 1e6) == 0))
         else:
             # collect all the measurments, prediction_timedelta apart, taken in the last n_controller time steps since predict_point was last called
             # zs = historic_measurements.filter(pl.col("time") >= (self.last_measurement_time + self.prediction_interval))\
             #                           .gather_every(n=self.n_prediction_interval)
-            zs = historic_measurements.filter(pl.col("time") >= (self.last_measurement_time + self.prediction_interval))\
-                                      .filter(((current_time - pl.col("time")).cast(pl.Duration(time_unit="ns")).dt.total_microseconds().mod(self.prediction_interval.total_seconds() * 1e6) == 0))
+            zs = historic_measurements.filter(pl.col("time") >= (self.last_measurement_time + self.prediction_interval)) \
+                                      .filter(((current_time - pl.col("time")).dt.total_microseconds().mod(self.prediction_interval.total_seconds() * 1e6) == 0))
             assert zs.select(pl.len()).item() == 0 or zs.select(pl.col("time").last()).item() == self.last_measurement_time + self.prediction_interval
         
         if zs.select(pl.len()).item() == 0:
@@ -1849,30 +1849,53 @@ def plot_score_vs_prediction_dt(agg_df, metrics, good_directions):
     
     # fig, ax1 = plt.subplots(1, 1)
     fig = plt.figure()
-    # TODO HIGH these will have the same styles
-    # TODO HIGH drop probabilistic metrics if unavailable
-    ax1 = sns.scatterplot(agg_df.loc[agg_df["metric"].isin(pos_metrics), :],
-                    y="score", x="prediction_timedelta", style="metric", hue="forecaster", s=100)
-    ax2 = ax1.twinx()
-    sns.scatterplot(agg_df.loc[agg_df["metric"].isin(neg_metrics), :],
-                    y="score", x="prediction_timedelta", style="metric", hue="forecaster", ax=ax2, s=100)
-    ax1.set_xlabel("Prediction Length (s)")
-    ax1.set_ylabel(f"Score for {', '.join(pos_metrics)} (-)")
-    ax2.set_ylabel(f"Score for {', '.join(neg_metrics)} (-)")
-    h1, l1 = ax1.get_legend_handles_labels()
-    h2, l2 = ax2.get_legend_handles_labels()
+    if pos_metrics and neg_metrics:
+        # TODO will have same color for different metrics over pos/neg
+        ax1 = sns.scatterplot(agg_df.loc[agg_df["metric"].isin(pos_metrics), :],
+                        y="score", x="prediction_timedelta", style="forecaster", hue="metric", s=100)
+        ax2 = ax1.twinx()
     
-    l = l1[:l1.index("metric")] + l1[l1.index("metric"):] + l2[l2.index("metric")+1:]
-    h = h1[:l1.index("metric")] + h1[l1.index("metric"):] + h2[l2.index("metric")+1:]
+        sns.scatterplot(agg_df.loc[agg_df["metric"].isin(neg_metrics), :],
+                        y="score", x="prediction_timedelta", style="forecaster", hue="metric", ax=ax2, s=100)
+        ax = ax2
+        
+    elif pos_metrics:
+        ax1 = sns.scatterplot(agg_df.loc[agg_df["metric"].isin(pos_metrics), :],
+                        y="score", x="prediction_timedelta", style="forecaster", hue="metric", s=100)
+        ax = ax1
+    elif neg_metrics:
+        ax2 = sns.scatterplot(agg_df.loc[agg_df["metric"].isin(neg_metrics), :],
+                        y="score", x="prediction_timedelta", style="forecaster", hue="metric", s=100)
+        ax = ax2
+        
+    if pos_metrics:
+        ax1.set_ylabel(f"Score for {', '.join(pos_metrics)} (-)")
+        h1, l1 = ax1.get_legend_handles_labels()
+        
+    if neg_metrics:
+        ax2.set_ylabel(f"Score for {', '.join(neg_metrics)} (-)")
+        h2, l2 = ax2.get_legend_handles_labels()
+        
+    ax.set_xlabel("Prediction Length (s)")
+    
+    if pos_metrics and neg_metrics:
+        l = l1[:l1.index("metric")] + l1[l1.index("metric"):] + l2[l2.index("metric")+1:]
+        h = h1[:l1.index("metric")] + h1[l1.index("metric"):] + h2[l2.index("metric")+1:]
+    elif pos_metrics:
+        l = l1
+        h = h1
+    else:
+        l = l2
+        h = h2
     
     new_labels = [" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", label).group())) 
                   if "Forecast" in label else (label.capitalize() if not label[0].isupper() else label).replace("_", " ") for label in l]
     
     l1, l2 = new_labels[:new_labels.index("Metric")], new_labels[new_labels.index("Metric"):]
     h1, h2 = h[:new_labels.index("Metric")], h[new_labels.index("Metric"):]
-    leg1 = ax1.legend(h1, l1, loc='upper right', bbox_to_anchor=(0.48, 1), frameon=False)
+    leg1 = ax.legend(h1, l1, loc='upper right', bbox_to_anchor=(0.48, 1), frameon=False)
     leg2 = plt.legend(h2, l2, loc='upper left', bbox_to_anchor=(0.51, 1), frameon=False)
-    ax1.add_artist(leg1)
+    ax.add_artist(leg1)
     plt.tight_layout()
     return fig
 
@@ -1883,30 +1906,54 @@ def plot_score_vs_forecaster(agg_df, metrics, good_directions):
     neg_metrics = [met for sign, met in zip(good_directions, metrics) if sign < 0]
     
     # fig, ax = plt.subplots(1, 1)
-    ax1 = sns.catplot(agg_df.loc[agg_df["metric"].isin(pos_metrics), :],
-                kind="bar",
-                hue="metric", x="forecaster", y="score")
-    sub_ax1 = ax1.ax
+    if pos_metrics and neg_metrics:
+        # TODO will have same color for different metrics over pos/neg
+        ax1 = sns.catplot(agg_df.loc[agg_df["metric"].isin(pos_metrics), :],
+                    kind="bar",
+                    hue="metric", x="forecaster", y="score")
+        sub_ax1 = ax1.ax
+        
+        sub_ax2 = sub_ax1.twinx()
+        ax2 = sns.catplot(agg_df.loc[agg_df["metric"].isin(neg_metrics), :],
+                    kind="bar",
+                    hue="metric", x="forecaster", y="score", ax=sub_ax2)
+        ax = ax2
+    elif pos_metrics:
+        ax1 = sns.catplot(agg_df.loc[agg_df["metric"].isin(pos_metrics), :],
+                    kind="bar",
+                    hue="metric", x="forecaster", y="score")
+        ax = ax1
+    elif neg_metrics:
+        ax2 = sns.catplot(agg_df.loc[agg_df["metric"].isin(neg_metrics), :],
+                    kind="bar",
+                    hue="metric", x="forecaster", y="score")
+        ax = ax2
+        
+    if pos_metrics:
+        ax1.ax.set_ylabel(f"Score for {', '.join(pos_metrics)} (-)")
+        h1, l1 = ax1.ax.get_legend_handles_labels()
+        
+    if neg_metrics:
+        ax2.ax.set_ylabel(f"Score for {', '.join(neg_metrics)} (-)")
+        h2, l2 = ax2.ax.get_legend_handles_labels()
     
-    sub_ax2 = sub_ax1.twinx()
-    ax2 = sns.catplot(agg_df.loc[agg_df["metric"].isin(pos_metrics), :],
-                kind="bar",
-                hue="metric", x="forecaster", y="score", ax=sub_ax2)
+    if pos_metrics and neg_metrics:
+        l = l1[:l1.index("metric")] + l1[l1.index("metric"):] + l2[l2.index("metric")+1:]
+        h = h1[:l1.index("metric")] + h1[l1.index("metric"):] + h2[l2.index("metric")+1:]
+    elif pos_metrics:
+        l = l1
+        h = h1
+    else:
+        l = l2
+        h = h2
     
-    # h, l = sub_ax1.get_legend_handles_labels()
-    h1, l1 = ax1.get_legend_handles_labels()
-    h2, l2 = ax2.get_legend_handles_labels()
+    ax.ax.set_xlabel("Forecaster")
     
-    l = l1[:l1.index("metric")] + l1[l1.index("metric"):] + l2[l2.index("metric")+1:]
-    h = h1[:l1.index("metric")] + h1[l1.index("metric"):] + h2[l2.index("metric")+1:]
-    
-    sub_ax1.set_xlabel("Forecaster")
-    sub_ax1.set_ylabel("Score (-)")
-    ax1.legend.set_visible(False)
+    ax.legend.set_visible(False)
     # new_labels = [(re.search("\\w+(?=Forecast)", label).group() if "Forecast" in label else (label.capitalize() if not label[0].isupper() else label).replace("_", " ")) for label in l]
-    sub_ax1.set_xticklabels([" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", label._text).group())) for label in sub_ax1.get_xticklabels()], rotation=45)
+    ax.ax.set_xticklabels([" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", label._text).group())) for label in ax.ax.get_xticklabels()], rotation=45)
     new_labels = [(label.capitalize() if not label[0].isupper() else label).replace("_", " ") for label in l]
-    sub_ax1.legend(h, new_labels, frameon=False, bbox_to_anchor=(1.01, 1), loc="upper left")
+    ax.ax.legend(h, new_labels, frameon=False, bbox_to_anchor=(1.01, 1), loc="upper left")
     plt.tight_layout()
     return plt.gcf()
 
@@ -2305,18 +2352,23 @@ if __name__ == "__main__":
     agg_df = pd.concat([
         pd.DataFrame([res["agg_metrics"]])[metrics].assign(forecaster=res["forecaster_name"], prediction_timedelta=res["prediction_timedelta"]) for res in results
         ], axis=0)
-    agg_df = agg_df.melt(id_vars=["forecaster", "prediction_timedelta"], var_name="metric", value_name="score")
+    agg_df = agg_df.melt(id_vars=["forecaster", "prediction_timedelta"], var_name="metric", value_name="score").dropna(subset=["score"])
     
+    plotting_metrics_dirs = [(met, direc) for met, direc in 
+                        zip(["RMSE", "PICP", "PINAW", "CWC", "CRPS"], [-1, 1, -1, -1, -1]) 
+                        if met in pd.unique(agg_df["metric"])]
+    plotting_metrics = [v[0] for v in plotting_metrics_dirs]
+    good_directions = [v[1] for v in plotting_metrics_dirs]
     # generate scatterplot of metric vs prediction time for different models (different colors) and different metrics (different_styles) (crps, picp, pinaw, cwc, mse, mae)
     plot_score_vs_prediction_dt(agg_df, 
-                                metrics=["RMSE", "PICP", "PINAW", "CWC", "CRPS"],
-                                good_directions=[-1, 1, -1, -1, -1])
+                                metrics=plotting_metrics,
+                                good_directions=good_directions)
 
     # best_prediction_dt = agg_df.groupby(["metric", "prediction_timedelta"])["score"].mean().idxmax()
     # generate grouped barcharpt of metrics (crps, picp, pinaw, cwc, mse, mae) grouped together vs model on x axis for best prediction time
     best_prediction_dt = agg_df.groupby("prediction_timedelta")["score"].mean().idxmax()
     plot_score_vs_forecaster(agg_df.loc[agg_df["prediction_timedelta"] == best_prediction_dt, :], 
-                             metrics=["RMSE", "PICP", "PINAW", "CWC", "CRPS"],
+                             metrics=plotting_metrics,
                                 good_directions=[-1, 1, -1, -1, -1])
     
     print("here")

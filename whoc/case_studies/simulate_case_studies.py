@@ -113,7 +113,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     
     t = 0
     k = 0
-    print(f'simulation_input_dict reached')
+    
     # input to floris should be from first in target_turbine_indices (most upstream one), or mean over whole farm if no target_turbine_indices
     if kwargs["wf_source"] == "scada":
         if simulation_input_dict["controller"]["target_turbine_indices"] == "all":
@@ -281,7 +281,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
 
         yaw_angles_ts = np.vstack(yaw_angles_ts)
         # init_yaw_angles_ts = np.vstack(init_yaw_angles_ts)
-        yaw_angles_change_ts = np.diff(yaw_angles_ts, axis=0)[:-n_future_steps, :]
+        yaw_angles_change_ts = np.diff(yaw_angles_ts, axis=0)[:(-n_future_steps) or None, :]
 
         yaw_angles_ts = yaw_angles_ts[:-(n_future_steps + 1), :]
         turbine_powers_ts = np.vstack(turbine_powers_ts)
@@ -292,9 +292,9 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     #turbine_offline_status_ts = turbine_offline_status_ts[:(-n_truncate_steps) or None, :]
     yaw_angles_change_ts = yaw_angles_change_ts[:(-n_truncate_steps) or None, :]
     yaw_angles_ts = yaw_angles_ts[:(-n_truncate_steps) or None, :] # TODO LOW first element allows for greater change than yaw_rate
-    # turbine_powers_ts = turbine_powers_ts[:(-n_truncate_steps) or None, :]
-    opt_cost_terms_ts = opt_cost_terms_ts[:-n_truncate_steps]
-    convergence_time_ts = convergence_time_ts[:-n_truncate_steps]
+    turbine_powers_ts = turbine_powers_ts[:(-n_truncate_steps) or None, :]
+    opt_cost_terms_ts = opt_cost_terms_ts[:(-n_truncate_steps) or None]
+    convergence_time_ts = convergence_time_ts[:(-n_truncate_steps) or None]
     
     running_opt_cost_terms_ts = np.zeros_like(opt_cost_terms_ts)
     Q = simulation_input_dict["controller"]["alpha"]
@@ -386,7 +386,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
             "StateConsActivatedUpper": upper_state_cons_activated_ts,
         })
 
-    results_df = pd.DataFrame(results_data)
+    results_data = pd.DataFrame(results_data)
     
     if wind_forecast_class:
         predicted_wind_speeds_ts = pd.concat(predicted_wind_speeds_ts, axis=0).groupby("time").agg("last").reset_index(names=["time"])
@@ -402,10 +402,10 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
             predicted_wind_speeds_ts = predicted_wind_speeds_ts[cols].rename(columns={
                 src: f"StddevTurbineWindSpeed{re.search('(?<=ws_)\\w+(?=_\\d+)', src).group().capitalize()}_{re.search('(?<=_)\\d+$', src).group()}"
                 for src in ctrl.sd_ws_horz_cols + ctrl.sd_ws_vert_cols})
-        predicted_wind_speeds_ts[["CaseFamily", "CaseName", "WindSeed"]] = results_df[["CaseFamily", "CaseName", "WindSeed"]].iloc[0]
-        results_df = results_df.merge(predicted_wind_speeds_ts, on=["CaseFamily", "CaseName", "WindSeed", "Time"], how="outer")
-    
-    results_df.to_csv(os.path.join(results_dir, fn))
+        predicted_wind_speeds_ts[["CaseFamily", "CaseName", "WindSeed"]] = results_data[["CaseFamily", "CaseName", "WindSeed"]].iloc[0]
+        results_data = results_data.merge(predicted_wind_speeds_ts, on=["CaseFamily", "CaseName", "WindSeed", "Time"], how="outer")
+        del predicted_wind_speeds_ts
+    results_data.to_csv(os.path.join(results_dir, fn))
     print(f"Saved {fn}")
     
-    return results_df
+    return results_data
