@@ -61,10 +61,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
     args.case_ids = [int(i) for i in args.case_ids]
 
-    for case_family in case_families:
-        args.n_seeds = 6
-        case_studies[case_family]["wind_case_idx"] = {"group": max(d["group"] for d in case_studies[case_family].values()) + 1, "vals": [i for i in range(args.n_seeds)]}
-
     # os.environ["PYOPTSPARSE_REQUIRE_MPI"] = "false"
     RUN_ONCE = (args.multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
     PLOT = True #sys.platform != "linux"
@@ -108,7 +104,7 @@ if __name__ == "__main__":
                                          wf_source=args.wf_source,
                                          multiprocessor=args.multiprocessor, 
                                          whoc_config=whoc_config, model_config=model_config, data_config=data_config)
-        
+        n_seeds = len(wind_field_ts)
         if args.multiprocessor is not None:
             if args.multiprocessor == "mpi":
                 comm_size = MPI.COMM_WORLD.Get_size()
@@ -220,7 +216,7 @@ if __name__ == "__main__":
                     futures = [run_simulations_exec.submit(aggregate_time_series_data,
                                                              time_series_df=time_series_df.iloc[(time_series_df.index.get_level_values("CaseFamily") == case_families[i]) & (time_series_df.index.get_level_values("CaseName") == case_name), :],
                                                                 input_dict_path=os.path.join(args.save_dir, case_families[i], f"input_config_case_{case_name}.pkl"),
-                                                                n_seeds=args.n_seeds)
+                                                                n_seeds=n_seeds)
                         for i in args.case_ids
                         for case_name in pd.unique(time_series_df.iloc[(time_series_df.index.get_level_values("CaseFamily") == case_families[i])].index.get_level_values("CaseName"))
                         # for case_name in [re.findall(r"(?<=case_)(.*)(?=_seed)", fn)[0] for fn in case_family_case_names[case_families[i]]]
@@ -267,7 +263,10 @@ if __name__ == "__main__":
                     if args.reaggregate_simulations or not os.path.exists(os.path.join(args.save_dir, case_families[i], "time_series_results_all.csv")):
                         # TODO HIGH check that we are only reading time series files corresponding to the number of seeds, stop times used
                         for fn in case_family_case_names[case_families[i]]:
-                            new_case_family_time_series_df.append(read_time_series_data(results_path=os.path.join(args.save_dir, case_families[i], fn)))
+                            new_case_family_time_series_df.append(
+                                read_time_series_data(results_path=os.path.join(args.save_dir, case_families[i], fn),
+                                                      input_dict_path=os.path.join(args.save_dir, case_families[i], 
+                                                                                   f"input_config_{re.search('(?<=time_series_results_).+(?=_seed_\\d+.csv)', fn).group()}.pkl")))
 
                     # if any new time series data has been read, add it to the new_time_series_df list and save the aggregated time-series data
                     if new_case_family_time_series_df:
@@ -287,7 +286,7 @@ if __name__ == "__main__":
                                                             time_series_df=case_name_df,
                                                             input_dict_path=os.path.join(args.save_dir, case_families[i], f"input_config_case_{case_name}.pkl"),
                                                             # results_path=os.path.join(args.save_dir, case_families[i], f"agg_results_{case_name}.csv"),
-                                                            n_seeds=args.n_seeds)
+                                                            n_seeds=n_seeds)
                             if res is not None:
                                 new_agg_df.append(res)
 
