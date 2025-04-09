@@ -701,7 +701,7 @@ class PreviewForecast(WindForecast):
         self.measurement_layout = np.vstack([self.fmodel.layout_x, self.fmodel.layout_y]).T
         
         # the turbines to consider in the spatial filtering for the estimation of the wind direction at each turbine
-        self.n_neighboring_turbines = self.kwargs.get("n_neighboring_turbines", None) 
+        self.n_neighboring_turbines = self.kwargs["n_neighboring_turbines"]
         if self.n_neighboring_turbines:
             self.cluster_turbines = [sorted(np.arange(self.n_turbines), 
                         key=lambda t: np.linalg.norm(self.measurement_layout[tid, :] - self.measurement_layout[t, :]))[:self.n_neighboring_turbines]
