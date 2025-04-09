@@ -3,6 +3,7 @@ from concurrent.futures import ProcessPoolExecutor
 import warnings
 import re
 import argparse
+import csv
 
 from mpi4py import MPI
 from mpi4py.futures import MPICommExecutor
@@ -45,7 +46,7 @@ if __name__ == "__main__":
     parser.add_argument("-ras", "--reaggregate_simulations", action="store_true")
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("-st", "--stoptime", default="auto")
-    parser.add_argument("-ns", "--n_seeds", type=int, default=1)
+    parser.add_argument("-ns", "--n_seeds", default="auto")
     parser.add_argument("-m", "--multiprocessor", type=str, choices=["mpi", "cf"], help="which multiprocessing backend to use, omit for sequential processing", default=None)
     parser.add_argument("-sd", "--save_dir", type=str, default=os.path.join(os.getcwd(), "simulation_results"))
     parser.add_argument("-wf", "--wf_source", type=str, choices=["floris", "scada"], required=True)
@@ -61,6 +62,7 @@ if __name__ == "__main__":
     args.case_ids = [int(i) for i in args.case_ids]
 
     for case_family in case_families:
+        args.n_seeds = 6
         case_studies[case_family]["wind_case_idx"] = {"group": max(d["group"] for d in case_studies[case_family].values()) + 1, "vals": [i for i in range(args.n_seeds)]}
 
     # os.environ["PYOPTSPARSE_REQUIRE_MPI"] = "false"
@@ -80,7 +82,8 @@ if __name__ == "__main__":
                     model_config  = yaml.safe_load(file)
                 with open(args.data_config, 'r') as file:
                     data_config  = yaml.safe_load(file)
-                    
+                
+                # TODO make sure this is mapping to target turbine indices, we want the TurbineYawAngle/Power/OfflineStatus to contain the target_turbine_indices
                 if len(data_config["turbine_signature"]) == 1:
                     tid2idx_mapping = {str(k): i for i, k in enumerate(data_config["turbine_mapping"][0].keys())}
                 else:
@@ -310,11 +313,26 @@ if __name__ == "__main__":
                 filepath = os.path.join(args.save_dir, case_families[i], "time_series_results_all.csv")
                 if os.path.exists(filepath):
                     try:
-                        time_series_df.append(pd.read_csv(filepath, index_col=[0, 1]))
+                        # time_series_df.append(pd.read_csv(filepath, index_col=[0, 1]))
+                        # get column names 
+                        with open(filepath, 'r', newline='') as fp:
+                            csv_reader = csv.reader(fp)
+                            columns = next(csv_reader)
+                            columns = columns[1:] # remove index row
+                        bool_cols = [col for col in columns if "TurbineOfflineStatus" in col]
+                        if bool_cols:
+                            df = pd.read_csv(filepath, index_col=[0, 1], dtype={col: object for col in bool_cols}) # necessary if contains NaNs
+                            for col in bool_cols:
+                                df.loc[(df[col] == "False") | (df[col].isna()), col] = False
+                                df[col] = df[col].astype(bool)
+                        else:
+                            df = pd.read_csv(filepath, index_col=[0, 1])
+                            
+                        time_series_df.append(df)
                     except pd.errors.DtypeWarning as w:
                         print(f"DtypeWarning with combined time series file {filepath}: {w}")
                         warnings.simplefilter('ignore', pd.errors.DtypeWarning)
-                        bad_df = pd.read_csv(filepath, index_col=[0, 1])
+                        bad_df = pd.read_csv(filepath, index_col=[0, 1], low_memory=False)
                         bad_cols = [bad_df.columns[int(s) - len(bad_df.index.names)] for s in re.findall(r"(?<=Columns \()(.*)(?=\))", w.args[0])[0].split(",")]
                         bad_df.loc[bad_df[bad_cols].isna().any(axis=1)]
             time_series_df = pd.concat(time_series_df)
@@ -471,7 +489,7 @@ if __name__ == "__main__":
                 # PLOT 4) Yaw angles/power for persistent vs. other forecasters for best lead times
                 best_forecaster_prediction_delta = forecasters_agg_df.groupby("wind_forecast_class", group_keys=False).apply(lambda x: x.sort_values(by=("FarmPowerMean", "mean"), ascending=False).head(10)) #[("FarmPowerMean", "mean")] 
                 best_perfect_prediction_delta = perfect_agg_df.groupby("wind_forecast_class", group_keys=False).apply(lambda x: x.sort_values(by=("FarmPowerMean", "mean"), ascending=False).head(10))
-                plotting_cases = [(forecaster_case_fam, df[1]._name[1]) for df in forecasters_agg_df.iterrows()]
+                plotting_cases = [(forecaster_case_fam, df[1]._name[1]) for df in baseline_agg_df.iterrows()]
                 plot_simulations(
                         time_series_df, plotting_cases, args.save_dir, include_power=True, 
                         legend_loc="outer", single_plot=False) 
