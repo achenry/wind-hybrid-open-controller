@@ -17,5 +17,6 @@ mpirun -np $SLURM_NTASKS python run_case_studies.py 0 1 2 3 4 5 6 -rs -st 3600 -
 
 mpirun -np $SLURM_NTASKS python run_case_studies.py 0 1 2 3 4 5 6 -rs -rrs -st 3600 -ns 3 -m mpi \
        -sd /projects/ssc/ahenry/whoc/floris_case_studies \
-       -wf scada
+       -wf scada \
+       -wcnf /home/ahenry/toolboxes/whoc_env/wind-hybrid-open-controller/examples/hercules_input_001.yaml
     #    -mcnf /home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel_awaken.yaml \
