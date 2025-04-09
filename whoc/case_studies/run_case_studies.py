@@ -386,13 +386,14 @@ if __name__ == "__main__":
                 # Filter data for the two forecast types
                 forecasters_agg_df = baseline_agg_df.loc[baseline_agg_df["wind_forecast_class"] != "PerfectForecast", :]
                 perfect_agg_df = baseline_agg_df.loc[baseline_agg_df["wind_forecast_class"] == "PerfectForecast", :]
-                controllers = pd.unique(forecasters_agg_df["controller_class"])
+                controllers = pd.unique(perfect_agg_df["controller_class"])
                 controller_labels = {"GreedyController": "Greedy", "LookupBasedWakeSteeringController": "LUT"}
                 
                 # PLOT 1) Farm power of perfect forecaster vs prediction timedela for different controllers
                 import seaborn as sns
                 import matplotlib.pyplot as plt
                 if len(perfect_agg_df):
+                    controllers = pd.unique(perfect_agg_df["controller_class"])
                     plot_df = perfect_agg_df.copy()
                     plot_df["prediction_timedelta"] = plot_df["prediction_timedelta"].dt.total_seconds()
                     plot_df[("FarmPowerMean", "mean")] = plot_df[("FarmPowerMean", "mean")] / 1e6
@@ -429,6 +430,7 @@ if __name__ == "__main__":
                 fig, ax = plt.subplots(2, len(controllers))
                 xlim = (baseline_time_df[["Time", "TrueTurbineWindSpeedHorzMean", "TrueTurbineWindSpeedVertMean"]].dropna()["Time"].min(),
                         baseline_time_df[["Time", "TrueTurbineWindSpeedHorzMean", "TrueTurbineWindSpeedVertMean"]].dropna()["Time"].max())
+                controllers = pd.unique(baseline_time_df["controller_class"])
                 for c, ctrl in enumerate(controllers):
                     cond = (baseline_time_df["controller_class"] == ctrl) & (baseline_time_df["WindSeed"] == 0)
                     df = baseline_time_df.reset_index(level=["CaseFamily", "CaseName"], drop=True).loc[cond.values, :].dropna(subset=["TrueTurbineWindSpeedHorzMean", "TrueTurbineWindSpeedVertMean"])
