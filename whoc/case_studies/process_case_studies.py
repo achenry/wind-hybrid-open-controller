@@ -115,7 +115,7 @@ def read_time_series_data(results_path):
         if bool_cols:
             df = pd.read_csv(results_path, index_col=0, dtype={col: object for col in bool_cols}) # necessary if contains NaNs
             for col in bool_cols:
-                df.loc[df[col].isna(), col] = False
+                df.loc[(df[col] == "False") | (df[col].isna()), col] = False
                 df[col] = df[col].astype(bool)
         else:
             df = pd.read_csv(results_path, index_col=0)
@@ -569,7 +569,7 @@ def aggregate_time_series_data(time_series_df, input_dict_path, n_seeds):
                                 (seed_df["RunningOptimizationCostTerm_1"] / ((np.logical_not(turbine_offline_status_ts)).sum(axis=1))).mean(),
                                 seed_df["OptimizationConvergenceTime"].mean()))
         except ZeroDivisionError:
-            print("oh")
+            print("All turbines are offline! Can't generate RelativeYawAngleChangeAbsMean or RelativeFarmPowerMean.")
         
     # print(f"Aggregated data for {case_family}={case_name}")
     agg_df = pd.DataFrame(result_summary, columns=["CaseFamily", "CaseName", "WindSeed",
