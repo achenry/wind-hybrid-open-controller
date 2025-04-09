@@ -502,7 +502,7 @@ def aggregate_time_series_data(time_series_df, input_dict_path, n_seeds):
         _type_: _description_
     """
     # x = time_series_df.reset_index(level=["CaseFamily", "CaseName"], drop=True)
-    time_series_df = time_series_df.drop(columns=[col for col in time_series_df.columns if "Predicted" in col or "Stddev" in col])
+    time_series_df = time_series_df.drop(columns=[col for col in time_series_df.columns if "Predicted" in col or "Stddev" in col]).dropna(axis=1, how="all").dropna()
     case_seeds = pd.unique(time_series_df["WindSeed"])
     case_family = time_series_df.index.get_level_values("CaseFamily")[0]
     # case_family = df_name.replace(f"_{results_df['CaseName'].iloc[0]}", "")
@@ -834,7 +834,7 @@ def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, 
         fig, ax = plt.subplots(int(include_yaw + include_power), 1, sharex=True)
     
     ax = np.atleast_1d(ax)
-    
+    data_df = data_df.dropna(axis=1, how="all")
     turbine_wind_direction_cols = sorted([col for col in data_df.columns if "TurbineWindDir_" in col], key=lambda s: int(s.split("_")[-1]))
     turbine_power_cols = sorted([col for col in data_df.columns if "TurbinePower_" in col], key=lambda s: int(s.split("_")[-1]))
     yaw_angle_cols = sorted([col for col in data_df.columns if "TurbineYawAngle_" == col[:len("TurbineYawAngle_")]], key=lambda s: int(s.split("_")[-1]))
