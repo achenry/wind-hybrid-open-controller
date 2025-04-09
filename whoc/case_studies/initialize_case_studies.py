@@ -45,9 +45,9 @@ case_studies = {
                                     "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
                                     "simulation_dt": {"group": 0, "vals": [60]},
                                     "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/smarteole_farm.yaml"]},
-                                    "uncertain": {"group": 3, "vals": [False]},
-                                    "wind_forecast_class": {"group": 3, "vals": ["KalmanFilterForecast", "PerfectForecast"]}, #, "PerfectForecast"]},
-                                    "prediction_timedelta": {"group": 4, "vals": [60]}, #, 120, 180]},
+                                    "uncertain": {"group": 3, "vals": [False, False]},
+                                    "wind_forecast_class": {"group": 3, "vals": ["PreviewForecast", "PerfectForecast"]}, #, "KalmanFilterForecast"]},
+                                    "prediction_timedelta": {"group": 4, "vals": [60,120]}, # 180]},
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]}
                                     },
     "baseline_controllers_forecasters_test_awaken": {
