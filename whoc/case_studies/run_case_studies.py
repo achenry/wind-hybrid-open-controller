@@ -349,7 +349,7 @@ if __name__ == "__main__":
         if RUN_ONCE and PLOT:
             
             if (case_families.index("baseline_controllers_perfect_forecaster_awaken") in args.case_ids
-                or case_families.index("baseline_controllers_perfect_forecaster_flasc") in args.case_ids
+                or case_families.index("baseline_controllers_preview_flasc_perfect") in args.case_ids
                 or case_families.index("baseline_controllers_forecasters_test_flasc") in args.case_ids
                 or case_families.index("baseline_controllers_forecasters_test_awaken") in args.case_ids):
                 from whoc.wind_forecast.WindForecast import WindForecast
@@ -357,8 +357,8 @@ if __name__ == "__main__":
                 
                 if case_families.index("baseline_controllers_perfect_forecaster_awaken") in args.case_ids:
                     forecaster_case_fam = "baseline_controllers_perfect_forecaster_awaken"
-                elif case_families.index("baseline_controllers_perfect_forecaster_flasc") in args.case_ids:
-                    forecaster_case_fam = "baseline_controllers_perfect_forecaster_flasc"
+                elif case_families.index("baseline_controllers_preview_flasc_perfect") in args.case_ids:
+                    forecaster_case_fam = "baseline_controllers_preview_flasc_perfect"
                 elif case_families.index("baseline_controllers_forecasters_test_flasc") in args.case_ids:
                     forecaster_case_fam = "baseline_controllers_forecasters_test_flasc"
                 elif case_families.index("baseline_controllers_forecasters_test_awaken") in args.case_ids:
@@ -384,8 +384,8 @@ if __name__ == "__main__":
                                             (baseline_agg_df.index.get_level_values("CaseName") == case_name), col] = full_config[col]
 
                 # Filter data for the two forecast types
-                forecasters_agg_df = baseline_agg_df.loc[baseline_agg_df["wind_forecast_class"] != "PerfectForecast", :]
-                perfect_agg_df = baseline_agg_df.loc[baseline_agg_df["wind_forecast_class"] == "PerfectForecast", :]
+                forecasters_agg_df = baseline_agg_df.loc[baseline_agg_df["wind_forecast_class"] != "PerfectForecast", :] 
+                perfect_agg_df = baseline_agg_df.loc[baseline_agg_df["wind_forecast_class"] == "PerfectForecast", :] #PerfectForecast
                 controllers = pd.unique(perfect_agg_df["controller_class"])
                 controller_labels = {"GreedyController": "Greedy", "LookupBasedWakeSteeringController": "LUT"}
                 
@@ -401,6 +401,7 @@ if __name__ == "__main__":
                     x_vals = pd.unique(plot_df["prediction_timedelta"])
                     xlim = (x_vals.min(), x_vals.max())
                     fig, ax = plt.subplots(1, len(controllers))
+                    ax = np.atleast_1d(ax)
                     for c, ctrl in enumerate(controllers):
                         sns.lineplot(plot_df.loc[plot_df["controller_class"] == ctrl, :], 
                                     x="prediction_timedelta", y=("FarmPowerMean", "mean"), ax=ax[c])
@@ -831,7 +832,7 @@ if __name__ == "__main__":
              "wind_preview_type", "warm_start"]):
                 generate_outputs(agg_df, args.save_dir)       
 
-            if case_families.index("baseline_controllers_perfect_forecaster_flasc") in args.case_ids \
+            if case_families.index("baseline_controllers_preview_flasc_perfect") in args.case_ids \
                 or case_families.index("baseline_controllers_perfect_forecaster_awaken") in args.case_ids:
 
                 if case_families.index("baseline_controllers_preview_flasc_perfect") in args.case_ids:

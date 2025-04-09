@@ -264,8 +264,8 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
             turbine_offline_status_ts += [np.isclose(last_measurements["turbine_powers"], 0, atol=1e-3)]
 
         n_truncate_steps = (n_future_steps + 1) + int(ctrl.controller_dt - (simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"] % ctrl.controller_dt)) // simulation_input_dict["simulation_dt"]
-        turbine_wind_mag_ts = np.vstack(turbine_wind_mag_ts)[:-(n_truncate_steps), :]
-        turbine_wind_dir_ts = np.vstack(turbine_wind_dir_ts)[:-(n_truncate_steps), :]
+        turbine_wind_mag_ts = np.vstack(turbine_wind_mag_ts)[:-(n_truncate_steps - 1), :]
+        turbine_wind_dir_ts = np.vstack(turbine_wind_dir_ts)[:-(n_truncate_steps - 1), :]
         # init_yaw_angles_ts = np.vstack(init_yaw_angles_ts)
 
         if wind_forecast_class:
@@ -288,10 +288,10 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     n_truncate_steps = (int(ctrl.controller_dt - (simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"] % ctrl.controller_dt)) % ctrl.controller_dt) // simulation_input_dict["simulation_dt"]
     # turbine_wind_mag_ts = turbine_wind_mag_ts[:(-n_truncate_steps) or None, :]
     # turbine_wind_dir_ts = turbine_wind_dir_ts[:(-n_truncate_steps) or None, :]
-    turbine_offline_status_ts = turbine_offline_status_ts[:-(n_truncate_steps + 1)]
-    yaw_angles_change_ts = yaw_angles_change_ts[:(-n_truncate_steps) or None, :]
+    turbine_offline_status_ts = np.array(turbine_offline_status_ts)[:-(n_truncate_steps + 1) or None, :]
+    yaw_angles_change_ts = np.array(yaw_angles_change_ts)[:(-n_truncate_steps) or None, :]
     yaw_angles_ts = yaw_angles_ts[:(-n_truncate_steps) or None, :] # TODO LOW first element allows for greater change than yaw_rate
-    turbine_powers_ts = turbine_powers_ts[:(-n_truncate_steps) or None, :]
+    # turbine_powers_ts = turbine_powers_ts[:-(n_truncate_steps) or None, :]
     opt_cost_terms_ts = opt_cost_terms_ts[:(-n_truncate_steps) or None]
     convergence_time_ts = convergence_time_ts[:(-n_truncate_steps) or None]
     turbine_powers_ts = turbine_powers_ts[:-(n_future_steps + 1), :]
