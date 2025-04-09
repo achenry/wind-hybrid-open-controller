@@ -306,19 +306,19 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         #     f"InitTurbineYawAngle_{idx2tid_mapping[i]}": init_yaw_angles_ts[:, i] for i in range(ctrl.n_turbines)
         # }, 
         **{
-            f"TurbineYawAngle_{idx2tid_mapping[i]}": yaw_angles_ts[:, i] for i in range(ctrl.n_turbines)
+            f"TurbineYawAngle_{idx2tid_mapping[simulation_input_dict['controller']['target_turbine_indices'][i]]}": yaw_angles_ts[:, i] for i in range(ctrl.n_turbines)
         }, 
         **{
-            f"TurbineYawAngleChange_{idx2tid_mapping[i]}": yaw_angles_change_ts[:, i] for i in range(ctrl.n_turbines)
+            f"TurbineYawAngleChange_{idx2tid_mapping[simulation_input_dict['controller']['target_turbine_indices'][i]]}": yaw_angles_change_ts[:, i] for i in range(ctrl.n_turbines)
         },
         **{
-            f"TurbinePower_{idx2tid_mapping[i]}": turbine_powers_ts[:, i] for i in range(ctrl.n_turbines)
+            f"TurbinePower_{idx2tid_mapping[simulation_input_dict['controller']['target_turbine_indices'][i]]}": turbine_powers_ts[:, i] for i in range(ctrl.n_turbines)
         },
         **{
-            f"TurbineWindMag_{idx2tid_mapping[i]}": turbine_wind_mag_ts[:, i] for i in range(ctrl.n_turbines)
+            f"TurbineWindMag_{idx2tid_mapping[simulation_input_dict['controller']['target_turbine_indices'][i]]}": turbine_wind_mag_ts[:, i] for i in range(ctrl.n_turbines)
         },
         **{
-            f"TurbineWindDir_{idx2tid_mapping[i]}": turbine_wind_dir_ts[:, i] for i in range(ctrl.n_turbines)
+            f"TurbineWindDir_{idx2tid_mapping[simulation_input_dict['controller']['target_turbine_indices'][i]]}": turbine_wind_dir_ts[:, i] for i in range(ctrl.n_turbines)
         },
         # **{
         #     f"PredictedTurbineWindMag_{idx2tid_mapping[i]}": predicted_turbine_wind_mag_ts[:, i] for i in range(fi_full.n_turbines)
@@ -327,7 +327,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         #     f"PredictedTurbineWindDir_{idx2tid_mapping[i]}": predicted_turbine_wind_dir_ts[:, i] for i in range(fi_full.n_turbines)
         # },
         **{
-            f"TurbineOfflineStatus_{idx2tid_mapping[i]}": turbine_offline_status_ts[:, i] for i in range(ctrl.n_turbines)
+            f"TurbineOfflineStatus_{idx2tid_mapping[simulation_input_dict['controller']['target_turbine_indices'][i]]}": turbine_offline_status_ts[:, i] for i in range(ctrl.n_turbines)
         },
         "FarmYawAngleChangeAbsSum": np.sum(np.abs(yaw_angles_change_ts), axis=1),
         "RelativeFarmYawAngleChangeAbsSum": (np.sum(np.abs(yaw_angles_change_ts) * ~turbine_offline_status_ts, axis=1)) / (np.sum(~turbine_offline_status_ts, axis=1)),
