@@ -111,6 +111,8 @@ wind_forecast:
     cache_size: 200
     n_neighboring_turbines: 3
     max_n_samples:
+  PreviewForecast:
+    n_neighboring_turbines: 3
   MLForecast:
     model_key: informer
     model_checkpoint: latest
