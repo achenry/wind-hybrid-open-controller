@@ -4,6 +4,7 @@ import yaml
 from itertools import cycle
 import warnings
 import pickle
+import csv
 
 import numpy as np
 import pandas as pd
@@ -105,7 +106,19 @@ def read_time_series_data(results_path):
     # TODO fix scalability Greedy/LUT offline status at end for 25 turbines
     warnings.simplefilter('error', pd.errors.DtypeWarning)
     try:
-        df = pd.read_csv(results_path, index_col=0)
+        # get column names 
+        with open(results_path, 'r', newline='') as fp:
+            csv_reader = csv.reader(fp)
+            columns = next(csv_reader)
+            columns = columns[1:] # remove index row
+        bool_cols = [col for col in columns if "TurbineOfflineStatus" in col]
+        if bool_cols:
+            df = pd.read_csv(results_path, index_col=0, dtype={col: object for col in bool_cols}) # necessary if contains NaNs
+            for col in bool_cols:
+                df.loc[(df[col] == "False") | (df[col].isna()), col] = False
+                df[col] = df[col].astype(bool)
+        else:
+            df = pd.read_csv(results_path, index_col=0)
         print(f"Read {results_path}")
         df = df.set_index(["CaseFamily", "CaseName"])
         return df
@@ -502,7 +515,7 @@ def aggregate_time_series_data(time_series_df, input_dict_path, n_seeds):
         _type_: _description_
     """
     # x = time_series_df.reset_index(level=["CaseFamily", "CaseName"], drop=True)
-    time_series_df = time_series_df.drop(columns=[col for col in time_series_df.columns if "Predicted" in col or "Stddev" in col]).dropna(axis=1, how="all").dropna()
+    time_series_df = time_series_df.drop(columns=[col for col in time_series_df.columns if "Predicted" in col or "Stddev" in col]).dropna(axis=1, how="all").dropna(how="all")
     case_seeds = pd.unique(time_series_df["WindSeed"])
     case_family = time_series_df.index.get_level_values("CaseFamily")[0]
     # case_family = df_name.replace(f"_{results_df['CaseName'].iloc[0]}", "")
@@ -556,7 +569,7 @@ def aggregate_time_series_data(time_series_df, input_dict_path, n_seeds):
                                 (seed_df["RunningOptimizationCostTerm_1"] / ((np.logical_not(turbine_offline_status_ts)).sum(axis=1))).mean(),
                                 seed_df["OptimizationConvergenceTime"].mean()))
         except ZeroDivisionError:
-            print("oh")
+            print("All turbines are offline! Can't generate RelativeYawAngleChangeAbsMean or RelativeFarmPowerMean.")
         
     # print(f"Aggregated data for {case_family}={case_name}")
     agg_df = pd.DataFrame(result_summary, columns=["CaseFamily", "CaseName", "WindSeed",
