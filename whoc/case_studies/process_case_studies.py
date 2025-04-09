@@ -285,7 +285,7 @@ def plot_simulations(time_series_df, plotting_cases, save_dir, include_power=Tru
         for case_name in pd.unique(case_family_df.index.get_level_values("CaseName")):
             if (case_family, case_name) not in plotting_cases:
                 continue
-            case_name_df = case_family_df.loc[case_family_df.index.get_level_values("CaseName") == case_name, :]
+            case_name_df = case_family_df.loc[case_family_df.index.get_level_values("CaseName") == case_name, :].reset_index(drop=True)
             input_fn = [fn for fn in os.listdir(os.path.join(save_dir, case_family)) if "input_config" in fn and case_name in fn][0]
             
             with open(os.path.join(save_dir, case_family, input_fn), 'rb') as fp:
@@ -295,7 +295,7 @@ def plot_simulations(time_series_df, plotting_cases, save_dir, include_power=Tru
                                         controller_dt=None, include_filtered_wind_dir=(case_family=="baseline_controllers"), single_plot=single_plot, fig=yaw_power_ts_fig, ax=yaw_power_ts_ax, case_label=case_name)
             else:
                 fig, _ = plot_yaw_power_ts(case_name_df, os.path.join(save_dir, case_family, f"yaw_power_ts_{case_name}.png"), include_power=include_power, legend_loc=legend_loc,
-                                        controller_dt=None, include_filtered_wind_dir=(case_family=="baseline_controllers_3"), single_plot=single_plot)
+                                        controller_dt=None, include_filtered_wind_dir=(case_family=="baseline_controllers_3"), single_plot=single_plot, case_label=case_name)
                                     #    controller_dt=input_config["controller"]["dt"])
 
     if False:
@@ -518,7 +518,7 @@ def aggregate_time_series_data(time_series_df, input_dict_path, n_seeds):
     time_series_df = time_series_df.loc[time_series_df["Time"] < stoptime, :]
     time = pd.unique(time_series_df["Time"])
     
-    if len(pd.unique(time)) != int(stoptime // input_config["simulation_dt"]):
+    if len(time) != int(stoptime // input_config["simulation_dt"]):
        print(f"NOT aggregating data for {case_family}={case_name} due to insufficient time steps.")
        return None
    
@@ -835,10 +835,10 @@ def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, 
     
     ax = np.atleast_1d(ax)
     
-    turbine_wind_direction_cols = sorted([col for col in data_df.columns if "TurbineWindDir_" in col and not pd.isna(data_df[col]).any()], key=lambda s: int(s.split("_")[-1]))
-    turbine_power_cols = sorted([col for col in data_df.columns if "TurbinePower_" in col and not pd.isna(data_df[col]).any()], key=lambda s: int(s.split("_")[-1]))
-    yaw_angle_cols = sorted([col for col in data_df.columns if "TurbineYawAngle_" == col[:len("TurbineYawAngle_")] and not pd.isna(data_df[col]).any()], key=lambda s: int(s.split("_")[-1]))
-
+    turbine_wind_direction_cols = sorted([col for col in data_df.columns if "TurbineWindDir_" in col], key=lambda s: int(s.split("_")[-1]))
+    turbine_power_cols = sorted([col for col in data_df.columns if "TurbinePower_" in col], key=lambda s: int(s.split("_")[-1]))
+    yaw_angle_cols = sorted([col for col in data_df.columns if "TurbineYawAngle_" == col[:len("TurbineYawAngle_")]], key=lambda s: int(s.split("_")[-1]))
+    data_df = data_df.dropna(subset=turbine_wind_direction_cols+turbine_power_cols+yaw_angle_cols)
     plot_seed = 0
     
     for seed in sorted(pd.unique(data_df["WindSeed"])):
@@ -897,7 +897,7 @@ def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, 
     n_cols = 1
     if include_yaw:
         ax_idx = 0
-        ax[ax_idx].set(title="Wind Direction / Yaw Angle [$^\\circ$]", xlim=(0, int((data_df["Time"].max() + data_df["Time"].diff().iloc[1]) // 1)), ylim=(220, 320))
+        ax[ax_idx].set(title="Wind Direction / Yaw Angle [$^\\circ$]", xlim=(0, int((data_df["Time"].max() + data_df["Time"].diff().iloc[1]) // 1))) # , ylim=(220, 320)
         ax[ax_idx].legend() 
         if legend_loc != "outer":
             ax[ax_idx].legend(ncols=n_cols, loc=legend_loc)
@@ -920,7 +920,7 @@ def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, 
     results_dir = os.path.dirname(save_path)
     # figManager = plt.get_current_fig_manager()
     # figManager.full_screen_toggle()
-    fig.suptitle("_".join([os.path.basename(results_dir), data_df.index.get_level_values("CaseName")[0].replace('/', '_'), "yaw_power_ts"]))
+    fig.suptitle("_".join([os.path.basename(results_dir), case_label.replace('/', '_'), "yaw_power_ts"]))
     # plt.get_current_fig_manager().full_screen_toggle()
     plt.tight_layout()
     fig.savefig(save_path)
@@ -1421,11 +1421,14 @@ def plot_power_increase_vs_prediction_time(plot_df, save_dir):
     
     
     fig, ax = plt.subplots(figsize=(10, 6))
-    sns.lineplot(x=("prediction_timedelta", ""), y=("power_ratio", ""), data=plot_df, marker="o", ax=ax)
+    plot_df["prediction_timedelta"] = plot_df["prediction_timedelta"].dt.total_seconds()
+    plot_df = plot_df.rename(columns={"prediction_timedelta": "Prediction Horizon (s)", "wind_forecast_class": "Forecaster", "power_ratio": "Power Increase (%)"})
+    sns.scatterplot(x="Prediction Horizon (s)", y="Power Increase (%)", style="Forecaster", data=plot_df, ax=ax)
     
-    ax.set(title="Percentage Power Increase vs. Prediction Time for Different Forecasters",
-           xlabel="Prediction Time (s)", ylabel="% Power Increase")
-    ax.legend(title="Forecaster")
+    # ax.set(title="Percentage Power Increase vs. Prediction Time for Different Forecasters")
+    h, l = ax.get_legend_handles_labels()
+    new_labels = [" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", ll).group())) for ll in l]
+    ax.legend(h, new_labels, title="Forecaster")
     ax.grid(True)
     
     # Save the figure
