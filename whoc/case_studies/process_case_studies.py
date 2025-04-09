@@ -102,35 +102,52 @@ def write_case_family_time_series_data(case_family, new_time_series_df, save_dir
 
     new_time_series_df.iloc[new_time_series_df.index.get_level_values("CaseFamily") == case_family].to_csv(all_ts_df_path)
 
-def read_time_series_data(results_path):
+def read_time_series_data(results_path, input_dict_path):
     # TODO fix scalability Greedy/LUT offline status at end for 25 turbines
+    # TODO add yaw_change cols, RunningOptimizationCostTerm_1, TotalRunningOptimizationCost terms
+        
     warnings.simplefilter('error', pd.errors.DtypeWarning)
     try:
         # get column names 
         with open(results_path, 'r', newline='') as fp:
             csv_reader = csv.reader(fp)
             columns = next(csv_reader)
-            columns = columns[1:] # remove index row
+            columns = columns[2:] # remove index rows
         bool_cols = [col for col in columns if "TurbineOfflineStatus" in col]
         if bool_cols:
-            df = pd.read_csv(results_path, index_col=0, dtype={col: object for col in bool_cols}) # necessary if contains NaNs
+            df = pd.read_csv(results_path, index_col=[0,1], dtype={col: object for col in bool_cols}) # necessary if contains NaNs
             for col in bool_cols:
                 df.loc[(df[col] == "False") | (df[col].isna()), col] = False
                 df[col] = df[col].astype(bool)
         else:
-            df = pd.read_csv(results_path, index_col=0)
+            df = pd.read_csv(results_path, index_col=[0,1])
         print(f"Read {results_path}")
-        df = df.set_index(["CaseFamily", "CaseName"])
-        return df
+        # df = df.set_index(["CaseFamily", "CaseName"])
+        
     except pd.errors.DtypeWarning as w:
         print(f"DtypeWarning with combined time series file {results_path}: {w}")
         warnings.simplefilter('ignore', pd.errors.DtypeWarning)
-        bad_df = pd.read_csv(results_path, index_col=0)
+        bad_df = pd.read_csv(results_path, index_col=[0,1])
         bad_cols = [bad_df.columns[int(s) - len(bad_df.index.names)] for s in re.findall(r"(?<=Columns \()(.*)(?=\))", w.args[0])[0].split(",")]
         bad_df.loc[bad_df[bad_cols].isna().any(axis=1)][["Time", "CaseFamily", "CaseName"]].values
         bad_df["Time"].max()
     except pd.errors.EmptyDataError as e:
         print(f"Dataframe {results_path} not read correctly due to error {e}")
+        
+    with open(input_dict_path, 'rb') as fp:
+        input_config = pickle.load(fp)
+    
+    yaw_cols = [col for col in df.columns if "TurbineYawAngle_" in col]
+    yaw_change_cols = [col.replace("TurbineYawAngle", "TurbineYawAngleChange") for col in yaw_cols]
+    for yaw_col, yaw_change_col in zip(yaw_cols, yaw_change_cols):
+        df[yaw_change_col] = df[yaw_col].diff()
+    
+    alpha = input_config["controller"]["alpha"]
+    R = 1 - alpha
+    norm_yaw_angle_changes = (df[yaw_change_cols] / (input_config["controller"]["controller_dt"] * input_config["controller"]["yaw_rate"])).values
+    df["RunningOptimizationCostTerm_1"] = np.sum(np.stack([0.5 * (norm_yaw_angle_changes[:, i])**2 * R for i in range(norm_yaw_angle_changes.shape[1])], axis=1), axis=1)
+    df["TotalRunningOptimizationCost"] = df["RunningOptimizationCostTerm_0"] + df["RunningOptimizationCostTerm_1"]
+    return df.iloc[1:] # drop initial row containing init yaw angles, wind passed to floris etc
 
 def generate_outputs(agg_results_df, save_dir):
 

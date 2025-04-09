@@ -694,14 +694,14 @@ class PreviewForecast(WindForecast):
     """
     Reads wind speed components from upstream turbines, and computes time of arrival based on taylor's frozen wake hypothesis.
     """
-    
+   
     def __post_init__(self):
         super().__post_init__()
         self.n_turbines = self.fmodel.n_turbines
         self.measurement_layout = np.vstack([self.fmodel.layout_x, self.fmodel.layout_y]).T
         
         # the turbines to consider in the spatial filtering for the estimation of the wind direction at each turbine
-        self.n_neighboring_turbines = self.kwargs["n_neighboring_turbines"] 
+        self.n_neighboring_turbines = self.kwargs.get("n_neighboring_turbines", None) 
         if self.n_neighboring_turbines:
             self.cluster_turbines = [sorted(np.arange(self.n_turbines), 
                         key=lambda t: np.linalg.norm(self.measurement_layout[tid, :] - self.measurement_layout[t, :]))[:self.n_neighboring_turbines]
