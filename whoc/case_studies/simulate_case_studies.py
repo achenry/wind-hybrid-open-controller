@@ -259,7 +259,9 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         k += int(ctrl.controller_dt / simulation_input_dict["simulation_dt"])
     
         # if RAM is running low, write existing data to dataframe and continue
-        if virtual_memory().percent > 75 or (k > 0 and k % 2 == 0):
+        ram_used = virtual_memory().percent
+        print(f"Used {ram_used}% RAM.")
+        if ram_used > 75:
              
             # turn data into arrays, pandas dataframe, and export to csv
             write_df(case_family=kwargs["case_family"],
@@ -390,9 +392,14 @@ def write_df(case_family, case_name, wind_case_idx, n_future_steps, wf_source, w
     if start_step >= 0:
         fs_wind_mag = simulation_mag[start_step-1:start_step-1+yaw_angles_ts.shape[0]].values
         fs_wind_dir = simulation_dir[start_step-1:start_step-1+yaw_angles_ts.shape[0]].values
+        filtered_fs_wind_dir = first_ord_filter(fs_wind_dir,
+                                                alpha=np.exp(-(1 / simulation_input_dict["controller"]["lpf_time_const"]) * simulation_input_dict["simulation_dt"]))
     else:
         fs_wind_mag = np.insert(simulation_mag[0:yaw_angles_ts.shape[0]-1].values, 0, np.nan)
         fs_wind_dir = np.insert(simulation_dir[0:yaw_angles_ts.shape[0]-1].values, 0, np.nan)
+        filtered_fs_wind_dir = np.insert(first_ord_filter(fs_wind_dir[~np.isnan(fs_wind_dir)], 
+                                        alpha=np.exp(-(1 / simulation_input_dict["controller"]["lpf_time_const"]) * simulation_input_dict["simulation_dt"])),
+                                                        0, np.nan)
         
     start_step = max(0, start_step)
     
@@ -403,8 +410,7 @@ def write_df(case_family, case_name, wind_case_idx, n_future_steps, wf_source, w
         "Time": start_time + (np.arange(0, yaw_angles_ts.shape[0]) * simulation_input_dict["simulation_dt"]),
         "FreestreamWindMag": fs_wind_mag,
         "FreestreamWindDir": fs_wind_dir,
-        "FilteredFreestreamWindDir": first_ord_filter(fs_wind_dir, 
-                                                      alpha=np.exp(-(1 / simulation_input_dict["controller"]["lpf_time_const"]) * simulation_input_dict["simulation_dt"])),
+        "FilteredFreestreamWindDir": filtered_fs_wind_dir,
         # **{
         #     f"InitTurbineYawAngle_{idx2tid_mapping[i]}": init_yaw_angles_ts[:, i] for i in range(ctrl.n_turbines)
         # }, 
@@ -477,8 +483,8 @@ def write_df(case_family, case_name, wind_case_idx, n_future_steps, wf_source, w
         results_data = results_data.merge(predicted_wind_speeds_ts, on=["CaseFamily", "CaseName", "WindSeed", "Time"], how="outer")
         # del predicted_wind_speeds_ts
     
-    if not final:
-        results_data = results_data.dropna(subset=["FreestreamWindMag"])
+        if not final:
+            results_data = results_data.dropna(subset=[f"TrueTurbineWindSpeedHorz_{idx2tid_mapping[i]}" for i in range(fi_full.n_turbines)])
     
     if os.path.exists(save_path):
         results_data.to_csv(save_path, mode="a", header=False, index=False)
