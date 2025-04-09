@@ -213,10 +213,6 @@ if __name__ == "__main__":
                     
                     time_series_df = pd.concat(existing_time_series_df + [new_time_series_df])
                     
-                    for i in args.case_ids:
-                        assert all([case_name in case_family_case_names[case_families[i]] for case_name in time_series_df.iloc[(time_series_df.index.get_level_values("CaseFamily") == case_families[i])].index.get_level_values("CaseName")]), \
-                            f"old time series .csv files exist in {os.path.join(args.save_dir, case_families[i])} that are no longer included in case_family {case_families[i]}. Please remove them and run again."
-
                     # if args.reaggregate_simulations is true, or for any case family where doesn't agg_results_all.csv exist, compute the aggregate stats for each case families and case name, over all wind seeds
                     futures = [run_simulations_exec.submit(aggregate_time_series_data,
                                                              time_series_df=time_series_df.iloc[(time_series_df.index.get_level_values("CaseFamily") == case_families[i]) & (time_series_df.index.get_level_values("CaseName") == case_name), :],
@@ -339,6 +335,17 @@ if __name__ == "__main__":
 
             agg_df = pd.concat(agg_df)
 
+        
+        # TODO FIX to prevent confusing errors
+        # for i in args.case_ids:
+        #     assert all([case_name in case_family_case_names[case_families[i]] for case_name in time_series_df.iloc[(time_series_df.index.get_level_values("CaseFamily") == case_families[i])].index.get_level_values("CaseName")]), \
+        #         f"old time series .csv files exist in {os.path.join(args.save_dir, case_families[i])} that are no longer included in case_family {case_families[i]}. Please remove them, and the corresponding time_series_results_all.csv, and run again."
+
+        # for i in args.case_ids:
+        #     assert all([case_name in case_family_case_names[case_families[i]] for case_name in agg_df.iloc[(agg_df.index.get_level_values("CaseFamily") == case_families[i])].index.get_level_values("CaseName")]), \
+        #         f"old time series .csv files exist in {os.path.join(args.save_dir, case_families[i])} that are no longer included in case_family {case_families[i]}. Please remove them, and the corresponding agg_results_all.csv, and run again."
+
+        
         if RUN_ONCE and PLOT:
             
             if (case_families.index("baseline_controllers_perfect_forecaster_awaken") in args.case_ids
@@ -379,32 +386,34 @@ if __name__ == "__main__":
                 # Filter data for the two forecast types
                 forecasters_agg_df = baseline_agg_df.loc[baseline_agg_df["wind_forecast_class"] != "PerfectForecast", :]
                 perfect_agg_df = baseline_agg_df.loc[baseline_agg_df["wind_forecast_class"] == "PerfectForecast", :]
+                controllers = pd.unique(forecasters_agg_df["controller_class"])
+                controller_labels = {"GreedyController": "Greedy", "LookupBasedWakeSteeringController": "LUT"}
                 
                 # PLOT 1) Farm power of perfect forecaster vs prediction timedela for different controllers
                 import seaborn as sns
                 import matplotlib.pyplot as plt
-                plot_df = perfect_agg_df.copy()
-                plot_df["prediction_timedelta"] = plot_df["prediction_timedelta"].dt.total_seconds()
-                plot_df[("FarmPowerMean", "mean")] = plot_df[("FarmPowerMean", "mean")] / 1e6
-                controller_labels = {"GreedyController": "Greedy", "LookupBasedWakeSteeringController": "LUT"}
-                controllers = pd.unique(plot_df["controller_class"])
-                x_vals = pd.unique(plot_df["prediction_timedelta"])
-                xlim = (x_vals.min(), x_vals.max())
-                fig, ax = plt.subplots(1, len(controllers))
-                for c, ctrl in enumerate(controllers):
-                    sns.lineplot(plot_df.loc[plot_df["controller_class"] == ctrl, :], 
-                                x="prediction_timedelta", y=("FarmPowerMean", "mean"), ax=ax[c])
-                    ax[c].set_ylabel("")
-                    ax[c].set_xlabel("Prediction Horizon (s)")
-                    ax[c].set_title(f"{controller_labels[ctrl]} Mean Farm Power (MW)")
-                    ax[c].set_xlim(xlim)
-                    ax[c].set_xticks(x_vals)
-                
-                # PLOT 2) Farm power ratio of other forecasters relative to perfect forecaster vs prediction timedela for different controllers (diff plots)
-                plot_df = forecasters_agg_df.set_index(["controller_class", "prediction_timedelta"])
-                plot_df["power_ratio"] = (plot_df[("FarmPowerMean", "mean")] / perfect_agg_df.set_index(["controller_class", "prediction_timedelta"])[("FarmPowerMean", "mean")]) * 100
-                plot_df = plot_df.reset_index()
-                plot_power_increase_vs_prediction_time(plot_df, args.save_dir)
+                if len(perfect_agg_df):
+                    plot_df = perfect_agg_df.copy()
+                    plot_df["prediction_timedelta"] = plot_df["prediction_timedelta"].dt.total_seconds()
+                    plot_df[("FarmPowerMean", "mean")] = plot_df[("FarmPowerMean", "mean")] / 1e6
+                    
+                    x_vals = pd.unique(plot_df["prediction_timedelta"])
+                    xlim = (x_vals.min(), x_vals.max())
+                    fig, ax = plt.subplots(1, len(controllers))
+                    for c, ctrl in enumerate(controllers):
+                        sns.lineplot(plot_df.loc[plot_df["controller_class"] == ctrl, :], 
+                                    x="prediction_timedelta", y=("FarmPowerMean", "mean"), ax=ax[c])
+                        ax[c].set_ylabel("")
+                        ax[c].set_xlabel("Prediction Horizon (s)")
+                        ax[c].set_title(f"{controller_labels[ctrl]} Mean Farm Power (MW)")
+                        ax[c].set_xlim(xlim)
+                        ax[c].set_xticks(x_vals)
+                    
+                    # PLOT 2) Farm power ratio of other forecasters relative to perfect forecaster vs prediction timedela for different controllers (diff plots)
+                    plot_df = forecasters_agg_df.set_index(["controller_class", "prediction_timedelta"])
+                    plot_df["power_ratio"] = (plot_df[("FarmPowerMean", "mean")] / perfect_agg_df.set_index(["controller_class", "prediction_timedelta"])[("FarmPowerMean", "mean")]) * 100
+                    plot_df = plot_df.reset_index()
+                    plot_power_increase_vs_prediction_time(plot_df, args.save_dir)
 
                 # PLOT 3) Mean of True vs Predicted values of Turbine wind speeds vs. time for different controllers (diff plots) and forecasters (diff colors)
                 
@@ -459,11 +468,11 @@ if __name__ == "__main__":
                 # PLOT 4) Yaw angles/power for persistent vs. other forecasters for best lead times
                 best_forecaster_prediction_delta = forecasters_agg_df.groupby("wind_forecast_class", group_keys=False).apply(lambda x: x.sort_values(by=("FarmPowerMean", "mean"), ascending=False).head(10)) #[("FarmPowerMean", "mean")] 
                 best_perfect_prediction_delta = perfect_agg_df.groupby("wind_forecast_class", group_keys=False).apply(lambda x: x.sort_values(by=("FarmPowerMean", "mean"), ascending=False).head(10))
-                plotting_cases = [(forecaster_case_fam, best_perfect_prediction_delta.iloc[0]._name[1])]
+                plotting_cases = [(forecaster_case_fam, df[1]._name[1]) for df in forecasters_agg_df.iterrows()]
                 plot_simulations(
                         time_series_df, plotting_cases, args.save_dir, include_power=True, 
                         legend_loc="outer", single_plot=False) 
-
+                # TODO yaw, power, and offline columns are only present for turbine in target_turbine_indices, otherwise nan = these should be renamed to reflect which turbines they are
                 # PLOT 5) True vs predicted values
                 forecast_wf = time_series_df.iloc[
                     (time_series_df.index.get_level_values("CaseFamily") == forecaster_case_fam)]\
