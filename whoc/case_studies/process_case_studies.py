@@ -104,7 +104,7 @@ def write_case_family_time_series_data(case_family, new_time_series_df, save_dir
 
 def read_time_series_data(results_path, input_dict_path):
     # TODO fix scalability Greedy/LUT offline status at end for 25 turbines
-    # TODO add yaw_change cols, RunningOptimizationCostTerm_1, TotalRunningOptimizationCost terms
+    
         
     warnings.simplefilter('error', pd.errors.DtypeWarning)
     try:
@@ -532,7 +532,7 @@ def aggregate_time_series_data(time_series_df, input_dict_path, n_seeds):
         _type_: _description_
     """
     # x = time_series_df.reset_index(level=["CaseFamily", "CaseName"], drop=True)
-    time_series_df = time_series_df.drop(columns=[col for col in time_series_df.columns if "Predicted" in col or "Stddev" in col]).dropna(axis=1, how="all").dropna(how="all")
+    time_series_df = time_series_df.drop(columns=[col for col in time_series_df.columns if "Predicted" in col or "Stddev" in col]).dropna(axis=1, how="all").dropna(subset=["FarmPower"])
     case_seeds = pd.unique(time_series_df["WindSeed"])
     case_family = time_series_df.index.get_level_values("CaseFamily")[0]
     # case_family = df_name.replace(f"_{results_df['CaseName'].iloc[0]}", "")
