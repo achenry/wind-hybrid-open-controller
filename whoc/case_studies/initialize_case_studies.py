@@ -507,8 +507,9 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         
         # TODO check that wind field has same dt or interpolate...
         seed = 0
+        if n_seeds == "auto":
+            n_seeds = len(wind_field_filenames)
         if len(wind_field_filenames) < n_seeds or regenerate_wind_field:
-            n_seeds = 6
             print("regenerating wind fields")
             wind_field_config["regenerate_distribution_params"] = True # set to True to regenerate from constructed mean and covaraicne
             full_wf = WindField(**wind_field_config)
@@ -554,7 +555,8 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         
         if stoptime == "auto": 
             durations = [(df["time"].iloc[-1] - df["time"].iloc[0]).total_seconds() for df in wind_field_data]
-            whoc_config["hercules_comms"]["helics"]["config"]["stoptime"] = stoptime = min([d.total_seconds() if hasattr(d, 'total_seconds') else d for d in durations])
+            # whoc_config["hercules_comms"]["helics"]["config"]["stoptime"] = stoptime = min([d.total_seconds() if hasattr(d, 'total_seconds') else d for d in durations])
+            whoc_config["hercules_comms"]["helics"]["config"]["stoptime"] = stoptime = [d.total_seconds() if hasattr(d, 'total_seconds') else d for d in durations]
 
     elif wf_source == "scada":
         data_module = DataModule(data_path=model_config["dataset"]["data_path"], 
@@ -584,7 +586,8 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         wind_field_ts = [df.to_pandas() for df in wind_field_ts.partition_by("split")]
         
         wind_field_ts = sorted(wind_field_ts, reverse=True, key=lambda df: df["time"].iloc[-1] - df["time"].iloc[0])
-        wind_field_ts = wind_field_ts[:n_seeds]
+        if n_seeds != "auto":
+            wind_field_ts = wind_field_ts[:n_seeds]
         
         print(f"Loaded and normalized SCADA wind field from {model_config['dataset']['data_path']} with dt = {wind_field_ts[0]['time'].diff().iloc[1]}")
         
@@ -595,9 +598,11 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         
         wind_field_config = {}
         
-        if stoptime == "auto": 
+        if stoptime == "auto":
+            # TODO HIGH this cuts too many values
             durations = [df["time"].iloc[-1] - df["time"].iloc[0] for df in wind_field_ts]
-            whoc_config["hercules_comms"]["helics"]["config"]["stoptime"] = stoptime = min([d.total_seconds() for d in durations])
+            # whoc_config["hercules_comms"]["helics"]["config"]["stoptime"] = stoptime = min([d.total_seconds() for d in durations])
+            whoc_config["hercules_comms"]["helics"]["config"]["stoptime"] = stoptime = [d.total_seconds() for d in durations]
     
     input_dicts = []
     case_lists = []
@@ -652,7 +657,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                 else:
                     input_dicts[start_case_idx + c][property_name] = property_value
             
-            assert input_dicts[start_case_idx + c]["controller"]["controller_dt"] <= stoptime
+            assert all(input_dicts[start_case_idx + c]["controller"]["controller_dt"] <= t for t in stoptime)
             
             if input_dicts[start_case_idx + c]["controller"]["wind_forecast_class"] or "wind_forecast_class" in case: 
                 input_dicts[start_case_idx + c]["wind_forecast"] \
@@ -709,7 +714,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                     if key not in ["simulation_dt", "use_filtered_wind_dir", "use_lut_filtered_wind_dir", "yaw_limits", "wind_case_idx", "seed", "floris_input_file", "lut_path"]]) \
                     if "case_names" not in case else case["case_names"]}.pkl'.replace("/", "_")
 
-            input_filenames.append((case_study_key, fn)) 
+            input_filenames.append((case_study_key, case_lists[start_case_idx + c]["wind_case_idx"], fn)) 
 
     prediction_timedelta = max(inp["wind_forecast"]["prediction_timedelta"] for inp in input_dicts if inp["controller"]["wind_forecast_class"]) \
             if any(inp["controller"]["wind_forecast_class"] for inp in input_dicts) else pd.Timedelta(seconds=0)
@@ -720,11 +725,13 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
 
     # assert all([(df["time"].iloc[-1] - df["time"].iloc[0]).total_seconds() >= stoptime + prediction_timedelta + horizon_timedelta for df in wind_field_ts])
     wind_field_ts = [df.loc[(df["time"] - df["time"].iloc[0]).dt.total_seconds() 
-                        <= stoptime + prediction_timedelta.total_seconds() + horizon_timedelta.total_seconds()] 
-                    for df in wind_field_ts]
-    stoptime = max(min([((df["time"].iloc[-1] - df["time"].iloc[0]) - prediction_timedelta - horizon_timedelta).total_seconds() for df in wind_field_ts]), stoptime)
-    for (case_study_key, fn), inp in zip(input_filenames, input_dicts):
-        inp["hercules_comms"]["helics"]["config"]["stoptime"] = stoptime
+                        <= stoptime[d] + prediction_timedelta.total_seconds() + horizon_timedelta.total_seconds()] 
+                    for d, df in enumerate(wind_field_ts)]
+    # stoptime = max(min([((df["time"].iloc[-1] - df["time"].iloc[0]) - prediction_timedelta - horizon_timedelta).total_seconds() for df in wind_field_ts]), stoptime)
+    stoptime = [max(((df["time"].iloc[-1] - df["time"].iloc[0]) - prediction_timedelta - horizon_timedelta).total_seconds(), stoptime[d]) for d, df in enumerate(wind_field_ts)]
+    for (case_study_key, wind_case_idx, fn), inp in zip(input_filenames, input_dicts):
+        # TODO set correct stop time dependin gon wind seed case_lists[c]["wind_case_idx"]
+        inp["hercules_comms"]["helics"]["config"]["stoptime"] = stoptime[wind_case_idx]
         results_dir = os.path.join(save_dir, case_study_key)
         os.makedirs(results_dir, exist_ok=True)
         with open(os.path.join(results_dir, fn), 'wb') as fp:
