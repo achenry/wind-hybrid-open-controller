@@ -273,8 +273,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
             predicted_turbine_wind_speed_vert_ts = np.vstack(predicted_turbine_wind_speed_vert_ts)[:-(n_truncate_steps), :].astype(float)
             stddev_turbine_wind_speed_horz_ts = np.vstack(stddev_turbine_wind_speed_horz_ts)[:-(n_truncate_steps), :].astype(float)
             stddev_turbine_wind_speed_vert_ts = np.vstack(stddev_turbine_wind_speed_vert_ts)[:-(n_truncate_steps), :].astype(float)
-            turbine_offline_status_ts = np.vstack(turbine_offline_status_ts)[:-(n_truncate_steps), :]
-            turbine_powers_ts = turbine_powers_ts[:-n_truncate_steps]
+            # turbine_offline_status_ts = np.vstack(turbine_offline_status_ts)
             # init_yaw_angles_ts = init_yaw_angles_ts[:-n_truncate_steps]
 
 
@@ -285,17 +284,18 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
 
         yaw_angles_ts = yaw_angles_ts[:-(n_future_steps + 1), :]
         turbine_powers_ts = np.vstack(turbine_powers_ts)
-        
+
     n_truncate_steps = (int(ctrl.controller_dt - (simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"] % ctrl.controller_dt)) % ctrl.controller_dt) // simulation_input_dict["simulation_dt"]
     # turbine_wind_mag_ts = turbine_wind_mag_ts[:(-n_truncate_steps) or None, :]
     # turbine_wind_dir_ts = turbine_wind_dir_ts[:(-n_truncate_steps) or None, :]
-    #turbine_offline_status_ts = turbine_offline_status_ts[:(-n_truncate_steps) or None, :]
+    turbine_offline_status_ts = turbine_offline_status_ts[:-(n_truncate_steps + 1)]
     yaw_angles_change_ts = yaw_angles_change_ts[:(-n_truncate_steps) or None, :]
     yaw_angles_ts = yaw_angles_ts[:(-n_truncate_steps) or None, :] # TODO LOW first element allows for greater change than yaw_rate
     turbine_powers_ts = turbine_powers_ts[:(-n_truncate_steps) or None, :]
     opt_cost_terms_ts = opt_cost_terms_ts[:(-n_truncate_steps) or None]
     convergence_time_ts = convergence_time_ts[:(-n_truncate_steps) or None]
-    
+    turbine_powers_ts = turbine_powers_ts[:-(n_future_steps + 1), :]
+
     running_opt_cost_terms_ts = np.zeros_like(opt_cost_terms_ts)
     Q = simulation_input_dict["controller"]["alpha"]
     R = (1 - simulation_input_dict["controller"]["alpha"]) 
