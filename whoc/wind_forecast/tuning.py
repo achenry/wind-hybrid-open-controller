@@ -1,5 +1,6 @@
-from whoc.wind_forecast.WindForecast import SVRForecast
+from whoc.wind_forecast.WindForecast import SVRForecast, generate_wind_field_df
 from wind_forecasting.preprocessing.data_module import DataModule
+from gluonts.dataset.split import split, slice_data_entry
 import numpy as np
 import polars as pl
 import polars.selectors as cs
@@ -24,6 +25,10 @@ if __name__ == "__main__":
     parser.add_argument("-dcnf", "--data_config", type=str)
     parser.add_argument("-sn", "--study_name", type=str)
     parser.add_argument("-m", "--multiprocessor", choices=["mpi", "cf"], default="cf")
+    parser.add_argument("-msp", "--max_splits", type=int, required=False, default=None,
+                        help="Number of test splits to use.")
+    parser.add_argument("-mst", "--max_steps", type=int, required=False, default=None,
+                        help="Number of time steps to use.")
     parser.add_argument("-s", "--seed", type=int, help="Seed for random number generator", default=42)
     parser.add_argument("-i", "--initialize", action="store_true")
     parser.add_argument("-rt", "--restart_tuning", action="store_true")
@@ -33,7 +38,7 @@ if __name__ == "__main__":
     with open(args.model_config, 'r') as file:
         model_config  = yaml.safe_load(file)
         
-    assert model_config["optuna"]["backend"] in ["sqlite", "mysql", "journal"]
+    assert model_config["optuna"]["storage"]["backend"] in ["sqlite", "mysql", "journal"]
     
     with open(args.data_config, 'r') as file:
         data_config  = yaml.safe_load(file)
@@ -47,27 +52,23 @@ if __name__ == "__main__":
      
     fmodel = FlorisModel(data_config["farm_input_path"])
     
-    prediction_timedelta = model_config["dataset"]["prediction_length"] * pd.Timedelta(model_config["dataset"]["resample_freq"]).to_pytimedelta()
-    context_timedelta = model_config["dataset"]["context_length"] * pd.Timedelta(model_config["dataset"]["resample_freq"]).to_pytimedelta()
-    
-    # %% SETUP SEED
-    logging.info(f"Setting random seed to {args.seed}")
-    # torch.manual_seed(args.seed)
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    
-    # %% READING WIND FIELD TRAINING DATA # TODO fetch training and test data here
     logging.info("Creating datasets")
     data_module = DataModule(data_path=model_config["dataset"]["data_path"], 
-                             normalization_consts_path=model_config["dataset"]["normalization_consts_path"],
-                             denormalize=True, 
-                             n_splits=1, #model_config["dataset"]["n_splits"],
+                            normalization_consts_path=model_config["dataset"]["normalization_consts_path"],
+                            normalized=True, 
+                            n_splits=1, #model_config["dataset"]["n_splits"],
                             continuity_groups=None, train_split=(1.0 - model_config["dataset"]["val_split"] - model_config["dataset"]["test_split"]),
                                 val_split=model_config["dataset"]["val_split"], test_split=model_config["dataset"]["test_split"],
                                 prediction_length=model_config["dataset"]["prediction_length"], context_length=model_config["dataset"]["context_length"],
                                 target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                                 freq=model_config["dataset"]["resample_freq"], target_suffixes=model_config["dataset"]["target_turbine_ids"],
                                     per_turbine_target=model_config["dataset"]["per_turbine_target"], as_lazyframe=False, dtype=pl.Float32)
+        
+    # %% SETUP SEED
+    logging.info(f"Setting random seed to {args.seed}")
+    # torch.manual_seed(args.seed)
+    random.seed(args.seed)
+    np.random.seed(args.seed)
     
     # %% PREPARING DIRECTORIES
     for direc in [model_config["optuna"]["storage_dir"], data_config["temp_storage_dir"]]:
@@ -85,8 +86,8 @@ if __name__ == "__main__":
     if args.model == "svr": 
         model = SVRForecast(measurements_timedelta=pd.Timedelta(model_config["dataset"]["resample_freq"]),
                             controller_timedelta=None,
-                            prediction_timedelta=prediction_timedelta,
-                            context_timedelta=context_timedelta,
+                            prediction_timedelta=data_module.prediction_length*pd.Timedelta(model_config["dataset"]["resample_freq"]),
+                            context_timedelta=data_module.context_length*pd.Timedelta(model_config["dataset"]["resample_freq"]),
                             fmodel=fmodel,
                             true_wind_field=None,
                             model_config=model_config,
@@ -101,25 +102,39 @@ if __name__ == "__main__":
     
     # %% PREPARING DATA FOR TUNING
     if args.initialize:
+        # %% READING WIND FIELD TRAINING DATA # TODO fetch training and test data here
+
+    
         logging.info("Preparing data for tuning")
         if not os.path.exists(data_module.train_ready_data_path):
             data_module.generate_datasets()
+            reload = True
+        else:
+            reload = False
             
-        true_wind_field = data_module.generate_splits(save=True, reload=False, splits=["train", "val"])._df.collect()
-            # if args.max_splits:
-            #     test_data = data_module.test_dataset[:args.max_splits]
-            # else:
-            #     test_data = data_module.test_dataset
-            
-            # if args.max_steps:
-            #     test_data = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in test_data]
+        true_wind_field = data_module.generate_splits(save=True, reload=reload, splits=["train", "val"])._df.collect()
+        if args.max_splits:
+            train_dataset = data_module.train_dataset[:args.max_splits]
+            val_dataset = data_module.val_dataset[:args.max_splits]
+        else:
+            train_dataset = data_module.train_dataset
+            val_dataset = data_module.val_dataset
         
-        model.prepare_data(train_dataset=data_module.train_dataset, val_dataset=data_module.val_dataest)
+        if args.max_steps:
+            train_dataset = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in train_dataset]
+            val_dataset = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in val_dataset]
+            
+        train_dataset = generate_wind_field_df(datasets=train_dataset, target_cols=data_module.target_cols, feat_dynamic_real_cols=data_module.feat_dynamic_real_cols)
+        val_dataset = generate_wind_field_df(datasets=val_dataset, target_cols=data_module.target_cols, feat_dynamic_real_cols=data_module.feat_dynamic_real_cols)
+        delattr(data_module, "train_dataset")
+        delattr(data_module, "val_dataset")
+        
+        model.prepare_data(train_dataset=train_dataset.partition_by("continuity_group"), val_dataset=val_dataset.partition_by("continuity_group"), scale=False)
         
         logging.info("Reinitializing storage") 
         if args.restart_tuning:
             storage = model.get_storage(
-                backend=model_config["optuna"]["backend"], 
+                backend=model_config["optuna"]["storage"]["backend"], 
                     study_name=args.study_name, 
                     storage_dir=model_config["optuna"]["storage_dir"])
             for s in storage.get_all_studies():
@@ -130,7 +145,7 @@ if __name__ == "__main__":
         pruning_kwargs = model_config["optuna"]["pruning"] 
         #{"type": "hyperband", "min_resource": 2, "max_resource": 5, "reduction_factor": 3, "percentile": 25}
         model.tune_hyperparameters_single(study_name=args.study_name,
-                                        backend=model_config["optuna"]["backend"],
+                                        backend=model_config["optuna"]["storage"]["backend"],
                                         n_trials=model_config["optuna"]["n_trials"], 
                                         storage_dir=model_config["optuna"]["storage_dir"],
                                         seed=args.seed)
