@@ -139,7 +139,7 @@ class LookupBasedWakeSteeringController(ControllerBase):
             df_lut["yaw_angles_opt"] = df_lut["yaw_angles_opt"].apply(lambda s: np.array(re.findall(r"-*\d+\.\d*", s), dtype=float))
         else:
             # if csv to load from is not given, optimize
-            # LUT optimizer wind field options
+            # LUT optimizer wind field options # TODO HIGH RESET
             wind_directions_lut = np.arange(0.0, 360.0, 3.0)
             # wind_directions_lut = np.arange(0.0, 360.0, 60.0)
             wind_speeds_lut = np.arange(6.0, 22.0, 2.0)
@@ -219,6 +219,18 @@ class LookupBasedWakeSteeringController(ControllerBase):
             df_lut = pd.concat([df_lut, df_copy_360deg], axis=0).reset_index(drop=True)
             # ['wind_direction', 'wind_speed', 'turbulence_intensity',
             #        'yaw_angles_opt', 'farm_power_opt', 'farm_power_baseline']
+            
+            # start LUT inspection code
+            # import seaborn as sns
+            # yaw_angles_opt = np.vstack(df_lut["yaw_angles_opt"].values)
+            # df_plot = df_lut.drop(columns=["yaw_angles_opt", "farm_power_opt", "farm_power_baseline"])
+            # df_plot = pd.concat([df_plot.assign(YawOffset=yaw_angles_opt[:, i], Turbine=i) for i in range(yaw_angles_opt.shape[1])], axis=0)
+                
+            # # df_plot = df_plot.groupby(["wind_speed", "wd_stddev"]).agg("mean")
+            # ax = sns.lineplot(df_plot, x="wind_direction", y="YawOffset", hue="wd_stddev", style="Turbine")
+            # ax.legend(bbox_to_anchor=(1, 1.01), loc="upper left")
+            # end LUT inspection code
+            
             os.makedirs(os.path.dirname(lut_path), exist_ok=True)
             if lut_path is not None:
                 df_lut.to_csv(lut_path)
