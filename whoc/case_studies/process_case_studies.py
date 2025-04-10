@@ -20,6 +20,9 @@ from floris.flow_visualization import visualize_cut_plane
 from scipy.interpolate import LinearNDInterpolator
 from scipy.interpolate import interp1d
 
+import logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
 factor = 1.5
 # factor = 3.0 # single column
 plt.rc('font', size=12*factor)          # controls default text sizes
@@ -81,24 +84,24 @@ def plot_wind_farm(floris_input_files, lut_paths, save_dir):
 
 def read_case_family_agg_data(case_family, save_dir):
     all_agg_df_path = os.path.join(save_dir, case_family, "agg_results_all.csv")
-    print(f"Reading case family {case_family} aggregate dataframe.")
+    logging.info(f"Reading case family {case_family} aggregate dataframe.")
     return pd.read_csv(all_agg_df_path, header=[0,1], index_col=[0, 1], skipinitialspace=True)
 
 def write_case_family_agg_data(case_family, new_agg_df, save_dir):
     all_agg_df_path = os.path.join(save_dir, case_family, "agg_results_all.csv")
-    print(f"Writing case family {case_family} aggregate dataframe.")
+    logging.info(f"Writing case family {case_family} aggregate dataframe.")
     new_agg_df.loc[new_agg_df.index.get_level_values("CaseFamily") == case_family, :].to_csv(all_agg_df_path)   
 
 def read_case_family_time_series_data(case_family, save_dir):
     # if reaggregate_simulations, or if the aggregated time series data doesn't exist for this case family, read the csv files for that case family
     all_ts_df_path = os.path.join(save_dir, case_family, "time_series_results_all.csv") 
-    print(f"Reading combined case family {case_family} time-series dataframe.")
+    logging.info(f"Reading combined case family {case_family} time-series dataframe.")
     return pd.read_csv(all_ts_df_path, index_col=[0, 1])
 
 def write_case_family_time_series_data(case_family, new_time_series_df, save_dir):
     all_ts_df_path = os.path.join(save_dir, case_family, "time_series_results_all.csv") # if reaggregate_simulations, or if the aggregated time series data doesn't exist for this case family, read the csv files for that case family
-    print(f"Writing combined case family {case_family} time-series dataframe.")
-    print(f"Directory of time_series_results_all.csv: {os.path.join(save_dir, case_family)}")
+    logging.info(f"Writing combined case family {case_family} time-series dataframe.")
+    logging.info(f"Directory of time_series_results_all.csv: {os.path.join(save_dir, case_family)}")
 
     new_time_series_df[new_time_series_df.index.get_level_values("CaseFamily") == case_family].to_csv(all_ts_df_path)
 
@@ -120,18 +123,18 @@ def read_time_series_data(results_path, input_dict_path):
                 df[col] = df[col].astype(bool)
         else:
             df = pd.read_csv(results_path, index_col=[0,1])
-        print(f"Read {results_path}")
+        logging.info(f"Read {results_path}")
         # df = df.set_index(["CaseFamily", "CaseName"])
         
     except pd.errors.DtypeWarning as w:
-        print(f"DtypeWarning with combined time series file {results_path}: {w}")
+        logging.info(f"DtypeWarning with combined time series file {results_path}: {w}")
         warnings.simplefilter('ignore', pd.errors.DtypeWarning)
         bad_df = pd.read_csv(results_path, index_col=[0,1])
         bad_cols = [bad_df.columns[int(s) - len(bad_df.index.names)] for s in re.findall(r"(?<=Columns \()(.*)(?=\))", w.args[0])[0].split(",")]
         bad_df.loc[bad_df[bad_cols].isna().any(axis=1)][["Time", "CaseFamily", "CaseName"]].values
         bad_df["Time"].max()
     except pd.errors.EmptyDataError as e:
-        print(f"Dataframe {results_path} not read correctly due to error {e}")
+        logging.info(f"Dataframe {results_path} not read correctly due to error {e}")
         
     with open(input_dict_path, 'rb') as fp:
         input_config = pickle.load(fp)
@@ -537,7 +540,7 @@ def aggregate_time_series_data(time_series_df, input_dict_path, n_seeds):
     # case_family = df_name.replace(f"_{results_df['CaseName'].iloc[0]}", "")
     case_name = time_series_df.index.get_level_values("CaseName")[0]
     if len(case_seeds) < n_seeds:
-       print(f"NOT aggregating data for {case_family}={case_name} due to insufficient seed simulations.")
+       logging.error(f"NOT aggregating data for {case_family}={case_name} due to insufficient seed simulations.")
        return None
 
     with open(input_dict_path, 'rb') as fp:
@@ -548,12 +551,12 @@ def aggregate_time_series_data(time_series_df, input_dict_path, n_seeds):
     time = pd.unique(time_series_df["Time"])
     
     if len(time) != int(stoptime // input_config["simulation_dt"]):
-       print(f"NOT aggregating data for {case_family}={case_name} due to insufficient time steps.")
+       logging.error(f"NOT aggregating data for {case_family}={case_name} due to insufficient time steps.")
        return None
    
     result_summary = []
     # input_fn = f"input_config_case_{case_name}.yaml"
-    print(f"Aggregating data for {case_family}={case_name}")
+    logging.info(f"Aggregating data for {case_family}={case_name}")
     
     if "lpf_start_time" in input_config["controller"]:
         lpf_start_time = input_config["controller"]["lpf_start_time"]
@@ -585,7 +588,7 @@ def aggregate_time_series_data(time_series_df, input_dict_path, n_seeds):
                                 (seed_df["RunningOptimizationCostTerm_1"] / ((np.logical_not(turbine_offline_status_ts)).sum(axis=1))).mean(),
                                 seed_df["OptimizationConvergenceTime"].mean()))
         except ZeroDivisionError:
-            print("All turbines are offline! Can't generate RelativeYawAngleChangeAbsMean or RelativeFarmPowerMean.")
+            logging.error("All turbines are offline! Can't generate RelativeYawAngleChangeAbsMean or RelativeFarmPowerMean.")
         
     # print(f"Aggregated data for {case_family}={case_name}")
     agg_df = pd.DataFrame(result_summary, columns=["CaseFamily", "CaseName", "WindSeed",

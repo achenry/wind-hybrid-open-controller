@@ -16,6 +16,13 @@ import random
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+def replace_env_vars(dirpath):
+    env_vars = re.findall(r"(?:^|\/)\$(\w+)(?:\/|$)", dirpath)
+    for env_var in env_vars:
+        if env_var in os.environ:
+            dirpath = dirpath.replace(f"${env_var}", os.environ[env_var])
+    return dirpath
+
 if __name__ == "__main__":
     
     logging.info("Parsing arguments and configuration yaml.")
@@ -71,15 +78,18 @@ if __name__ == "__main__":
     np.random.seed(args.seed)
     
     # %% PREPARING DIRECTORIES
-    for direc in [model_config["optuna"]["storage_dir"], data_config["temp_storage_dir"]]:
-        env_vars = re.findall(r"(?:^|\/)\$(\w+)(?:\/|$)", direc)
-        for env_var in env_vars:
-            if env_var in os.environ:
-                direc = direc.replace(f"${env_var}", os.environ[env_var])
+    model_config["optuna"]["storage_dir"] = replace_env_vars(model_config["optuna"]["storage_dir"])
+    # if "$TMPDIR" not in  data_config["temp_storage_dir"]:
+    data_config["temp_storage_dir"] = replace_env_vars(data_config["temp_storage_dir"])
+
+    logging.info(f"Making Optuna storage directory {model_config['optuna']['storage_dir']}.")
+    os.makedirs(model_config["optuna"]["storage_dir"], exist_ok=True)
     
-        os.makedirs(direc, exist_ok=True)
-    # if not os.path.exists(data_config["temp_storage_dir"]): # get permission denied for /tmp/scratch dirs otherwise
-    # os.makedirs(data_config["temp_storage_dir"], exist_ok=True)
+    # if "$TMPDIR" not in data_config["temp_storage_dir"]:
+    logging.info(f"Making temporary train/val storage directory {data_config['temp_storage_dir']}.")
+    os.makedirs(data_config["temp_storage_dir"], exist_ok=True)
+    # else:
+    #     logging.info(f"Using temporary train/val storage directory {data_config['temp_storage_dir']}.")
     
     # %% INSTANTIATING MODEL
     logging.info("Instantiating model.")  
@@ -103,8 +113,6 @@ if __name__ == "__main__":
     # %% PREPARING DATA FOR TUNING
     if args.initialize:
         # %% READING WIND FIELD TRAINING DATA # TODO fetch training and test data here
-
-    
         logging.info("Preparing data for tuning")
         if not os.path.exists(data_module.train_ready_data_path):
             data_module.generate_datasets()
@@ -143,12 +151,14 @@ if __name__ == "__main__":
         # %% TUNING MODEL
         logging.info("Running tune_hyperparameters_multi")
         pruning_kwargs = model_config["optuna"]["pruning"] 
+        
         #{"type": "hyperband", "min_resource": 2, "max_resource": 5, "reduction_factor": 3, "percentile": 25}
         model.tune_hyperparameters_single(study_name=args.study_name,
                                         backend=model_config["optuna"]["storage"]["backend"],
                                         n_trials=model_config["optuna"]["n_trials"], 
                                         storage_dir=model_config["optuna"]["storage_dir"],
-                                        seed=args.seed)
+                                        seed=args.seed,
+                                        pruning_kwargs=pruning_kwargs)
                                         #  trial_protection_callback=handle_trial_with_oom_protection)
     
         # %% TESTING LOADING HYPERPARAMETERS

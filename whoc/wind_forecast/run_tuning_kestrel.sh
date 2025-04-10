@@ -6,7 +6,8 @@
 ##SBATCH --time=12:00:00
 #SBATCH --nodes=1
 #SBATCH --time=01:00:00
-#SBATCH --partition=debug
+##SBATCH --partition=debug
+#SBATCH --partition=nvme
 #SBATCH --ntasks-per-node=12
 #SBATCH --cpus-per-task=1
 
@@ -36,9 +37,10 @@ module list
 # Used to track process IDs for all workers
 declare -a WORKER_PIDS=()
 
-export MODEL_CONFIG="/$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel_awaken.yaml"
-export DATA_CONFIG="/$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_awaken_new.yaml"
-export TMPDIR="/tmp/scratch/${SLURM_JOB_ID}/"
+export MODEL_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel_awaken.yaml"
+#export MODEL_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel_flasc.yaml"
+export DATA_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_awaken_new.yaml"
+#export DATA_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_flasc.yaml"
 export STUDY_NAME="${1}_${2}_tuning"
 echo "MODEL=${MODEL}"
 echo "STUDY_NAME=${STUDY_NAME}"
@@ -49,14 +51,13 @@ echo "DATA_CONFIG=${DATA_CONFIG}"
 echo "=== STARTING DATA PREPARATION ==="
 date +"%Y-%m-%d %H:%M:%S"
 module purge
-module load miniforge
-# conda init
-conda activate wind_forecasting
+module load mamba
+mamba activate wind_forecasting
 python tuning.py \
-            --model $1 \
+            --model $MODEL \
             --model_config $MODEL_CONFIG \
             --data_config $DATA_CONFIG \
-            --study_name "${1}_${2}_tuning" \
+            --study_name $STUDY_NAME \
             --initialize \
             --seed 0
 wait
@@ -84,26 +85,12 @@ for i in $(seq 0 $((${NTUNERS}-1))); do
         echo "Starting worker ${WORKER_INDEX} on CPU ${i} with seed ${WORKER_SEED}"
         
         # Launch worker with environment settings
-        # CUDA_VISIBLE_DEVICES ensures each worker sees only one GPU
-        # The worker ID (SLURM_PROCID) helps Optuna identify workers
-        # srun --exclusive -n 1 --export=ALL,CUDA_VISIBLE_DEVICES=$i,SLURM_PROCID=${WORKER_INDEX},WANDB_DIR=${WANDB_DIR} \
-        nohup bash -c "
+	nohup bash -c "
         module purge
         module load mamba
         module load PrgEnv-intel
         mamba activate wind_forecasting
-        echo $MODEL
-        echo $STUDY_NAME
-        echo $MODEL_CONFIG
-        echo $DATA_CONFIG
-        python tuning.py \
-            --model $MODEL \
-            --model_config $MODEL_CONFIG \
-            --data_config $DATA_CONFIG \ 
-            --study_name $STUDY_NAME \
-	        --multiprocessor cf \
-            --seed ${WORKER_SEED} \
-            ${RESTART_FLAG}" &
+        python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG} --data_config ${DATA_CONFIG} --study_name ${STUDY_NAME} --multiprocessor cf --seed ${WORKER_SEED} ${RESTART_FLAG}" &
 
         # Store the process ID
         WORKER_PIDS+=($!)

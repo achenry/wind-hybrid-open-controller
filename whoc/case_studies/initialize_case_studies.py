@@ -21,6 +21,9 @@ from whoc import __file__ as whoc_file
 from whoc.case_studies.process_case_studies import plot_wind_field_ts
 from whoc.controllers.lookup_based_wake_steering_controller import LookupBasedWakeSteeringController
 
+import logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
 if sys.platform == "linux":
     N_COST_FUNC_TUNINGS = 21
     # if os.getlogin() == "ahenry":
@@ -38,15 +41,15 @@ elif sys.platform == "win32" or sys.platform == "cygwin":  # Add Windows check
 case_studies = {
     "baseline_controllers_preview_flasc_perfect": {
                                     "target_turbine_indices": {"group": 1, "vals": ["6,4", "6,"]},
-                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
+                                    "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController"]},
                                     "controller_dt": {"group": 0, "vals": [60]},
                                     "use_filtered_wind_dir": {"group": 0, "vals": [True]},
                                     "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
                                     "simulation_dt": {"group": 0, "vals": [60]},
                                     "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/smarteole_farm.yaml"]},
                                     "uncertain": {"group": 3, "vals": [False]}, # TODO automatcially set to False if r=foreacaster does not have predict_distr
-                                    "wind_forecast_class": {"group": 3, "vals": ["PreviewForecast", "PerfectForecast"]}, #, "PerfectForecast"]},
-                                    "prediction_timedelta": {"group": 4, "vals": [60, 120]}, #, 120, 180]},
+                                    "wind_forecast_class": {"group": 3, "vals": ["PreviewForecast"]}, #, "PerfectForecast"]},
+                                    "prediction_timedelta": {"group": 4, "vals": [120, 60]}, #, 120, 180]},
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]}
                                     },
     "baseline_controllers_forecasters_test_awaken": {
@@ -509,7 +512,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         if n_seeds == "auto":
             n_seeds = len(wind_field_filenames)
         if len(wind_field_filenames) < n_seeds or regenerate_wind_field:
-            print("regenerating wind fields")
+            logging.info("regenerating wind fields")
             wind_field_config["regenerate_distribution_params"] = True # set to True to regenerate from constructed mean and covaraicne
             full_wf = WindField(**wind_field_config)
             os.makedirs(wind_field_dir, exist_ok=True)
@@ -592,11 +595,11 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         else:
             n_seeds = len(wind_field_ts)
         
-        print(f"Loaded and normalized SCADA wind field from {model_config['dataset']['data_path']} with dt = {wind_field_ts[0]['time'].diff().iloc[1]}")
+        logging.info(f"Loaded and normalized SCADA wind field from {model_config['dataset']['data_path']} with dt = {wind_field_ts[0]['time'].diff().iloc[1]}")
         
         # make sure wind_dt == simulation_dt
         if simulation_dt != wind_field_ts[0]["time"].diff().iloc[1].total_seconds():
-            print(f"Resampling to {simulation_dt} seconds.")
+            logging.info(f"Resampling to {simulation_dt} seconds.")
             wind_field_ts = [wf.set_index("time").resample(f"{simulation_dt}s").mean().reset_index(names=["time"]) for wf in wind_field_ts]
         
         wind_field_config = {}
@@ -629,7 +632,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
 
         # make adjustements based on case study
         for c, case in enumerate(case_list):
-            print(f"Processing case: {start_case_idx + c}")
+            logging.info(f"Processing case: {start_case_idx + c}")
             for property_name, property_value in case.items():
                 if property_name in input_dicts[start_case_idx + c]["controller"]:
                     property_group = "controller"
@@ -705,7 +708,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                 if (new_case := tuple([floris_input_file, lut_path, uncertain_flag, yaw_limits, target_turbine_indices])) in lut_cases:
                     continue
                 
-                print(f"Regenerating LUT {lut_path}")
+                logging.info(f"Regenerating LUT {lut_path}")
                 LookupBasedWakeSteeringController._optimize_lookup_table(
                     floris_config_path=floris_input_file, uncertain=uncertain_flag, yaw_limits=yaw_limits, 
                     parallel=multiprocessor is not None,
@@ -736,7 +739,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                     for d, df in enumerate(wind_field_ts)]
     # stoptime = max(min([((df["time"].iloc[-1] - df["time"].iloc[0]) - prediction_timedelta - horizon_timedelta).total_seconds() for df in wind_field_ts]), stoptime)
     stoptime = [max(((df["time"].iloc[-1] - df["time"].iloc[0]) - prediction_timedelta - horizon_timedelta).total_seconds(), stoptime[d]) for d, df in enumerate(wind_field_ts)]
-    print("Writing input_config files")
+    logging.info("Writing input_config files")
     for (case_study_key, wind_case_idx, fn), inp in zip(input_filenames, input_dicts):
         inp["hercules_comms"]["helics"]["config"]["stoptime"] = stoptime[wind_case_idx]
         results_dir = os.path.join(save_dir, case_study_key)

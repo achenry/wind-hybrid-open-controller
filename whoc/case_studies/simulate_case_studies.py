@@ -9,6 +9,10 @@ from psutil import virtual_memory
 from whoc.interfaces.controlled_floris_interface import ControlledFlorisModel
 from whoc.wind_field.WindField import first_ord_filter
 
+import logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# @profile
 def simulate_controller(controller_class, wind_forecast_class, simulation_input_dict, **kwargs):
     
     results_dir = os.path.join(kwargs["save_dir"], kwargs['case_family'])
@@ -24,13 +28,13 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     
     if not kwargs["rerun_simulations"] and os.path.exists(os.path.join(results_dir, fn)):
         results_df = pd.read_csv(os.path.join(results_dir, fn))
-        print(f"Loaded existing {fn} since rerun_simulations argument is false")
+        logging.info(f"Loaded existing {fn} since rerun_simulations argument is false")
         return results_df
     elif not kwargs["rerun_simulations"] and os.path.exists(os.path.join(results_dir, fn.replace("results", f"chk"))):
         # TODO load checkpoint if exists
         pass
     
-    print(f"Running instance of {controller_class.__name__} - {kwargs['case_name']} with wind seed {kwargs['wind_case_idx']}")
+    logging.info(f"Running instance of {controller_class.__name__} - {kwargs['case_name']} with wind seed {kwargs['wind_case_idx']}")
     # Load a FLORIS object for power calculations
     fi = ControlledFlorisModel(t0=kwargs["wind_field_ts"]["time"].iloc[0],
                                yaw_limits=simulation_input_dict["controller"]["yaw_limits"],
@@ -235,9 +239,9 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         # assert np.all(ctrl.controls_dict['yaw_angles'] == ctrl.measurements_dict["wind_directions"] - fi.env.floris.farm.yaw_angles)
         # add freestream wind mags/dirs provided to controller, yaw angles computed at this time-step, resulting turbine powers, wind mags, wind dirs
 
-        print(f"\nTime = {t} of {controller_class.__name__} - {kwargs['case_name']} with wind seed {kwargs['wind_case_idx']}")
+        logging.info(f"\nTime = {t} of {controller_class.__name__} - {kwargs['case_name']} with wind seed {kwargs['wind_case_idx']}")
         if ctrl.verbose and False:
-            print(f"Measured Freestream Wind Direction = {simulation_dir[k]}",
+            logging.info(f"Measured Freestream Wind Direction = {simulation_dir[k]}",
                 f"Measured Freestream Wind Magnitude = {simulation_mag[k]}",
                 f"Measured Turbine Wind Directions = {ctrl.measurements_dict['wind_directions'] if ctrl.measurements_dict['wind_directions'].ndim == 2 else ctrl.measurements_dict['wind_directions']}",
                 f"Measured Turbine Wind Magnitudes = {ctrl.measurements_dict['wind_speeds'] if ctrl.measurements_dict['wind_speeds'].ndim == 2 else ctrl.measurements_dict['wind_speeds']}",
@@ -260,7 +264,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     
         # if RAM is running low, write existing data to dataframe and continue
         ram_used = virtual_memory().percent
-        print(f"Used {ram_used}% RAM.")
+        logging.info(f"Used {ram_used}% RAM.")
         if ram_used > 75:
              
             # turn data into arrays, pandas dataframe, and export to csv
@@ -338,7 +342,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
                 idx2tid_mapping=idx2tid_mapping,
                 save_path=save_path,
                 final=True)
-    print(f"Saved {fn}")
+    logging.info(f"Saved {fn}")
     
     # return results_data
 

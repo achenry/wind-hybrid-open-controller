@@ -153,7 +153,7 @@ class WindForecast:
         # get training data for this output
         # logging.info(f"Getting training data for output {output}.")
         X_train, y_train = self._get_output_data(output=output, split="train", reload=False)
-        X_val, y_val = self._get_output_data(output=output, split="val", reload=False,)
+        X_val, y_val = self._get_output_data(output=output, split="val", reload=False)
         
         # evaluate with cross-validation
         # logging.info(f"Computing score for output {output}.")
