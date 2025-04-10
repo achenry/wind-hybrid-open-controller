@@ -562,7 +562,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
     elif wf_source == "scada":
         data_module = DataModule(data_path=model_config["dataset"]["data_path"], 
                                  normalization_consts_path=model_config["dataset"]["normalization_consts_path"],
-                                 denormalize=True, 
+                                 normalized=False, 
                                  n_splits=1, #model_config["dataset"]["n_splits"],
                                  continuity_groups=None, train_split=(1.0 - model_config["dataset"]["val_split"] - model_config["dataset"]["test_split"]),
                                  val_split=model_config["dataset"]["val_split"], test_split=model_config["dataset"]["test_split"],
@@ -736,8 +736,8 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                     for d, df in enumerate(wind_field_ts)]
     # stoptime = max(min([((df["time"].iloc[-1] - df["time"].iloc[0]) - prediction_timedelta - horizon_timedelta).total_seconds() for df in wind_field_ts]), stoptime)
     stoptime = [max(((df["time"].iloc[-1] - df["time"].iloc[0]) - prediction_timedelta - horizon_timedelta).total_seconds(), stoptime[d]) for d, df in enumerate(wind_field_ts)]
+    print("Writing input_config files")
     for (case_study_key, wind_case_idx, fn), inp in zip(input_filenames, input_dicts):
-        # TODO set correct stop time dependin gon wind seed case_lists[c]["wind_case_idx"]
         inp["hercules_comms"]["helics"]["config"]["stoptime"] = stoptime[wind_case_idx]
         results_dir = os.path.join(save_dir, case_study_key)
         os.makedirs(results_dir, exist_ok=True)
