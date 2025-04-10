@@ -64,47 +64,48 @@ if __name__ == "__main__":
     # os.environ["PYOPTSPARSE_REQUIRE_MPI"] = "false"
     RUN_ONCE = (args.multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
     PLOT = True #sys.platform != "linux"
-    if args.run_simulations or args.generate_lut or args.generate_wind_field:
-        # run simulations
-        
-        if RUN_ONCE:
-            print(f"running initialize_simulations for case_ids {[case_families[i] for i in args.case_ids]}")
-            # os.path.join(os.path.dirname(whoc_file), "../examples/hercules_input_001.yaml")
-            with open(args.whoc_config, 'r') as file:
-                whoc_config  = yaml.safe_load(file)
-                
-            if args.wf_source == "scada":
-                with open(args.model_config, 'r') as file:
-                    model_config  = yaml.safe_load(file)
-                with open(args.data_config, 'r') as file:
-                    data_config  = yaml.safe_load(file)
-                
-                # TODO make sure this is mapping to target turbine indices, we want the TurbineYawAngle/Power/OfflineStatus to contain the target_turbine_indices
-                if len(data_config["turbine_signature"]) == 1:
-                    tid2idx_mapping = {str(k): i for i, k in enumerate(data_config["turbine_mapping"][0].keys())}
-                else:
-                    tid2idx_mapping = {str(k): i for i, k in enumerate(data_config["turbine_mapping"][0].values())} # if more than one file type was pulled from, all turbine ids will be transformed into common type
-                
-                turbine_signature = data_config["turbine_signature"][0] if len(data_config["turbine_signature"]) == 1 else "\\d+"
-                # optuna_args = model_config.setdefault("optuna", None)
-     
+    # if args.run_simulations or args.generate_lut or args.generate_wind_field:
+    # run simulations
+    
+    if RUN_ONCE:
+        print(f"running initialize_simulations for case_ids {[case_families[i] for i in args.case_ids]}")
+        # os.path.join(os.path.dirname(whoc_file), "../examples/hercules_input_001.yaml")
+        with open(args.whoc_config, 'r') as file:
+            whoc_config  = yaml.safe_load(file)
+            
+        if args.wf_source == "scada":
+            with open(args.model_config, 'r') as file:
+                model_config  = yaml.safe_load(file)
+            with open(args.data_config, 'r') as file:
+                data_config  = yaml.safe_load(file)
+            
+            # TODO make sure this is mapping to target turbine indices, we want the TurbineYawAngle/Power/OfflineStatus to contain the target_turbine_indices
+            if len(data_config["turbine_signature"]) == 1:
+                tid2idx_mapping = {str(k): i for i, k in enumerate(data_config["turbine_mapping"][0].keys())}
             else:
-                model_config = None
-                data_config = None
-                turbine_signature = None
-                tid2idx_mapping = None
-                
-            case_lists, case_name_lists, input_dicts, wind_field_config, wind_field_ts \
-                = initialize_simulations(case_study_keys=[case_families[i] for i in args.case_ids], 
-                                         regenerate_wind_field=args.generate_wind_field, 
-                                         regenerate_lut=args.generate_lut, 
-                                         n_seeds=args.n_seeds, 
-                                         stoptime=args.stoptime, 
-                                         save_dir=args.save_dir, 
-                                         wf_source=args.wf_source,
-                                         multiprocessor=args.multiprocessor, 
-                                         whoc_config=whoc_config, model_config=model_config, data_config=data_config)
-        n_seeds = len(wind_field_ts)
+                tid2idx_mapping = {str(k): i for i, k in enumerate(data_config["turbine_mapping"][0].values())} # if more than one file type was pulled from, all turbine ids will be transformed into common type
+            
+            turbine_signature = data_config["turbine_signature"][0] if len(data_config["turbine_signature"]) == 1 else "\\d+"
+            # optuna_args = model_config.setdefault("optuna", None)
+    
+        else:
+            model_config = None
+            data_config = None
+            turbine_signature = None
+            tid2idx_mapping = None
+            
+        case_lists, case_name_lists, input_dicts, wind_field_config, wind_field_ts \
+            = initialize_simulations(case_study_keys=[case_families[i] for i in args.case_ids], 
+                                        regenerate_wind_field=args.generate_wind_field, 
+                                        regenerate_lut=args.generate_lut, 
+                                        n_seeds=args.n_seeds, 
+                                        stoptime=args.stoptime, 
+                                        save_dir=args.save_dir, 
+                                        wf_source=args.wf_source,
+                                        multiprocessor=args.multiprocessor, 
+                                        whoc_config=whoc_config, model_config=model_config, data_config=data_config)
+        args.n_seeds = len(wind_field_ts)
+        
         if args.multiprocessor is not None:
             if args.multiprocessor == "mpi":
                 comm_size = MPI.COMM_WORLD.Get_size()
@@ -216,7 +217,7 @@ if __name__ == "__main__":
                     futures = [run_simulations_exec.submit(aggregate_time_series_data,
                                                              time_series_df=time_series_df.iloc[(time_series_df.index.get_level_values("CaseFamily") == case_families[i]) & (time_series_df.index.get_level_values("CaseName") == case_name), :],
                                                                 input_dict_path=os.path.join(args.save_dir, case_families[i], f"input_config_case_{case_name}.pkl"),
-                                                                n_seeds=n_seeds)
+                                                                n_seeds=args.n_seeds)
                         for i in args.case_ids
                         for case_name in pd.unique(time_series_df.iloc[(time_series_df.index.get_level_values("CaseFamily") == case_families[i])].index.get_level_values("CaseName"))
                         # for case_name in [re.findall(r"(?<=case_)(.*)(?=_seed)", fn)[0] for fn in case_family_case_names[case_families[i]]]
@@ -286,7 +287,7 @@ if __name__ == "__main__":
                                                             time_series_df=case_name_df,
                                                             input_dict_path=os.path.join(args.save_dir, case_families[i], f"input_config_case_{case_name}.pkl"),
                                                             # results_path=os.path.join(args.save_dir, case_families[i], f"agg_results_{case_name}.csv"),
-                                                            n_seeds=n_seeds)
+                                                            n_seeds=args.n_seeds)
                             if res is not None:
                                 new_agg_df.append(res)
 
