@@ -16,6 +16,13 @@ import random
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+def replace_env_vars(dirpath):
+    env_vars = re.findall(r"(?:^|\/)\$(\w+)(?:\/|$)", direc)
+    for env_var in env_vars:
+        if env_var in os.environ:
+            direc = direc.replace(f"${env_var}", os.environ[env_var])
+    return direc
+
 if __name__ == "__main__":
     
     logging.info("Parsing arguments and configuration yaml.")
@@ -71,16 +78,14 @@ if __name__ == "__main__":
     np.random.seed(args.seed)
     
     # %% PREPARING DIRECTORIES
-    for direc in [model_config["optuna"]["storage_dir"], data_config["temp_storage_dir"]]:
-        env_vars = re.findall(r"(?:^|\/)\$(\w+)(?:\/|$)", direc)
-        for env_var in env_vars:
-            if env_var in os.environ:
-                direc = direc.replace(f"${env_var}", os.environ[env_var])
+    model_config["optuna"]["storage_dir"] = replace_env_vars(model_config["optuna"]["storage_dir"])
+    model_config["temp_storage_dir"] = replace_env_vars(model_config["temp_storage_dir"])
 
-        logging.info(f"Making directory {direc}.")
-        os.makedirs(direc, exist_ok=True)
-    # if not os.path.exists(data_config["temp_storage_dir"]): # get permission denied for /tmp/scratch dirs otherwise
-    # os.makedirs(data_config["temp_storage_dir"], exist_ok=True)
+    logging.info(f"Making Optuna storage directory {model_config['optuna']['storage_dir']}.")
+    os.makedirs(model_config["optuna"]["storage_dir"], exist_ok=True)
+    
+    logging.info(f"Making temporary train/val storage directory {model_config['temp_storage_dir']}.")
+    os.makedirs(model_config["temp_storage_dir"], exist_ok=True)
     
     # %% INSTANTIATING MODEL
     logging.info("Instantiating model.")  
