@@ -562,7 +562,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
     elif wf_source == "scada":
         data_module = DataModule(data_path=model_config["dataset"]["data_path"], 
                                  normalization_consts_path=model_config["dataset"]["normalization_consts_path"],
-                                 normalized=False, 
+                                 denormalize=False, 
                                  n_splits=1, #model_config["dataset"]["n_splits"],
                                  continuity_groups=None, train_split=(1.0 - model_config["dataset"]["val_split"] - model_config["dataset"]["test_split"]),
                                  val_split=model_config["dataset"]["val_split"], test_split=model_config["dataset"]["test_split"],
