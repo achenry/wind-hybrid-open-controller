@@ -92,6 +92,10 @@ for i in $(seq 0 $((${NTUNERS}-1))); do
         module load mamba
         module load PrgEnv-intel
         mamba activate wind_forecasting
+        echo $MODEL
+        echo $STUDY_NAME
+        echo $MODEL_CONFIG
+        echo $DATA_CONFIG
         python tuning.py \
             --model $MODEL \
             --model_config $MODEL_CONFIG \
