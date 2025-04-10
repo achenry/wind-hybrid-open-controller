@@ -36,8 +36,8 @@ module list
 # Used to track process IDs for all workers
 declare -a WORKER_PIDS=()
 
-export MODEL_CONFIG="/$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel_awaken.yaml"
-export DATA_CONFIG="/$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_awaken_new.yaml"
+export MODEL_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel_awaken.yaml"
+export DATA_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_awaken_new.yaml"
 export TMPDIR="/tmp/scratch/${SLURM_JOB_ID}/"
 export STUDY_NAME="${1}_${2}_tuning"
 echo "MODEL=${MODEL}"
@@ -49,14 +49,13 @@ echo "DATA_CONFIG=${DATA_CONFIG}"
 echo "=== STARTING DATA PREPARATION ==="
 date +"%Y-%m-%d %H:%M:%S"
 module purge
-module load miniforge
-# conda init
-conda activate wind_forecasting
+module load mamba
+mamba activate wind_forecasting
 python tuning.py \
-            --model $1 \
+            --model $MODEL \
             --model_config $MODEL_CONFIG \
             --data_config $DATA_CONFIG \
-            --study_name "${1}_${2}_tuning" \
+            --study_name $STUDY_NAME \
             --initialize \
             --seed 0
 wait
@@ -87,7 +86,7 @@ for i in $(seq 0 $((${NTUNERS}-1))); do
         # CUDA_VISIBLE_DEVICES ensures each worker sees only one GPU
         # The worker ID (SLURM_PROCID) helps Optuna identify workers
         # srun --exclusive -n 1 --export=ALL,CUDA_VISIBLE_DEVICES=$i,SLURM_PROCID=${WORKER_INDEX},WANDB_DIR=${WANDB_DIR} \
-        nohup bash -c "
+        echo "
         module purge
         module load mamba
         module load PrgEnv-intel
@@ -97,9 +96,16 @@ for i in $(seq 0 $((${NTUNERS}-1))); do
             --model_config $MODEL_CONFIG \
             --data_config $DATA_CONFIG \ 
             --study_name $STUDY_NAME \
-	        --multiprocessor cf \
+            --multiprocessor cf \
             --seed ${WORKER_SEED} \
-            ${RESTART_FLAG}" &
+            ${RESTART_FLAG}"
+		
+	nohup bash -c "
+        module purge
+        module load mamba
+        module load PrgEnv-intel
+        mamba activate wind_forecasting
+        python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG} --data_config ${DATA_CONFIG} --study_name ${STUDY_NAME} --multiprocessor cf --seed ${WORKER_SEED} ${RESTART_FLAG}" &
 
         # Store the process ID
         WORKER_PIDS+=($!)
