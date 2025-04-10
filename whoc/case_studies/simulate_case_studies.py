@@ -476,7 +476,7 @@ def write_df(case_family, case_name, wind_case_idx, n_future_steps, wf_source, w
             for src in ctrl.mean_ws_horz_cols + ctrl.mean_ws_vert_cols})
         predicted_wind_speeds_ts = predicted_wind_speeds_ts.rename(columns={"time": "Time"})
         if ctrl.uncertain:
-            predicted_wind_speeds_ts = predicted_wind_speeds_ts[cols].rename(columns={
+            predicted_wind_speeds_ts = predicted_wind_speeds_ts.rename(columns={
                 src: f"StddevTurbineWindSpeed{re.search('(?<=ws_)\\w+(?=_\\d+)', src).group().capitalize()}_{re.search('(?<=_)\\d+$', src).group()}"
                 for src in ctrl.sd_ws_horz_cols + ctrl.sd_ws_vert_cols})
         predicted_wind_speeds_ts[["CaseFamily", "CaseName", "WindSeed"]] = results_data[["CaseFamily", "CaseName", "WindSeed"]].iloc[0]

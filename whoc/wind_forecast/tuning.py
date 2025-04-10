@@ -1,4 +1,5 @@
 from whoc.wind_forecast.WindForecast import SVRForecast
+from wind_forecasting.preprocessing.data_module import DataModule
 import numpy as np
 import polars as pl
 import polars.selectors as cs
@@ -32,7 +33,7 @@ if __name__ == "__main__":
     with open(args.model_config, 'r') as file:
         model_config  = yaml.safe_load(file)
         
-    assert model_config["optuna"]["backend"] in ["sqlite", "mysql", "journal"]
+    assert model_config["optuna"]["storage"]["backend"] in ["sqlite", "mysql", "journal"]
     
     with open(args.data_config, 'r') as file:
         data_config  = yaml.safe_load(file)
@@ -56,32 +57,17 @@ if __name__ == "__main__":
     np.random.seed(args.seed)
     
     # %% READING WIND FIELD TRAINING DATA # TODO fetch training and test data here
-    logging.info("Reading input wind field.") 
-    true_wf = pl.scan_parquet(model_config["dataset"]["data_path"])
-    true_wf_norm_consts = pd.read_csv(model_config["dataset"]["normalization_consts_path"], index_col=None)
-    norm_min_cols = [col for col in true_wf_norm_consts if "_min" in col]
-    norm_max_cols = [col for col in true_wf_norm_consts if "_max" in col]
-    data_min = true_wf_norm_consts[norm_min_cols].values.flatten()
-    data_max = true_wf_norm_consts[norm_max_cols].values.flatten()
-    norm_min_cols = [col.replace("_min", "") for col in norm_min_cols]
-    norm_max_cols = [col.replace("_max", "") for col in norm_max_cols]
-    feature_range = (-1, 1)
-    norm_scale = ((feature_range[1] - feature_range[0]) / (data_max - data_min))
-    norm_min = feature_range[0] - (data_min * norm_scale)
-    true_wf = true_wf.with_columns([(cs.starts_with(col) - norm_min[c]) 
-                                                / norm_scale[c] 
-                                                for c, col in enumerate(norm_min_cols)])\
-                                .collect()
-                                
-    wind_dt = true_wf.select(pl.col("time").diff().shift(-1).first()).item()
-    true_wf = true_wf.with_columns(data_type=pl.lit("True"))
-    # true_wf = true_wf.with_columns(pl.col("time").cast(pl.Datetime(time_unit=pred_slice.unit)))
-    # true_wf_plot = pd.melt(true_wf, id_vars=["time", "data_type"], value_vars=["ws_horz", "ws_vert"], var_name="wind_component", value_name="wind_speed")
-    
-    # longest_cg = true_wf.select(pl.col("continuity_group")).to_series().value_counts().sort("count", descending=True).select(pl.col("continuity_group").first()).item()
-    # true_wf = true_wf.filter(pl.col("continuity_group") == longest_cg)
-    true_wf = true_wf.partition_by("continuity_group")
-    historic_measurements = [wf.slice(0, wf.select(pl.len()).item() - int(prediction_timedelta / wind_dt)) for wf in true_wf]
+    logging.info("Creating datasets")
+    data_module = DataModule(data_path=model_config["dataset"]["data_path"], 
+                             normalization_consts_path=model_config["dataset"]["normalization_consts_path"],
+                             denormalize=True, 
+                             n_splits=1, #model_config["dataset"]["n_splits"],
+                            continuity_groups=None, train_split=(1.0 - model_config["dataset"]["val_split"] - model_config["dataset"]["test_split"]),
+                                val_split=model_config["dataset"]["val_split"], test_split=model_config["dataset"]["test_split"],
+                                prediction_length=model_config["dataset"]["prediction_length"], context_length=model_config["dataset"]["context_length"],
+                                target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
+                                freq=model_config["dataset"]["resample_freq"], target_suffixes=model_config["dataset"]["target_turbine_ids"],
+                                    per_turbine_target=model_config["dataset"]["per_turbine_target"], as_lazyframe=False, dtype=pl.Float32)
     
     # %% PREPARING DIRECTORIES
     for direc in [model_config["optuna"]["storage_dir"], data_config["temp_storage_dir"]]:
@@ -97,12 +83,12 @@ if __name__ == "__main__":
     # %% INSTANTIATING MODEL
     logging.info("Instantiating model.")  
     if args.model == "svr": 
-        model = SVRForecast(measurements_timedelta=wind_dt,
+        model = SVRForecast(measurements_timedelta=pd.Timedelta(model_config["dataset"]["resample_freq"]),
                             controller_timedelta=None,
                             prediction_timedelta=prediction_timedelta,
                             context_timedelta=context_timedelta,
                             fmodel=fmodel,
-                            true_wind_field=true_wf,
+                            true_wind_field=None,
                             model_config=model_config,
                             kwargs=dict(kernel="rbf", C=1.0, degree=3, gamma="auto", epsilon=0.1, cache_size=200,
                                         n_neighboring_turbines=3, max_n_samples=None),
@@ -116,12 +102,27 @@ if __name__ == "__main__":
     # %% PREPARING DATA FOR TUNING
     if args.initialize:
         logging.info("Preparing data for tuning")
-        model.prepare_training_data(historic_measurements=historic_measurements)
+        if not os.path.exists(data_module.train_ready_data_path):
+            data_module.generate_datasets()
+            reload = True
+        else:
+            reload = False
+            
+        true_wind_field = data_module.generate_splits(save=True, reload=reload, splits=["train", "val"])._df.collect()
+            # if args.max_splits:
+            #     test_data = data_module.test_dataset[:args.max_splits]
+            # else:
+            #     test_data = data_module.test_dataset
+            
+            # if args.max_steps:
+            #     test_data = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in test_data]
+        
+        model.prepare_data(train_dataset=data_module.train_dataset, val_dataset=data_module.val_dataest)
         
         logging.info("Reinitializing storage") 
         if args.restart_tuning:
             storage = model.get_storage(
-                backend=model_config["optuna"]["backend"], 
+                backend=model_config["optuna"]["storage"]["backend"], 
                     study_name=args.study_name, 
                     storage_dir=model_config["optuna"]["storage_dir"])
             for s in storage.get_all_studies():

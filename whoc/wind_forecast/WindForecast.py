@@ -152,7 +152,7 @@ class WindForecast:
         
         # get training data for this output
         # logging.info(f"Getting training data for output {output}.")
-        X_train, y_train = self._get_output_training_data(output=output, reload=False)
+        X_train, y_train = self._get_output_data(output=output, reload=False)
         
         # evaluate with cross-validation
         # logging.info(f"Computing score for output {output}.")
@@ -187,7 +187,7 @@ class WindForecast:
             
         return sum(scores)
     
-    def prepare_training_data(self, historic_measurements):
+    def prepare_data(self, train_dataset, val_dataset):
         """
         Prepares the training data for each output based on the historic measurements.
         
@@ -197,16 +197,16 @@ class WindForecast:
         Returns:
             None
         """
-        for hm in historic_measurements:
-            if hm.shape[0] < self.n_context + self.n_prediction:
-                logging.warning(f"measurements with continuity groups {list(hm["continuity_group"].unique())} have insufficient length!")
+        for ds in train_dataset + val_dataset:
+            if ds.shape[0] < self.n_context + self.n_prediction:
+                logging.warning(f"training/val data with continuity groups {list(hm["continuity_group"].unique())} have insufficient length!")
                 continue
                 
-        historic_measurements = [hm for hm in historic_measurements if hm.shape[0] >= self.n_context + self.n_prediction]
-        
         # For each output, prepare the training data
         for output in self.outputs:
-            self._get_output_training_data(historic_measurements=historic_measurements, output=output, reload=True)
+            for dataset_list in [train_dataset, val_dataset]:
+                measurements = [ds for ds in dataset_list if ds.shape[0] >= self.n_context + self.n_prediction]
+                self._get_output_data(measurements=measurements, output=output, reload=True)
      
     # def tune_hyperparameters_single(self, historic_measurements, scaler, feat_type, tid, study_name, seed, restart_tuning, backend, storage_dir, n_trials=1):
     def tune_hyperparameters_single(self, study_name, seed, backend, storage_dir, 
@@ -354,55 +354,54 @@ class WindForecast:
             )
         return storage
      
-    def _get_output_training_data(self, output, reload, historic_measurements=None):
+    def _get_output_data(self, output, reload, measurements, split):
+        assert split in ["train", "test", "val"]
         feat_type = re.search(f"\\w+(?=_{self.turbine_signature})", output).group()
         tid = re.search(self.turbine_signature, output).group()
-        Xy_path = os.path.join(self.temp_save_dir, f"Xy_train_{output}.dat")
+        Xy_path = os.path.join(self.temp_save_dir, f"Xy_{split}_{output}.dat")
         if reload: 
-            assert historic_measurements, "Must provide historic measurements to reload data in _get_output_training_data"
-            if isinstance(historic_measurements, Iterable):
-                X_train = []
-                y_train = []
-                for hm in historic_measurements:
+            assert measurements is not None, "Must provide measurements to reload data in _get_output_data"
+            if isinstance(measurements, Iterable):
+                X_all = []
+                y_all = []
+                for ds in measurements:
                     # don't scale for single dataset, scale for all of them
                     
-                    # X, y = self._get_training_data(hm, scaler, feat_type, tid, scale=False)
-                    hm = hm.gather_every(self.n_prediction_interval)
-                    X, y = self._get_training_data(hm, self.scaler[output], feat_type, tid, scale=False)
-                    X_train.append(X)
-                    y_train.append(y)
+                    # X, y = self._get_data(hm, scaler, feat_type, tid, scale=False)
+                    ds = ds.gather_every(self.n_prediction_interval)
+                    X, y = self._get_data(ds, self.scaler[output], feat_type, tid, scale=False)
+                    X_all.append(X)
+                    y_all.append(y)
                 
-                X_train = np.vstack(X_train)
-                y_train = np.concatenate(y_train)
-                X_train = self.scaler[output].fit_transform(X_train)
+                X_all = np.vstack(X_all)
+                y_all = np.concatenate(y_all)
+                X_all = self.scaler[output].fit_transform(X_all)
                 input_turbine_indices = self.cluster_turbines[self.tid2idx_mapping[tid]]
                 output_idx = input_turbine_indices.index(self.tid2idx_mapping[tid])
-                y_train = (y_train * self.scaler[output].scale_[output_idx]) + self.scaler[output].min_[output_idx]
+                y_all = (y_all * self.scaler[output].scale_[output_idx]) + self.scaler[output].min_[output_idx]
                 
             else:
-                X_train, y_train = self._get_training_data(historic_measurements, self.scaler[output], feat_type, tid, scale=True)
+                X_all, y_all = self._get_data(measurements, self.scaler[output], feat_type, tid, scale=True)
             
-            training_data_shape = (X_train.shape[0], X_train.shape[1] + 1)
-            fp = np.memmap(Xy_path, dtype="float32", 
-                           mode="w+", shape=training_data_shape)
-            # self.training_data_shape[output] = (X_train.shape[0], X_train.shape[1] + 1)
-            # self.training_data_loaded[output] = True
+            data_shape = (X_all.shape[0], X_all.shape[1] + 1)
+            fp = np.memmap(Xy_train_path, dtype="float32", 
+                           mode="w+", shape=data_shape)
             
-            np.save(Xy_path.replace(".dat", "_shape.npy"), training_data_shape)
-            fp[:, :-1] = X_train
-            fp[:, -1] = y_train
+            np.save(Xy_path.replace(".dat", "_shape.npy"), data_shape)
+            fp[:, :-1] = X_all
+            fp[:, -1] = y_all
             fp.flush()
             logging.info(f"Saved training data to {Xy_path}")
         else:
             assert os.path.exists(Xy_path), "Must run prepare_training_data before tuning"
-            training_data_shape = tuple(np.load(Xy_path.replace(".dat", "_shape.npy")))
+            data_shape = tuple(np.load(Xy_path.replace(".dat", "_shape.npy")))
             fp = np.memmap(Xy_path, dtype="float32", 
-                           mode="r", shape=training_data_shape)
-            X_train = fp[:, :-1]
-            y_train = fp[:, -1]
+                           mode="r", shape=data_shape)
+            X_all = fp[:, :-1]
+            y_all = fp[:, -1]
                
         del fp
-        return X_train, y_train
+        return X_all, y_all
     
     def set_tuned_params(self, backend, study_name_root, storage_dir):
         """_summary_
@@ -952,7 +951,7 @@ class SVRForecast(WindForecast):
     def create_model(**kwargs):
         return SVR(**kwargs)
    
-    def _get_training_data(self, training_inputs, feat_type, tid, output_idx):
+    def _get_data(self, training_inputs, feat_type, tid, output_idx):
         
         X_train = np.ascontiguousarray(np.vstack([
             training_inputs[i:i+self.n_context, :].flatten()
@@ -1059,12 +1058,12 @@ class SVRForecast(WindForecast):
         
         if scale: 
             training_inputs = scaler.fit_transform(training_inputs)
-        X_train, y_train = self._get_training_data(training_inputs=training_inputs, 
+        X_train, y_train = self._get_data(training_inputs=training_inputs, 
                                                    feat_type=feat_type, tid=tid,
                                                    output_idx=output_idx) 
         
         # # start test
-        # X_train, y_train = self._get_training_data(training_inputs=training_inputs[:training_inputs.shape[0]-1, :], 
+        # X_train, y_train = self._get_data(training_inputs=training_inputs[:training_inputs.shape[0]-1, :], 
         #                                            feat_type=feat_type, tid=tid, output_idx=output_idx) 
         # y_true = training_inputs[-1, output_idx]
         # model.fit(X_train, y_train)
@@ -1156,7 +1155,7 @@ class KalmanFilterForecast(WindForecast):
             model.Q = kwargs["Q"]
         return model
     
-    def _get_training_data(self, historic_measurements, scaler):
+    def _get_data(self, historic_measurements, scaler):
         if scaler:
             historic_measurements = scaler.fit_transform(historic_measurements.to_numpy())
             
