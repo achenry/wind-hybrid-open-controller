@@ -32,8 +32,6 @@ echo "NTASKS_PER_TUNER=${NTASKS_PER_TUNER}"
 
 echo "=== ENVIRONMENT ==="
 module list
-echo "=== STARTING TUNING ==="
-date +"%Y-%m-%d %H:%M:%S"
 
 # Used to track process IDs for all workers
 declare -a WORKER_PIDS=()
@@ -46,6 +44,26 @@ echo "MODEL=${MODEL}"
 echo "STUDY_NAME=${STUDY_NAME}"
 echo "MODEL_CONFIG=${MODEL_CONFIG}"
 echo "DATA_CONFIG=${DATA_CONFIG}"
+
+# prepare training data first
+echo "=== STARTING DATA PREPARATION ==="
+date +"%Y-%m-%d %H:%M:%S"
+module purge
+module load miniforge
+# conda init
+conda activate wind_forecasting
+python tuning.py \
+            --model $1 \
+            --model_config $MODEL_CONFIG \
+            --data_config $DATA_CONFIG \
+            --study_name "${1}_${2}_tuning" \
+            --initialize \
+            --seed 0
+wait
+echo "=== DATA PREPARATION COMPLETE ==="
+
+echo "=== STARTING TUNING ==="
+date +"%Y-%m-%d %H:%M:%S"
 
 # for m in $(seq 0 $((${NUM_MODELS}-1))); do
 for i in $(seq 0 $((${NTUNERS}-1))); do
@@ -79,7 +97,7 @@ for i in $(seq 0 $((${NTUNERS}-1))); do
             --model_config $MODEL_CONFIG \
             --data_config $DATA_CONFIG \ 
             --study_name $STUDY_NAME \
-	    --multiprocessor cf \
+	        --multiprocessor cf \
             --seed ${WORKER_SEED} \
             ${RESTART_FLAG}" &
 

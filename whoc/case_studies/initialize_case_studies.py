@@ -13,7 +13,6 @@ import gc
 #from line_profiler import profile
 # from datetime import timedelta
 
-
 import pandas as pd
 import polars as pl
 import numpy as np
@@ -45,8 +44,8 @@ case_studies = {
                                     "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
                                     "simulation_dt": {"group": 0, "vals": [60]},
                                     "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/smarteole_farm.yaml"]},
-                                    "uncertain": {"group": 3, "vals": [False]},
-                                    "wind_forecast_class": {"group": 3, "vals": ["PreviewForecast"]}, #, "PerfectForecast"]},
+                                    "uncertain": {"group": 3, "vals": [True]},
+                                    "wind_forecast_class": {"group": 3, "vals": ["KalmanFilterForecast"]}, #, "PerfectForecast"]},
                                     "prediction_timedelta": {"group": 4, "vals": [60]}, #, 120, 180]},
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]}
                                     },

@@ -112,22 +112,22 @@ def read_time_series_data(results_path, input_dict_path):
         with open(results_path, 'r', newline='') as fp:
             csv_reader = csv.reader(fp)
             columns = next(csv_reader)
-            columns = columns[2:] # remove index rows
+            columns = columns[3:] # remove index rows
         bool_cols = [col for col in columns if "TurbineOfflineStatus" in col]
         if bool_cols:
-            df = pd.read_csv(results_path, index_col=[0,1], dtype={col: object for col in bool_cols}) # necessary if contains NaNs
+            df = pd.read_csv(results_path, index_col=[0], dtype={col: object for col in bool_cols}) # necessary if contains NaNs
             for col in bool_cols:
                 df.loc[(df[col] == "False") | (df[col].isna()), col] = False
                 df[col] = df[col].astype(bool)
         else:
-            df = pd.read_csv(results_path, index_col=[0,1])
+            df = pd.read_csv(results_path, index_col=[0])
         print(f"Read {results_path}")
         # df = df.set_index(["CaseFamily", "CaseName"])
         
     except pd.errors.DtypeWarning as w:
         print(f"DtypeWarning with combined time series file {results_path}: {w}")
         warnings.simplefilter('ignore', pd.errors.DtypeWarning)
-        bad_df = pd.read_csv(results_path, index_col=[0,1])
+        bad_df = pd.read_csv(results_path, index_col=[0])
         bad_cols = [bad_df.columns[int(s) - len(bad_df.index.names)] for s in re.findall(r"(?<=Columns \()(.*)(?=\))", w.args[0])[0].split(",")]
         bad_df.loc[bad_df[bad_cols].isna().any(axis=1)][["Time", "CaseFamily", "CaseName"]].values
         bad_df["Time"].max()
