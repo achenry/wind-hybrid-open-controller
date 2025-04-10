@@ -589,7 +589,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         
         wind_field_ts = sorted(wind_field_ts, reverse=True, key=lambda df: df["time"].iloc[-1] - df["time"].iloc[0])
         if n_seeds != "auto":
-            wind_field_ts = wind_field_ts[:n_seeds]
+            wind_field_ts = wind_field_ts[:int(n_seeds)]
         else:
             n_seeds = len(wind_field_ts)
         
@@ -610,7 +610,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             stoptime = [stoptime] * len(wind_field_ts)
     
     for case_family in case_families:
-        case_studies[case_family]["wind_case_idx"] = {"group": max(d["group"] for d in case_studies[case_family].values()) + 1, "vals": [i for i in range(n_seeds)]}
+        case_studies[case_family]["wind_case_idx"] = {"group": max(d["group"] for d in case_studies[case_family].values()) + 1, "vals": [i for i in range(int(n_seeds))]}
 
     input_dicts = []
     case_lists = []
@@ -665,7 +665,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                 else:
                     input_dicts[start_case_idx + c][property_name] = property_value
             
-            assert input_dicts[start_case_idx + c]["controller"]["controller_dt"] <= stoptime
+            assert input_dicts[start_case_idx + c]["controller"]["controller_dt"] <= int(stoptime[0])
             
             if input_dicts[start_case_idx + c]["controller"]["wind_forecast_class"] or "wind_forecast_class" in case: 
                 input_dicts[start_case_idx + c]["wind_forecast"] \
@@ -733,7 +733,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
 
     # assert all([(df["time"].iloc[-1] - df["time"].iloc[0]).total_seconds() >= stoptime + prediction_timedelta + horizon_timedelta for df in wind_field_ts])
     wind_field_ts = [df.loc[(df["time"] - df["time"].iloc[0]).dt.total_seconds() 
-                        <= stoptime +prediction_timedelta.total_seconds() + horizon_timedelta.total_seconds()] 
+                        <= int(stoptime[0]) +prediction_timedelta.total_seconds() + horizon_timedelta.total_seconds()] 
                     for d, df in enumerate(wind_field_ts)]
     # stoptime = max(min([((df["time"].iloc[-1] - df["time"].iloc[0]) - prediction_timedelta - horizon_timedelta).total_seconds() for df in wind_field_ts]), stoptime)
     #stoptime = [max(((df["time"].iloc[-1] - df["time"].iloc[0]) - prediction_timedelta - horizon_timedelta).total_seconds(), stoptime) for d, df in enumerate(wind_field_ts)]

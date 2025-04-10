@@ -365,14 +365,14 @@ def write_df(case_family, case_name, wind_case_idx, n_future_steps, wf_source, w
     else:
         n_truncate_steps = 0
         
-    turbine_wind_mag_ts = turbine_wind_mag_ts[:(-n_truncate_steps) or None, :]
-    turbine_wind_dir_ts = turbine_wind_dir_ts[:(-n_truncate_steps) or None, :]
-    turbine_offline_status_ts = turbine_offline_status_ts[:(-n_truncate_steps) or None, :]
+    turbine_wind_mag_ts = turbine_wind_mag_ts[:-(n_truncate_steps + 1), :]
+    turbine_wind_dir_ts = turbine_wind_dir_ts[:-(n_truncate_steps + 1), :]
+    turbine_offline_status_ts = turbine_offline_status_ts[:-(n_truncate_steps + 1), :]
     # yaw_angles_change_ts = yaw_angles_change_ts[:(-n_truncate_steps) or None, :]
-    yaw_angles_ts = yaw_angles_ts[:(-n_truncate_steps) or None, :] # TODO LOW first element allows for greater change than yaw_rate
+    yaw_angles_ts = yaw_angles_ts[:-(n_truncate_steps + 1) or None, :] # TODO LOW first element allows for greater change than yaw_rate
     # turbine_powers_ts = turbine_powers_ts[:-(n_truncate_steps) or None, :]
-    opt_cost_terms_ts = opt_cost_terms_ts[:(-n_truncate_steps) or None]
-    convergence_time_ts = convergence_time_ts[:(-n_truncate_steps) or None]
+    opt_cost_terms_ts = opt_cost_terms_ts[:-(n_truncate_steps + 1) or None]
+    convergence_time_ts = convergence_time_ts[:-(n_truncate_steps + 1) or None]
     turbine_powers_ts = turbine_powers_ts[:-(n_future_steps + 1), :]
 
     running_opt_cost_terms_ts = np.zeros_like(opt_cost_terms_ts)
