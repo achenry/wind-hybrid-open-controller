@@ -79,17 +79,17 @@ if __name__ == "__main__":
     
     # %% PREPARING DIRECTORIES
     model_config["optuna"]["storage_dir"] = replace_env_vars(model_config["optuna"]["storage_dir"])
-    if "$TMPDIR" not in  model_config["temp_storage_dir"]:
-        model_config["temp_storage_dir"] = replace_env_vars(model_config["temp_storage_dir"])
+    if "$TMPDIR" not in  data_config["temp_storage_dir"]:
+        data_config["temp_storage_dir"] = replace_env_vars(data_config["temp_storage_dir"])
 
     logging.info(f"Making Optuna storage directory {model_config['optuna']['storage_dir']}.")
     os.makedirs(model_config["optuna"]["storage_dir"], exist_ok=True)
     
-    if "$TMPDIR" not in  model_config["temp_storage_dir"]:
-        logging.info(f"Making temporary train/val storage directory {model_config['temp_storage_dir']}.")
-        os.makedirs(model_config["temp_storage_dir"], exist_ok=True)
+    if "$TMPDIR" not in data_config["temp_storage_dir"]:
+        logging.info(f"Making temporary train/val storage directory {data_config['temp_storage_dir']}.")
+        os.makedirs(data_config["temp_storage_dir"], exist_ok=True)
     else:
-        logging.info(f"Using temporary train/val storage directory {model_config['temp_storage_dir']}.")
+        logging.info(f"Using temporary train/val storage directory {data_config['temp_storage_dir']}.")
     
     # %% INSTANTIATING MODEL
     logging.info("Instantiating model.")  
