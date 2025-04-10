@@ -444,10 +444,10 @@ if __name__ == "__main__":
                 baseline_time_df["StddevTurbineWindSpeedHorzMean"] = baseline_time_df[[col for col in baseline_time_df.columns if "StddevTurbineWindSpeedHorz_" in col]].mean(axis=1)
                 baseline_time_df["StddevTurbineWindSpeedVertMean"] = baseline_time_df[[col for col in baseline_time_df.columns if "StddevTurbineWindSpeedVert_" in col]].mean(axis=1)
                 
+                controllers = pd.unique(baseline_time_df["controller_class"])
                 fig, ax = plt.subplots(2, len(controllers))
                 xlim = (baseline_time_df[["Time", "TrueTurbineWindSpeedHorzMean", "TrueTurbineWindSpeedVertMean"]].dropna()["Time"].min(),
                         baseline_time_df[["Time", "TrueTurbineWindSpeedHorzMean", "TrueTurbineWindSpeedVertMean"]].dropna()["Time"].max())
-                controllers = pd.unique(baseline_time_df["controller_class"])
                 for c, ctrl in enumerate(controllers):
                     cond = (baseline_time_df["controller_class"] == ctrl) & (baseline_time_df["WindSeed"] == 0)
                     df = baseline_time_df.reset_index(level=["CaseFamily", "CaseName"], drop=True).loc[cond.values, :].dropna(subset=["TrueTurbineWindSpeedHorzMean", "TrueTurbineWindSpeedVertMean"])
