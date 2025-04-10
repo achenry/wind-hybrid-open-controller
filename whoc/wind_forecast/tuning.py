@@ -17,7 +17,7 @@ import random
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def replace_env_vars(dirpath):
-    env_vars = re.findall(r"(?:^|\/)\$(\w+)(?:\/|$)", direc)
+    env_vars = re.findall(r"(?:^|\/)\$(\w+)(?:\/|$)", dirpath)
     for env_var in env_vars:
         if env_var in os.environ:
             direc = direc.replace(f"${env_var}", os.environ[env_var])
@@ -79,13 +79,17 @@ if __name__ == "__main__":
     
     # %% PREPARING DIRECTORIES
     model_config["optuna"]["storage_dir"] = replace_env_vars(model_config["optuna"]["storage_dir"])
-    model_config["temp_storage_dir"] = replace_env_vars(model_config["temp_storage_dir"])
+    if "$TMPDIR" not in  model_config["temp_storage_dir"]:
+        model_config["temp_storage_dir"] = replace_env_vars(model_config["temp_storage_dir"])
 
     logging.info(f"Making Optuna storage directory {model_config['optuna']['storage_dir']}.")
     os.makedirs(model_config["optuna"]["storage_dir"], exist_ok=True)
     
-    logging.info(f"Making temporary train/val storage directory {model_config['temp_storage_dir']}.")
-    os.makedirs(model_config["temp_storage_dir"], exist_ok=True)
+    if "$TMPDIR" not in  model_config["temp_storage_dir"]:
+        logging.info(f"Making temporary train/val storage directory {model_config['temp_storage_dir']}.")
+        os.makedirs(model_config["temp_storage_dir"], exist_ok=True)
+    else:
+        logging.info(f"Using temporary train/val storage directory {model_config['temp_storage_dir']}.")
     
     # %% INSTANTIATING MODEL
     logging.info("Instantiating model.")  
@@ -109,8 +113,6 @@ if __name__ == "__main__":
     # %% PREPARING DATA FOR TUNING
     if args.initialize:
         # %% READING WIND FIELD TRAINING DATA # TODO fetch training and test data here
-
-    
         logging.info("Preparing data for tuning")
         if not os.path.exists(data_module.train_ready_data_path):
             data_module.generate_datasets()
