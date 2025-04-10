@@ -127,7 +127,7 @@ def read_time_series_data(results_path, input_dict_path):
     except pd.errors.DtypeWarning as w:
         print(f"DtypeWarning with combined time series file {results_path}: {w}")
         warnings.simplefilter('ignore', pd.errors.DtypeWarning)
-        bad_df = pd.read_csv(results_path, index_col=[0,1])
+        bad_df = pd.read_csv(results_path, index_col=[0])
         bad_cols = [bad_df.columns[int(s) - len(bad_df.index.names)] for s in re.findall(r"(?<=Columns \()(.*)(?=\))", w.args[0])[0].split(",")]
         bad_df.loc[bad_df[bad_cols].isna().any(axis=1)][["Time", "CaseFamily", "CaseName"]].values
         bad_df["Time"].max()
