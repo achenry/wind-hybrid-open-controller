@@ -584,7 +584,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         del data_module
         gc.collect()
         
-        wind_field_ts = [df.to_pandas() for df in wind_field_ts.partition_by("split")]
+        wind_field_ts = [df.to_pandas() for df in wind_field_ts.partition_by("continuity_group")]
         
         wind_field_ts = sorted(wind_field_ts, reverse=True, key=lambda df: df["time"].iloc[-1] - df["time"].iloc[0])
         if n_seeds != "auto":
