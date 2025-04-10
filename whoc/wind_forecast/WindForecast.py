@@ -187,7 +187,7 @@ class WindForecast:
             
         return sum(scores)
     
-    def prepare_data(self, train_dataset, val_dataset):
+    def prepare_data(self, train_dataset, val_dataset, scale=True):
         """
         Prepares the training data for each output based on the historic measurements.
         
@@ -197,16 +197,17 @@ class WindForecast:
         Returns:
             None
         """
-        for ds in train_dataset + val_dataset:
-            if ds.shape[0] < self.n_context + self.n_prediction:
-                logging.warning(f"training/val data with continuity groups {list(hm["continuity_group"].unique())} have insufficient length!")
-                continue
-                
+        for ds_list, ds_type in zip([train_dataset, val_dataset], ["train", "val"]):
+            for ds in ds_list:
+                if ds.shape[0] < self.n_context + self.n_prediction:
+                    logging.warning(f"{ds_type} dataset with continuity groups {list(ds["continuity_group"].unique())} have insufficient length!")
+                    continue
+                    
         # For each output, prepare the training data
         for output in self.outputs:
-            for dataset_list in [train_dataset, val_dataset]:
-                measurements = [ds for ds in dataset_list if ds.shape[0] >= self.n_context + self.n_prediction]
-                self._get_output_data(measurements=measurements, output=output, reload=True)
+            for ds_list, split in zip([train_dataset, val_dataset], ["train", "val"]):
+                measurements = [ds for ds in ds_list if ds.shape[0] >= self.n_context + self.n_prediction]
+                self._get_output_data(measurements=measurements, output=output, split=split, reload=True, scale=scale)
      
     # def tune_hyperparameters_single(self, historic_measurements, scaler, feat_type, tid, study_name, seed, restart_tuning, backend, storage_dir, n_trials=1):
     def tune_hyperparameters_single(self, study_name, seed, backend, storage_dir, 
@@ -354,37 +355,47 @@ class WindForecast:
             )
         return storage
      
-    def _get_output_data(self, output, reload, measurements, split):
+    def _get_output_data(self, output, reload, measurements, split, scale):
         assert split in ["train", "test", "val"]
         feat_type = re.search(f"\\w+(?=_{self.turbine_signature})", output).group()
         tid = re.search(self.turbine_signature, output).group()
         Xy_path = os.path.join(self.temp_save_dir, f"Xy_{split}_{output}.dat")
+        
+        input_turbine_indices = self.cluster_turbines[self.tid2idx_mapping[tid]]
+        output_idx = input_turbine_indices.index(self.tid2idx_mapping[tid])
+            
         if reload: 
             assert measurements is not None, "Must provide measurements to reload data in _get_output_data"
+            input_select = [f"{feat_type}_{self.idx2tid_mapping[t]}" for t in input_turbine_indices]
             if isinstance(measurements, Iterable):
                 X_all = []
                 y_all = []
                 for ds in measurements:
                     # don't scale for single dataset, scale for all of them
-                    
-                    # X, y = self._get_data(hm, scaler, feat_type, tid, scale=False)
                     ds = ds.gather_every(self.n_prediction_interval)
-                    X, y = self._get_data(ds, self.scaler[output], feat_type, tid, scale=False)
+                    
+                    training_inputs = ds.select(input_select).to_numpy()
+                        
+                    X, y = self._get_data(training_inputs, feat_type, tid, output_idx)
                     X_all.append(X)
                     y_all.append(y)
                 
                 X_all = np.vstack(X_all)
                 y_all = np.concatenate(y_all)
-                X_all = self.scaler[output].fit_transform(X_all)
-                input_turbine_indices = self.cluster_turbines[self.tid2idx_mapping[tid]]
-                output_idx = input_turbine_indices.index(self.tid2idx_mapping[tid])
+                
+                if scale:
+                    X_all = self.scaler[output].fit_transform(X_all)
+                
                 y_all = (y_all * self.scaler[output].scale_[output_idx]) + self.scaler[output].min_[output_idx]
                 
             else:
-                X_all, y_all = self._get_data(measurements, self.scaler[output], feat_type, tid, scale=True)
+                training_inputs = ds.select(input_select).to_numpy()
+                if scale: 
+                    training_inputs = self.scaler[output].fit_transform(training_inputs)
+                X_all, y_all = self._get_data(training_inputs, feat_type, tid, output_idx)
             
             data_shape = (X_all.shape[0], X_all.shape[1] + 1)
-            fp = np.memmap(Xy_train_path, dtype="float32", 
+            fp = np.memmap(Xy_path, dtype="float32", 
                            mode="w+", shape=data_shape)
             
             np.save(Xy_path.replace(".dat", "_shape.npy"), data_shape)
@@ -1748,9 +1759,9 @@ def make_predictions(forecaster, test_data, true_wind_field, prediction_type):
 
     true = [true_wind_field.filter(pl.col("time").is_between(
                 wf.select(pl.col("time").first()).item(), wf.select(pl.col("time").last()).item(), closed="both"))
-            .with_columns(data_type=pl.lit("True"), split=pl.lit(split_idx))
+            .with_columns(data_type=pl.lit("True"), continuity_group=pl.lit(split_idx))
             for split_idx, wf in enumerate(forecasts)]
-    forecasts = [wf.with_columns(data_type=pl.lit("Forecast"), split=pl.lit(split_idx)) for split_idx, wf in enumerate(forecasts)]
+    forecasts = [wf.with_columns(data_type=pl.lit("Forecast"), continuity_group=pl.lit(split_idx)) for split_idx, wf in enumerate(forecasts)]
     
     return true, forecasts
 
@@ -1763,9 +1774,9 @@ def generate_wind_field_df(datasets, target_cols, feat_dynamic_real_cols):
         ).to_series() for ds in datasets]).index
 
     wf = pd.DataFrame(np.concatenate([full_splits, full_target, full_feat_dynamic_reals], axis=0).transpose(),
-                                    columns=["split"] + target_cols + feat_dynamic_real_cols,
+                                    columns=["continuity_group"] + target_cols + feat_dynamic_real_cols,
                                     index=index)
-    wf["split"] = wf["split"].astype(int)
+    wf["continuity_group"] = wf["continuity_group"].astype(int)
      
     wf = wf.reset_index(names="time")
     wf["time"] = wf["time"].dt.to_timestamp()
