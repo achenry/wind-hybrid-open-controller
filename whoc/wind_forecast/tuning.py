@@ -33,7 +33,7 @@ if __name__ == "__main__":
     with open(args.model_config, 'r') as file:
         model_config  = yaml.safe_load(file)
         
-    assert model_config["optuna"]["backend"] in ["sqlite", "mysql", "journal"]
+    assert model_config["optuna"]["storage"]["backend"] in ["sqlite", "mysql", "journal"]
     
     with open(args.data_config, 'r') as file:
         data_config  = yaml.safe_load(file)
@@ -104,8 +104,11 @@ if __name__ == "__main__":
         logging.info("Preparing data for tuning")
         if not os.path.exists(data_module.train_ready_data_path):
             data_module.generate_datasets()
+            reload = True
+        else:
+            reload = False
             
-        true_wind_field = data_module.generate_splits(save=True, reload=False, splits=["train", "val"])._df.collect()
+        true_wind_field = data_module.generate_splits(save=True, reload=reload, splits=["train", "val"])._df.collect()
             # if args.max_splits:
             #     test_data = data_module.test_dataset[:args.max_splits]
             # else:
@@ -119,7 +122,7 @@ if __name__ == "__main__":
         logging.info("Reinitializing storage") 
         if args.restart_tuning:
             storage = model.get_storage(
-                backend=model_config["optuna"]["backend"], 
+                backend=model_config["optuna"]["storage"]["backend"], 
                     study_name=args.study_name, 
                     storage_dir=model_config["optuna"]["storage_dir"])
             for s in storage.get_all_studies():
