@@ -76,7 +76,8 @@ if __name__ == "__main__":
         for env_var in env_vars:
             if env_var in os.environ:
                 direc = direc.replace(f"${env_var}", os.environ[env_var])
-    
+
+        logging.info(f"Making directory {direc}.")
         os.makedirs(direc, exist_ok=True)
     # if not os.path.exists(data_config["temp_storage_dir"]): # get permission denied for /tmp/scratch dirs otherwise
     # os.makedirs(data_config["temp_storage_dir"], exist_ok=True)
@@ -143,12 +144,14 @@ if __name__ == "__main__":
         # %% TUNING MODEL
         logging.info("Running tune_hyperparameters_multi")
         pruning_kwargs = model_config["optuna"]["pruning"] 
+        
         #{"type": "hyperband", "min_resource": 2, "max_resource": 5, "reduction_factor": 3, "percentile": 25}
         model.tune_hyperparameters_single(study_name=args.study_name,
                                         backend=model_config["optuna"]["storage"]["backend"],
                                         n_trials=model_config["optuna"]["n_trials"], 
                                         storage_dir=model_config["optuna"]["storage_dir"],
-                                        seed=args.seed)
+                                        seed=args.seed,
+                                        pruning_kwargs=pruning_kwargs)
                                         #  trial_protection_callback=handle_trial_with_oom_protection)
     
         # %% TESTING LOADING HYPERPARAMETERS
