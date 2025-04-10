@@ -38,15 +38,15 @@ elif sys.platform == "win32" or sys.platform == "cygwin":  # Add Windows check
 case_studies = {
     "baseline_controllers_forecasters_test_flasc": {
                                     "target_turbine_indices": {"group": 1, "vals": ["6,4", "6,"]},
-                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
+                                    "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController"]},
                                     "controller_dt": {"group": 0, "vals": [60]},
                                     "use_filtered_wind_dir": {"group": 0, "vals": [True]},
                                     "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
                                     "simulation_dt": {"group": 0, "vals": [60]},
                                     "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/smarteole_farm.yaml"]},
                                     "uncertain": {"group": 3, "vals": [False]}, # TODO automatcially set to False if r=foreacaster does not have predict_distr
-                                    "wind_forecast_class": {"group": 3, "vals": ["PreviewForecast", "PerfectForecast"]}, #, "PerfectForecast"]},
-                                    "prediction_timedelta": {"group": 4, "vals": [60, 120]}, #, 120, 180]},
+                                    "wind_forecast_class": {"group": 3, "vals": ["PreviewForecast"]}, #, "PerfectForecast"]},
+                                    "prediction_timedelta": {"group": 4, "vals": [120, 60]}, #, 120, 180]},
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]}
                                     },
     "baseline_controllers_forecasters_test_awaken": {
