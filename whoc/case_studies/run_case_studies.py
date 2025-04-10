@@ -13,11 +13,14 @@ import yaml
 import pickle
 from memory_profiler import profile
 
+import logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
 import whoc
 try:
     from whoc.controllers.mpc_wake_steering_controller import MPC
 except Exception:
-    print("Cannot import MPC controller in current environment.")
+    logging.warning("Cannot import MPC controller in current environment.")
 from whoc.controllers.greedy_wake_steering_controller import GreedyController
 from whoc.controllers.lookup_based_wake_steering_controller import LookupBasedWakeSteeringController
 from whoc.case_studies.initialize_case_studies import initialize_simulations, case_families, case_studies
@@ -29,7 +32,7 @@ from whoc.case_studies.process_case_studies import (read_time_series_data, write
 try:
     from whoc.wind_forecast.WindForecast import PerfectForecast, PersistenceForecast, MLForecast, SVRForecast, KalmanFilterForecast, PreviewForecast
 except ModuleNotFoundError:
-    print("Cannot import wind forecast classes in current environment.")
+    logging.warning("Cannot import wind forecast classes in current environment.")
 # np.seterr("raise")
 
 warnings.simplefilter('error', pd.errors.DtypeWarning)
@@ -68,7 +71,7 @@ if __name__ == "__main__":
     # run simulations
     
     if RUN_ONCE:
-        print(f"running initialize_simulations for case_ids {[case_families[i] for i in args.case_ids]}")
+        logging.info(f"running initialize_simulations for case_ids {[case_families[i] for i in args.case_ids]}")
         # os.path.join(os.path.dirname(whoc_file), "../examples/hercules_input_001.yaml")
         with open(args.whoc_config, 'r') as file:
             whoc_config  = yaml.safe_load(file)
@@ -116,7 +119,7 @@ if __name__ == "__main__":
                 if args.multiprocessor == "mpi":
                     run_simulations_exec.max_workers = comm_size
                   
-                # print(f"run_simulations line 64 with {run_simulations_exec._max_workers} workers")
+                # logging.info(f"run_simulations line 64 with {run_simulations_exec._max_workers} workers")
                 # for MPIPool executor, (waiting as if shutdown() were called with wait set to True)
                 futures = [run_simulations_exec.submit(simulate_controller, 
                                                 controller_class=globals()[d["controller"]["controller_class"]], 
@@ -177,8 +180,7 @@ if __name__ == "__main__":
                 with executor as run_simulations_exec:
                     if args.multiprocessor == "mpi":
                         run_simulations_exec.max_workers = comm_size
-                    
-                    print(f"run_simulations line 107 with {run_simulations_exec._max_workers} workers")
+                        
                     # for MPIPool executor, (waiting as if shutdown() were called with wait set to True)
 
                     # if args.reaggregate_simulations is true, or for any case family where doesn't time_series_results_all.csv exist, 
@@ -330,7 +332,7 @@ if __name__ == "__main__":
                             
                         time_series_df.append(df)
                     except pd.errors.DtypeWarning as w:
-                        print(f"DtypeWarning with combined time series file {filepath}: {w}")
+                        logging.error(f"DtypeWarning with combined time series file {filepath}: {w}")
                         warnings.simplefilter('ignore', pd.errors.DtypeWarning)
                         bad_df = pd.read_csv(filepath, index_col=[0, 1], low_memory=False)
                         bad_cols = [bad_df.columns[int(s) - len(bad_df.index.names)] for s in re.findall(r"(?<=Columns \()(.*)(?=\))", w.args[0])[0].split(",")]
@@ -345,7 +347,7 @@ if __name__ == "__main__":
                     try:
                         agg_df.append(pd.read_csv(filepath, header=[0,1], index_col=[0, 1], skipinitialspace=True))
                     except pd.errors.DtypeWarning as w:
-                        print(f"DtypeWarning with combined time series file {filepath}: {w}")
+                        logging.error(f"DtypeWarning with combined time series file {filepath}: {w}")
                         warnings.simplefilter('ignore', pd.errors.DtypeWarning)
                         bad_df = pd.read_csv(filepath, header=[0,1], index_col=[0, 1], skipinitialspace=True)
                         bad_cols = [bad_df.columns[int(s) - len(bad_df.index.names)] for s in re.findall(r"(?<=Columns \()(.*)(?=\))", w.args[0])[0].split(",")]
@@ -777,8 +779,8 @@ if __name__ == "__main__":
 
                 for param in ["diff_type", "decay_type", "max_std_dev", "nu"]:
                     for agg_type in ["mean", "max"]: 
-                        print(f"\nFor parameter {param}, taking the {agg_type} of FarmPowerMean over all other parameters, the best parameter for each wind_preview_type is:")
-                        print(better_than_lut_df.drop(["n_wind_preview_samples", "n_horizon"], axis=1)\
+                        logging.info(f"\nFor parameter {param}, taking the {agg_type} of FarmPowerMean over all other parameters, the best parameter for each wind_preview_type is:")
+                        logging.info(better_than_lut_df.drop(["n_wind_preview_samples", "n_horizon"], axis=1)\
                                         .groupby(["wind_preview_type", param])["FarmPowerMean"].agg(agg_type)\
                                         .groupby("wind_preview_type").idxmax().values)
                 
