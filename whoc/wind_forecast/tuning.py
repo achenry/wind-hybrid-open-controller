@@ -9,6 +9,7 @@ import os
 import logging 
 from floris import FlorisModel
 import gc
+import re
 import random
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -54,7 +55,7 @@ if __name__ == "__main__":
     random.seed(args.seed)
     np.random.seed(args.seed)
     
-    # %% READING WIND FIELD TRAINING DATA
+    # %% READING WIND FIELD TRAINING DATA # TODO fetch training and test data here
     logging.info("Reading input wind field.") 
     true_wf = pl.scan_parquet(model_config["dataset"]["data_path"])
     true_wf_norm_consts = pd.read_csv(model_config["dataset"]["normalization_consts_path"], index_col=None)
@@ -83,9 +84,15 @@ if __name__ == "__main__":
     historic_measurements = [wf.slice(0, wf.select(pl.len()).item() - int(prediction_timedelta / wind_dt)) for wf in true_wf]
     
     # %% PREPARING DIRECTORIES
-    os.makedirs(model_config["optuna"]["storage_dir"], exist_ok=True)
-    if not os.path.exists(data_config["temp_storage_dir"]): # get permission denied for /tmp/scratch dirs otherwise
-        os.makedirs(data_config["temp_storage_dir"], exist_ok=True)
+    for direc in [model_config["optuna"]["storage_dir"], data_config["temp_storage_dir"]]:
+        env_vars = re.findall(r"(?:^|\/)\$(\w+)(?:\/|$)", direc)
+        for env_var in env_vars:
+            if env_var in os.environ:
+                direc = direc.replace(f"${env_var}", os.environ[env_var])
+    
+        os.makedirs(direc, exist_ok=True)
+    # if not os.path.exists(data_config["temp_storage_dir"]): # get permission denied for /tmp/scratch dirs otherwise
+    # os.makedirs(data_config["temp_storage_dir"], exist_ok=True)
     
     # %% INSTANTIATING MODEL
     logging.info("Instantiating model.")  
