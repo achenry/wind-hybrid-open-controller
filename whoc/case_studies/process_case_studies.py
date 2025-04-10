@@ -534,7 +534,7 @@ def aggregate_time_series_data(time_series_df, input_dict_path, n_seeds):
     # x = time_series_df.reset_index(level=["CaseFamily", "CaseName"], drop=True)
     time_series_df = time_series_df.drop(columns=[col for col in time_series_df.columns if "Predicted" in col or "Stddev" in col]).dropna(axis=1, how="all").dropna(subset=["FarmPower"])
     case_seeds = pd.unique(time_series_df["WindSeed"])
-    ase_family = time_series_df["CaseFamily"].iloc[0]
+    case_family = time_series_df["CaseFamily"].iloc[0]
     # case_family = df_name.replace(f"_{results_df['CaseName'].iloc[0]}", "")
     case_name = time_series_df["CaseName"].iloc[0]
     if len(case_seeds) < n_seeds:
