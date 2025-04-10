@@ -6,7 +6,8 @@
 ##SBATCH --time=12:00:00
 #SBATCH --nodes=1
 #SBATCH --time=01:00:00
-#SBATCH --partition=debug
+##SBATCH --partition=debug
+#SBATCH --partition=nvme
 #SBATCH --ntasks-per-node=12
 #SBATCH --cpus-per-task=1
 
@@ -36,10 +37,10 @@ module list
 # Used to track process IDs for all workers
 declare -a WORKER_PIDS=()
 
-#export MODEL_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel_awaken.yaml"
-export MODEL_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel_flasc.yaml"
-#export DATA_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_awaken_new.yaml"
-export DATA_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_flasc.yaml"
+export MODEL_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel_awaken.yaml"
+#export MODEL_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel_flasc.yaml"
+export DATA_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_awaken_new.yaml"
+#export DATA_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_flasc.yaml"
 export STUDY_NAME="${1}_${2}_tuning"
 echo "MODEL=${MODEL}"
 echo "STUDY_NAME=${STUDY_NAME}"
