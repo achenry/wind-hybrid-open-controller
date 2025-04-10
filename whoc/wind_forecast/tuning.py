@@ -84,7 +84,8 @@ if __name__ == "__main__":
     
     # %% PREPARING DIRECTORIES
     os.makedirs(model_config["optuna"]["storage_dir"], exist_ok=True)
-    os.makedirs(data_config["temp_storage_dir"], exist_ok=True)
+    if not os.path.exists(data_config["temp_storage_dir"]): # get permission denied for /tmp/scratch dirs otherwise
+        os.makedirs(data_config["temp_storage_dir"], exist_ok=True)
     
     # %% INSTANTIATING MODEL
     logging.info("Instantiating model.")  
