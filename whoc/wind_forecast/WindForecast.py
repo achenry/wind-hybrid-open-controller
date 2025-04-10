@@ -152,15 +152,16 @@ class WindForecast:
         
         # get training data for this output
         # logging.info(f"Getting training data for output {output}.")
-        X_train, y_train = self._get_output_data(output=output, reload=False)
+        X_train, y_train = self._get_output_data(output=output, split="train", reload=False)
+        X_val, y_val = self._get_output_data(output=output, split="val", reload=False,)
         
         # evaluate with cross-validation
         # logging.info(f"Computing score for output {output}.")
-        train_split = np.random.choice(X_train.shape[0], replace=False, size=int(X_train.shape[0] * 0.75))
-        train_split = np.isin(range(X_train.shape[0]), train_split)
-        test_split = ~train_split
-        model.fit(X_train[train_split, :], y_train[train_split])
-        return (-mean_squared_error(y_true=y_train[test_split], y_pred=model.predict(X_train[test_split, :])))
+        # train_split = np.random.choice(X_train.shape[0], replace=False, size=int(X_train.shape[0] * 0.75))
+        # train_split = np.isin(range(X_train.shape[0]), train_split)
+        # test_split = ~train_split
+        model.fit(X_train, y_train)
+        return (-mean_squared_error(y_true=y_val, y_pred=model.predict(X_val)))
     
     def _tuning_objective(self, trial):
         """
@@ -219,7 +220,7 @@ class WindForecast:
         # Configure pruner based on settings
         if pruning_kwargs:
             pruning_type = pruning_kwargs["type"]
-            logging.info(f"Configuring pruner: type={pruning_type}, min_resource={min_resource}")
+            logging.info(f"Configuring pruner: type={pruning_type}, min_resource={pruning_kwargs['min_resource']}")
 
             if pruning_type == "hyperband":
                 reduction_factor = pruning_kwargs["reduction_factor"]
@@ -355,7 +356,7 @@ class WindForecast:
             )
         return storage
      
-    def _get_output_data(self, output, reload, measurements, split, scale):
+    def _get_output_data(self, output, reload, split, measurements=None, scale=None):
         assert split in ["train", "test", "val"]
         feat_type = re.search(f"\\w+(?=_{self.turbine_signature})", output).group()
         tid = re.search(self.turbine_signature, output).group()
@@ -365,7 +366,7 @@ class WindForecast:
         output_idx = input_turbine_indices.index(self.tid2idx_mapping[tid])
             
         if reload: 
-            assert measurements is not None, "Must provide measurements to reload data in _get_output_data"
+            assert measurements is not None and scale is not None, "Must provide measurements df and scale boolean to reload data in _get_output_data"
             input_select = [f"{feat_type}_{self.idx2tid_mapping[t]}" for t in input_turbine_indices]
             if isinstance(measurements, Iterable):
                 X_all = []
@@ -385,8 +386,7 @@ class WindForecast:
                 
                 if scale:
                     X_all = self.scaler[output].fit_transform(X_all)
-                
-                y_all = (y_all * self.scaler[output].scale_[output_idx]) + self.scaler[output].min_[output_idx]
+                    y_all = (y_all * self.scaler[output].scale_[output_idx]) + self.scaler[output].min_[output_idx]
                 
             else:
                 training_inputs = ds.select(input_select).to_numpy()

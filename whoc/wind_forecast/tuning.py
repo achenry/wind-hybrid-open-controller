@@ -145,7 +145,7 @@ if __name__ == "__main__":
         pruning_kwargs = model_config["optuna"]["pruning"] 
         #{"type": "hyperband", "min_resource": 2, "max_resource": 5, "reduction_factor": 3, "percentile": 25}
         model.tune_hyperparameters_single(study_name=args.study_name,
-                                        backend=model_config["optuna"]["backend"],
+                                        backend=model_config["optuna"]["storage"]["backend"],
                                         n_trials=model_config["optuna"]["n_trials"], 
                                         storage_dir=model_config["optuna"]["storage_dir"],
                                         seed=args.seed)
