@@ -735,15 +735,8 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                         <= int(stoptime[0]) +prediction_timedelta.total_seconds() + horizon_timedelta.total_seconds()] 
                     for d, df in enumerate(wind_field_ts)]
     # stoptime = max(min([((df["time"].iloc[-1] - df["time"].iloc[0]) - prediction_timedelta - horizon_timedelta).total_seconds() for df in wind_field_ts]), stoptime)
-<<<<<<< HEAD
-    #stoptime = [max(((df["time"].iloc[-1] - df["time"].iloc[0]) - prediction_timedelta - horizon_timedelta).total_seconds(), stoptime) for d, df in enumerate(wind_field_ts)]
-    stoptime = [max(((df["time"].iloc[-1] - df["time"].iloc[0]) - prediction_timedelta - horizon_timedelta).total_seconds(), 0) for df in wind_field_ts]
-
-    
-=======
     stoptime = [max(((df["time"].iloc[-1] - df["time"].iloc[0]) - prediction_timedelta - horizon_timedelta).total_seconds(), stoptime[d]) for d, df in enumerate(wind_field_ts)]
     print("Writing input_config files")
->>>>>>> 9a770fdd86f71235dbd9325282be5be32cf1091f
     for (case_study_key, wind_case_idx, fn), inp in zip(input_filenames, input_dicts):
         inp["hercules_comms"]["helics"]["config"]["stoptime"] = stoptime[wind_case_idx]
         results_dir = os.path.join(save_dir, case_study_key)
