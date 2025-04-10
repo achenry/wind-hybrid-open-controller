@@ -20,8 +20,8 @@ def replace_env_vars(dirpath):
     env_vars = re.findall(r"(?:^|\/)\$(\w+)(?:\/|$)", dirpath)
     for env_var in env_vars:
         if env_var in os.environ:
-            direc = direc.replace(f"${env_var}", os.environ[env_var])
-    return direc
+            dirpath = dirpath.replace(f"${env_var}", os.environ[env_var])
+    return dirpath
 
 if __name__ == "__main__":
     
