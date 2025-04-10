@@ -343,7 +343,7 @@ class LookupBasedWakeSteeringController(ControllerBase):
             # if (abs((self.current_time - self.init_time).total_seconds() % self.controller_dt) == 0.0):
             
             if self.current_time < self.lpf_start_time or not self.use_filt:
-                wind = forecasted_wind_field.iloc[-1] if self.wind_forecast else current_measurements.iloc[0]
+                wind = single_forecasted_wind_field.iloc[-1] if self.wind_forecast else current_measurements.iloc[0]
                 
                 wind_dirs = 180.0 + np.rad2deg(np.arctan2(
                     wind[self.mean_ws_horz_cols].values.astype(float), 
@@ -393,14 +393,14 @@ class LookupBasedWakeSteeringController(ControllerBase):
                                 + wind.iloc[-1][self.mean_ws_vert_cols].values.astype(float)**2)**0.5
                 # wind = wind.iloc[-1] # just get the last forecasted values
                 
-                if self.uncertain:
-                    ws_horz_stddevs = single_forecasted_wind_field.iloc[0][self.sd_ws_horz_cols].values.astype(float)
-                    ws_vert_stddevs = single_forecasted_wind_field.iloc[0][self.sd_ws_vert_cols].values.astype(float)
-                    forecasted_wind_norm = (single_forecasted_wind_field.iloc[0][self.mean_ws_horz_cols].values.astype(float)**2 + single_forecasted_wind_field.iloc[0][self.mean_ws_vert_cols].values.astype(float)**2)
-                    c1 = single_forecasted_wind_field.iloc[0][self.mean_ws_vert_cols].values.astype(float) / forecasted_wind_norm
-                    c2 = -single_forecasted_wind_field.iloc[0][self.mean_ws_horz_cols].values.astype(float) / forecasted_wind_norm
-                    wind_dir_stddevs = ((c1 * ws_horz_stddevs)**2 + (c2 * ws_vert_stddevs)**2)**0.5 
-                
+            if self.uncertain:
+                ws_horz_stddevs = single_forecasted_wind_field.iloc[0][self.sd_ws_horz_cols].values.astype(float)
+                ws_vert_stddevs = single_forecasted_wind_field.iloc[0][self.sd_ws_vert_cols].values.astype(float)
+                forecasted_wind_norm = (single_forecasted_wind_field.iloc[0][self.mean_ws_horz_cols].values.astype(float)**2 + single_forecasted_wind_field.iloc[0][self.mean_ws_vert_cols].values.astype(float)**2)
+                c1 = single_forecasted_wind_field.iloc[0][self.mean_ws_vert_cols].values.astype(float) / forecasted_wind_norm
+                c2 = -single_forecasted_wind_field.iloc[0][self.mean_ws_horz_cols].values.astype(float) / forecasted_wind_norm
+                wind_dir_stddevs = ((c1 * ws_horz_stddevs)**2 + (c2 * ws_vert_stddevs)**2)**0.5 
+            
             # only get wind_dirs corresponding to target_turbine_ids
             wind_dirs = wind_dirs[self.sorted_tids]
             wind_mags = wind_mags[self.sorted_tids]
