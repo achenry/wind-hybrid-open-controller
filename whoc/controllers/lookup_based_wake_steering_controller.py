@@ -31,6 +31,10 @@ from floris.optimization.yaw_optimization.yaw_optimizer_scipy import YawOptimiza
 import logging 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# TODO TESTING
+import warnings
+warnings.simplefilter("error", category=FutureWarning)
+
 class LookupBasedWakeSteeringController(ControllerBase):
     def __init__(self, interface, wind_forecast, simulation_input_dict, verbose=False, **kwargs):
         super().__init__(interface, verbose=verbose)
@@ -315,9 +319,16 @@ class LookupBasedWakeSteeringController(ControllerBase):
         
         # need historic measurements for filter or for wind forecast
         if self.use_filt or self.wind_forecast:
-            self.historic_measurements = pd.concat([self.historic_measurements, 
-                                                    current_measurements], axis=0).iloc[-int(np.ceil(self.lpf_time_const // self.simulation_dt) * 1e3):]
- 
+            # TODO NAN / empty dataframe issue
+            try:
+                if len(self.historic_measurements):
+                    self.historic_measurements = pd.concat([self.historic_measurements, 
+                                                            current_measurements], axis=0).iloc[-int(np.ceil(self.lpf_time_const // self.simulation_dt) * 1e3):]
+                else:
+                    self.historic_measurements = current_measurements
+            except Exception as e:
+                print("ah!")
+                
         current_yaw_setpoints = self.controls_dict["yaw_angles"]
         
         # flip the boolean value of those turbines which were actively yawing towards a previous setpoint, but now have reached that setpoint
@@ -335,6 +346,9 @@ class LookupBasedWakeSteeringController(ControllerBase):
                 # forecasted_wind_sample = self.wind_forecast.predict_sample(self.historic_measurements, self.current_time)
                 forecasted_wind_field = self.wind_forecast.predict_distr(self.historic_measurements, self.current_time)
             else:
+                # TODO HIGH self.historic measurements is not a pandas dataframe!!
+                if not isinstance(self.historic_measurements, pd.DataFrame):
+                    print("ah!")
                 forecasted_wind_field = self.wind_forecast.predict_point(self.historic_measurements, self.current_time)
             
             single_forecasted_wind_field = forecasted_wind_field.loc[forecasted_wind_field["time"] == self.current_time + self.wind_forecast.prediction_timedelta, :].iloc[:1]
