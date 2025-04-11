@@ -473,7 +473,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         lut_path = os.path.abspath(whoc_config["controller"]["lut_path"])
         floris_input_file = os.path.splitext(os.path.basename(whoc_config["controller"]["floris_input_file"]))[0]
         yaw_limits = (whoc_config["controller"]["yaw_limits"])[1]
-        target_turbine_indices = whoc_config["controller"]["target_turbine_indices"]
+        target_turbine_indices = tuple(int(i) for i in whoc_config["controller"]["target_turbine_indices"])
         uncertain_flag = whoc_config["controller"]["uncertain"]
         whoc_config["controller"]["lut_path"] = os.path.join(os.path.dirname(lut_path), 
                                                             f"lut_{floris_input_file}_{target_turbine_indices}_uncertain{uncertain_flag}_yawlimits{yaw_limits}.csv")
@@ -682,7 +682,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                 
             # need to change num_turbines, floris_input_file, lut_path
             if (target_turbine_indices := input_dicts[start_case_idx + c]["controller"]["target_turbine_indices"])  != "all":
-                target_turbine_indices = tuple(target_turbine_indices)
+                target_turbine_indices = tuple(int(i) for i in target_turbine_indices)
                 num_target_turbines = len(target_turbine_indices)
                 input_dicts[start_case_idx + c]["controller"]["num_turbines"] = num_target_turbines
                 # NOTE: lut tables should be regenerated for different yaw limits
