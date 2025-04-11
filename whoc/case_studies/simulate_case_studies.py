@@ -12,7 +12,7 @@ from whoc.wind_field.WindField import first_ord_filter
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# @profile
+@profile
 def simulate_controller(controller_class, wind_forecast_class, simulation_input_dict, **kwargs):
     
     results_dir = os.path.join(kwargs["save_dir"], kwargs['case_family'])
@@ -230,7 +230,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         # assert np.all(ctrl.controls_dict['yaw_angles'] == ctrl.measurements_dict["wind_directions"] - fi.env.floris.farm.yaw_angles)
         # add freestream wind mags/dirs provided to controller, yaw angles computed at this time-step, resulting turbine powers, wind mags, wind dirs
 
-        logging.info(f"\nTime = {t} of {controller_class.__name__} - {kwargs['case_name']} with wind seed {kwargs['wind_case_idx']}")
+        logging.info(f"Time = {t} of {controller_class.__name__} - {kwargs['case_name']} with wind seed {kwargs['wind_case_idx']}")
         if ctrl.verbose and False:
             logging.info(f"Measured Freestream Wind Direction = {simulation_dir[k]}",
                 f"Measured Freestream Wind Magnitude = {simulation_mag[k]}",
@@ -327,6 +327,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     
     # return results_data
 
+@profile
 def write_df(case_family, case_name, wind_case_idx, n_future_steps, wf_source, wind_field_ts,
              start_time, simulation_mag, simulation_dir,
              fi, fi_full,

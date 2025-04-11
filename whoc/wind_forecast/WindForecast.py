@@ -659,7 +659,7 @@ class PerfectForecast(WindForecast):
     col_mapping: Optional[dict] = None
     
     def __post_init__(self):
-        logging.info(f"id(wind_field_ts) in PerfectForecast __init__ is {id(self.wind_field_ts)}")
+        logging.info(f"id(wind_field_ts) in PerfectForecast __init__ is {id(self.true_wind_field)}")
     
     def predict_point(self, historic_measurements: Union[pl.DataFrame, pd.DataFrame], current_time):
         """_summary_
