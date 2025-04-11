@@ -658,6 +658,9 @@ class PerfectForecast(WindForecast):
     
     col_mapping: Optional[dict] = None
     
+    def __post_init__(self):
+        logging.info(f"id(wind_field_ts) in PerfectForecast __init__ is {id(self.wind_field_ts)}")
+    
     def predict_point(self, historic_measurements: Union[pl.DataFrame, pd.DataFrame], current_time):
         """_summary_
         Make a point prediction (e.g. the mean prediction) for each time step in the horizon

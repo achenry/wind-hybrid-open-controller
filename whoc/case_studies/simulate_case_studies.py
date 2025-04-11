@@ -49,15 +49,15 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
      
     if simulation_input_dict["controller"]["target_turbine_indices"] != "all":
         fi_full = ControlledFlorisModel(t0=kwargs["wind_field_ts"]["time"].iloc[0],
-                               yaw_limits=simulation_input_dict["controller"]["yaw_limits"],
-                                offline_probability=simulation_input_dict["controller"]["offline_probability"],
-                                simulation_dt=simulation_input_dict["simulation_dt"],
-                                yaw_rate=simulation_input_dict["controller"]["yaw_rate"],
-                                config_path=simulation_input_dict["controller"]["floris_input_file"],
-                                target_turbine_indices="all",
-                                uncertain=simulation_input_dict["controller"]["uncertain"],
-                                turbine_signature=kwargs["turbine_signature"],
-                                tid2idx_mapping=kwargs["tid2idx_mapping"])
+                                    yaw_limits=simulation_input_dict["controller"]["yaw_limits"],
+                                        offline_probability=simulation_input_dict["controller"]["offline_probability"],
+                                        simulation_dt=simulation_input_dict["simulation_dt"],
+                                        yaw_rate=simulation_input_dict["controller"]["yaw_rate"],
+                                        config_path=simulation_input_dict["controller"]["floris_input_file"],
+                                        target_turbine_indices="all",
+                                        uncertain=simulation_input_dict["controller"]["uncertain"],
+                                        turbine_signature=kwargs["turbine_signature"],
+                                        tid2idx_mapping=kwargs["tid2idx_mapping"])
     else:
         fi_full = fi
     
@@ -254,10 +254,8 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         k += int(ctrl.controller_dt / simulation_input_dict["simulation_dt"])
     
         # if RAM is running low, write existing data to dataframe and continue
-        ram_used = virtual_memory().percent
-        logging.info(f"Used {ram_used}% RAM.")
-        if ram_used > 75:
-             
+        if ram_used := virtual_memory().percent > 75:
+            logging.info(f"Used {ram_used}% RAM.")
             # turn data into arrays, pandas dataframe, and export to csv
             write_df(case_family=kwargs["case_family"],
                     case_name=kwargs["case_name"],
@@ -297,14 +295,6 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
             yaw_angles_ts = []
             if wind_forecast_class:
                 predicted_wind_speeds_ts = []
-            
-    # after simulation, run last time through controller horizon to get final yaw angles
-    # for tt in np.arange(t, t + ctrl.controller_dt, simulation_input_dict["simulation_dt"]):
-    #     last_measurements = fi.get_measurements()
-        
-    #     # Note these are results from previous time step
-    #     yaw_angles_ts += [last_measurements["yaw_angles"]] # TODO this is just the same as the last one
-    #     fi.time += pd.Timedelta(seconds=ctrl.controller_dt)
 
     # turn data into arrays, pandas dataframe, and export to csv
     if turbine_wind_mag_ts:
@@ -345,15 +335,12 @@ def write_df(case_family, case_name, wind_case_idx, n_future_steps, wf_source, w
              predicted_wind_speeds_ts,
              lower_state_cons_activated_ts, upper_state_cons_activated_ts,
              ctrl, wind_forecast_class, simulation_input_dict, idx2tid_mapping, save_path, final=False):
+    
     turbine_wind_mag_ts = np.vstack(turbine_wind_mag_ts)
     turbine_wind_dir_ts = np.vstack(turbine_wind_dir_ts)
     turbine_offline_status_ts = np.vstack(turbine_offline_status_ts)
     turbine_powers_ts = np.vstack(turbine_powers_ts)
     yaw_angles_ts = np.vstack(yaw_angles_ts)
-    
-    # init_yaw_angles_ts = np.vstack(init_yaw_angles_ts)
-    # yaw_angles_change_ts = np.diff(yaw_angles_ts, axis=0)[:(-n_future_steps) or None, :]
-    # yaw_angles_ts = yaw_angles_ts[:-(n_future_steps + 1), :]
     
     if final:
         n_truncate_steps = (int(ctrl.controller_dt - (simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"] % ctrl.controller_dt)) % ctrl.controller_dt) // simulation_input_dict["simulation_dt"]
@@ -363,15 +350,14 @@ def write_df(case_family, case_name, wind_case_idx, n_future_steps, wf_source, w
     turbine_wind_mag_ts = turbine_wind_mag_ts[:(-n_truncate_steps) or None, :]
     turbine_wind_dir_ts = turbine_wind_dir_ts[:(-n_truncate_steps) or None, :]
     turbine_offline_status_ts = turbine_offline_status_ts[:(-n_truncate_steps) or None, :]
-    # yaw_angles_change_ts = yaw_angles_change_ts[:(-n_truncate_steps) or None, :]
-    yaw_angles_ts = yaw_angles_ts[:(-n_truncate_steps) or None, :] # TODO LOW first element allows for greater change than yaw_rate
+    yaw_angles_ts = yaw_angles_ts[:(-n_truncate_steps) or None, :]
     turbine_powers_ts = turbine_powers_ts[:(-n_truncate_steps) or None, :]
     opt_cost_terms_ts = opt_cost_terms_ts[:(-n_truncate_steps) or None]
     convergence_time_ts = convergence_time_ts[:(-n_truncate_steps) or None]
     
     running_opt_cost_terms_ts = np.zeros_like(opt_cost_terms_ts)
     Q = simulation_input_dict["controller"]["alpha"]
-    R = (1 - simulation_input_dict["controller"]["alpha"]) 
+    # R = (1 - simulation_input_dict["controller"]["alpha"]) 
     
     norm_turbine_powers = turbine_powers_ts / ctrl.rated_turbine_power
     # norm_yaw_angle_changes = yaw_angles_change_ts / (ctrl.controller_dt * ctrl.yaw_rate)
@@ -429,7 +415,7 @@ def write_df(case_family, case_name, wind_case_idx, n_future_steps, wf_source, w
         # "FarmYawAngleChangeAbsSum": np.sum(np.abs(yaw_angles_change_ts), axis=1),
         # "RelativeFarmYawAngleChangeAbsSum": (np.sum(np.abs(yaw_angles_change_ts) * ~turbine_offline_status_ts, axis=1)) / (np.sum(~turbine_offline_status_ts, axis=1)),
         "FarmPower": np.sum(turbine_powers_ts, axis=1),
-        "RelativeFarmPower": np.sum(turbine_powers_ts, axis=1) / (np.sum(~turbine_offline_status_ts * np.array([max(fi.env.core.farm.turbine_definitions[i]["power_thrust_table"]["power"]) for i in range(ctrl.n_turbines)]), axis=1)),
+        # "RelativeFarmPower": np.sum(turbine_powers_ts, axis=1) / (np.sum(~turbine_offline_status_ts * np.array([max(fi.env.core.farm.turbine_definitions[i]["power_thrust_table"]["power"]) for i in range(ctrl.n_turbines)]), axis=1)),
         "OptimizationConvergenceTime": convergence_time_ts,
         **{
             f"RunningOptimizationCostTerm_{i}": running_opt_cost_terms_ts[:, i] for i in range(running_opt_cost_terms_ts.shape[1])
@@ -481,6 +467,7 @@ def write_df(case_family, case_name, wind_case_idx, n_future_steps, wf_source, w
         if not final:
             results_data = results_data.dropna(subset=[f"TrueTurbineWindSpeedHorz_{idx2tid_mapping[i]}" for i in range(fi_full.n_turbines)])
     
+    logging.info(f"Writing {'final' if final else 'intermediary'} result to file.")
     if os.path.exists(save_path):
         results_data.to_csv(save_path, mode="a", header=False, index=False)
     else:
