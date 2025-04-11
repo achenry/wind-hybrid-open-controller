@@ -49,7 +49,7 @@ case_studies = {
                                     "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/smarteole_farm.yaml"]},
                                     "uncertain": {"group": 3, "vals": [False]}, # TODO automatcially set to False if r=foreacaster does not have predict_distr
                                     "wind_forecast_class": {"group": 3, "vals": ["PreviewForecast"]}, #, "PerfectForecast"]},
-                                    "prediction_timedelta": {"group": 4, "vals": [120, 60]}, #, 120, 180]},
+                                    "prediction_timedelta": {"group": 4, "vals": [120]}, #, 120, 180]},
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]}
                                     },
     "baseline_controllers_forecasters_test_awaken": {
