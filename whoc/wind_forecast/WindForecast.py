@@ -127,7 +127,6 @@ class WindForecast:
         self.outputs = [f"ws_horz_{tid}" for tid in self.tid2idx_mapping] + [f"ws_vert_{tid}" for tid in self.tid2idx_mapping]
         # self.training_data_loaded = {output: False for output in self.outputs}
         self.training_data_shape = {output: None for output in self.outputs}
-        print(f"ID of self.true_wind_field in WindForecast: {id(self.true_wind_field)}")
     
     # @property
     # def true_wind_field(self):

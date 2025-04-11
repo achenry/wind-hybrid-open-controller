@@ -470,12 +470,12 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
     if (whoc_config["controller"]["target_turbine_indices"] is not None) and ((num_target_turbines := len(whoc_config["controller"]["target_turbine_indices"])) < whoc_config["controller"]["num_turbines"]):
         # need to change num_turbines, floris_input_file, lut_path
         whoc_config["controller"]["num_turbines"] = num_target_turbines
-        lut_path = whoc_config["controller"]["lut_path"]
+        lut_path = os.path.abspath(whoc_config["controller"]["lut_path"])
         floris_input_file = os.path.splitext(os.path.basename(whoc_config["controller"]["floris_input_file"]))[0]
         yaw_limits = (whoc_config["controller"]["yaw_limits"])[1]
-        target_turbine_indices = whoc_config["controller"]["target_turbine_indices"]
+        target_turbine_indices = tuple(int(i) for i in whoc_config["controller"]["target_turbine_indices"])
         uncertain_flag = whoc_config["controller"]["uncertain"]
-        whoc_config["controller"]["lut_path"] = os.path.join(os.path.dirname(whoc_config["controller"]["lut_path"]), 
+        whoc_config["controller"]["lut_path"] = os.path.join(os.path.dirname(lut_path), 
                                                             f"lut_{floris_input_file}_{target_turbine_indices}_uncertain{uncertain_flag}_yawlimits{yaw_limits}.csv")
         whoc_config["controller"]["target_turbine_indices"] = tuple(whoc_config["controller"]["target_turbine_indices"])
         
@@ -682,12 +682,12 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                 
             # need to change num_turbines, floris_input_file, lut_path
             if (target_turbine_indices := input_dicts[start_case_idx + c]["controller"]["target_turbine_indices"])  != "all":
-                target_turbine_indices = tuple(target_turbine_indices)
+                target_turbine_indices = tuple(int(i) for i in target_turbine_indices)
                 num_target_turbines = len(target_turbine_indices)
                 input_dicts[start_case_idx + c]["controller"]["num_turbines"] = num_target_turbines
                 # NOTE: lut tables should be regenerated for different yaw limits
                 uncertain_flag = input_dicts[start_case_idx + c]["controller"]["uncertain"]
-                lut_path = input_dicts[start_case_idx + c]["controller"]["lut_path"]
+                lut_path = os.path.abspath(input_dicts[start_case_idx + c]["controller"]["lut_path"])
                 floris_input_file = os.path.splitext(os.path.basename(input_dicts[start_case_idx + c]["controller"]["floris_input_file"]))[0]
                 yaw_limits = (input_dicts[start_case_idx + c]["controller"]["yaw_limits"])[1]
                 input_dicts[start_case_idx + c]["controller"]["lut_path"] = os.path.join(
@@ -698,7 +698,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
              
             # regenerate floris lookup tables for all wind farms included
             # generate LUT for combinations of lut_path/floris_input_file, yaw_limits, uncertain, and target_turbine_indices that arise together
-            if regenerate_lut:
+            if regenerate_lut or not os.path.exists(input_dicts[start_case_idx + c]["controller"]["lut_path"]):
                 
                 floris_input_file = input_dicts[start_case_idx + c]["controller"]["floris_input_file"]
                 lut_path = input_dicts[start_case_idx + c]["controller"]["lut_path"] 
@@ -739,8 +739,10 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                     for d, df in enumerate(wind_field_ts)]
     # stoptime = max(min([((df["time"].iloc[-1] - df["time"].iloc[0]) - prediction_timedelta - horizon_timedelta).total_seconds() for df in wind_field_ts]), stoptime)
     stoptime = [max(((df["time"].iloc[-1] - df["time"].iloc[0]) - prediction_timedelta - horizon_timedelta).total_seconds(), stoptime[d]) for d, df in enumerate(wind_field_ts)]
-    logging.info("Writing input_config files")
-    for (case_study_key, wind_case_idx, fn), inp in zip(input_filenames, input_dicts):
+    
+    total_cases = len(input_filenames)
+    for f, ((case_study_key, wind_case_idx, fn), inp) in enumerate(zip(input_filenames, input_dicts)):
+        logging.info(f"Writing input_config file {f} of {total_cases}")
         inp["hercules_comms"]["helics"]["config"]["stoptime"] = stoptime[wind_case_idx]
         results_dir = os.path.join(save_dir, case_study_key)
         os.makedirs(results_dir, exist_ok=True)
