@@ -71,14 +71,18 @@ if __name__ == "__main__":
     # run simulations
     
     if RUN_ONCE:
-        logging.info(f"running initialize_simulations for case_ids {[case_families[i] for i in args.case_ids]}")
         # os.path.join(os.path.dirname(whoc_file), "../examples/hercules_input_001.yaml")
+        
+        logging.info(f"Reading WHOC config file {args.whoc_config}")
         with open(args.whoc_config, 'r') as file:
             whoc_config  = yaml.safe_load(file)
             
         if args.wf_source == "scada":
+            logging.info(f"Reading model config file {args.model_config}")
             with open(args.model_config, 'r') as file:
                 model_config  = yaml.safe_load(file)
+                
+            logging.info(f"Reading preprocessing config file {args.data_config}")
             with open(args.data_config, 'r') as file:
                 data_config  = yaml.safe_load(file)
             
@@ -97,6 +101,7 @@ if __name__ == "__main__":
             turbine_signature = None
             tid2idx_mapping = None
             
+        logging.info(f"running initialize_simulations for case_ids {[case_families[i] for i in args.case_ids]}")
         case_lists, case_name_lists, input_dicts, wind_field_config, wind_field_ts \
             = initialize_simulations(case_study_keys=[case_families[i] for i in args.case_ids], 
                                         regenerate_wind_field=args.generate_wind_field, 
@@ -107,6 +112,8 @@ if __name__ == "__main__":
                                         wf_source=args.wf_source,
                                         multiprocessor=args.multiprocessor, 
                                         whoc_config=whoc_config, model_config=model_config, data_config=data_config)
+        
+        logging.info(f"Resetting args.n_seeds to {len(wind_field_ts)}")
         args.n_seeds = len(wind_field_ts)
         
         if args.multiprocessor is not None:
@@ -119,7 +126,7 @@ if __name__ == "__main__":
                 if args.multiprocessor == "mpi":
                     run_simulations_exec.max_workers = comm_size
                   
-                # logging.info(f"run_simulations line 64 with {run_simulations_exec._max_workers} workers")
+                logging.info(f"Submitting simulate_controller calls to pool executor with {run_simulations_exec._max_workers} workers")
                 # for MPIPool executor, (waiting as if shutdown() were called with wait set to True)
                 futures = [run_simulations_exec.submit(simulate_controller, 
                                                 controller_class=globals()[d["controller"]["controller_class"]], 
