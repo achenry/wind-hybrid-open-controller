@@ -153,8 +153,15 @@ class GreedyController(ControllerBase):
         current_wind_directions = current_wind_directions[self.sorted_tids]
         
         if self.use_filt or self.wind_forecast:
-            self.historic_measurements = pd.concat([self.historic_measurements, 
-                                                    current_measurements], axis=0).iloc[-int(np.ceil(self.lpf_time_const // self.simulation_dt) * 1e3):]
+            # TODO NAN / empty dataframe issue
+            try:
+                if len(self.historic_measurements):
+                    self.historic_measurements = pd.concat([self.historic_measurements, 
+                                                            current_measurements], axis=0).iloc[-int(np.ceil(self.lpf_time_const // self.simulation_dt) * 1e3):]
+                else:
+                    self.historic_measurements = current_measurements
+            except Exception as e:
+                print("ah!")
         
         # NOTE: this is run every simulation_dt, not every controller_dt, because the yaw angle may be moving gradually towards the correct setpoint
         
