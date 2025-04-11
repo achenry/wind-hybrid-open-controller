@@ -473,7 +473,8 @@ def write_df(case_family, case_name, wind_case_idx, n_future_steps, wf_source, w
             predicted_wind_speeds_ts = predicted_wind_speeds_ts.rename(columns={
                 src: f"StddevTurbineWindSpeed{re.search('(?<=ws_)\\w+(?=_\\d+)', src).group().capitalize()}_{re.search('(?<=_)\\d+$', src).group()}"
                 for src in ctrl.sd_ws_horz_cols + ctrl.sd_ws_vert_cols})
-        predicted_wind_speeds_ts[["CaseFamily", "CaseName", "WindSeed"]] = results_data[["CaseFamily", "CaseName", "WindSeed"]].iloc[0]
+        for key in ["CaseFamily", "CaseName", "WindSeed"]:
+            predicted_wind_speeds_ts = predicted_wind_speeds_ts.assign(**{key: results_data[key].values[0]})
         results_data = results_data.merge(predicted_wind_speeds_ts, on=["CaseFamily", "CaseName", "WindSeed", "Time"], how="outer")
         # del predicted_wind_speeds_ts
     
