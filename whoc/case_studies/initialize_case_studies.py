@@ -428,6 +428,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         
         # TODO check that wind field has same dt or interpolate...
         seed = 0
+        
         if len(wind_field_filenames) < n_seeds or regenerate_wind_field:
             n_seeds = 6
             print("regenerating wind fields")

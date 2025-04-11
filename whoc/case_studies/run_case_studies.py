@@ -316,6 +316,7 @@ if __name__ == "__main__":
                         bad_df = pd.read_csv(filepath, index_col=[0, 1])
                         bad_cols = [bad_df.columns[int(s) - len(bad_df.index.names)] for s in re.findall(r"(?<=Columns \()(.*)(?=\))", w.args[0])[0].split(",")]
                         bad_df.loc[bad_df[bad_cols].isna().any(axis=1)]
+                        time_series_df.append(pd.read_csv(filepath, index_col=[0, 1], low_memory=False))
             time_series_df = pd.concat(time_series_df)
             
             agg_df = []
@@ -436,7 +437,7 @@ if __name__ == "__main__":
                  
             
             if ((case_families.index("baseline_controllers") in args.case_ids)):
-                mpc_df = agg_df.iloc[agg_df.index.get_level_values("CaseFamily") != "baseline_controllers"]
+                mpc_df = agg_df.iloc[(agg_df.index.get_level_values("CaseFamily") != "baseline_controllers") & (agg_df.index.get_level_values("CaseName") != "Perfect")]
                 lut_df = agg_df.iloc[(agg_df.index.get_level_values("CaseFamily") == "baseline_controllers") & (agg_df.index.get_level_values("CaseName") == "LUT")] 
                 greedy_df = agg_df.iloc[(agg_df.index.get_level_values("CaseFamily") == "baseline_controllers") & (agg_df.index.get_level_values("CaseName") == "Greedy")]
                 
@@ -444,29 +445,60 @@ if __name__ == "__main__":
                 mpc_df.groupby("CaseFamily", group_keys=False).apply(lambda x: x.sort_values(by=("FarmPowerMean", "mean"), ascending=False).head(10))[[("FarmPowerMean", "mean"), ("YawAngleChangeAbsMean", "mean")]] 
                 # solver_type = SLSQP, warm_start=LUT, wind_preview_type=Persistent, Stochastic Interval Elliptical 11
                  
-                better_than_lut_df = mpc_df.loc[(mpc_df[("FarmPowerMean", "mean")] > lut_df[("FarmPowerMean", "mean")].iloc[0]) 
-                                                & (mpc_df[("YawAngleChangeAbsMean", "mean")] < lut_df[("YawAngleChangeAbsMean", "mean")].iloc[0]), 
+                # get MPC cases with higher power than LUT, sorted from lowest to highest yaw activity
+                better_power_than_lut_df = mpc_df.loc[(mpc_df[("FarmPowerMean", "mean")] > lut_df[("FarmPowerMean", "mean")].iloc[0]), 
                                                 [("RelativeTotalRunningOptimizationCostMean", "mean"), ("YawAngleChangeAbsMean", "mean"), ("FarmPowerMean", "mean")]]\
-                                                    .sort_values(by=("RelativeTotalRunningOptimizationCostMean", "mean"), ascending=True)\
+                                                    .sort_values(by=("YawAngleChangeAbsMean", "mean"), ascending=True)\
                                                         .reset_index(level="CaseFamily", drop=True)
                                                         
-                better_than_lut_df = mpc_df.loc[(mpc_df[("FarmPowerMean", "mean")] > lut_df[("FarmPowerMean", "mean")].iloc[0]), 
+                # get MPC cases with lower yaw activity than LUT, sorted from highest to lowest farm power
+                better_yaw_act_than_lut_df = mpc_df.loc[(mpc_df[("YawAngleChangeAbsMean", "mean")] < lut_df[("YawAngleChangeAbsMean", "mean")].iloc[0]), 
                                                 [("RelativeTotalRunningOptimizationCostMean", "mean"), ("YawAngleChangeAbsMean", "mean"), ("FarmPowerMean", "mean")]]\
-                                                    .sort_values(by=("RelativeTotalRunningOptimizationCostMean", "mean"), ascending=True)\
+                                                    .sort_values(by=("FarmPowerMean", "mean"), ascending=False)\
                                                         .reset_index(level="CaseFamily", drop=True)
                                                         
-                better_than_greedy_df = mpc_df.loc[(mpc_df[("FarmPowerMean", "mean")] > greedy_df[("FarmPowerMean", "mean")].iloc[0]), 
+                better_power_than_greedy_df = mpc_df.loc[(mpc_df[("FarmPowerMean", "mean")] > greedy_df[("FarmPowerMean", "mean")].iloc[0]), 
                                                    [("RelativeTotalRunningOptimizationCostMean", "mean"), ("YawAngleChangeAbsMean", "mean"), ("FarmPowerMean", "mean")]]\
                                                     .sort_values(by=("YawAngleChangeAbsMean", "mean"), ascending=True)\
                                                         .reset_index(level="CaseFamily", drop=True)
+                                                        
+                # percentage gain in farm power/yaw activity for LUT vs greedy 
+                print(100 * (lut_df.iloc[0][[("FarmPowerMean", "mean"), ("YawAngleChangeAbsMean", "mean")]]
+                       - greedy_df.iloc[0][[("FarmPowerMean", "mean"), ("YawAngleChangeAbsMean", "mean")]]) \
+                           / greedy_df.iloc[0][[("FarmPowerMean", "mean"), ("YawAngleChangeAbsMean", "mean")]])
 
-                100 * (better_than_lut_df.iloc[0]["FarmPowerMean"] - lut_df.iloc[0]["FarmPowerMean"]) / lut_df.iloc[0]["FarmPowerMean"]
-                100 * (better_than_lut_df.iloc[0]["FarmPowerMean"] - greedy_df.iloc[0]["FarmPowerMean"]) / greedy_df.iloc[0]["FarmPowerMean"]
-                100 * (better_than_lut_df.iloc[0]["YawAngleChangeAbsMean"] - lut_df.iloc[0]["YawAngleChangeAbsMean"]) / lut_df.iloc[0]["YawAngleChangeAbsMean"]
-                100 * (better_than_lut_df.iloc[0]["YawAngleChangeAbsMean"] - greedy_df.iloc[0]["YawAngleChangeAbsMean"]) / greedy_df.iloc[0]["YawAngleChangeAbsMean"]
+                # percentage gain in farm power/yaw activity for MPC with power greater than LUT, with lowest yaw activity
+                print("Percentage gain in Mean Farm Power/Yaw Activity for MPC with farm power exceeding LUT, with lowest mean yaw activity.")
+                df = better_power_than_lut_df.iloc[0][[("FarmPowerMean", "mean"), ("YawAngleChangeAbsMean", "mean")]] 
+                print(df._name, 100 * (df
+                       - lut_df.iloc[0][[("FarmPowerMean", "mean"), ("YawAngleChangeAbsMean", "mean")]]) \
+                           / lut_df.iloc[0][[("FarmPowerMean", "mean"), ("YawAngleChangeAbsMean", "mean")]])
+                # percentage gain in farm power/yaw activity for MPC with highest power
+                print("Percentage gain in Mean Farm Power/Yaw Activity for MPC with greatest mean farm power exceeding LUT")
+                df = better_power_than_lut_df.loc[better_power_than_lut_df[("FarmPowerMean", "mean")].idxmax(), [("FarmPowerMean", "mean"), ("YawAngleChangeAbsMean", "mean")]]
+                print(df._name, 100 * (df 
+                    - lut_df.iloc[0][[("FarmPowerMean", "mean"), ("YawAngleChangeAbsMean", "mean")]]) \
+                        / lut_df.iloc[0][[("FarmPowerMean", "mean"), ("YawAngleChangeAbsMean", "mean")]], sep="\n")
                 
-                if True:
-                    plotting_cases = [("wind_preview_type", better_than_lut_df.iloc[0]._name),   
+                # percentage gain in farm power/yaw_activity for MPC with yaw activity less than LUT, with highest power
+                print("Percentage gain in Mean Farm Power/Yaw Activity for MPC with yaw activity less than LUT, with highest mean farm power.")
+                df = better_yaw_act_than_lut_df.iloc[0][[("FarmPowerMean", "mean"), ("YawAngleChangeAbsMean", "mean")]]
+                print(df._name, 100 * (df 
+                       - lut_df.iloc[0][[("FarmPowerMean", "mean"), ("YawAngleChangeAbsMean", "mean")]]) \
+                           / lut_df.iloc[0][[("FarmPowerMean", "mean"), ("YawAngleChangeAbsMean", "mean")]], sep="\n")
+                # percentage gain in farm power/yaw activity for MPC with lowest yaw activity
+                print("Percentage gain in Mean Farm Power/Yaw Activity for MPC with yaw activity less than LUT.")
+                df = better_yaw_act_than_lut_df.loc[better_yaw_act_than_lut_df.loc[(better_yaw_act_than_lut_df[("YawAngleChangeAbsMean", "mean")] > 0), ("YawAngleChangeAbsMean", "mean")].idxmin(), [("FarmPowerMean", "mean"), ("YawAngleChangeAbsMean", "mean")]] 
+                print(df._name, 100 * (df
+                       - lut_df.iloc[0][[("FarmPowerMean", "mean"), ("YawAngleChangeAbsMean", "mean")]]) \
+                           / lut_df.iloc[0][[("FarmPowerMean", "mean"), ("YawAngleChangeAbsMean", "mean")]], sep="\n")
+                
+                # percentage gain in farm power/yaw activity for MPC with power greater than LUT, with lowest yaw activity
+                100 * (better_power_than_greedy_df.iloc[0]["FarmPowerMean"] - greedy_df.iloc[0]["FarmPowerMean"]) / greedy_df.iloc[0]["FarmPowerMean"]
+                100 * (better_power_than_greedy_df.iloc[0]["YawAngleChangeAbsMean"] - greedy_df.iloc[0]["YawAngleChangeAbsMean"]) / greedy_df.iloc[0]["YawAngleChangeAbsMean"]
+                
+                if False:
+                    plotting_cases = [("wind_preview_type", better_power_than_lut_df.iloc[0]._name),   
                                         ("baseline_controllers", "LUT"),
                                         ("baseline_controllers", "Greedy")
                         ]
@@ -534,7 +566,7 @@ if __name__ == "__main__":
                 for (case_family, case_name), _ in mpc_df.iterrows():
                     # input_fn = [fn for fn in os.listdir(os.path.join(args.save_dir, case_family)) if "input_config" in fn and case_name in fn][0]
                     input_fn = f"input_config_case_{case_name}.pkl"
-                    with open(os.path.join(args.save_dir, case_family, input_fn), mode='r') as fp:
+                    with open(os.path.join(args.save_dir, case_family, input_fn), mode='rb') as fp:
                         input_config = pickle.load(fp)
                     
                     for col in config_cols:

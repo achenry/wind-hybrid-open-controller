@@ -114,6 +114,8 @@ def read_time_series_data(results_path):
     try:
         df = pd.read_csv(results_path, index_col=0)
         print(f"Read {results_path}")
+        df["CaseName"] = [s.replace("_controller_controller_dt_", "_controller_dt_") if "_controller_controller_dt_" in s else s for s in df["CaseName"]]
+        df.to_csv(results_path)
         df = df.set_index(["CaseFamily", "CaseName"])
         return df
     except pd.errors.DtypeWarning as w:
@@ -1283,7 +1285,7 @@ def plot_horizon_length(data_summary_df, save_dir):
 
     sub_df = data_summary_df.loc[(data_summary_df.index.get_level_values("CaseFamily") == "horizon_length"), :].copy()
     sub_df["n_horizon"] = sub_df["n_horizon"].astype(int)
-    sub_df["dt"] = sub_df["dt"].astype(int)
+    sub_df["controller_dt"] = sub_df["controller_dt"].astype(int)
     sub_df = sub_df.reset_index(level="CaseName")
     sub_df.loc[:, "CaseName"] = [float(x[-1]) for x in sub_df["CaseName"].str.split("_")]
     sub_df[("FarmPowerMean", "mean")] = sub_df[("FarmPowerMean", "mean")] / 1e6
@@ -1307,7 +1309,7 @@ def plot_horizon_length(data_summary_df, save_dir):
                    label=row.name[1], marker=m, color=c)
 
     sns.scatterplot(data=sub_df, x="YawAngleChangeAbsMean", y="FarmPowerMean", 
-                     hue="n_horizon", style="dt", ax=ax)
+                     hue="n_horizon", style="controller_dt", ax=ax)
                     # size_order=reversed(sub_df["CaseName"]), ax=ax)
     # ax.collections[1].set_sizes(ax.collections[1].get_sizes() * 9)
     # marker_scale = 360 / ax.collections[1].get_sizes()[0]
@@ -1331,7 +1333,7 @@ def plot_horizon_length(data_summary_df, save_dir):
     # ax.legend_.texts[1].set_text("$N_p$")
     # ax.legend_.texts[2 + len(pd.unique(sub_df["dt"]))].set_text("$\\Delta t_c^{\\text{MPC}}$")
     first_legend.texts[0].set_text("$N_p$")
-    first_legend.texts[1 + len(pd.unique(sub_df["dt"]))].set_text("$\\Delta t_c^{\\text{MPC}}$")
+    first_legend.texts[1 + len(pd.unique(sub_df["controller_dt"]))].set_text("$\\Delta t_c^{\\text{MPC}}$")
     ax.add_artist(first_legend)
     # second_legend = mlines.Line2D([], [], color="darkorange", marker="s", linestyle=None, label="LUT")
     second_legend = ax.legend(handles=[h[0]], markerscale=3.0, loc="lower right")
