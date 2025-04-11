@@ -81,7 +81,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     # pl.DataFrame(kwargs["wind_field_ts"])
     # simulation_input_dict["wind_forecast"]["measurement_layout"] = np.vstack([fi.env.layout_x, fi.env.layout_y]).T
     if wind_forecast_class:
-        wind_forecast = wind_forecast_class(true_wind_field=kwargs["wind_field_ts"],
+        wind_forecast = wind_forecast_class(true_wind_field=kwargs["wind_field_ts"] if wind_forecast_class.__name__ == "Perfect" else None,
                                             fmodel=fi_full.env, 
                                             tid2idx_mapping=kwargs["tid2idx_mapping"],
                                             turbine_signature=kwargs["turbine_signature"],
