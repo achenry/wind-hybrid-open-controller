@@ -159,8 +159,8 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
                                 ctrl_dict=None if t > 0 else {"yaw_angles": [ctrl.yaw_IC] * ctrl.n_turbines if isinstance(ctrl.yaw_IC, float) else ctrl.yaw_IC},
                                 seed=k)
         except Exception as e:
-            print(f"negative M0 error for {kwargs['case_name']}_seed_{kwargs['wind_case_idx']}, time {t}, wind directions {simulation_dir[k:k + n_future_steps + 1]}")
-            raise(e)
+            print(f"NEGATIVE M0 ERROR for {kwargs['case_name']}_seed_{kwargs['wind_case_idx']}, time {t}, wind directions {simulation_dir[k:k + n_future_steps + 1]}")
+            print(e)
         
         ctrl.current_freestream_measurements = [
                 simulation_u[k],
