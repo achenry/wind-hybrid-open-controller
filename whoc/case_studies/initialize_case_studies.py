@@ -602,22 +602,22 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             logging.info(f"Resampling to {simulation_dt} seconds.")
             wind_field_ts = [wf.set_index("time").resample(f"{simulation_dt}s").mean().reset_index(names=["time"]) for wf in wind_field_ts]
         
-        import matplotlib.pyplot as plt
-        import seaborn as sns
-        import polars.selectors as cs
-        target_turbine_ids = [75, 74, 5]
-        for wf in wind_field_ts[50:100]:
-            df = wf[["time"] + [c for c in wf.columns if c.startswith("ws_") and any(c.endswith("_" + str(tid)) for tid in target_turbine_ids)]]
-            df = pd.melt(df, id_vars=["time"], value_vars=[c for c in df.columns if c.startswith("ws_")])
-            df["turbine_id"] = df["variable"].str.extract("_(\\d+)", expand=False)
-            df["variable"] = df["variable"].str.extract("(\\w+)(?=_\\d+)", expand=False)
-            fig, ax = plt.subplots(2, 1, sharex=True)
-            sns.lineplot(data=df.loc[df["variable"]=="ws_horz", :], x="time", y="value", hue="turbine_id", ax=ax[0])
-            sns.lineplot(data=df.loc[df["variable"]=="ws_vert", :], x="time", y="value", hue="turbine_id", ax=ax[1])
-            ax[0].set_title("Horizontal Wind Speed (m/s)")
-            ax[1].set_title("Vertical Wind Speed (m/s)")
-            ax[0].set_xlabel("")
-            ax[1].set_xlabel("Time (s)")
+        # import matplotlib.pyplot as plt
+        # import seaborn as sns
+        # import polars.selectors as cs
+        # target_turbine_ids = [75, 74, 5]
+        # for wf in wind_field_ts[50:100]:
+        #     df = wf[["time"] + [c for c in wf.columns if c.startswith("ws_") and any(c.endswith("_" + str(tid)) for tid in target_turbine_ids)]]
+        #     df = pd.melt(df, id_vars=["time"], value_vars=[c for c in df.columns if c.startswith("ws_")])
+        #     df["turbine_id"] = df["variable"].str.extract("_(\\d+)", expand=False)
+        #     df["variable"] = df["variable"].str.extract("(\\w+)(?=_\\d+)", expand=False)
+        #     fig, ax = plt.subplots(2, 1, sharex=True)
+        #     sns.lineplot(data=df.loc[df["variable"]=="ws_horz", :], x="time", y="value", hue="turbine_id", ax=ax[0])
+        #     sns.lineplot(data=df.loc[df["variable"]=="ws_vert", :], x="time", y="value", hue="turbine_id", ax=ax[1])
+        #     ax[0].set_title("Horizontal Wind Speed (m/s)")
+        #     ax[1].set_title("Vertical Wind Speed (m/s)")
+        #     ax[0].set_xlabel("")
+        #     ax[1].set_xlabel("Time (s)")
             
         
         wind_field_config = {}
