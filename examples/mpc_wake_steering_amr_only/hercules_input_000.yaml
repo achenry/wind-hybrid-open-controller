@@ -46,7 +46,7 @@ controller:
   yaw_limits: [-30, 30]
   yaw_rate: 0.3
   yaw_increment: 0.25
-  lpf_time_const: 35
+  wind_dir_lpf_time_const: 35
   deadband_thr: 8
   dt: 60
   n_horizon: 10

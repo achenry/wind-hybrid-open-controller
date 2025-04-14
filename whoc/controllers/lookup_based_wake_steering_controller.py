@@ -47,9 +47,11 @@ class LookupBasedWakeSteeringController(ControllerBase):
         # self.filtered_measurements = pd.DataFrame(columns=["time"] + [f"ws_horz_{tid}" for tid in range(self.n_turbines)] + [f"ws_vert_{tid}" for tid in range(self.n_turbines)], dtype=pd.Float64Dtype())
         # self.ws_lpf_alpha = np.exp(-simulation_input_dict["controller"]["ws_lpf_omega_c"] * simulation_input_dict["controller"]["lpf_T"])
         self.use_filt = simulation_input_dict["controller"]["use_lut_filtered_wind_dir"]
-        self.lpf_time_const = simulation_input_dict["controller"]["lpf_time_const"]
+        self.wind_dir_lpf_time_const = simulation_input_dict["controller"]["wind_dir_lpf_time_const"]
+        self.wind_mag_lpf_time_const = simulation_input_dict["controller"]["wind_mag_lpf_time_const"]
         self.lpf_start_time = self.init_time + pd.Timedelta(seconds=simulation_input_dict["controller"]["lpf_start_time"])        
-        self.lpf_alpha = np.exp(-(1 / simulation_input_dict["controller"]["lpf_time_const"]) * simulation_input_dict["simulation_dt"])
+        self.wind_dir_lpf_alpha = np.exp(-(1 / simulation_input_dict["controller"]["wind_dir_lpf_time_const"]) * simulation_input_dict["simulation_dt"])
+        self.wind_mag_lpf_alpha = np.exp(-(1 / simulation_input_dict["controller"]["wind_mag_lpf_time_const"]) * simulation_input_dict["simulation_dt"])
         self.deadband_thr = simulation_input_dict["controller"]["deadband_thr"]
         self.floris_input_file = simulation_input_dict["controller"]["floris_input_file"]
         self.yaw_limits = simulation_input_dict["controller"]["yaw_limits"]
@@ -130,10 +132,10 @@ class LookupBasedWakeSteeringController(ControllerBase):
         self.previous_target_yaw_setpoints = self.controls_dict["yaw_angles"]
         self.yaw_norm_const = 360.0
     
-    def _first_ord_filter(self, x):
+    def _first_ord_filter(self, x, alpha):
         
-        b = [1 - self.lpf_alpha]
-        a = [1, -self.lpf_alpha]
+        b = [1 - alpha]
+        a = [1, -alpha]
         return lfilter(b, a, x)
     
     
@@ -226,14 +228,26 @@ class LookupBasedWakeSteeringController(ControllerBase):
             #        'yaw_angles_opt', 'farm_power_opt', 'farm_power_baseline']
             
             # start LUT inspection code
-            # import seaborn as sns
-            # yaw_angles_opt = np.vstack(df_lut["yaw_angles_opt"].values)
-            # df_plot = df_lut.drop(columns=["yaw_angles_opt", "farm_power_opt", "farm_power_baseline"])
-            # df_plot = pd.concat([df_plot.assign(YawOffset=yaw_angles_opt[:, i], Turbine=i) for i in range(yaw_angles_opt.shape[1])], axis=0)
+            import seaborn as sns
+            import matplotlib.pyplot as plt
+            yaw_angles_opt = np.vstack(df_lut["yaw_angles_opt"].values)
+            df_plot = df_lut.drop(columns=["yaw_angles_opt", "farm_power_opt", "farm_power_baseline"])
+            df_plot = pd.concat([df_plot.assign(YawOffset=yaw_angles_opt[:, i], Turbine=i) for i in range(yaw_angles_opt.shape[1])], axis=0)
                 
-            # # df_plot = df_plot.groupby(["wind_speed", "wd_stddev"]).agg("mean")
+            # df_plot = df_plot.groupby(["wind_speed", "wd_stddev"]).agg("mean")
             # ax = sns.lineplot(df_plot, x="wind_direction", y="YawOffset", hue="wd_stddev", style="Turbine")
             # ax.legend(bbox_to_anchor=(1, 1.01), loc="upper left")
+            # ax.set_xlabel("Wind Direction ($^\circ$)")
+            # ax.set_ylabel("Yaw Offset ($^\circ$)")
+            # h, l = ax.get_legend_handles_labels()
+            # l[0] = "Wind Direction Standard Deviation ($^\circ$)"
+            # l = [ll[:-2] if ".0" in ll else ll for ll in l]
+            # l[-2] = "Downstream"
+            # l[-1] = "Upstream"
+            # ax.legend(h, l, bbox_to_anchor=(1.0, 1.01), loc="upper left")
+            # ax.set_xlim((0, 360))
+            # plt.tight_layout()
+            # plt.savefig(os.path.join(os.path.dirname(lut_path), "uncertain_lut.png"))
             # end LUT inspection code
             
             os.makedirs(os.path.dirname(lut_path), exist_ok=True)
@@ -319,10 +333,10 @@ class LookupBasedWakeSteeringController(ControllerBase):
         current_wind_directions = current_wind_directions[self.sorted_tids]
         
         # need historic measurements for filter or for wind forecast
-        if self.use_filt or self.wind_forecast:
+        if self.wind_dir_use_filt or self.wind_mag_use_filt or self.wind_forecast:
             if len(self.historic_measurements):
                 self.historic_measurements = pd.concat([self.historic_measurements, 
-                                                        current_measurements], axis=0).iloc[-int(np.ceil(self.lpf_time_const // self.simulation_dt) * 1e3):]
+                                                        current_measurements], axis=0).iloc[-int(np.ceil(self.wind_dir_lpf_time_const // self.simulation_dt) * 1e3):]
             else:
                 self.historic_measurements = current_measurements
                 
@@ -353,7 +367,7 @@ class LookupBasedWakeSteeringController(ControllerBase):
         if (((self.current_time - self.init_time).total_seconds() % self.controller_dt) == 0.0):
             # if (abs((self.current_time - self.init_time).total_seconds() % self.controller_dt) == 0.0):
             
-            if self.current_time < self.lpf_start_time or not self.use_filt:
+            if self.current_time < self.lpf_start_time or (not self.wind_dir_use_filt and not self.wind_mag_use_filt):
                 wind = single_forecasted_wind_field.iloc[-1] if self.wind_forecast else current_measurements.iloc[0]
                 
                 wind_dirs = 180.0 + np.rad2deg(np.arctan2(
@@ -389,9 +403,10 @@ class LookupBasedWakeSteeringController(ControllerBase):
                         logging.info(f"unfiltered current wind directions = {current_wind_directions}")
                 
                 # pass the historic and forecasted values to the low pass filter
-                wind_dirs = np.array([self._first_ord_filter(wind_dirs[:, i])
-                                                for i in range(wind_dirs.shape[1])]).T # [-int(self.controller_dt // self.simulation_dt), :]
-                wind_dirs = wind_dirs[-1, :]
+                if self.wind_dir_use_filt:
+                    wind_dirs = np.array([self._first_ord_filter(wind_dirs[:, i], self.wind_dir_lpf_alpha)
+                                                    for i in range(wind_dirs.shape[1])]).T # [-int(self.controller_dt // self.simulation_dt), :]
+                    wind_dirs = wind_dirs[-1, :]
                 
                 if self.verbose:
                     if self.wind_forecast:
@@ -402,6 +417,11 @@ class LookupBasedWakeSteeringController(ControllerBase):
                 # just use the latest forecasted value for the wind magnitude
                 wind_mags = (wind.iloc[-1][self.mean_ws_horz_cols].values.astype(float)**2 
                                 + wind.iloc[-1][self.mean_ws_vert_cols].values.astype(float)**2)**0.5
+                
+                if self.wind_mag_use_filt:
+                    wind_mags = np.array([self._first_ord_filter(wind_mags[:, i], self.wind_mag_lpf_alpha)
+                                                    for i in range(wind_mags.shape[1])]).T # [-int(self.controller_dt // self.simulation_dt), :]
+                    wind_mags = wind_mags[-1, :]
                 # wind = wind.iloc[-1] # just get the last forecasted values
                 
             if self.uncertain:
