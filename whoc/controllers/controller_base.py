@@ -14,7 +14,6 @@
 
 from abc import ABCMeta, abstractmethod
 
-
 class ControllerBase(metaclass=ABCMeta):
     def __init__(self, interface, verbose=True):
         self._s = interface
