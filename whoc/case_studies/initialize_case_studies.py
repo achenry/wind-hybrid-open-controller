@@ -41,15 +41,15 @@ elif sys.platform == "win32" or sys.platform == "cygwin":  # Add Windows check
 case_studies = {
     "baseline_controllers_preview_flasc_perfect": {
                                     "target_turbine_indices": {"group": 1, "vals": ["6,4", "6,"]},
-                                    "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController"]},
+                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},    
                                     "controller_dt": {"group": 0, "vals": [60]},
                                     "use_filtered_wind_dir": {"group": 0, "vals": [True]},
                                     "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
                                     "simulation_dt": {"group": 0, "vals": [60]},
                                     "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/smarteole_farm.yaml"]},
                                     "uncertain": {"group": 3, "vals": [False]}, # TODO automatcially set to False if r=foreacaster does not have predict_distr
-                                    "wind_forecast_class": {"group": 3, "vals": ["PreviewForecast"]}, #, "PerfectForecast"]},
-                                    "prediction_timedelta": {"group": 4, "vals": [120]}, #, 120, 180]},
+                                    "wind_forecast_class": {"group": 3, "vals": ["PreviewForecast", "PerfectForecast"]}, #, "PerfectForecast"]},
+                                    "prediction_timedelta": {"group": 4, "vals": [60, 120]}, #, 120, 180]},
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]}
                                     },
     "baseline_controllers_forecasters_test_awaken": {
@@ -565,7 +565,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
     elif wf_source == "scada":
         data_module = DataModule(data_path=model_config["dataset"]["data_path"], 
                                  normalization_consts_path=model_config["dataset"]["normalization_consts_path"],
-                                 denormalize=False, 
+                                 normalized=False, 
                                  n_splits=1, #model_config["dataset"]["n_splits"],
                                  continuity_groups=None, train_split=(1.0 - model_config["dataset"]["val_split"] - model_config["dataset"]["test_split"]),
                                  val_split=model_config["dataset"]["val_split"], test_split=model_config["dataset"]["test_split"],
@@ -667,7 +667,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                 else:
                     input_dicts[start_case_idx + c][property_name] = property_value
             
-            assert input_dicts[start_case_idx + c]["controller"]["controller_dt"] <= int(stoptime[0])
+            assert all(input_dicts[start_case_idx + c]["controller"]["controller_dt"] <= t for t in stoptime)
             
             if input_dicts[start_case_idx + c]["controller"]["wind_forecast_class"] or "wind_forecast_class" in case: 
                 input_dicts[start_case_idx + c]["wind_forecast"] \
@@ -735,7 +735,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
 
     # assert all([(df["time"].iloc[-1] - df["time"].iloc[0]).total_seconds() >= stoptime + prediction_timedelta + horizon_timedelta for df in wind_field_ts])
     wind_field_ts = [df.loc[(df["time"] - df["time"].iloc[0]).dt.total_seconds() 
-                        <= int(stoptime[0]) +prediction_timedelta.total_seconds() + horizon_timedelta.total_seconds()] 
+                        <= stoptime[d] + prediction_timedelta.total_seconds() + horizon_timedelta.total_seconds()] 
                     for d, df in enumerate(wind_field_ts)]
     # stoptime = max(min([((df["time"].iloc[-1] - df["time"].iloc[0]) - prediction_timedelta - horizon_timedelta).total_seconds() for df in wind_field_ts]), stoptime)
     stoptime = [max(((df["time"].iloc[-1] - df["time"].iloc[0]) - prediction_timedelta - horizon_timedelta).total_seconds(), stoptime[d]) for d, df in enumerate(wind_field_ts)]
