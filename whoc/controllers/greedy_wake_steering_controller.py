@@ -62,7 +62,7 @@ class GreedyController(ControllerBase):
         self.wind_dir_use_filt = simulation_input_dict["controller"]["use_filtered_wind_dir"]
 
         self.rated_turbine_power = simulation_input_dict["controller"]["rated_turbine_power"]
-
+        
         self.wind_field_ts = kwargs["wind_field_ts"]
         logging.info(f"id(wind_field_ts) in GreedyController __init__ is {id(self.wind_field_ts)}")
 
@@ -99,7 +99,7 @@ class GreedyController(ControllerBase):
         # return np.zeros((*wind_directions.shape, self.n_turbines))
         return np.array([[[wind_directions[i, j] for t in range(self.n_turbines)] for j in range(wind_directions.shape[1])] for i in range(wind_directions.shape[0])])
     
-    @profile
+    # @profile
     def compute_controls(self):
         # print("in GreedyController.compute_controls")
         if (self._last_measured_time is not None) and self._last_measured_time == self.measurements_dict["time"]:
@@ -117,13 +117,14 @@ class GreedyController(ControllerBase):
             current_ws_horz = self.measurements_dict["wind_speeds"] * np.sin(np.deg2rad(current_wind_directions + 180.0)) 
             current_ws_vert = self.measurements_dict["wind_speeds"] * np.cos(np.deg2rad(current_wind_directions + 180.0))
         else:
-            current_row = self.wind_field_ts.loc[self.wind_field_ts["time"] == self.current_time, :]
-            current_ws_horz = np.hstack([current_row[f"ws_horz_{tid}"].values for tid in self.tid2idx_mapping])
-            current_ws_vert = np.hstack([current_row[f"ws_vert_{tid}"].values for tid in self.tid2idx_mapping])
+            # TODO HIGH MEM convert to polars
+            current_row = self.wind_field_ts.filter(pl.col("time") == self.current_time)
+            current_ws_horz = current_row.select([f"ws_horz_{tid}" for tid in self.tid2idx_mapping]).to_numpy()[0, :]
+            current_ws_vert = current_row.select([f"ws_vert_{tid}" for tid in self.tid2idx_mapping]).to_numpy()[0, :]
             current_wind_directions = 180.0 + np.rad2deg(
                 np.arctan2(
-                    current_ws_horz, 
-                    current_ws_vert
+                     current_ws_horz, 
+                     current_ws_vert
                 )
             )
         
@@ -207,8 +208,8 @@ class GreedyController(ControllerBase):
                     wind = self.historic_measurements
                     
                 wind_dirs = 180.0 + np.rad2deg(np.arctan2(
-                    wind.select(self.mean_ws_horz_cols).to_numpy()[-1, :], 
-                    wind.select(self.mean_ws_vert_cols).to_numpy()[-1, :]))
+                    wind.select(self.mean_ws_horz_cols).to_numpy(), 
+                    wind.select(self.mean_ws_vert_cols).to_numpy()))
                 
                 if self.verbose:
                     if self.wind_forecast:

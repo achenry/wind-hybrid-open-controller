@@ -273,7 +273,7 @@ class LookupBasedWakeSteeringController(ControllerBase):
                 fill_value=0.0,
             )
     
-    @profile
+    # @profile
     def compute_controls(self):
         # TODO update LUT for turbine breakdown
         # TODO: move data collection for filtering purposes to another method that is called every simulation_dt, also move constraints on yaw angles and incremental updates as per yaw_rate to simulator, only job of compute_controls should be to compute new yaw angles for turbines that are not in motion
@@ -294,13 +294,13 @@ class LookupBasedWakeSteeringController(ControllerBase):
             current_ws_horz = self.measurements_dict["wind_speeds"] * np.sin(np.deg2rad(self.measurements_dict["wind_directions"] + 180.0))
             current_ws_vert = self.measurements_dict["wind_speeds"] * np.cos(np.deg2rad(self.measurements_dict["wind_directions"] + 180.0))
         else:
-            current_row = self.wind_field_ts.loc[self.wind_field_ts["time"] == self.current_time, :]
-            current_ws_horz = np.hstack([current_row[f"ws_horz_{tid}"].values for tid in self.tid2idx_mapping])
-            current_ws_vert = np.hstack([current_row[f"ws_vert_{tid}"].values for tid in self.tid2idx_mapping])
+            current_row = self.wind_field_ts.filter(pl.col("time") == self.current_time)
+            current_ws_horz = current_row.select([f"ws_horz_{tid}" for tid in self.tid2idx_mapping]).to_numpy()[0, :]
+            current_ws_vert = current_row.select([f"ws_vert_{tid}" for tid in self.tid2idx_mapping]).to_numpy()[0, :]
             current_wind_directions = 180.0 + np.rad2deg(
                 np.arctan2(
-                    current_ws_horz, 
-                    current_ws_vert
+                     current_ws_horz, 
+                     current_ws_vert
                 )
             )
 
@@ -395,8 +395,8 @@ class LookupBasedWakeSteeringController(ControllerBase):
                     wind = self.historic_measurements
                     
                 wind_dirs = 180.0 + np.rad2deg(np.arctan2(
-                    wind.select(self.mean_ws_horz_cols).to_numpy().astype(float), 
-                    wind.select(self.mean_ws_vert_cols).to_numpy().astype(float)))
+                    wind.select(self.mean_ws_horz_cols).to_numpy(), 
+                    wind.select(self.mean_ws_vert_cols).to_numpy()))
                 
                 if self.verbose:
                     if self.wind_forecast:
@@ -409,21 +409,23 @@ class LookupBasedWakeSteeringController(ControllerBase):
                     wind_dirs = np.array([self._first_ord_filter(wind_dirs[:, i], self.wind_dir_lpf_alpha)
                                                     for i in range(wind_dirs.shape[1])]).T # [-int(self.controller_dt // self.simulation_dt), :]
                     wind_dirs = wind_dirs[-1, :]
-                
-                if self.verbose:
-                    if self.wind_forecast:
-                        logging.info(f"filtered forecasted wind directions = {wind_dirs[self.sorted_tids]}")
-                    else:
-                        logging.info(f"filtered current wind directions = {wind_dirs[self.sorted_tids]}")
-                        
+                               
                 # just use the latest forecasted value for the wind magnitude
-                wind_mags = (wind[self.mean_ws_horz_cols].values.astype(float)**2 
-                                + wind[self.mean_ws_vert_cols].values.astype(float)**2)**0.5
+                wind_mags = (wind.select(self.mean_ws_horz_cols).to_numpy()**2 
+                                + wind.select(self.mean_ws_vert_cols).to_numpy()**2)**0.5
                 
                 if self.wind_mag_use_filt:
                     wind_mags = np.array([self._first_ord_filter(wind_mags[:, i], self.wind_mag_lpf_alpha)
                                                     for i in range(wind_mags.shape[1])]).T # [-int(self.controller_dt // self.simulation_dt), :]
                     wind_mags = wind_mags[-1, :]
+                
+                if self.verbose:
+                    if self.wind_forecast:
+                        logging.info(f"filtered forecasted wind directions = {wind_dirs[self.sorted_tids]}")
+                        logging.info(f"filtered forecasted wind magnitudes = {wind_mags[self.sorted_tids]}")
+                    else:
+                        logging.info(f"filtered current wind directions = {wind_dirs[self.sorted_tids]}")
+                        logging.info(f"filtered current wind magnitudes = {wind_mags[self.sorted_tids]}")
                 # wind = wind.iloc[-1] # just get the last forecasted values
                 
             if self.uncertain:
