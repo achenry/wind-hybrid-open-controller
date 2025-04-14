@@ -1,4 +1,5 @@
 import pandas as pd
+import polars as pl
 import numpy as np
 import os
 from time import perf_counter
@@ -102,7 +103,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     turbine_offline_status_ts = [[False] * ctrl.n_turbines]
     
     if wind_forecast_class:
-        predicted_wind_speeds_ts = [pd.DataFrame()]
+        predicted_wind_speeds_ts = []
     
     convergence_time_ts = [np.nan]
 
@@ -454,28 +455,31 @@ def write_df(case_family, case_name, wind_case_idx, n_future_steps, wf_source, w
     results_data = pd.DataFrame(results_data)
     
     if wind_forecast_class:
-        predicted_wind_speeds_ts = pd.concat(predicted_wind_speeds_ts, axis=0).groupby("time").agg("last").reset_index(names=["time"])
-        predicted_wind_speeds_ts["time"] = (predicted_wind_speeds_ts["time"] - ctrl.init_time).dt.total_seconds().astype(int)
+        predicted_wind_speeds_ts = pl.concat(predicted_wind_speeds_ts, how="vertical")\
+                                     .group_by("time", maintain_order=True).agg(pl.all().last())\
+                                     .with_columns(time=(pl.col("time") - ctrl.init_time).dt.total_seconds().cast(pl.Int64))
         # results_df = pd.concat([results_df, predicted_wind_speeds_ts], axis=1)
         # sd_ws_vert_cols
         cols = ["time"] + ctrl.mean_ws_horz_cols + ctrl.mean_ws_vert_cols + ((ctrl.sd_ws_horz_cols + ctrl.sd_ws_vert_cols) if ctrl.uncertain else [])
-        predicted_wind_speeds_ts = predicted_wind_speeds_ts[cols]\
-                .rename(columns={
+        predicted_wind_speeds_ts = predicted_wind_speeds_ts.select(cols)\
+                .rename({
             src: f"PredictedTurbineWindSpeed{re.search('(?<=ws_)\\w+(?=_\\d+)', src).group().capitalize()}_{re.search('(?<=_)\\d+$', src).group()}"
             for src in ctrl.mean_ws_horz_cols + ctrl.mean_ws_vert_cols})\
-                .rename(columns={"time": "Time"})
+                .rename({"time": "Time"})
         if ctrl.uncertain:
-            predicted_wind_speeds_ts = predicted_wind_speeds_ts.rename(columns={
+            predicted_wind_speeds_ts = predicted_wind_speeds_ts.rename({
                 src: f"StddevTurbineWindSpeed{re.search('(?<=ws_)\\w+(?=_\\d+)', src).group().capitalize()}_{re.search('(?<=_)\\d+$', src).group()}"
                 for src in ctrl.sd_ws_horz_cols + ctrl.sd_ws_vert_cols})
-        for key in ["CaseFamily", "CaseName", "WindSeed"]:
-            predicted_wind_speeds_ts = predicted_wind_speeds_ts.assign(**{key: results_data[key].values[0]})
-        results_data = results_data.merge(predicted_wind_speeds_ts, on=["CaseFamily", "CaseName", "WindSeed", "Time"], how="outer")
+        # for key in ["CaseFamily", "CaseName", "WindSeed"]:
+        #     predicted_wind_speeds_ts = predicted_wind_speeds_ts.assign(**{key: results_data[key].values[0]})
+        # results_data = results_data.merge(predicted_wind_speeds_ts, on=["CaseFamily", "CaseName", "WindSeed", "Time"], how="outer")
+        predicted_wind_speeds_ts = predicted_wind_speeds_ts.to_pandas()
+        results_data.loc[results_data["Time"] >= predicted_wind_speeds_ts["Time"].iloc[0], predicted_wind_speeds_ts.drop(columns=["Time"]).columns] = predicted_wind_speeds_ts.drop(columns=["Time"])
         del predicted_wind_speeds_ts
     
-        if not final:
-            # results_data = results_data.dropna(subset=[f"TrueTurbineWindSpeedHorz_{idx2tid_mapping[i]}" for i in range(fi_full.n_turbines)])
-            results_data = results_data.iloc[:-int(simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() / simulation_input_dict["simulation_dt"])]
+        # if not final:
+        #     # results_data = results_data.dropna(subset=[f"TrueTurbineWindSpeedHorz_{idx2tid_mapping[i]}" for i in range(fi_full.n_turbines)])
+        #     results_data = results_data.iloc[:-int(simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() / simulation_input_dict["simulation_dt"])]
     
     logging.info(f"Writing {'final' if final else 'intermediary'} result to file.")
     if os.path.exists(save_path):

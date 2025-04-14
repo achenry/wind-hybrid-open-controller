@@ -17,6 +17,7 @@ import multiprocessing as mp
 from torch.distributions import MultivariateNormal
 from torch import tensor
 import gc
+from memory_profiler import profile
 
 # from joblib import parallel_backend
 
@@ -660,20 +661,27 @@ class PerfectForecast(WindForecast):
     
     def __post_init__(self):
         logging.info(f"id(wind_field_ts) in PerfectForecast __init__ is {id(self.true_wind_field)}")
+        if isinstance(self.true_wind_field, pd.DataFrame):
+            self.true_wind_field = pl.from_pandas(self.true_wind_field)
+        self.true_wind_field = self.true_wind_field.select(pl.col("time"), cs.starts_with("ws_"))
     
+    # @profile
     def predict_point(self, historic_measurements: Union[pl.DataFrame, pd.DataFrame], current_time):
         """_summary_
         Make a point prediction (e.g. the mean prediction) for each time step in the horizon
         """
         
-        if isinstance(self.true_wind_field, pl.DataFrame):
-            sub_df = self.true_wind_field.rename(self.col_mapping) if self.col_mapping else self.true_wind_field
-            sub_df = sub_df.filter(pl.col("time").is_between(current_time, current_time + self.prediction_timedelta, closed="right"))
+        sub_df = (self.true_wind_field.rename(self.col_mapping) if self.col_mapping else self.true_wind_field)\
+            .filter(pl.col("time").is_between(current_time, current_time + self.prediction_timedelta, closed="right"))
+        
+        # slice true_wind_field_ts to reduce memory reqs
+        self.true_wind_field = self.true_wind_field.filter(pl.col("time") > current_time)
+        if isinstance(historic_measurements, pl.DataFrame):
+            return sub_df
             # assert sub_df.select(pl.len()).item() == int(self.prediction_timedelta / self.measurements_timedelta)
-        elif isinstance(self.true_wind_field, pd.DataFrame):
-            sub_df = self.true_wind_field.rename(columns=self.col_mapping) if self.col_mapping else self.true_wind_field
-            sub_df = sub_df.loc[(sub_df["time"] > current_time) & (sub_df["time"] <= (current_time + self.prediction_timedelta)), :].reset_index(drop=True)
-            # assert len(sub_df.index) == int(self.prediction_timedelta / self.measurements_timedelta)
+        elif isinstance(historic_measurements, pd.DataFrame):
+            return sub_df.to_pandas()
+            
         return sub_df
 
 @dataclass
