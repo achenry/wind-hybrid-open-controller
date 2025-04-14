@@ -4,12 +4,13 @@ Output yaw angles equal to those wind directions
 """
 import numpy as np
 import pandas as pd
+import polars as pl
 
 from scipy.signal import lfilter
 
 from whoc.controllers.controller_base import ControllerBase
 from memory_profiler import profile
-import logging 
+import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # from floris.tools.visualization import visualize_quiver2
@@ -29,6 +30,8 @@ class GreedyController(ControllerBase):
         self.init_time = interface.init_time
         self.wind_forecast = wind_forecast
         self.wf_source = kwargs["wf_source"]
+        
+        self.num_prediction_stored = max(pd.Timedelta(self.controller_dt, unit="s"), self.wind_forecast.prediction_timedelta)
         
         self.turbine_signature = kwargs["turbine_signature"]
         self.tid2idx_mapping = kwargs["tid2idx_mapping"]
@@ -155,10 +158,11 @@ class GreedyController(ControllerBase):
         
         if self.wind_dir_use_filt or self.wind_forecast:
             if len(self.historic_measurements):
-                self.historic_measurements = pd.concat([self.historic_measurements, 
-                                                        current_measurements], axis=0).iloc[-int(np.ceil(self.wind_dir_lpf_time_const // self.simulation_dt) * 1e3):]
+                self.historic_measurements = pl.concat([self.historic_measurements, 
+                                                        pl.from_pandas(current_measurements[["time"] + self.mean_ws_horz_cols + self.mean_ws_vert_cols])], how="vertical")\
+                                                            .tail(int(np.ceil(self.wind_dir_lpf_time_const // self.simulation_dt) * 20))
             else:
-                self.historic_measurements = current_measurements
+                self.historic_measurements = pl.from_pandas(current_measurements[["time"] + self.mean_ws_horz_cols + self.mean_ws_vert_cols])
                 
         # NOTE: this is run every simulation_dt, not every controller_dt, because the yaw angle may be moving gradually towards the correct setpoint
         
@@ -175,16 +179,16 @@ class GreedyController(ControllerBase):
         
         if self.wind_forecast:
             forecasted_wind_field = self.wind_forecast.predict_point(self.historic_measurements, self.current_time)
-            single_forecasted_wind_field = forecasted_wind_field.loc[forecasted_wind_field["time"] == self.current_time + self.wind_forecast.prediction_timedelta, :].iloc[:1]
+            single_forecasted_wind_field = forecasted_wind_field.filter(pl.col("time") == self.current_time + self.wind_forecast.prediction_timedelta)
         
         if (((self.current_time - self.init_time).total_seconds() % self.controller_dt) == 0.0):
             
             # if not enough wind data has been collected to filter with, or we are not using filtered data, just get the most recent wind measurements
             if self.current_time < self.lpf_start_time or not self.wind_dir_use_filt:
-                wind = single_forecasted_wind_field.iloc[-1] if self.wind_forecast else current_measurements.iloc[0]
+                wind = single_forecasted_wind_field if self.wind_forecast else current_measurements
                 wind_dirs = 180.0 + np.rad2deg(np.arctan2(
-                    wind[self.mean_ws_horz_cols].values.astype(float), 
-                    wind[self.mean_ws_vert_cols].values.astype(float)))
+                    wind.select(self.mean_ws_horz_cols).to_numpy()[-1, :], 
+                    wind.select(self.mean_ws_vert_cols).to_numpy()[-1, :]))
                 
                 if self.verbose:
                     if self.wind_forecast:
@@ -196,15 +200,15 @@ class GreedyController(ControllerBase):
                 # use filtered wind direction and speed     
                 if self.wind_forecast:
                     hist_meas = self.historic_measurements
-                    wind = pd.concat([hist_meas, 
-                                        forecasted_wind_field[self.mean_ws_horz_cols + self.mean_ws_vert_cols]], axis=0)[
-                                            self.mean_ws_horz_cols+self.mean_ws_vert_cols]
+                    # TODO HIGH this is memory intensive
+                    wind = pl.concat([hist_meas.select(self.mean_ws_horz_cols+self.mean_ws_vert_cols), 
+                                        forecasted_wind_field.select(self.mean_ws_horz_cols+self.mean_ws_vert_cols)], how="vertical")
                 else:
                     wind = self.historic_measurements
                     
                 wind_dirs = 180.0 + np.rad2deg(np.arctan2(
-                    wind[self.mean_ws_horz_cols].values.astype(float), 
-                    wind[self.mean_ws_vert_cols].values.astype(float)))
+                    wind.select(self.mean_ws_horz_cols).to_numpy()[-1, :], 
+                    wind.select(self.mean_ws_vert_cols).to_numpy()[-1, :]))
                 
                 if self.verbose:
                     if self.wind_forecast:
@@ -263,10 +267,10 @@ class GreedyController(ControllerBase):
 
         if self.wind_forecast:
             
-            newest_predictions = forecasted_wind_field.loc[
-                forecasted_wind_field["time"] <= self.current_time + max(pd.Timedelta(self.controller_dt, unit="s"), self.wind_forecast.prediction_timedelta), :]
+            newest_predictions = forecasted_wind_field.filter(pl.col("time") <= self.current_time + self.num_prediction_stored)\
+                                                      .select(["time"] + self.mean_ws_horz_cols + self.mean_ws_vert_cols)
             self.controls_dict = {"yaw_angles": list(constrained_yaw_setpoints),
-                                  "predicted_wind_speeds": newest_predictions[["time"] + self.mean_ws_horz_cols + self.mean_ws_vert_cols]
+                                  "predicted_wind_speeds": newest_predictions
                                     # "predicted_time":  newest_predictions["time"].values,
                                     # "predicted_wind_speeds_horz": newest_predictions[self.mean_ws_horz_cols].values,
                                     # "predicted_wind_speeds_vert": newest_predictions[self.mean_ws_horz_cols].values
