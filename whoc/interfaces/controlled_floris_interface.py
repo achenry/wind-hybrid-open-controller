@@ -20,6 +20,7 @@ import pandas as pd
 from scipy.interpolate import LinearNDInterpolator
 import floris.flow_visualization as wakeviz
 import matplotlib.pyplot as plt
+from memory_profiler import profile
 
 class ControlledFlorisModel(InterfaceBase):
     def __init__(self, t0, yaw_limits, simulation_dt, yaw_rate, config_path, turbine_signature, tid2idx_mapping, target_turbine_indices="all",
@@ -75,6 +76,7 @@ class ControlledFlorisModel(InterfaceBase):
             print_timings=True,
         )
     
+    @profile
     def get_measurements(self, hercules_dict=None):
         """ abstract method from Interface class """
         time_step = np.array(((self.time - self.init_time).total_seconds() // self.simulation_dt) % self.env.core.flow_field.n_findex, dtype=int)
@@ -132,6 +134,7 @@ class ControlledFlorisModel(InterfaceBase):
 
         return disturbances
     
+    @profile
     def send_controls(self, hercules_dict, **controls):
         """ abstract method from Interface class """
         # if control_dt time has passed, pass yaw_setpoint_trajectory to floris model and flush controls buffer. Otherwise, add controls angles to buffer.

@@ -12,7 +12,7 @@ from whoc.wind_field.WindField import first_ord_filter
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-@ profile
+# @ profile
 def simulate_controller(controller_class, wind_forecast_class, simulation_input_dict, **kwargs):
     
     results_dir = os.path.join(kwargs["save_dir"], kwargs['case_family'])
@@ -334,7 +334,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     
     # return results_data
 
-#@profile
+@profile
 def write_df(case_family, case_name, wind_case_idx, n_future_steps, wf_source, wind_field_ts,
              start_time, simulation_mag, simulation_dir,
              fi, fi_full,
@@ -459,10 +459,11 @@ def write_df(case_family, case_name, wind_case_idx, n_future_steps, wf_source, w
         # results_df = pd.concat([results_df, predicted_wind_speeds_ts], axis=1)
         # sd_ws_vert_cols
         cols = ["time"] + ctrl.mean_ws_horz_cols + ctrl.mean_ws_vert_cols + ((ctrl.sd_ws_horz_cols + ctrl.sd_ws_vert_cols) if ctrl.uncertain else [])
-        predicted_wind_speeds_ts = predicted_wind_speeds_ts[cols].rename(columns={
+        predicted_wind_speeds_ts = predicted_wind_speeds_ts[cols]\
+                .rename(columns={
             src: f"PredictedTurbineWindSpeed{re.search('(?<=ws_)\\w+(?=_\\d+)', src).group().capitalize()}_{re.search('(?<=_)\\d+$', src).group()}"
-            for src in ctrl.mean_ws_horz_cols + ctrl.mean_ws_vert_cols})
-        predicted_wind_speeds_ts = predicted_wind_speeds_ts.rename(columns={"time": "Time"})
+            for src in ctrl.mean_ws_horz_cols + ctrl.mean_ws_vert_cols})\
+                .rename(columns={"time": "Time"})
         if ctrl.uncertain:
             predicted_wind_speeds_ts = predicted_wind_speeds_ts.rename(columns={
                 src: f"StddevTurbineWindSpeed{re.search('(?<=ws_)\\w+(?=_\\d+)', src).group().capitalize()}_{re.search('(?<=_)\\d+$', src).group()}"
@@ -470,7 +471,7 @@ def write_df(case_family, case_name, wind_case_idx, n_future_steps, wf_source, w
         for key in ["CaseFamily", "CaseName", "WindSeed"]:
             predicted_wind_speeds_ts = predicted_wind_speeds_ts.assign(**{key: results_data[key].values[0]})
         results_data = results_data.merge(predicted_wind_speeds_ts, on=["CaseFamily", "CaseName", "WindSeed", "Time"], how="outer")
-        # del predicted_wind_speeds_ts
+        del predicted_wind_speeds_ts
     
         if not final:
             # results_data = results_data.dropna(subset=[f"TrueTurbineWindSpeedHorz_{idx2tid_mapping[i]}" for i in range(fi_full.n_turbines)])

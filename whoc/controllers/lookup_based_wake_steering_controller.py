@@ -269,7 +269,7 @@ class LookupBasedWakeSteeringController(ControllerBase):
                 fill_value=0.0,
             )
     
-    # @profile
+    @profile
     def compute_controls(self):
         # TODO update LUT for turbine breakdown
         # TODO: move data collection for filtering purposes to another method that is called every simulation_dt, also move constraints on yaw angles and incremental updates as per yaw_rate to simulator, only job of compute_controls should be to compute new yaw angles for turbines that are not in motion
