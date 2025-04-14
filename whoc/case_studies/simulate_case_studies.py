@@ -152,8 +152,8 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         # reiniitialize and run FLORIS interface with current disturbances and disturbance up to (and excluding) next controls computation
         # using yaw angles as most recently sent from last time-step i.e. initial yaw conditions for first time step
         # TODO TEST
-        if t == max(simulation_dir.index[-1] - 120, 0):
-            print("hold")
+        # if t == max(simulation_dir.index[-1] - 120, 0):
+        #     print("hold")
         try:
             fi.step(disturbances={"wind_speeds": simulation_mag[k:k + n_future_steps + 1],
                                 "wind_directions": simulation_dir[k:k + n_future_steps + 1], 

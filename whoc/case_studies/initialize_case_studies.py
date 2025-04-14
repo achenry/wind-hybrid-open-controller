@@ -601,23 +601,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         # make sure wind_dt == simulation_dt
         if simulation_dt != wind_field_ts[0]["time"].diff().iloc[1].total_seconds():
             logging.info(f"Resampling to {simulation_dt} seconds.")
-            wind_field_ts = [wf.set_index("time").resample(f"{simulation_dt}s").mean().reset_index(names=["time"]) for wf in wind_field_ts]
-        
-        import csv
-        from itertools import islice
-        import re
-        check_seed_times = []
-        with open("/Users/ahenry/Documents/toolboxes/wind_forecasting/wind_forecasting/run_scripts/perfect_testing.txt") as fp:
-            csv_reader = csv.reader(fp)
-            for row in islice(csv_reader, 2, None):
-                if row:
-                    seed = re.search("(?<=seed_)(\\d+)", row[0])
-                    time = re.search("(?<=time\\s)(\\d+)", row[1])
-                    if seed and time:
-                        seed = int(seed.group(0))
-                        time = float(time.group(0))
-                        check_seed_times.append((seed, time))
-        
+            wind_field_ts = [wf.set_index("time").resample(f"{simulation_dt}s").mean().reset_index(names=["time"]) for wf in wind_field_ts] 
         
         # import matplotlib.pyplot as plt
         # import seaborn as sns
@@ -645,8 +629,23 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         wind_field_config = {}
 
         # TODO TESTING
-        wind_field_ts = [wind_field_ts[seed].loc[(wind_field_ts[seed]["time"] - wind_field_ts[seed]["time"].iloc[0]).dt.total_seconds().between(0, time + 120), :] for seed, time in check_seed_times]
-        n_seeds = len(wind_field_ts)
+        if False:
+            import csv
+            from itertools import islice
+            import re
+            check_seed_times = []
+            with open("/Users/ahenry/Documents/toolboxes/wind_forecasting/wind_forecasting/run_scripts/perfect_testing.txt") as fp:
+                csv_reader = csv.reader(fp)
+                for row in islice(csv_reader, 2, None):
+                    if row:
+                        seed = re.search("(?<=seed_)(\\d+)", row[0])
+                        time = re.search("(?<=time\\s)(\\d+)", row[1])
+                        if seed and time:
+                            seed = int(seed.group(0))
+                            time = float(time.group(0))
+                            check_seed_times.append((seed, time))
+                wind_field_ts = [wind_field_ts[seed].loc[(wind_field_ts[seed]["time"] - wind_field_ts[seed]["time"].iloc[0]).dt.total_seconds().between(0, time + 120), :] for seed, time in check_seed_times]
+                n_seeds = len(wind_field_ts)
         
         if stoptime == "auto":
             durations = [df["time"].iloc[-1] - df["time"].iloc[0] for df in wind_field_ts]
