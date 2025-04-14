@@ -124,7 +124,11 @@ class ControlledFlorisModel(InterfaceBase):
             disable_turbines=self.offline_status
         )
         
-        self.env.run()
+        # TODO TEST
+        try:
+            self.env.run()
+        except Exception as e:
+            raise(f"yaw offsets {self.env.core.farm.yaw_angles}, wd {np.array(disturbances['wind_directions'])}, yaw angles {ctrl_dict['yaw_angles']} caused an error")
 
         return disturbances
     
