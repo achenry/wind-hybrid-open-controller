@@ -52,11 +52,11 @@ class GreedyController(ControllerBase):
                                                   + [f"nd_cos_{tid}" for tid in self.tid2idx_mapping]
                                                   + [f"nd_sin_{tid}" for tid in self.tid2idx_mapping], dtype=pd.Float64Dtype())
         
-        self.lpf_time_const = simulation_input_dict["controller"]["lpf_time_const"]
+        self.wind_dir_lpf_time_const = simulation_input_dict["controller"]["wind_dir_lpf_time_const"]
         self.lpf_start_time = self.init_time + pd.Timedelta(seconds=simulation_input_dict["controller"]["lpf_start_time"])
-        self.lpf_alpha = np.exp(-(1 / simulation_input_dict["controller"]["lpf_time_const"]) * simulation_input_dict["simulation_dt"])
+        self.wind_dir_lpf_alpha = np.exp(-(1 / simulation_input_dict["controller"]["wind_dir_lpf_time_const"]) * simulation_input_dict["simulation_dt"])
         self.deadband_thr = simulation_input_dict["controller"]["deadband_thr"]
-        self.use_filt = simulation_input_dict["controller"]["use_filtered_wind_dir"]
+        self.wind_dir_use_filt = simulation_input_dict["controller"]["use_filtered_wind_dir"]
 
         self.rated_turbine_power = simulation_input_dict["controller"]["rated_turbine_power"]
 
@@ -87,9 +87,9 @@ class GreedyController(ControllerBase):
     
     # self.filtered_measurements["wind_direction"] = []
     
-    def _first_ord_filter(self, x):
-        b = [1 - self.lpf_alpha]
-        a = [1, -self.lpf_alpha]
+    def _first_ord_filter(self, x, alpha):
+        b = [1 - alpha]
+        a = [1, -alpha]
         return lfilter(b, a, x)
     
     def yaw_offsets_interpolant(self, wind_directions, wind_speeds):
@@ -153,10 +153,10 @@ class GreedyController(ControllerBase):
         # only get wind_dirs corresponding to target_turbine_ids
         current_wind_directions = current_wind_directions[self.sorted_tids]
         
-        if self.use_filt or self.wind_forecast:
+        if self.wind_dir_use_filt or self.wind_forecast:
             if len(self.historic_measurements):
                 self.historic_measurements = pd.concat([self.historic_measurements, 
-                                                        current_measurements], axis=0).iloc[-int(np.ceil(self.lpf_time_const // self.simulation_dt) * 1e3):]
+                                                        current_measurements], axis=0).iloc[-int(np.ceil(self.wind_dir_lpf_time_const // self.simulation_dt) * 1e3):]
             else:
                 self.historic_measurements = current_measurements
                 
@@ -180,7 +180,7 @@ class GreedyController(ControllerBase):
         if (((self.current_time - self.init_time).total_seconds() % self.controller_dt) == 0.0):
             
             # if not enough wind data has been collected to filter with, or we are not using filtered data, just get the most recent wind measurements
-            if self.current_time < self.lpf_start_time or not self.use_filt:
+            if self.current_time < self.lpf_start_time or not self.wind_dir_use_filt:
                 wind = single_forecasted_wind_field.iloc[-1] if self.wind_forecast else current_measurements.iloc[0]
                 wind_dirs = 180.0 + np.rad2deg(np.arctan2(
                     wind[self.mean_ws_horz_cols].values.astype(float), 
@@ -213,7 +213,7 @@ class GreedyController(ControllerBase):
                         logging.info(f"unfiltered current wind directions = {current_wind_directions}")
                 
                 # filter the wind direction
-                wind_dirs = np.array([self._first_ord_filter(wind_dirs[:, i])
+                wind_dirs = np.array([self._first_ord_filter(wind_dirs[:, i], self.wind_dir_lpf_alpha)
                                                 for i in range(wind_dirs.shape[1])]).T # [-int(self.controller_dt // self.simulation_dt), :]
                 wind_dirs = wind_dirs[-1, :]
                 if self.verbose:

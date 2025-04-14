@@ -152,6 +152,8 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         # reiniitialize and run FLORIS interface with current disturbances and disturbance up to (and excluding) next controls computation
         # using yaw angles as most recently sent from last time-step i.e. initial yaw conditions for first time step
         # TODO TEST
+        if t == max(simulation_dir.index[-1] - 120, 0):
+            print("hold")
         try:
             fi.step(disturbances={"wind_speeds": simulation_mag[k:k + n_future_steps + 1],
                                 "wind_directions": simulation_dir[k:k + n_future_steps + 1], 
@@ -379,12 +381,12 @@ def write_df(case_family, case_name, wind_case_idx, n_future_steps, wf_source, w
         fs_wind_mag = simulation_mag[start_step-1:start_step-1+yaw_angles_ts.shape[0]].values
         fs_wind_dir = simulation_dir[start_step-1:start_step-1+yaw_angles_ts.shape[0]].values
         filtered_fs_wind_dir = first_ord_filter(fs_wind_dir,
-                                                alpha=np.exp(-(1 / simulation_input_dict["controller"]["lpf_time_const"]) * simulation_input_dict["simulation_dt"]))
+                                                alpha=np.exp(-(1 / simulation_input_dict["controller"]["wind_dir_lpf_time_const"]) * simulation_input_dict["simulation_dt"]))
     else:
         fs_wind_mag = np.insert(simulation_mag[0:yaw_angles_ts.shape[0]-1].values, 0, np.nan)
         fs_wind_dir = np.insert(simulation_dir[0:yaw_angles_ts.shape[0]-1].values, 0, np.nan)
         filtered_fs_wind_dir = np.insert(first_ord_filter(fs_wind_dir[~np.isnan(fs_wind_dir)], 
-                                        alpha=np.exp(-(1 / simulation_input_dict["controller"]["lpf_time_const"]) * simulation_input_dict["simulation_dt"])),
+                                        alpha=np.exp(-(1 / simulation_input_dict["controller"]["wind_dir_lpf_time_const"]) * simulation_input_dict["simulation_dt"])),
                                                         0, np.nan)
         
     start_step = max(0, start_step)
@@ -471,7 +473,8 @@ def write_df(case_family, case_name, wind_case_idx, n_future_steps, wf_source, w
         # del predicted_wind_speeds_ts
     
         if not final:
-            results_data = results_data.dropna(subset=[f"TrueTurbineWindSpeedHorz_{idx2tid_mapping[i]}" for i in range(fi_full.n_turbines)])
+            # results_data = results_data.dropna(subset=[f"TrueTurbineWindSpeedHorz_{idx2tid_mapping[i]}" for i in range(fi_full.n_turbines)])
+            results_data = results_data.iloc[:-int(simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() / simulation_input_dict["simulation_dt"])]
     
     logging.info(f"Writing {'final' if final else 'intermediary'} result to file.")
     if os.path.exists(save_path):

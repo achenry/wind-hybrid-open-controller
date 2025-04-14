@@ -62,7 +62,8 @@ controller:
   rated_turbine_power: 5000000.0 # W TODO get from floris input file
   yaw_increment: 0.05 # degrees
   lpf_start_time: 180.0 # seconds
-  lpf_time_const: 35 # sec
+  wind_dir_lpf_time_const: 30 # sec
+  wind_mag_lpf_time_const: 60 # sec
   deadband_thr: 8 # degrees
   controller_dt: 15 # sec
   n_horizon: 24
@@ -78,6 +79,7 @@ controller:
   generate_lut: False
   nu: 0.0001 # 0.00138 step size to add/subtract from yaw angles for stochastic gradient estimate
   use_filtered_wind_dir: True
+  use_filtered_wind_mag: True
   floris_input_file: ../../examples/mpc_wake_steering_florisstandin/floris_gch_9.yaml
   solver: slsqp # may equal serial_refine, slsqp, sequential_slsqp, or zsgd
   basin_hop: False

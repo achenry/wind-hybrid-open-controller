@@ -60,7 +60,7 @@ case_studies = {
                                     "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
                                     "simulation_dt": {"group": 0, "vals": [1]},
                                     "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
-                                    "uncertain": {"group": 3, "vals": [False, False]},
+                                    "uncertain": {"group": 3, "vals": [True, False]},
                                     "wind_forecast_class": {"group": 3, "vals": ["KalmanFilterForecast", "PerfectForecast"]},
                                     "prediction_timedelta": {"group": 4, "vals": [60, 120, 180]},
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]}
@@ -519,8 +519,9 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             wind_field_data = generate_multi_wind_ts(full_wf, wind_field_dir, init_seeds=[seed + i for i in range(n_seeds)])
             write_abl_velocity_timetable([wfd.df for wfd in wind_field_data], wind_field_dir) # then use these timetables in amr precursor
             # write_abl_velocity_timetable(wind_field_data, wind_field_dir) # then use these timetables in amr precursor
-            lpf_alpha = np.exp(-(1 / whoc_config["controller"]["lpf_time_const"]) * whoc_config["simulation_dt"])
-            plot_wind_field_ts(wind_field_data[0].df, wind_field_dir, filter_func=partial(first_ord_filter, alpha=lpf_alpha))
+            wind_dir_lpf_alpha = np.exp(-(1 / whoc_config["controller"]["wind_dir_lpf_time_const"]) * whoc_config["simulation_dt"])
+            # wind_mag_lpf_alpha = np.exp(-(1 / whoc_config["controller"]["wind_mag_lpf_time_const"]) * whoc_config["simulation_dt"])
+            plot_wind_field_ts(wind_field_data[0].df, wind_field_dir, filter_func=partial(first_ord_filter, alpha=wind_dir_lpf_alpha))
             plot_ts(pd.concat([wfd.df for wfd in wind_field_data]), wind_field_dir)
             wind_field_filenames = [os.path.join(wind_field_dir, f"case_{i}.csv") for i in range(n_seeds)]
             regenerate_wind_field = True
@@ -602,11 +603,31 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             logging.info(f"Resampling to {simulation_dt} seconds.")
             wind_field_ts = [wf.set_index("time").resample(f"{simulation_dt}s").mean().reset_index(names=["time"]) for wf in wind_field_ts]
         
+        import csv
+        from itertools import islice
+        import re
+        check_seed_times = []
+        with open("/Users/ahenry/Documents/toolboxes/wind_forecasting/wind_forecasting/run_scripts/perfect_testing.txt") as fp:
+            csv_reader = csv.reader(fp)
+            for row in islice(csv_reader, 2, None):
+                if row:
+                    seed = re.search("(?<=seed_)(\\d+)", row[0])
+                    time = re.search("(?<=time\\s)(\\d+)", row[1])
+                    if seed and time:
+                        seed = int(seed.group(0))
+                        time = float(time.group(0))
+                        check_seed_times.append((seed, time))
+        
+        
         # import matplotlib.pyplot as plt
         # import seaborn as sns
         # import polars.selectors as cs
         # target_turbine_ids = [75, 74, 5]
-        # for wf in wind_field_ts[50:100]:
+        # # for seed, wf in enumerate(wind_field_ts):
+        # for seed, time in check_seed_times:
+        #     wf = wind_field_ts[seed].copy()
+        #     timestamp = wf.loc[(wf["time"] - wf["time"].iloc[0]).dt.total_seconds() == time, "time"].iloc[0]
+        #     wf = wf.loc[(wf["time"] - wf["time"].iloc[0]).dt.total_seconds().between(time - 120, time + 120), :]
         #     df = wf[["time"] + [c for c in wf.columns if c.startswith("ws_") and any(c.endswith("_" + str(tid)) for tid in target_turbine_ids)]]
         #     df = pd.melt(df, id_vars=["time"], value_vars=[c for c in df.columns if c.startswith("ws_")])
         #     df["turbine_id"] = df["variable"].str.extract("_(\\d+)", expand=False)
@@ -614,13 +635,18 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         #     fig, ax = plt.subplots(2, 1, sharex=True)
         #     sns.lineplot(data=df.loc[df["variable"]=="ws_horz", :], x="time", y="value", hue="turbine_id", ax=ax[0])
         #     sns.lineplot(data=df.loc[df["variable"]=="ws_vert", :], x="time", y="value", hue="turbine_id", ax=ax[1])
+        #     ax[0].axvline(x=timestamp)
+        #     ax[1].axvline(x=timestamp)
         #     ax[0].set_title("Horizontal Wind Speed (m/s)")
         #     ax[1].set_title("Vertical Wind Speed (m/s)")
         #     ax[0].set_xlabel("")
         #     ax[1].set_xlabel("Time (s)")
-            
-        
+                
         wind_field_config = {}
+
+        # TODO TESTING
+        wind_field_ts = [wind_field_ts[seed].loc[(wind_field_ts[seed]["time"] - wind_field_ts[seed]["time"].iloc[0]).dt.total_seconds().between(0, time + 120), :] for seed, time in check_seed_times]
+        n_seeds = len(wind_field_ts)
         
         if stoptime == "auto":
             durations = [df["time"].iloc[-1] - df["time"].iloc[0] for df in wind_field_ts]
