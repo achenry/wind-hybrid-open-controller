@@ -797,7 +797,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                         <= stoptime[d] + prediction_timedelta.total_seconds() + horizon_timedelta.total_seconds())
                     for d, df in enumerate(wind_field_ts)]
     # stoptime = max(min([((df["time"].iloc[-1] - df["time"].iloc[0]) - prediction_timedelta - horizon_timedelta).total_seconds() for df in wind_field_ts]), stoptime)
-    stoptime = [max((df.select(pl.col("time").last() - pl.col("time").first()).item() - prediction_timedelta - horizon_timedelta).total_seconds(), stoptime[d]) for d, df in enumerate(wind_field_ts)]
+    stoptime = [min((df.select(pl.col("time").last() - pl.col("time").first()).item() - prediction_timedelta - horizon_timedelta).total_seconds(), stoptime[d]) for d, df in enumerate(wind_field_ts)]
     
     total_cases = len(input_filenames)
     for f, ((case_study_key, wind_case_idx, fn), inp) in enumerate(zip(input_filenames, input_dicts)):
