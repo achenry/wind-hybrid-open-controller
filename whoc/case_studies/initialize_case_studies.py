@@ -586,11 +586,9 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             reload = False
         
         # pull ws_horz, ws_vert, nacelle_direction, normalization_consts from awaken data and run for ML, SVR
-        data_module.generate_splits(splits=["test"], save=True, reload=reload)
+        data_module.generate_splits(splits=["test"], save=True, reload=reload) # TODO should reload if context/prediction length has changed
         wind_field_ts = generate_wind_field_df(data_module.test_dataset, data_module.target_cols, data_module.feat_dynamic_real_cols)
         delattr(data_module, "test_dataset")
-        del data_module
-        gc.collect()
         
         wind_field_ts = wind_field_ts.partition_by("continuity_group")
         
@@ -600,8 +598,8 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         else:
             n_seeds = len(wind_field_ts)
         
-        wind_dt = wind_field_ts[0].select(pl.col("time").diff().slice(1,1).dt.total_seconds())
-        logging.info(f"Loaded and normalized SCADA wind field from {model_config['dataset']['data_path']} with dt = {wind_dt}")
+        wind_dt = wind_field_ts[0].select(pl.col("time").diff().slice(1,1).dt.total_seconds()).item()
+        logging.info(f"Loaded and normalized SCADA wind field from {model_config['dataset']['data_path']} with dt = {wind_dt} seconds.")
         
         # make sure wind_dt == simulation_dt
         
@@ -663,11 +661,15 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         
         if stoptime == "auto":
             durations = [df.select(pl.col("time").last() - pl.col("time").first()).item() for df in wind_field_ts]
+            if any(int(d / pd.Timedelta(data_module.freq)) < data_module.context_length + data_module.prediction_length for d in durations):
+                logging.warning(f"One or more continuity groups are too short, delete train ready path {data_module.train_ready_path} to reload.")
             # whoc_config["hercules_comms"]["helics"]["config"]["stoptime"] = stoptime = min([d.total_seconds() for d in durations])
             whoc_config["hercules_comms"]["helics"]["config"]["stoptime"] = stoptime = [d.total_seconds() for d in durations]
         else:
             stoptime = [stoptime] * len(wind_field_ts)
-    
+
+        del data_module
+        gc.collect()
     for case_family in case_families:
         case_studies[case_family]["wind_case_idx"] = {"group": max(d["group"] for d in case_studies[case_family].values()) + 1, "vals": [i for i in range(n_seeds)]}
 
