@@ -675,7 +675,7 @@ class PerfectForecast(WindForecast):
             .filter(pl.col("time").is_between(current_time, current_time + self.prediction_timedelta, closed="right"))
         
         # slice true_wind_field_ts to reduce memory reqs
-        self.true_wind_field = self.true_wind_field.filter(pl.col("time") > current_time)
+        # self.true_wind_field = self.true_wind_field.filter(pl.col("time") > current_time)
         if isinstance(historic_measurements, pl.DataFrame):
             return sub_df
             # assert sub_df.select(pl.len()).item() == int(self.prediction_timedelta / self.measurements_timedelta)
@@ -1290,6 +1290,11 @@ class KalmanFilterForecast(WindForecast):
             
             # in historic process (w) and measurment (v) noise, we only need to retain enough vectors to cover all of the measurements (spaced n_prediction apart) found in this interval of n_controller measurments, as well as the context length for each of those 
             # self.historic_times = (self.historic_times + list(measurement_times))[-int(np.ceil(self.n_controller / self.n_prediction)) - self.n_context:]
+            # for testing
+            # self.means_p = means_p.copy()
+            # self.means = means.copy()
+            # self.covariances_p = covariances_p.copy()
+            # self.covariances = covariances.copy()
             
             self.historic_v = np.vstack([self.historic_v, np.atleast_2d(zs - np.matmul(means, self.model.H))])[-int(np.ceil(self.n_controller / self.n_prediction_interval)) - self.n_context:, :]
             means = np.vstack([init_x, means]) # concatenate initial guess of state on top to compute differences
@@ -1328,6 +1333,7 @@ class KalmanFilterForecast(WindForecast):
         else:
             return_pl = True
         outputs = self._get_ws_cols(historic_measurements)
+        
         pred, var = self.predict_point(historic_measurements, current_time, return_var=True)
         var = var.with_columns(**{output: pl.col(output).sqrt() for output in outputs})
         
@@ -1736,6 +1742,13 @@ def make_predictions(forecaster, test_data, true_wind_field, prediction_type):
     forecasts = []
     controller_times = true_wind_field.gather_every(forecaster.n_controller).select(pl.col("time"))
     n_splits = len(test_data)
+    
+    # for kf testing
+    # means_p = []
+    # means = []
+    # covariances_p = []
+    # covariances = []
+    
     for i, (inp, label) in enumerate(iter(test_data)):
         start = inp[FieldName.START].to_timestamp()
         # end = min((label[FieldName.START] + label['target'].shape[1]).to_timestamp(), pd.Timestamp(true_wind_field.select(pl.col("time").last()).item()))
@@ -1756,6 +1769,12 @@ def make_predictions(forecaster, test_data, true_wind_field, prediction_type):
             elif prediction_type == "sample":
                 raise NotImplementedError()
             
+            # for kf testing
+            # means_p.append(forecaster.means_p)
+            # means.append(forecaster.means)
+            # covariances_p.append(forecaster.covariances_p)
+            # covariances.append(forecaster.covariances)
+            
             if current_time >= label[FieldName.START].to_timestamp():
                 # fetch predictions from label part
                 forecasts[-1].append(pred)
@@ -1770,6 +1789,67 @@ def make_predictions(forecaster, test_data, true_wind_field, prediction_type):
             .with_columns(data_type=pl.lit("True"), continuity_group=pl.lit(split_idx))
             for split_idx, wf in enumerate(forecasts)]
     forecasts = [wf.with_columns(data_type=pl.lit("Forecast"), continuity_group=pl.lit(split_idx)) for split_idx, wf in enumerate(forecasts)]
+    
+    if False:
+        means_p = np.vstack(means_p)
+        means = np.vstack(means)
+        covariances_p = np.vstack([np.diag(c) for cov in covariances_p for c in cov])
+        covariances = np.vstack([np.diag(c) for cov in covariances for c in cov])
+        df = pd.concat([
+            pd.DataFrame(data=means_p, columns=[f"mean_p_{i}" for i in range(means_p.shape[1])]),
+            pd.DataFrame(data=means, columns=[f"mean_{i}" for i in range(means.shape[1])]),
+            pd.DataFrame(data=covariances_p, columns=[f"covariance_p_{i}" for i in range(covariances_p.shape[1])]),
+            pd.DataFrame(data=covariances, columns=[f"covariance_{i}" for i in range(covariances.shape[1])])
+        ], axis=1)
+        df["time"] = split_controller_times.to_pandas()
+
+        fig, ax = plt.subplots(2, 1, sharex=True)
+        sns.lineplot(df, x="time", y="mean_p_0", marker="o", ax=ax[0], linestyle=":", color=sns.color_palette()[0], label="Prior")
+        sns.lineplot(df, x="time", y="mean_p_7", marker="o", ax=ax[1], linestyle=":", color=sns.color_palette()[0])
+        sns.lineplot(df, x="time", y="mean_0", marker="o", ax=ax[0], linestyle="-", color=sns.color_palette()[1], label="Posterior")
+        sns.lineplot(df, x="time", y="mean_7", marker="o", ax=ax[1], linestyle="-", color=sns.color_palette()[1])
+        ax[0].legend()
+        color = sns.color_palette()[0]
+        ax[0].plot(df["time"], df["mean_p_0"] - 1*np.sqrt(df["covariance_p_0"]), 
+            alpha=0.2, color=color
+        )
+        ax[0].plot(df["time"], df["mean_p_0"] + 1*np.sqrt(df["covariance_p_0"]), 
+            alpha=0.2, color=color
+        )
+        
+        ax[1].plot(
+            df["time"], df["mean_p_7"] - 1*np.sqrt(df["covariance_p_7"]),
+            alpha=0.2, color=color
+        )
+        ax[1].plot(
+            df["time"], df["mean_p_7"] + 1*np.sqrt(df["covariance_p_7"]), 
+            alpha=0.2, color=color
+        )
+        
+        color = sns.color_palette()[1]
+        ax[0].plot(
+            df["time"], df["mean_0"] - 1*np.sqrt(df["covariance_0"]),
+            alpha=0.2, color=color
+        )
+        ax[0].plot(
+            df["time"], df["mean_0"] + 1*np.sqrt(df["covariance_0"]), 
+            alpha=0.2, color=color
+        )
+        
+        ax[1].plot(
+            df["time"], df["mean_7"] - 1*np.sqrt(df["covariance_7"]),
+            alpha=0.2, color=color
+        )
+        ax[1].plot(
+            df["time"], df["mean_7"] + 1*np.sqrt(df["covariance_7"]), 
+            alpha=0.2, color=color
+        )
+        ax[1].set_xlabel("Time (s)")
+        ax[0].set_title("$u$ Wind Speed (m/s)")
+        ax[1].set_title("$v$ Wind Speed (m/s)")
+        ax[0].set_ylabel("")
+        ax[1].set_ylabel("")
+    
     
     return true, forecasts
 
@@ -2126,7 +2206,7 @@ if __name__ == "__main__":
     logging.info("Creating datasets")
     data_module = DataModule(data_path=model_config["dataset"]["data_path"], 
                              normalization_consts_path=model_config["dataset"]["normalization_consts_path"],
-                             denormalize=True, 
+                             normalized=False, 
                              n_splits=1, #model_config["dataset"]["n_splits"],
                             continuity_groups=None, train_split=(1.0 - model_config["dataset"]["val_split"] - model_config["dataset"]["test_split"]),
                                 val_split=model_config["dataset"]["val_split"], test_split=model_config["dataset"]["test_split"],
@@ -2229,7 +2309,6 @@ if __name__ == "__main__":
         
     ## GENERATE KF PREVIEW 
     if "kf" in args.model:
-        # TODO unsure if this make sense, measurement noise reduces to zero over time...
         # tune this use single, longer, prediction time, since we have only identity state transition matrix, and must use final posterior only prediction
         for td in prediction_timedelta:
             forecaster = KalmanFilterForecast(measurements_timedelta=measurements_timedelta,
