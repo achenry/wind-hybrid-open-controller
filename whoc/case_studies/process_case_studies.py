@@ -135,9 +135,13 @@ def read_time_series_data(results_path, input_dict_path):
         bad_df["Time"].max()
     except pd.errors.EmptyDataError as e:
         logging.info(f"Dataframe {results_path} not read correctly due to error {e}")
-        
-    with open(input_dict_path, 'rb') as fp:
-        input_config = pickle.load(fp)
+
+    try:
+        with open(input_dict_path, 'rb') as fp:
+            input_config = pickle.load(fp)
+    except (EOFError, pickle.UnpicklingError, FileNotFoundError) as e:
+        logging.error(f"Failed to load input config from {input_dict_path}. File might be missing, empty, or corrupted.\nError: {e}")
+        raise RuntimeError(f"Corrupt or unreadable input config file: {input_dict_path}")
     
     yaw_cols = [col for col in df.columns if "TurbineYawAngle_" in col]
     yaw_change_cols = [col.replace("TurbineYawAngle", "TurbineYawAngleChange") for col in yaw_cols]
