@@ -117,8 +117,8 @@ class GreedyController(ControllerBase):
             current_ws_horz = self.measurements_dict["wind_speeds"] * np.sin(np.deg2rad(current_wind_directions + 180.0)) 
             current_ws_vert = self.measurements_dict["wind_speeds"] * np.cos(np.deg2rad(current_wind_directions + 180.0))
         else:
-            # TODO HIGH MEM convert to polars
             current_row = self.wind_field_ts.filter(pl.col("time") == self.current_time)
+            # self.wind_field_ts = self.wind_field_ts.filter(pl.col("time") > self.current_time)
             current_ws_horz = current_row.select([f"ws_horz_{tid}" for tid in self.tid2idx_mapping]).to_numpy()[0, :]
             current_ws_vert = current_row.select([f"ws_vert_{tid}" for tid in self.tid2idx_mapping]).to_numpy()[0, :]
             current_wind_directions = 180.0 + np.rad2deg(
@@ -179,6 +179,7 @@ class GreedyController(ControllerBase):
         new_yaw_setpoints = np.array(current_yaw_setpoints)
         
         if self.wind_forecast:
+            # TODO HIGH if still too memory intensive, could pass wind_field_ts to predict point for perfect forecast instead
             forecasted_wind_field = self.wind_forecast.predict_point(self.historic_measurements, self.current_time)
             single_forecasted_wind_field = forecasted_wind_field.filter(pl.col("time") == self.current_time + self.wind_forecast.prediction_timedelta)
         
@@ -201,7 +202,6 @@ class GreedyController(ControllerBase):
                 # use filtered wind direction and speed     
                 if self.wind_forecast:
                     hist_meas = self.historic_measurements
-                    # TODO HIGH this is memory intensive
                     wind = pl.concat([hist_meas.select(self.mean_ws_horz_cols+self.mean_ws_vert_cols), 
                                         forecasted_wind_field.select(self.mean_ws_horz_cols+self.mean_ws_vert_cols)], how="vertical")
                 else:

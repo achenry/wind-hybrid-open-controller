@@ -295,6 +295,7 @@ class LookupBasedWakeSteeringController(ControllerBase):
             current_ws_vert = self.measurements_dict["wind_speeds"] * np.cos(np.deg2rad(self.measurements_dict["wind_directions"] + 180.0))
         else:
             current_row = self.wind_field_ts.filter(pl.col("time") == self.current_time)
+            # self.wind_field_ts = self.wind_field_ts.filter(pl.col("time") > self.current_time)
             current_ws_horz = current_row.select([f"ws_horz_{tid}" for tid in self.tid2idx_mapping]).to_numpy()[0, :]
             current_ws_vert = current_row.select([f"ws_vert_{tid}" for tid in self.tid2idx_mapping]).to_numpy()[0, :]
             current_wind_directions = 180.0 + np.rad2deg(
