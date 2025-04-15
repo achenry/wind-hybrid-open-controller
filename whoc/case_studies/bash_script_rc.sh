@@ -21,4 +21,4 @@ module load intel impi
 
 echo $SLURM_NTASKS
 #mpirun -np $SLURM_NTASKS python run_case_studies.py 0 1 2 3 4 5 6 -rs -st 120 -ns 1 -p -m mpi -sd /projects/aohe7145/toolboxes/whoc_env/wind-hybrid-open-controller/examples/floris_case_studies -wcnf /projects/aohe7145/toolboxes/whoc_env/wind-hybrid-open-controller/examples/hercules_input_001.yaml -wf floris
-mpirun -np $SLURM_NTASKS python run_case_studies.py 0 1 2 3 4 5 6 -rs -st 3600 -ns 6 -p -m mpi -sd /projects/aohe7145/toolboxes/whoc_env/wind-hybrid-open-controller/examples/floris_case_studies -wcnf /projects/aohe7145/toolboxes/whoc_env/wind-hybrid-open-controller/examples/hercules_input_001.yaml -wf floris 
+mpirun -np $SLURM_NTASKS python run_case_studies.py 0 1 2 3 4 5 6 -rs -st auto -ns auto -p -m mpi -sd /projects/aohe7145/toolboxes/whoc_env/wind-hybrid-open-controller/examples/floris_case_studies -wcnf /projects/aohe7145/toolboxes/whoc_env/wind-hybrid-open-controller/examples/hercules_input_001.yaml -wf floris 

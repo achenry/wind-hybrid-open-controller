@@ -534,11 +534,14 @@ def aggregate_time_series_data(time_series_df, input_dict_path, n_seeds):
         _type_: _description_
     """
     # x = time_series_df.reset_index(level=["CaseFamily", "CaseName"], drop=True)
+    # time_series_df.loc[(time_series_df["WindSeed"] == seed), :]
     time_series_df = time_series_df.drop(columns=[col for col in time_series_df.columns if "Predicted" in col or "Stddev" in col]).dropna(axis=1, how="all").dropna(subset=["FarmPower"])
     case_seeds = pd.unique(time_series_df["WindSeed"])
     case_family = time_series_df.index.get_level_values("CaseFamily")[0]
     # case_family = df_name.replace(f"_{results_df['CaseName'].iloc[0]}", "")
     case_name = time_series_df.index.get_level_values("CaseName")[0]
+
+
     if len(case_seeds) < n_seeds:
        logging.error(f"NOT aggregating data for {case_family}={case_name} due to insufficient seed simulations.")
        return None
@@ -561,14 +564,17 @@ def aggregate_time_series_data(time_series_df, input_dict_path, n_seeds):
     if "lpf_start_time" in input_config["controller"]:
         lpf_start_time = input_config["controller"]["lpf_start_time"]
     else:
-        lpf_start_time = 180.0
-    
+        lpf_start_time = 180.0   
     for seed in case_seeds:
 
         if time_series_df["Time"].max() > lpf_start_time:
             seed_df = time_series_df.loc[(time_series_df["WindSeed"] == seed) & (time_series_df["Time"] >= lpf_start_time), :]
         else:
             seed_df = time_series_df.loc[(time_series_df["WindSeed"] == seed), :]
+        
+        #if seed_df.empty:
+        #    logging.warning(f"No data found for seed {seed} after filtering by lpf_start_time {lpf_start_time}")
+        #    continue
         
         yaw_angles_change_ts = seed_df[sorted([c for c in time_series_df.columns if "TurbineYawAngleChange_" in c], key=lambda s: int(s.split("_")[-1]))]
         turbine_offline_status_ts = seed_df[sorted([c for c in time_series_df.columns if "TurbineOfflineStatus_" in c], key=lambda s: int(s.split("_")[-1]))]
