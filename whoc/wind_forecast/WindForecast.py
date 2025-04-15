@@ -780,7 +780,7 @@ class PreviewForecast(WindForecast):
         """
 
         # nTurbs = len(data_in.columns)
-        turbine_list = np.arange(0, self.n_turbines)
+        # turbine_list = np.arange(0, self.n_turbines)
 
         # if is_bearing:  # Convert to RH CCW angle
         #     wd_mean = PreviewForecast.bearing2angle(wd_mean)
