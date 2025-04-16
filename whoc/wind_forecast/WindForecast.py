@@ -1003,7 +1003,10 @@ class SVRForecast(WindForecast):
         else:
             return_pl = True
         
-        training_measurements = historic_measurements.filter(((current_time - pl.col("time")).mod(self.prediction_interval) == 0))
+        # training_measurements = historic_measurements.filter(((current_time - pl.col("time")).mod(self.prediction_interval) == 0))
+        training_measurements = historic_measurements.filter(((current_time - pl.col("time")).dt.total_microseconds().mod(self.prediction_interval.total_seconds() * 1e6) == 0))
+
+        
         
         scale = (training_measurements.select(pl.len()).item() > 1)
         
