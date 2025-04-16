@@ -158,7 +158,7 @@ class GreedyController(ControllerBase):
         current_wind_directions = current_wind_directions[self.sorted_tids]
         
         if self.wind_dir_use_filt or self.wind_forecast:
-            if self.historic_measurements is None:
+            if self.historic_measurements is not None:
                 self.historic_measurements = pl.concat([self.historic_measurements, 
                                                         pl.from_pandas(current_measurements[["time"] + self.ws_horz_cols + self.ws_vert_cols])], how="vertical")\
                                                             .tail(int(np.ceil(self.wind_dir_lpf_time_const // self.simulation_dt) * 20))
