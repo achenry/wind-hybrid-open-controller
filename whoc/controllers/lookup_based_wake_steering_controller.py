@@ -343,7 +343,7 @@ class LookupBasedWakeSteeringController(ControllerBase):
         
         # need historic measurements for filter or for wind forecast
         if self.wind_dir_use_filt or self.wind_mag_use_filt or self.wind_forecast:
-            if self.historic_measurements is None:
+            if self.historic_measurements is not None:
                 self.historic_measurements = pl.concat([self.historic_measurements, 
                                                         pl.from_pandas(current_measurements[["time"] + self.ws_horz_cols + self.ws_vert_cols])], how="vertical")\
                                                             .tail(int(np.ceil(self.wind_dir_lpf_time_const // self.simulation_dt) * 20))
@@ -435,11 +435,12 @@ class LookupBasedWakeSteeringController(ControllerBase):
                 # wind = wind.iloc[-1] # just get the last forecasted values
                 
             if self.uncertain:
-                ws_horz_stddevs = single_forecasted_wind_field.iloc[0][self.sd_ws_horz_cols].values.astype(float)
-                ws_vert_stddevs = single_forecasted_wind_field.iloc[0][self.sd_ws_vert_cols].values.astype(float)
-                forecasted_wind_norm = (single_forecasted_wind_field.iloc[0][self.mean_ws_horz_cols].values.astype(float)**2 + single_forecasted_wind_field.iloc[0][self.mean_ws_vert_cols].values.astype(float)**2)
-                c1 = single_forecasted_wind_field.iloc[0][self.mean_ws_vert_cols].values.astype(float) / forecasted_wind_norm
-                c2 = -single_forecasted_wind_field.iloc[0][self.mean_ws_horz_cols].values.astype(float) / forecasted_wind_norm
+                ws_horz_stddevs = single_forecasted_wind_field.select(self.sd_ws_horz_cols).slice(0, 1).to_numpy()[0, :]
+                ws_vert_stddevs = single_forecasted_wind_field.select(self.sd_ws_vert_cols).slice(0, 1).to_numpy()[0, :]
+                forecasted_wind_norm = (single_forecasted_wind_field.select(self.mean_ws_horz_cols).slice(0, 1).to_numpy()[0, :]**2 
+                                        + single_forecasted_wind_field.select(self.mean_ws_vert_cols).slice(0, 1).to_numpy()[0, :]**2)
+                c1 = single_forecasted_wind_field.select(self.mean_ws_vert_cols).slice(0, 1).to_numpy()[0, :] / forecasted_wind_norm
+                c2 = -single_forecasted_wind_field.select(self.mean_ws_horz_cols).slice(0, 1).to_numpy()[0, :] / forecasted_wind_norm
                 wind_dir_stddevs = ((c1 * ws_horz_stddevs)**2 + (c2 * ws_vert_stddevs)**2)**0.5 
             
             # only get wind_dirs corresponding to target_turbine_ids
@@ -447,6 +448,7 @@ class LookupBasedWakeSteeringController(ControllerBase):
             wind_mags = wind_mags[self.sorted_tids]
             if self.uncertain:
                 wind_dir_stddevs = wind_dir_stddevs[self.sorted_tids]
+                logging.info(f"min wd_stdev = {min(wind_dir_stddevs)}, max wd_stdev = {max(wind_dir_stddevs)}")
            
             # TODO HIGH feed just upstream turbine or mean?
             if self.target_turbine_indices == "all":
