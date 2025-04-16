@@ -133,7 +133,7 @@ if __name__ == "__main__":
         delattr(data_module, "train_dataset")
         delattr(data_module, "val_dataset")
         
-        model.prepare_data(train_dataset=train_dataset.partition_by("continuity_group"), val_dataset=val_dataset.partition_by("continuity_group"), scale=False)
+        model.prepare_data(dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, scale=False)
         
         logging.info("Reinitializing storage") 
         if args.restart_tuning:
