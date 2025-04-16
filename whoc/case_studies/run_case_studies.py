@@ -197,7 +197,9 @@ if __name__ == "__main__":
                     # read the time-series csv files for all case families, case names, and wind seeds
                     read_futures = [run_simulations_exec.submit(
                                                     read_time_series_data, 
-                                                    results_path=os.path.join(args.save_dir, case_families[i], fn))
+                                                    results_path=os.path.join(args.save_dir, case_families[i], fn),
+                                                    input_dict_path=os.path.join(args.save_dir, case_families[i], 
+                                                                                   f"input_config_{re.search('(?<=time_series_results_).+(?=_seed_\\d+.csv)', fn).group()}.pkl"))
                         for i in args.case_ids 
                         for fn in case_family_case_names[case_families[i]]
                         if args.reaggregate_simulations or not os.path.exists(os.path.join(args.save_dir, case_families[i], "time_series_results_all.csv"))
