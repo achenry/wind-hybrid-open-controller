@@ -262,7 +262,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         k += int(ctrl.controller_dt / simulation_input_dict["simulation_dt"])
     
         # if RAM is running low, write existing data to dataframe and continue
-        if (ram_used := virtual_memory().percent) > 50:
+        if (ram_used := virtual_memory().percent) > kwargs["ram_limit"]:
             logging.info(f"Used {ram_used}% RAM.")
             # turn data into arrays, pandas dataframe, and export to csv
             write_df(case_family=kwargs["case_family"],
