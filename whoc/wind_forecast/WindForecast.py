@@ -77,6 +77,7 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.svm import SVR
 from sklearn.model_selection import cross_val_score
 from sklearn.metrics import explained_variance_score, mean_absolute_error, mean_squared_error, median_absolute_error, r2_score
+from sklearn.utils.validation import check_is_fitted
 
 from filterpy.kalman import KalmanFilter
 from floris import FlorisModel
@@ -364,12 +365,12 @@ class WindForecast:
         assert split in ["train", "test", "val"]
         feat_type = re.search(f"\\w+(?=_{self.turbine_signature})", output).group()
         tid = re.search(self.turbine_signature, output).group()
-        Xy_path = os.path.join(self.temp_save_dir, f"Xy_{split}_{output}.dat")
+        Xy_path = os.path.join(self.temp_save_dir, f"Xy_{self.study_name_root}_{split}_{output}.dat")
         
         input_turbine_indices = self.cluster_turbines[self.tid2idx_mapping[tid]]
         output_idx = input_turbine_indices.index(self.tid2idx_mapping[tid])
             
-        if reload: 
+        if reload or not os.path.exists(Xy_path): 
             assert measurements is not None and scale is not None, "Must provide measurements df and scale boolean to reload data in _get_output_data"
             input_select = [f"{feat_type}_{self.idx2tid_mapping[t]}" for t in input_turbine_indices]
             if isinstance(measurements, Iterable):
@@ -406,9 +407,10 @@ class WindForecast:
             fp[:, :-1] = X_all
             fp[:, -1] = y_all
             fp.flush()
-            logging.info(f"Saved training data to {Xy_path}")
+            logging.info(f"Saved {split} data to {Xy_path}")
         else:
-            assert os.path.exists(Xy_path), "Must run prepare_training_data before tuning"
+            # assert os.path.exists(Xy_path), "Must run prepare_training_data before tuning"
+            logging.info(f"Loading existing {split} data from {Xy_path}")
             data_shape = tuple(np.load(Xy_path.replace(".dat", "_shape.npy")))
             fp = np.memmap(Xy_path, dtype="float32", 
                            mode="r", shape=data_shape)
@@ -438,18 +440,22 @@ class WindForecast:
                 storage = self.get_storage(backend=backend, study_name=f"{study_name_root}_{output}", storage_dir=storage_dir)
                 try:
                     study_id = storage.get_study_id_from_name(f"{study_name_root}_{output}")
+                    self.model[output] = self.create_model(**storage.get_best_trial(study_id).params)
                 except KeyError:
-                    raise KeyError(f"Optuna study {study_name_root}_{output} not found. Please run tune_hyperparameters_multi for all outputs first.")
+                    logging.error(f"Optuna study {study_name_root}_{output} not found. Please run tuning.py first. Using default parameters for now.")
+                    self.model[output] = self.create_model(**{k: v for k, v in self.kwargs.items() if k in self.model[output].get_params()})
                 # self.model[output].set_params(**storage.get_best_trial(study_id).params)
                 # storage.get_all_studies()[0]._study_id
-                self.model[output] = self.create_model(**storage.get_best_trial(study_id).params)
+                
         else:
             storage = self.get_storage(backend=backend, study_name=f"{study_name_root}", storage_dir=storage_dir)
             try:
                 study_id = storage.get_study_id_from_name(f"{study_name_root}")
+                self.model = self.create_model(**storage.get_best_trial(study_id).params)
             except KeyError:
-                raise KeyError(f"Optuna study {study_name_root} not found. Please run tune_hyperparameters_multi for all outputs first.")
-            self.model = self.create_model(**storage.get_best_trial(study_id).params)
+                logging.error(f"Optuna study {study_name_root} not found. Please run tuning.py first. Using default parameters for now.")
+                self.model = self.create_model(**{k: v for k, v in self.kwargs.items() if k in self.model.get_params()})
+            
    
     def predict_sample(self, historic_measurements: Union[pd.DataFrame, pl.DataFrame], n_samples: int):
         """_summary_
@@ -665,6 +671,7 @@ class PerfectForecast(WindForecast):
     """Perfect wind speed component forecasting that assumes exact knowledge of future wind speeds."""
     
     col_mapping: Optional[dict] = None
+    is_probabilistic = False
     
     def __post_init__(self):
         logging.info(f"id(wind_field_ts) in PerfectForecast __init__ is {id(self.true_wind_field)}")
@@ -695,7 +702,7 @@ class PerfectForecast(WindForecast):
 @dataclass
 class PersistenceForecast(WindForecast):
     """ Wind speed component forecasting using persistence model that assumes future values equal current value. """
-    
+    is_probabilistic = False
     def predict_point(self, historic_measurements: Union[pl.DataFrame, pd.DataFrame], current_time):
         
         pred_slice = self.get_pred_interval(current_time)
@@ -718,11 +725,11 @@ class PersistenceForecast(WindForecast):
         
              
 @dataclass
-class PreviewForecast(WindForecast):
+class SpatialFilterForecast(WindForecast):
     """
     Reads wind speed components from upstream turbines, and computes time of arrival based on taylor's frozen wake hypothesis.
     """
-    
+    is_probabilistic = False
     def __post_init__(self):
         super().__post_init__()
         self.train_first = False
@@ -792,8 +799,8 @@ class PreviewForecast(WindForecast):
         # turbine_list = np.arange(0, self.n_turbines)
 
         # if is_bearing:  # Convert to RH CCW angle
-        #     wd_mean = PreviewForecast.bearing2angle(wd_mean)
-        #     data_in = data_in.applymap(PreviewForecast.bearing2angle)
+        #     wd_mean = SpatialFilterForecast.bearing2angle(wd_mean)
+        #     data_in = data_in.applymap(SpatialFilterForecast.bearing2angle)
         # re.search("(?<=ws_horz_)\\d+", "ws_horz_1")
         turbine_ids = sorted(set(re.search("(?<=\\w_)\\d+$", col).group(0) for col in new_measurements.select(cs.starts_with("ws_")).columns), key=lambda tid: int(re.search("\\d+", tid).group(0)))
         ws_horz = new_measurements.select(cs.starts_with("ws_horz_"))\
@@ -865,11 +872,11 @@ class PreviewForecast(WindForecast):
         """
         Convert bearing angle in degrees to CCW positive angle in radians.
         """
-        return PreviewForecast.wrap_angle(np.pi / 180 * (90 - bearing), -np.pi, np.pi)
+        return SpatialFilterForecast.wrap_angle(np.pi / 180 * (90 - bearing), -np.pi, np.pi)
     
     @staticmethod
     def angle2bearing(angle):
-        return PreviewForecast.wrap_angle(90 - 180 / np.pi * angle, 0.0, 360.0)
+        return SpatialFilterForecast.wrap_angle(90 - 180 / np.pi * angle, 0.0, 360.0)
 
     @staticmethod
     def wrap_angle(x, low, high):
@@ -938,6 +945,7 @@ class SVRForecast(WindForecast):
         self.max_n_samples = self.kwargs["max_n_samples"] 
 
         self.n_turbines = self.fmodel.n_turbines
+        self.n_outputs = self.n_turbines * 2
         self.measurement_layout = np.vstack([self.fmodel.layout_x, self.fmodel.layout_y]).T
         
         self.n_neighboring_turbines = self.kwargs["n_neighboring_turbines"] 
@@ -963,20 +971,28 @@ class SVRForecast(WindForecast):
         self.last_measurement_time = None
         
         self.study_name_root = self.kwargs["study_name_root"]
+        
+        self.scaler = defaultdict(self.create_scaler)
+        self.model = defaultdict(self.create_model)
             
-        if self.use_tuned_params and self.model_config is not None:
+        if "use_trained_models" in self.kwargs:
+            self.use_trained_models = self.kwargs["use_trained_models"]
+        else:
+            self.use_trained_models = True
+        
+        model_files = glob.glob(os.path.join(self.temp_save_dir, f"{self.study_name_root}_model_*_{self.prediction_timedelta.total_seconds()}.pkl"))
+        scaler_files = glob.glob(os.path.join(self.temp_save_dir, f"{self.study_name_root}_scaler_*_{self.prediction_timedelta.total_seconds()}.pkl"))
+        
+        # no need to load optuna trained hyperparams if we are loading models anyway
+        if (not self.use_trained_models or len(model_files) < self.n_outputs or len(scaler_files) < self.n_outputs) and self.use_tuned_params:
             self.set_tuned_params(backend=self.model_config["optuna"]["storage"]["backend"], 
                                     study_name_root=self.study_name_root, 
                                     storage_dir=self.model_config["optuna"]["storage_dir"])
-        
-        self.use_trained_models = self.kwargs["use_trained_models"]
-        self.scaler = defaultdict(SVRForecast.create_scaler)
-        self.model = defaultdict(SVRForecast.create_model)
+            self.use_trained_models = False
         
         # if we want to use previously trained models fetch them, otherwise models will need to be trained
-        
-        if self.kwargs["use_trained_models"]:
-            for model_file in glob.glob(os.path.join(self.temp_save_dir, f"{self.study_name_root}_model_*.pkl")):
+        if self.use_trained_models:
+            for model_file in model_files:
                 # if os.path.exists(os.path.join(self.temp_save_dir, f"svr_model_{output}_{self.prediction_timedelta.total_seconds()}.pkl")):
                 output = re.search(f"(?<={self.study_name_root}_model_)([\\w\\_]+\\d+)(?=\\_)", os.path.basename(model_file)).group()
                 prediction_length = float(re.search(f"(?<={self.study_name_root}_model_{output}_)([\\d\\.]+)(?=.pkl)", os.path.basename(model_file)).group())
@@ -987,7 +1003,7 @@ class SVRForecast(WindForecast):
                 # else:
                 #     raise FileNotFoundError(f"Tuned model 'svr_model_{output}_{self.prediction_timedelta.total_seconds()}.pkl' doesn't exist.")
             
-            for scaler_file in glob.glob(os.path.join(self.temp_save_dir, f"{self.study_name_root}_scaler_*.pkl")):
+            for scaler_file in scaler_files:
                 # if os.path.exists(os.path.join(self.temp_save_dir, f"svr_scaler_{output}_{self.prediction_timedelta.total_seconds()}.pkl")):
                 output = re.search(f"(?<={self.study_name_root}_scaler_)([\\w\\_]+\\d+)(?=\\_)", os.path.basename(scaler_file)).group()
                 prediction_length = float(re.search(f"(?<={self.study_name_root}_scaler_{output}_)([\\d\\.]+)(?=.pkl)", os.path.basename(scaler_file)).group())
@@ -1000,19 +1016,11 @@ class SVRForecast(WindForecast):
         # else:
             # pass
     
-    @staticmethod
-    def create_scaler():
-        if self.use_trained_models:
-            return None
-        else:
-            return MinMaxScaler(feature_range=(-1, 1))
+    def create_scaler(self):
+        return MinMaxScaler(feature_range=(-1, 1))
     
-    @staticmethod
-    def create_model(**kwargs):
-        if self.use_trained_models:
-            return None
-        else:
-            return SVR(**kwargs)
+    def create_model(self, **kwargs):
+        return SVR(**kwargs)
    
     def _prepare_arrays(self, training_inputs, feat_type, tid, output_idx):
         
@@ -1040,19 +1048,24 @@ class SVRForecast(WindForecast):
     def predict_sample(self, n_samples: int):
         pass
     
-    def train_single_output(self, training_measurements, output, scale, reload_model):
-        # feat_type = re.search(f"^\\w+(?=_{self.turbine_signature}$)", output).group()
-        # tid = re.search(f"(?<=_){self.turbine_signature}$", output).group()
-        # training_inputs, output_idx = self._get_inputs(training_measurements, self.scaler[output], feat_type, tid, scale)
+    def train_single_output(self, training_measurements, output, reload_model, scale, scaler_params=None):
+        
         if not reload_model \
             and os.path.exists(os.path.join(self.temp_save_dir, f"{self.study_name_root}_model_{output}_{self.prediction_timedelta.total_seconds()}.pkl")) \
-                and os.path.exists(os.path.join(self.temp_save_dir, f"svr_scaler_{output}_{self.prediction_timedelta.total_seconds()}.pkl")):
+                and (not scale or scaler_params or os.path.exists(os.path.join(self.temp_save_dir, f"svr_scaler_{output}_{self.prediction_timedelta.total_seconds()}.pkl"))):
+            
+            logging.info(f"Loading trained SVR model for output {output}.")
             with open(os.path.join(self.temp_save_dir, f"{self.study_name_root}_model_{output}_{self.prediction_timedelta.total_seconds()}.pkl"), "rb") as fp:
                 self.model[output] = pickle.load(fp)
-            with open(os.path.join(self.temp_save_dir, f"{self.study_name_root}_scaler_{output}_{self.prediction_timedelta.total_seconds()}.pkl"), "rb") as fp:
-                self.scaler[output] = pickle.load(fp)
+
+            if scale and scaler_params is None:
+                with open(os.path.join(self.temp_save_dir, f"{self.study_name_root}_scaler_{output}_{self.prediction_timedelta.total_seconds()}.pkl"), "rb") as fp:
+                    self.scaler[output] = pickle.load(fp)
         else:
-            X_train, y_train, self.scaler[output] = self._get_output_data(measurements=training_measurements, output=output, split="train", reload=False, scale=scale, return_scaler=True)
+            
+            X_train, y_train, self.scaler[output] = self._get_output_data(measurements=training_measurements, output=output, split="train", reload=False, 
+                                                                          scale=scale, return_scaler=True)
+            logging.info(f"Training SVR model for output {output}.")
             self.model[output].fit(X_train, y_train)
             
             # self.scaler[output], self.model[output] = \
@@ -1067,11 +1080,25 @@ class SVRForecast(WindForecast):
             #     )
             with open(os.path.join(self.temp_save_dir, f"{self.study_name_root}_model_{output}_{self.prediction_timedelta.total_seconds()}.pkl"), "wb") as fp:
                 pickle.dump(self.model[output], fp, protocol=5)
+                
+            if scale and scaler_params is None:
+                with open(os.path.join(self.temp_save_dir, f"{self.study_name_root}_scaler_{output}_{self.prediction_timedelta.total_seconds()}.pkl"), "wb") as fp:
+                    pickle.dump(self.scaler[output], fp, protocol=5)
+        
+        feat_type = re.search(f"\\w+(?=_{self.turbine_signature})", output).group()
+        tid = re.search(f"(?<=_){self.turbine_signature}$", output).group()
+        if scaler_params:
+            input_turbine_indices = self.cluster_turbines[self.tid2idx_mapping[tid]]
+            setattr(self.scaler[output], "n_features_in_", len(input_turbine_indices))
+            for k, v in scaler_params.items():
+                setattr(self.scaler[output], k, np.ones_like(input_turbine_indices) * v[feat_type])
+                
             with open(os.path.join(self.temp_save_dir, f"{self.study_name_root}_scaler_{output}_{self.prediction_timedelta.total_seconds()}.pkl"), "wb") as fp:
-                pickle.dump(self.scaler[output], fp, protocol=5)
+                    pickle.dump(self.scaler[output], fp, protocol=5)
         return self.model[output], self.scaler[output]
     
-    def train_all_outputs(self, historic_measurements, scale, multiprocessor, reload_models=True):
+    def train_all_outputs(self, historic_measurements, scale, multiprocessor, reload_models=True,
+                          scaler_params=None):
         # training_measurements = historic_measurements.gather_every(self.n_prediction_interval)
         # scale = (training_measurements.select(pl.len()).item() > 1) and scale
         outputs = self._get_ws_cols(historic_measurements)
@@ -1095,6 +1122,7 @@ class SVRForecast(WindForecast):
                                         training_measurements=None, 
                                         output=output, 
                                         scale=scale, 
+                                        scaler_params=scaler_params,
                                         reload_model=reload_models) for output in outputs]
                 for output, fut in zip(outputs, futures):
                     m, s = fut.result()
@@ -1102,11 +1130,11 @@ class SVRForecast(WindForecast):
                     self.scaler[output] = s
         else:    
             for output in outputs:
-                self.model[output], self.scaler[output] = self.train_single_output(training_measurements=None, 
-                                            output=output, scale=scale, reload_model=reload_models)
-        # else:
-        #     logging.warning("Insufficient training data to train SVR!")
-
+                self.model[output], self.scaler[output] = self.train_single_output(
+                    training_measurements=None, 
+                    output=output, scale=scale, 
+                    scaler_params=scaler_params, reload_model=reload_models)
+    
     def predict_point(self, historic_measurements: Union[pd.DataFrame, pl.DataFrame], current_time):
         # TODO LOW include yaw angles in inputs?
         
@@ -1122,9 +1150,10 @@ class SVRForecast(WindForecast):
         
         training_measurements = historic_measurements.filter(((current_time - pl.col("time")).mod(self.prediction_interval) == 0))
         
-        scale = (training_measurements.select(pl.len()).item() > 1)
+        # scale = (training_measurements.select(pl.len()).item() > 1)
+        scale = True
         
-        if training_measurements.select(pl.len()).item() >= self.n_context + self.n_prediction:
+        if training_measurements.select(pl.len()).item() >= self.n_context:
             if self.max_n_samples:
                 training_measurements = training_measurements.tail(self.max_n_samples)
             
@@ -1132,9 +1161,10 @@ class SVRForecast(WindForecast):
             for output in outputs:
                 feat_type = re.search(f"^\\w+(?=_{self.turbine_signature}$)", output).group()
                 tid = re.search(f"(?<=_){self.turbine_signature}$", output).group()
-                if self.scaler[output] is None or self.model[output] is None:
+                if not (hasattr(self.scaler[output], "min_") and hasattr(self.scaler[output], "scale_")) \
+                    or (check_is_fitted(self.model[output]) is not None):
                     raise Exception(f"scaler/model for {output} has not been trained!")
-                training_inputs, output_idx = self._get_inputs(training_measurements, self.scaler[output], feat_type, tid, scale)
+                training_inputs = self._get_inputs(training_measurements, self.scaler[output], feat_type, tid, scale)
                 # self.scaler[output], self.model[output] = \
                 #     self._train_model(
                 #         model=self.model[output],
@@ -1158,7 +1188,7 @@ class SVRForecast(WindForecast):
             
         else:
             # not enough data points to train SVR, assume persistance
-            logging.info(f"Not enough data points at time {current_time} to train SVR, have {training_measurements.select(pl.len()).item()} but require {self.n_context + self.n_prediction}, assuming persistance instead.")
+            logging.info(f"Not enough data points at time {current_time} to train SVR, have {training_measurements.select(pl.len()).item()} but require {self.n_context}, assuming persistance instead.")
             pred = pl.concat([pred_slice.to_frame(), historic_measurements.slice(-1, 1).select(outputs)], how="horizontal")
             
         if return_pl: 
@@ -1190,9 +1220,9 @@ class SVRForecast(WindForecast):
         output_idx = input_turbine_indices.index(self.tid2idx_mapping[tid])
         
         if scale: 
-            training_inputs = scaler.fit_transform(training_inputs)
+            training_inputs = scaler.transform(training_inputs)
         
-        return training_inputs, output_idx
+        return training_inputs
     
     # def _train_model(self, model, training_inputs, scaler, feat_type, tid, scale, output_idx):
         
@@ -1255,7 +1285,7 @@ class KalmanFilterForecast(WindForecast):
     """Wind speed component forecasting using Kalman filtering."""
     # def read_measurements(self):
     #     pass
-    
+    is_probabilistic = True
     def __post_init__(self):
         super().__post_init__()
         self.n_prediction_interval = self.n_prediction
@@ -1487,7 +1517,7 @@ class KalmanFilterForecast(WindForecast):
 @dataclass
 class MLForecast(WindForecast):
     """Wind speed component forecasting using machine learning models."""
-    
+    is_probabilistic = True
     def __post_init__(self):
         super().__post_init__()
         self.n_prediction_interval = 1
@@ -1535,7 +1565,8 @@ class MLForecast(WindForecast):
                                       freq=self.model_config["dataset"]["resample_freq"], 
                                       target_suffixes=self.model_config["dataset"]["target_turbine_ids"],
                                       per_turbine_target=self.model_config["dataset"]["per_turbine_target"], dtype=None)
-        self.data_module.get_dataset_info() 
+        self.data_module.get_dataset_info()
+        norm_params = {"norm_scale": data_module.norm_scale, "min": data_module.norm_min}
         
         estimator_class = globals()[f"{self.model_key.capitalize()}Estimator"]
         lightning_module = globals()[f"{self.model_key.capitalize()}LightningModule"]
@@ -1573,10 +1604,10 @@ class MLForecast(WindForecast):
         
         self.distr_predictor = estimator.create_predictor(transformation, model, 
                                                           forecast_generator=DistributionForecastGenerator(estimator.distr_output))
-        self.sample_predictor = estimator.create_predictor(transformation, model, 
-                                                           forecast_generator=SampleForecastGenerator())
+        # self.sample_predictor = estimator.create_predictor(transformation, model, 
+        #                                                    forecast_generator=SampleForecastGenerator())
         
-        # normalize data to -1, 1 using saved normalization consts
+        # normalize data to -1, 1 using saved normalization consts TODO normalize in data module?
         norm_min_cols = [col for col in self.normalization_consts if "_min" in col]
         norm_max_cols = [col for col in self.normalization_consts if "_max" in col]
         data_min = self.normalization_consts[norm_min_cols].values.flatten()
@@ -1710,7 +1741,7 @@ class MLForecast(WindForecast):
                     **{"time": pred.index.to_timestamp().as_unit("us")},
                     **{col: turbine_pred.distribution.loc[:, c].flatten() for c, col in enumerate(self.data_module.target_cols)}
                 }
-            ).rename(columns={output_type: f"{output_type}_{self.data_module.static_features.iloc[t]['turbine_id']}" 
+            ).rename({output_type: f"{output_type}_{self.data_module.static_features.iloc[t]['turbine_id']}" 
                               for output_type in self.data_module.target_cols}).sort_values(["time"]) for t, turbine_pred in enumerate(pred)], how="horizontal")
         else:
             # pred_turbine_id = pd.Categorical([col.split("_")[-1] for col in col_names for t in range(pred.prediction_length)])
@@ -1766,7 +1797,7 @@ class MLForecast(WindForecast):
                     **{f"loc_{col}": turbine_pred.distribution.loc[:, c].flatten() for c, col in enumerate(self.data_module.target_cols)},
                     **{f"sd_{col}": np.sqrt(turbine_pred.distribution.stddev[:, c].flatten()) for c, col in enumerate(self.data_module.target_cols)}
                 }
-            ).rename(columns={output_type: f"{output_type}_{self.data_module.static_features.iloc[t]['turbine_id']}" 
+            ).rename({output_type: f"{output_type}_{self.data_module.static_features.iloc[t]['turbine_id']}" 
                               for output_type in self.data_module.target_cols}).sort_values(["time"]) for t, turbine_pred in enumerate(pred)], how="horizontal")
         else:
             # TODO HIGH test
@@ -1860,34 +1891,40 @@ def transform_wind(inp_df, added_wm=None, added_wd=None):
     
     return inp_df.select(original_cols)
 
-def make_predictions(forecaster, test_data, true_wind_field, prediction_type):
+def make_predictions(forecaster, test_data, prediction_type):
+    
     forecasts = []
-    controller_times = true_wind_field.gather_every(forecaster.n_controller).select(pl.col("time"))
-    n_splits = len(test_data)
+    controller_times = test_data.gather_every(forecaster.n_controller).select(pl.col("time"))
+    n_splits = test_data.select(pl.col("continuity_group").n_unique()).item()
     
     # for kf testing
     # means_p = []
     # means = []
     # covariances_p = []
     # covariances = []
-    # TODO CHECK THIS, right to only predict labels?
-    for i, (inp, label) in enumerate(iter(test_data)):
-        start = inp[FieldName.START].to_timestamp()
-        # end = min((label[FieldName.START] + label['target'].shape[1]).to_timestamp(), pd.Timestamp(true_wind_field.select(pl.col("time").last()).item()))
-        end = (label[FieldName.START] + label['target'].shape[1]).to_timestamp()
-        logging.info(f"Getting predictions for {i}th split starting at {start} and ending at {end} using {forecaster.__class__.__name__} with prediction_timedelta {forecaster.prediction_timedelta}.")
+    
+    # for i, (inp, label) in enumerate(iter(test_data)):
+    for d, ds in enumerate(test_data.partition_by("continuity_group")):
+        # start = inp[FieldName.START].to_timestamp()
+         # end = (label[FieldName.START] + label['target'].shape[1]).to_timestamp()
+         
+        # start = ds[FieldName.START].to_timestamp()
+        # end = (ds[FieldName.START] + ds['target'].shape[1]).to_timestamp()
+        start = ds.select(pl.col("time").first()).item()
+        end = ds.select(pl.col("time").last()).item()
+        logging.info(f"Getting predictions for {d}th split starting at {start} and ending at {end} using {forecaster.__class__.__name__} with prediction_timedelta {forecaster.prediction_timedelta}.")
         forecasts.append([])
-        split_true_wf = true_wind_field.filter(pl.col("time").is_between(start, end, closed="both"))
+        # split_true_wf = true_wind_field.filter(pl.col("time").is_between(start, end, closed="both"))
         split_controller_times = controller_times.filter(pl.col("time").is_between(start, end, closed="both"))
         for current_row in split_controller_times.iter_rows(named=True):
             current_time = current_row["time"]
-            logging.info(f"Predicting future wind field using {forecaster.__class__.__name__} at time {current_time}/{end} of split {i}/{n_splits}.")
+            logging.info(f"Predicting future wind field using {forecaster.__class__.__name__} at time {current_time}/{end} of split {d}/{n_splits}.")
             if prediction_type == "point":
                 pred = forecaster.predict_point(
-                    split_true_wf.filter(pl.col("time") <= current_time), current_time)
+                    ds.filter(pl.col("time") <= current_time), current_time)
             elif prediction_type == "distribution":
                 pred = forecaster.predict_distr(
-                    split_true_wf.filter(pl.col("time") <= current_time), current_time)
+                    ds.filter(pl.col("time") <= current_time), current_time)
             elif prediction_type == "sample":
                 raise NotImplementedError()
             
@@ -1897,16 +1934,18 @@ def make_predictions(forecaster, test_data, true_wind_field, prediction_type):
             # covariances_p.append(forecaster.covariances_p)
             # covariances.append(forecaster.covariances)
             
-            if current_time >= label[FieldName.START].to_timestamp():
-                # fetch predictions from label part
-                forecasts[-1].append(pred)
+            forecasts[-1].append(pred)
+            
+            # if current_time >= label[FieldName.START].to_timestamp():
+            #     # fetch predictions from label part
+            #     forecasts[-1].append(pred)
             
         forecasts[-1] = [wf.filter(pl.col("time") < (
             pl.col("time").first() + max(forecaster.controller_timedelta, forecaster.prediction_timedelta))) 
                                         for wf in forecasts[-1]] 
-        forecasts[-1] = pl.concat(forecasts[-1], how="vertical").group_by("time", maintain_order=True).agg(pl.all().last())
+        forecasts[-1] = pl.concat(forecasts[-1], how="vertical_relaxed").group_by("time", maintain_order=True).agg(pl.all().last())
 
-    true = [true_wind_field.filter(pl.col("time").is_between(
+    true = [test_data.filter(pl.col("time").is_between(
                 wf.select(pl.col("time").first()).item(), wf.select(pl.col("time").last()).item(), closed="both"))
             .with_columns(data_type=pl.lit("True"), continuity_group=pl.lit(split_idx))
             for split_idx, wf in enumerate(forecasts)]
@@ -1992,49 +2031,24 @@ def generate_wind_field_df(datasets, target_cols, feat_dynamic_real_cols):
     wf["time"] = wf["time"].dt.to_timestamp()
     return pl.from_pandas(wf)
 
-def generate_forecaster_results(forecaster, data_module, evaluator, id_var_selector,
-                                train_data, test_data, true_wind_field, prediction_type, save_dir):
-    true, forecasts = make_predictions(forecaster=forecaster, test_data=test_data, 
-                                                true_wind_field=true_wind_field, 
+def generate_forecaster_results(forecaster, data_module, evaluator, test_data, prediction_type):
+    true_df, forecast_df = make_predictions(forecaster=forecaster, test_data=test_data, 
                                                 prediction_type=prediction_type)
 
-    if prediction_type == "distribution":
-        value_vars = ["loc_nd_cos", "loc_nd_sin", "loc_ws_horz", "loc_ws_vert", "sd_nd_cos", "sd_nd_sin", "sd_ws_horz", "sd_ws_vert"]
-        target_vars = ["loc_ws_horz", "loc_ws_vert", "sd_ws_horz", "sd_ws_vert"]
-    else:
-        value_vars = ["nd_cos", "nd_sin", "ws_horz", "ws_vert"]
-        target_vars = ["ws_horz", "ws_vert"]
-    
-    id_vars = forecasts[0].select(id_var_selector).columns  
-    
-    forecasts_long = pl.concat([DataInspector.unpivot_dataframe(wf, 
-                                                value_vars=value_vars, 
-                                                turbine_signature=turbine_signature)\
-                                        .unpivot(index=["turbine_id"] + id_vars, on=target_vars, 
-                                                variable_name="feature", value_name="value") for wf in forecasts],
-                            how="vertical")
-    
-    id_vars = true[0].select(id_var_selector).columns  
-    true_long = pl.concat([DataInspector.unpivot_dataframe(wf, 
-                                                value_vars=["nd_cos", "nd_sin", "ws_horz", "ws_vert"], 
-                                                turbine_signature=turbine_signature)\
-                                        .unpivot(index=["turbine_id"] + id_vars, on=["ws_horz", "ws_vert"], 
-                                                variable_name="feature", value_name="value") for wf in true],
-                        how="vertical")
-    
-    forecast_fig = WindForecast.plot_forecast(forecasts_long, true_long, splits=[0], turbine_ids=["1"], label=f"_{forecaster.__class__.__name__}_{data_config['config_label']}", fig_dir=save_dir) 
-    
     # persistence_forecast_scores = WindForecast.compute_score(forecast_wf=persistence_forecast_wf, true_wf=true_wf_long, metric=mean_squared_error, feature_types=["ws_horz", "ws_vert"], plot=True, label=f"_{args.model}_{data_config['config_label']}", fig_dir=args.fig_dir)
     # wf.filter(pl.col("time") <= true[split_idx].select(pl.col("time").last()).item()) \
     #   .select([cs.starts_with(feat_type) & cs.contains("loc") for feat_type in target_vars])
+       
     if prediction_type == "distribution":
+        value_vars = ["nd_cos", "nd_sin", "loc_ws_horz", "loc_ws_vert", "sd_ws_horz", "sd_ws_vert"]
+        target_vars = ["loc_ws_horz", "loc_ws_vert", "sd_ws_horz", "sd_ws_vert"] 
         distributions = []
-        for split_idx, wf in enumerate(forecasts):
-            loc = tensor(wf.filter(pl.col("time") <= true[split_idx].select(pl.col("time").last()).item()) \
+        for split_idx, wf in enumerate(forecast_df):
+            loc = tensor(wf.filter(pl.col("time") <= true_df[split_idx].select(pl.col("time").last()).item()) \
                            .select([cs.starts_with(feat_type) & cs.contains("loc") for feat_type in target_vars]).to_numpy())
             cov = tensor(np.apply_along_axis(
                         np.diag, axis=-1, 
-                        arr=wf.filter(pl.col("time") <= true[split_idx].select(pl.col("time").last()).item())
+                        arr=wf.filter(pl.col("time") <= true_df[split_idx].select(pl.col("time").last()).item())
                     .select([cs.starts_with(feat_type) & cs.contains("sd_") for feat_type in target_vars]).to_numpy()**2))
             
             distr = DistributionForecast(
@@ -2044,21 +2058,23 @@ def generate_forecaster_results(forecaster, data_module, evaluator, id_var_selec
             distributions.append(distr)
         forecasts = distributions
     else:
-        forecasts = [SampleForecast(samples=wf.filter(pl.col("time") <= true[split_idx].select(pl.col("time").last()).item())
+        value_vars = ["nd_cos", "nd_sin", "ws_horz", "ws_vert"]
+        target_vars = ["ws_horz", "ws_vert"] 
+        forecasts = [SampleForecast(samples=wf.filter(pl.col("time") <= true_df[split_idx].select(pl.col("time").last()).item())
                                               .select([cs.starts_with(feat_type) for feat_type in target_vars]).to_numpy()[np.newaxis, :, :], 
                         start_date=pd.Period(wf.select(pl.col("time").first()).item(), freq=data_module.freq), 
-                        item_id=f"SPLIT{split_idx}") for split_idx, wf in enumerate(forecasts)]
+                        item_id=f"SPLIT{split_idx}") for split_idx, wf in enumerate(forecast_df)]
     
     # compute agg metrics 
     agg_metrics, ts_metrics = evaluator([
         wf.to_pandas()
           .set_index(pd.PeriodIndex(wf.to_pandas()["time"].dt.to_period(freq=data_module.freq)))[data_module.target_cols]
           .rename(columns={src: s for s, src in enumerate(data_module.target_cols)}) 
-                for wf in true], 
+                for wf in true_df], 
                 forecasts, 
                 num_series=data_module.num_target_vars)
     
-    return agg_metrics, ts_metrics, forecast_fig
+    return true_df, forecast_df, agg_metrics, ts_metrics
 
 def plot_score_vs_prediction_dt(agg_df, metrics, good_directions):
     
@@ -2210,6 +2226,8 @@ if __name__ == "__main__":
                         help="Plot time series outputs.")
     parser.add_argument("-tp", "--use_tuned_params", action="store_true",
                         help="Use parameters tuned from Optuna optimization, otherwise use defaults set in Module class.")
+    parser.add_argument("-tm", "--use_trained_models", action="store_true",
+                        help="Use parameters trained and stored for models that require training, e.g. SVR, read existing trained models from file.")
     args = parser.parse_args()
     
     assert all(model in ["perfect", "persistence", "svr", "kf", "informer", "autoformer", "spacetimeformer", "tactis", "preview"] for model in args.model)
@@ -2251,79 +2269,6 @@ if __name__ == "__main__":
                 f"^sd_ws_horz_{turbine_signature}$", f"^sd_ws_vert_{turbine_signature}$")
     
     fmodel = FlorisModel(data_config["farm_input_path"])
-     
-    if False:
-        ## GET TRUE WIND FIELD
-        # pull ws_horz, ws_vert, nacelle_direction, normalization_consts from awaken data and run for ML, SVR
-        true_wf = pl.scan_parquet(model_config["dataset"]["data_path"])
-        # longest_cg = true_wf.collect().select(pl.col("continuity_group")).to_series().value_counts().sort("count", descending=True).select(pl.col("continuity_group").first()).item()
-        # true_wf = true_wf.filter(pl.col("continuity_group") == longest_cg)
-        # true_wf.collect().write_csv(os.path.join(os.path.dirname(model_config["dataset"]["data_path"]), "sample.csv"), datetime_format="%Y-%m-%d %H:%M:%S")
-        
-        norm_consts = pd.read_csv(model_config["dataset"]["normalization_consts_path"], index_col=None)
-        norm_min_cols = [col for col in norm_consts if "_min" in col]
-        norm_max_cols = [col for col in norm_consts if "_max" in col]
-        data_min = norm_consts[norm_min_cols].values.flatten()
-        data_max = norm_consts[norm_max_cols].values.flatten()
-        norm_min_cols = [col.replace("_min", "") for col in norm_min_cols]
-        norm_max_cols = [col.replace("_max", "") for col in norm_max_cols]
-        feature_range = (-1, 1)
-        norm_scale = ((feature_range[1] - feature_range[0]) / (data_max - data_min))
-        norm_min = feature_range[0] - (data_min * norm_scale)
-        true_wf = true_wf.with_columns([(cs.starts_with(col) - norm_min[c]) 
-                                                    / norm_scale[c] 
-                                                    for c, col in enumerate(norm_min_cols)])\
-                                    .collect()
-        
-        assert true_wf.select(pl.col("time").diff().shift(-1).first()).item() == measurements_timedelta
-        
-        turbine_ids = sorted(set(re.search("\\d+", col).group() for col in true_wf.select(cs.starts_with("ws")).columns))
-        true_wf = true_wf.with_columns(**{f"wd_{tid}": 180.0 + pl.arctan2(f"ws_horz_{tid}", f"ws_vert_{tid}").degrees() for tid in turbine_ids})
-        true_wf = true_wf.with_columns(**{f"wm_{tid}": (pl.col(f"ws_horz_{tid}")**2 + pl.col(f"ws_vert_{tid}")**2).sqrt() for tid in turbine_ids})
-
-        true_wf = transform_wind(true_wf, **TRANSFORM_WIND)
-        
-        true_wf = true_wf.with_columns(**{f"wd_filt_{tid}": 
-                                        first_ord_filter(true_wf[f"wd_{tid}"].to_numpy().flatten(), 
-                                                        time_const=35*60,
-                                                        dt=measurements_timedelta.total_seconds()) 
-                                        for tid in turbine_ids})
-        
-        if args.plot:
-            true_wf_long = DataInspector.unpivot_dataframe(true_wf, 
-                                                        value_vars=["nd_cos", "nd_sin", "ws_horz", "ws_vert"], 
-                                                    turbine_signature=turbine_signature)
-            WindForecast.plot_turbine_data(long_df=true_wf_long, fig_dir="./")
-            del true_wf_long
-        # plt.savefig(os.path.join(wind_field_config["fig_dir"], "wind_field_ts.png"))
-
-        true_wf = true_wf.with_columns(data_type=pl.lit("True"))
-        # true_wf = true_wf.with_columns(pl.col("time").cast(pl.Datetime(time_unit=pred_slice.unit)))
-        # true_wf_plot = pd.melt(true_wf, id_vars=["time", "data_type"], value_vars=["ws_horz", "ws_vert"], var_name="wind_component", value_name="wind_speed")
-        
-        # historic_measurements = [df.slice(0, true_wf.select(pl.len()).item() - int(prediction_timedelta / measurements_timedelta)) for df in true_wf.partition_by("continuity_group")]
-        # future_measurements = [df.slice(true_wf.select(pl.len()).item() - int(prediction_timedelta / measurements_timedelta), int(prediction_timedelta / measurements_timedelta)) for df in true_wf.partition_by("continuity_group")]
-        historic_measurements = true_wf.slice(0, true_wf.select(pl.len()).item() - int(prediction_timedelta / measurements_timedelta))
-        future_measurements = true_wf.slice(true_wf.select(pl.len()).item() - int(prediction_timedelta / measurements_timedelta), int(prediction_timedelta / measurements_timedelta))
-        
-        # current_time = historic_measurements.select(pl.col("time").last()).item()
-        assert int(context_timedelta / measurements_timedelta) <= historic_measurements.select(pl.len()).item()
-        assert int(prediction_timedelta / measurements_timedelta) <= future_measurements.select(pl.len()).item()
-        
-        id_vars = true_wf.select(pl.exclude(
-            f"^ws_horz_{turbine_signature}$", f"^ws_vert_{turbine_signature}$", 
-                    f"^nd_cos_{turbine_signature}$", f"^nd_sin_{turbine_signature}$",
-                    f"^wd_{turbine_signature}$", f"^wm_{turbine_signature}$",
-                    f"^wd_filt_{turbine_signature}$")).columns  
-        true_wf_long = DataInspector.unpivot_dataframe(true_wf,
-                                                    value_vars=["nd_cos", "nd_sin", "ws_horz", "ws_vert", "wd", "wm", "wd_filt"], 
-                                                    turbine_signature=turbine_signature)\
-                                    .unpivot(index=["turbine_id"] + id_vars, 
-                                                on=["ws_horz", "ws_vert", "nd_cos", "nd_sin", "wd", "wm", "wd_filt"], 
-                                                variable_name="feature", value_name="value")
-                                    
-        plot_wind_ts(data_df=true_wf_long, save_path="/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/figures/wind_ts.png",
-                    include_filtered_wind_dir=True, turbine_ids=["1"])
     
     logging.info("Creating datasets")
     data_module = DataModule(data_path=model_config["dataset"]["data_path"], 
@@ -2340,32 +2285,28 @@ if __name__ == "__main__":
     if not os.path.exists(data_module.train_ready_data_path):
         data_module.generate_datasets()
     
-    true_wind_field = data_module.generate_splits(save=True, reload=False, splits=["train", "test"])._df.collect()
+    # true_wind_field = data_module.generate_splits(save=True, reload=False, splits=["test"])._df.collect()
+    data_module.generate_splits(save=True, reload=False, splits=["test"])
     
     if args.max_splits:
-        train_data = data_module.train_dataset[:args.max_splits]
         test_data = data_module.test_dataset[:args.max_splits]
     else:
-        train_data = data_module.train_dataset
         test_data = data_module.test_dataset
     
     if args.max_steps:
-        train_data = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in train_data]
         test_data = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in test_data]
-        
+    
+    test_data = generate_wind_field_df(test_data, data_module.target_cols, data_module.feat_dynamic_real_cols)
     # window_length = model_config["dataset"]["prediction_length"] + model_config["dataset"].get("lead_time", 0)
-    window_length = int(test_data[0]["target"].shape[1] * (2/3))
-    _, test_template = split(test_data, offset=-window_length)
-    test_data = test_template.generate_instances(window_length, windows=1)
-    delattr(data_module, "train_dataset")
+    # window_length = int(test_data[0]["target"].shape[1] * (2/3))
+    # _, test_template = split(test_data, offset=-window_length)
+    # test_data = test_template.generate_instances(window_length, windows=1)
     delattr(data_module, "test_dataset")
     gc.collect()
     
-    train_data = generate_wind_field_df(datasets=train_data, target_cols=data_module.target_cols, 
-                                        feat_dynamic_real_cols=data_module.feat_dynamic_real_cols)
-    
-    assert pd.Timedelta(test_data.dataset[0]["start"].freq) == measurements_timedelta
-    assert true_wind_field.select(pl.col("time").slice(0, 2).diff()).slice(1,1).item() == measurements_timedelta
+    # assert pd.Timedelta(test_data[0]["start"].freq) == measurements_timedelta
+    assert pd.Timedelta(test_data.select(pl.col("time").diff()).slice(1,1).item()) == measurements_timedelta
+    # assert test_data.select(pl.col("time").slice(0, 2).diff()).slice(1,1).item() == measurements_timedelta
    
     custom_eval_fn = {
                 "PICP": (pi_coverage_probability, "mean", "mean"),
@@ -2386,7 +2327,7 @@ if __name__ == "__main__":
                 controller_timedelta=controller_timedelta,
                 prediction_timedelta=td,
                 context_timedelta=context_timedelta,
-                true_wind_field=true_wind_field,
+                true_wind_field=test_data,
                 fmodel=fmodel,
                 tid2idx_mapping=tid2idx_mapping,
                 turbine_signature=turbine_signature,
@@ -2406,7 +2347,7 @@ if __name__ == "__main__":
                                                     prediction_timedelta=td,
                                                     context_timedelta=context_timedelta,
                                                     fmodel=fmodel,
-                                                    true_wind_field=true_wind_field,
+                                                    true_wind_field=None,
                                                     tid2idx_mapping=tid2idx_mapping,
                                                     turbine_signature=turbine_signature,
                                                     use_tuned_params=False,
@@ -2424,11 +2365,11 @@ if __name__ == "__main__":
                                     prediction_timedelta=td,
                                     context_timedelta=context_timedelta,
                                     fmodel=fmodel,
-                                    true_wind_field=true_wind_field,
+                                    true_wind_field=None,
                                     kwargs=dict(kernel="rbf", C=1.0, degree=3, gamma="auto", epsilon=0.1, cache_size=200,
                                                 n_neighboring_turbines=3, max_n_samples=None, 
-                                                study_name_root=f"svr_tuning_{data_config['config_label']}",
-                                                use_trained_models=True),
+                                                study_name_root=f"svr_{model_config['experiment']['run_name']}",
+                                                use_trained_models=args.use_trained_models),
                                     tid2idx_mapping=tid2idx_mapping,
                                     turbine_signature=turbine_signature,
                                     use_tuned_params=args.use_tuned_params,
@@ -2447,7 +2388,7 @@ if __name__ == "__main__":
                                                 prediction_timedelta=td, 
                                                 context_timedelta=td*2,
                                                 fmodel=fmodel,
-                                                true_wind_field=true_wind_field,
+                                                true_wind_field=None,
                                                 tid2idx_mapping=tid2idx_mapping,
                                                 turbine_signature=turbine_signature,
                                                 use_tuned_params=False,
@@ -2460,12 +2401,12 @@ if __name__ == "__main__":
     if "preview" in args.model:
         # tune this use single, longer, prediction time, since we have only identity state transition matrix, and must use final posterior only prediction
         for td in prediction_timedelta:
-            forecaster = PreviewForecast(measurements_timedelta=measurements_timedelta,
+            forecaster = SpatialFilterForecast(measurements_timedelta=measurements_timedelta,
                                                 controller_timedelta=controller_timedelta,
                                                 prediction_timedelta=td, 
                                                 context_timedelta=context_timedelta,
                                                 fmodel=fmodel,
-                                                true_wind_field=true_wind_field,
+                                                true_wind_field=None,
                                                 tid2idx_mapping=tid2idx_mapping,
                                                 turbine_signature=turbine_signature,
                                                 use_tuned_params=False,
@@ -2482,7 +2423,7 @@ if __name__ == "__main__":
                                  prediction_timedelta=model_config["dataset"]["prediction_length"] * pd.Timedelta(model_config["dataset"]["resample_freq"]).to_pytimedelta(),
                                  context_timedelta=model_config["dataset"]["context_length"] * pd.Timedelta(model_config["dataset"]["resample_freq"]).to_pytimedelta(),
                                  fmodel=fmodel,
-                                 true_wind_field=true_wind_field,
+                                 true_wind_field=None,
                                  tid2idx_mapping=tid2idx_mapping,
                                  turbine_signature=turbine_signature,
                                  use_tuned_params=True,
@@ -2534,20 +2475,51 @@ if __name__ == "__main__":
         WindForecast.plot_forecast(ml_forecast_wf, true_wf_long, 
                                    prediction_type=args.prediction_type, 
                                    label=f"_{args.model}_{data_config['config_label']}", fig_dir=args.fig_dir, turbine_ids=["6"])
-        # TODO HIGH add probabilistic scores once Juan has tested them
+        
         ml_forecast_scores = WindForecast.compute_score(forecast_wf=ml_forecast_wf, true_wf=true_wf_long, metric=mean_squared_error, 
                                                         feature_types=target_vars, 
                                                         probabilistic=(args.prediction_type == "distribution"),
                                                         plot=True, label=f"_{args.model}_{data_config['config_label']}", fig_dir=args.fig_dir)
     
+    if any(forecaster.train_first for forecaster in forecasters):
+        # load training data
+        data_module = DataModule(data_path=model_config["dataset"]["data_path"], 
+                             normalization_consts_path=model_config["dataset"]["normalization_consts_path"],
+                             normalized=True, 
+                             n_splits=1, #model_config["dataset"]["n_splits"],
+                            continuity_groups=None, train_split=(1.0 - model_config["dataset"]["val_split"] - model_config["dataset"]["test_split"]),
+                                val_split=model_config["dataset"]["val_split"], test_split=model_config["dataset"]["test_split"],
+                                prediction_length=model_config["dataset"]["prediction_length"], context_length=model_config["dataset"]["context_length"],
+                                target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
+                                freq=model_config["dataset"]["resample_freq"], target_suffixes=model_config["dataset"]["target_turbine_ids"],
+                                    per_turbine_target=model_config["dataset"]["per_turbine_target"], as_lazyframe=False, dtype=pl.Float32)
     
-    for forecaster in forecasters:
-        if forecaster.train_first:
-            forecaster.prepare_data(dataset_splits={"train": train_data.partition_by("continuity_group")}, scale=True, reload=False)
-            forecaster.train_all_outputs(train_data, scale=False, multiprocessor=args.multiprocessor, reload_models=False)
-    
-    # TODO TESTING
-    if False and args.multiprocessor is not None:
+        if not os.path.exists(data_module.train_ready_data_path):
+            data_module.generate_datasets()
+            
+        data_module.generate_splits(save=True, reload=False, splits=["train"])._df.collect()
+        
+        if args.max_splits:
+            train_data = data_module.train_dataset[:args.max_splits]
+        else:
+            train_data = data_module.train_dataset
+        
+        if args.max_steps:
+            train_data = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in train_data]
+        
+        train_data = generate_wind_field_df(datasets=train_data, target_cols=data_module.target_cols, 
+                                            feat_dynamic_real_cols=data_module.feat_dynamic_real_cols)
+        delattr(data_module, "train_dataset")
+        
+        for forecaster in forecasters:
+            if forecaster.train_first and not args.use_trained_models:
+                forecaster.prepare_data(dataset_splits={"train": train_data.partition_by("continuity_group")}, scale=False, reload=True)
+                scaler_params = data_module.compute_scaler_params()
+                forecaster.train_all_outputs(train_data, scale=False, multiprocessor=args.multiprocessor, 
+                                             reload_models=True,
+                                             scaler_params=scaler_params)
+                
+    if args.multiprocessor is not None:
         if args.multiprocessor == "mpi":
             comm_size = MPI.COMM_WORLD.Get_size()
             executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
@@ -2559,41 +2531,67 @@ if __name__ == "__main__":
             
             test_futures = [ex.submit(generate_forecaster_results, forecaster=forecaster, 
                                     data_module=data_module, evaluator=evaluator, 
-                                    train_data=train_data, test_data=test_data, 
-                                    true_wind_field=true_wind_field, id_var_selector=id_var_selector,
-                                    prediction_type=args.prediction_type, save_dir=args.fig_dir) 
+                                    test_data=test_data, 
+                                    prediction_type=args.prediction_type) 
                        for forecaster in forecasters]
             
             results = [dict([(k, v) for k, v in chain(
-                zip(["agg_metrics", "ts_metrics", "forecast_fig"], fut.result()), 
+                zip(["true_df", "forecasts_df", "agg_metrics", "ts_metrics"], fut.result()), 
                 zip(["forecaster_name", "prediction_timedelta"], [forecaster.__class__.__name__, forecaster.prediction_timedelta.total_seconds()]))]) 
                        for forecaster, fut in zip(forecasters, test_futures)] # agg_metrics, ts_metrics, forecast_fig
     else:
         results = []
         for forecaster in forecasters:
-            agg_metrics, ts_metrics, forecast_fig = generate_forecaster_results(
+            true_df, forecast_df, agg_metrics, ts_metrics = generate_forecaster_results(
                 forecaster=forecaster, data_module=data_module, 
-                evaluator=evaluator, test_data=test_data, train_data=train_data,
-                true_wind_field=true_wind_field, id_var_selector=id_var_selector,
-                prediction_type=args.prediction_type, 
-                save_dir=args.fig_dir)
+                evaluator=evaluator, test_data=test_data,
+                prediction_type=args.prediction_type)
             results.append({
                 "forecaster_name": forecaster.__class__.__name__,
+                "true": true_df,
+                "forecasts": forecast_df,
                 "agg_metrics": agg_metrics, 
                 "ts_metrics": ts_metrics, 
-                "forecast_fig": forecast_fig,
                 "prediction_timedelta": forecaster.prediction_timedelta.total_seconds()})
+    
+    for f, forecaster in enumerate(forecasters):
+        if args.prediction_type == "distribution":
+            value_vars = ["loc_nd_cos", "loc_nd_sin", "loc_ws_horz", "loc_ws_vert", "sd_nd_cos", "sd_nd_sin", "sd_ws_horz", "sd_ws_vert"]
+            target_vars = ["loc_ws_horz", "loc_ws_vert", "sd_ws_horz", "sd_ws_vert"]
+        else:
+            value_vars = ["nd_cos", "nd_sin", "ws_horz", "ws_vert"]
+            target_vars = ["ws_horz", "ws_vert"]
+    
+        id_vars = results[f]["forecast_df"][0].select(id_var_selector).columns  
+        forecasts_long = pl.concat([DataInspector.unpivot_dataframe(wf, 
+                                                    value_vars=value_vars, 
+                                                    turbine_signature=forecaster.turbine_signature)\
+                                            .unpivot(index=["turbine_id"] + id_vars, on=target_vars, 
+                                                    variable_name="feature", value_name="value") for wf in results[f]["forecasts"]],
+                                how="vertical")
+        
+        id_vars = results[f]["true_df"][0].select(id_var_selector).columns  
+        true_long = pl.concat([DataInspector.unpivot_dataframe(wf, 
+                                                    value_vars=["nd_cos", "nd_sin", "ws_horz", "ws_vert"], 
+                                                    turbine_signature=forecaster.turbine_signature)\
+                                            .unpivot(index=["turbine_id"] + id_vars, on=["ws_horz", "ws_vert"], 
+                                                    variable_name="feature", value_name="value") for wf in results[f]["trye"]],
+                            how="vertical")
+        
+        forecast_fig = WindForecast.plot_forecast(forecasts_long, true_long, splits=[0], turbine_ids=["1"], 
+                                                label=f"_{forecaster.__class__.__name__}_{data_config['config_label']}", fig_dir=args.save_dir) 
+    
     
     all_metrics = list(results[0]["agg_metrics"].keys())
     # get the metrics we care about, there is also "MSE", "MAE", "abs_error", "QuantileLoss", 
-    metrics = [metric for metric in all_metrics if any(m in metric for m in ["RMSE", "PICP", "PINAW", "CWC", "CRPS"])]
+    metrics = [metric for metric in all_metrics if any(m in metric for m in ["MAE", "RMSE", "PICP", "PINAW", "CWC", "CRPS"])]
     agg_df = pd.concat([
         pd.DataFrame([res["agg_metrics"]])[metrics].assign(forecaster=res["forecaster_name"], prediction_timedelta=res["prediction_timedelta"]) for res in results
         ], axis=0)
     agg_df = agg_df.melt(id_vars=["forecaster", "prediction_timedelta"], var_name="metric", value_name="score").dropna(subset=["score"])
     
     plotting_metrics_dirs = [(met, direc) for met, direc in 
-                        zip(["RMSE", "PICP", "PINAW", "CWC", "CRPS"], [-1, 1, -1, -1, -1]) 
+                        zip(["MAE", "RMSE", "PICP", "PINAW", "CWC", "CRPS"], [-1, 1, -1, -1, -1]) 
                         if met in pd.unique(agg_df["metric"])]
     plotting_metrics = [v[0] for v in plotting_metrics_dirs]
     good_directions = [v[1] for v in plotting_metrics_dirs]

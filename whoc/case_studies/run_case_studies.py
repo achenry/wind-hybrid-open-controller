@@ -30,7 +30,7 @@ from whoc.case_studies.process_case_studies import (read_time_series_data, write
                                                     generate_outputs, plot_simulations, plot_wind_farm, plot_breakdown_robustness, plot_horizon_length,
                                                     plot_cost_function_pareto_curve, plot_yaw_offset_wind_direction, plot_parameter_sweep, plot_power_increase_vs_prediction_time)
 try:
-    from whoc.wind_forecast.WindForecast import PerfectForecast, PersistenceForecast, MLForecast, SVRForecast, KalmanFilterForecast, PreviewForecast
+    from whoc.wind_forecast.WindForecast import PerfectForecast, PersistenceForecast, MLForecast, SVRForecast, KalmanFilterForecast, SpatialFilterForecast
 except ModuleNotFoundError:
     logging.warning("Cannot import wind forecast classes in current environment.")
 # np.seterr("raise")
@@ -94,6 +94,9 @@ if __name__ == "__main__":
                 tid2idx_mapping = {str(k): i for i, k in enumerate(data_config["turbine_mapping"][0].values())} # if more than one file type was pulled from, all turbine ids will be transformed into common type
             
             turbine_signature = data_config["turbine_signature"][0] if len(data_config["turbine_signature"]) == 1 else "\\d+"
+            
+            temp_storage_dir = data_config["temp_storage_dir"]
+            os.makedirs(temp_storage_dir, exist_ok=True)
             # optuna_args = model_config.setdefault("optuna", None)
     
         else:
@@ -101,6 +104,7 @@ if __name__ == "__main__":
             data_config = None
             turbine_signature = None
             tid2idx_mapping = None
+            temp_storage_dir = None
             
         logging.info(f"running initialize_simulations for case_ids {[case_families[i] for i in args.case_ids]}")
         case_lists, case_name_lists, input_dicts, wind_field_config, wind_field_ts \
@@ -146,7 +150,8 @@ if __name__ == "__main__":
                                             tid2idx_mapping=tid2idx_mapping,
                                             use_tuned_params=True, 
                                             model_config=model_config, wind_field_config=wind_field_config, 
-                                            ram_limit=args.ram_limit)
+                                            ram_limit=args.ram_limit,
+                                            temp_storage_dir=temp_storage_dir)
 
                     for c, d in enumerate(input_dicts)]
             
@@ -164,7 +169,8 @@ if __name__ == "__main__":
                                 multiprocessor=False, 
                                 wind_field_config=wind_field_config, verbose=args.verbose, save_dir=args.save_dir, rerun_simulations=args.rerun_simulations,
                                 turbine_signature=turbine_signature, tid2idx_mapping=tid2idx_mapping,
-                                use_tuned_params=True, model_config=model_config, ram_limit=args.ram_limit)
+                                use_tuned_params=True, model_config=model_config, ram_limit=args.ram_limit,
+                                temp_storage_dir=temp_storage_dir)
     
     if args.postprocess_simulations:
         # if (not os.path.exists(os.path.join(args.save_dir, f"time_series_results.csv"))) or (not os.path.exists(os.path.join(args.save_dir, f"agg_results.csv"))):
@@ -559,7 +565,6 @@ if __name__ == "__main__":
                 wind_forecast_class = "KalmanFilterForecast" # "PerfectForecast" # 
                 # controller_class = "GreedyController"
                 controller_class = "LookupBasedWakeSteeringController"
-                # TODO WHY DO GREEDY AND LUT LOOK THE SAME, WHY IS ONLY ONE TURBINE VISIBLE
                 WindForecast.plot_forecast(
                     forecast_wf=forecast_wf.loc[
                         (forecast_wf["WindSeed"] == wind_seed) & (forecast_wf["wind_forecast_class"] == wind_forecast_class) & (forecast_wf["controller_class"] == controller_class), 
