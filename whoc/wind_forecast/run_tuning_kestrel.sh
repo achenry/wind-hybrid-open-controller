@@ -46,6 +46,7 @@ echo "MODEL=${MODEL}"
 echo "STUDY_NAME=${STUDY_NAME}"
 echo "MODEL_CONFIG=${MODEL_CONFIG}"
 echo "DATA_CONFIG=${DATA_CONFIG}"
+echo "TMPDIR=${TMPDIR}"
 
 # prepare training data first
 echo "=== STARTING DATA PREPARATION ==="
