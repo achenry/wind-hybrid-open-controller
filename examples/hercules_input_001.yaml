@@ -114,7 +114,8 @@ wind_forecast:
     cache_size: 200
     n_neighboring_turbines: 3
     max_n_samples:
-  PreviewForecast:
+    study_name_root: svr_aoifemac_awaken
+  SpatialFilterForecast:
     n_neighboring_turbines: 3
   MLForecast:
     model_key: informer

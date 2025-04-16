@@ -20,8 +20,10 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     results_dir = os.path.join(kwargs["save_dir"], kwargs['case_family'])
     os.makedirs(results_dir, exist_ok=True)
     
-    temp_storage_dir = os.path.join(results_dir, "temp")
-    os.makedirs(temp_storage_dir, exist_ok=True)
+    if simulation_input_dict["controller"]["uncertain"] and not wind_forecast_class.is_probabilistic:
+        logging.info(f"Can't run with uncertain flag for {wind_forecast_class.__name__}, setting uncertainty off.")
+        simulation_input_dict["controller"]["uncertain"] = simulation_input_dict["controller"]["uncertain"] and wind_forecast_class.is_probabilistic
+        kwargs['case_name'] = re.sub("uncertain_True", "uncertain_False", kwargs['case_name'])
     
     fn = f"time_series_results_case_{kwargs['case_name']}_seed_{kwargs['wind_case_idx']}.csv".replace("/", "_")
     save_path = os.path.join(results_dir, fn)
@@ -42,8 +44,8 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     
     if os.path.exists(save_path):
         os.remove(save_path)
-        
     
+
     logging.info(f"Running instance of {controller_class.__name__} - {kwargs['case_name']} with wind seed {kwargs['wind_case_idx']}")
     # Load a FLORIS object for power calculations
     fi = ControlledFlorisModel(t0=kwargs["wind_field_ts"].select(pl.col("time").first()).item(),
@@ -99,7 +101,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
                                             model_config=kwargs["model_config"],
                                             **{k: v for k, v in simulation_input_dict["wind_forecast"].items() if "timedelta" in k},
                                             kwargs={k: v for k, v in simulation_input_dict["wind_forecast"].items() if "timedelta" not in k},
-                                            temp_save_dir=temp_storage_dir)
+                                            temp_save_dir=kwargs["temp_storage_dir"])
     else:
         wind_forecast = None
     ctrl = controller_class(fi, wind_forecast=wind_forecast, simulation_input_dict=simulation_input_dict, **kwargs)

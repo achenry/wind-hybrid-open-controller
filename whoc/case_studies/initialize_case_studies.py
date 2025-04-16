@@ -48,9 +48,10 @@ case_studies = {
                                     "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
                                     "simulation_dt": {"group": 0, "vals": [60]},
                                     "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/smarteole_farm.yaml"]},
-                                    "uncertain": {"group": 3, "vals": [False]}, # TODO automatcially set to False if r=foreacaster does not have predict_distr
-                                    "wind_forecast_class": {"group": 3, "vals": ["PreviewForecast"]}, #, "PerfectForecast"]},
-                                    "prediction_timedelta": {"group": 4, "vals": [120, 60]}, #, 120, 180]},
+                                    "uncertain": {"group": 2, "vals": [False, True]}, # TODO automatcially set to False if r=foreacaster does not have predict_distr
+                                    "wind_forecast_class": {"group": 3, "vals": ["KalmanFilterForecast"]}, #, ", "KalmanFilterForecast", "SpatialFilterForecast"]},
+                                    "study_name_root": {"group": 3, "vals": ["svr_aoifemac_flasc"]},
+                                    "prediction_timedelta": {"group": 4, "vals": [120]}, #, 120, 180]},
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]}
                                     },
     "baseline_controllers_forecasters_test_awaken": {
@@ -61,8 +62,8 @@ case_studies = {
                                     "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
                                     "simulation_dt": {"group": 0, "vals": [1]},
                                     "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
-                                    "uncertain": {"group": 3, "vals": [True, False]},
-                                    "wind_forecast_class": {"group": 3, "vals": ["KalmanFilterForecast", "PerfectForecast"]},
+                                    "uncertain": {"group": 2, "vals": [True, False]},
+                                    "wind_forecast_class": {"group": 3, "vals": ["KalmanFilterForecast"]},
                                     "prediction_timedelta": {"group": 4, "vals": [60, 120, 180]},
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]}
                                     },
@@ -80,7 +81,7 @@ case_studies = {
                                                                                    True, False,
                                                                                    True, False,
                                                                                    True, False]},
-                                                "wind_forecast_class": {"group": 2, "vals": ["PerfectForecast", "PersistenceForecast", "PreviewForecast", "KalmanFilterForecast", "SVRForecast", 
+                                                "wind_forecast_class": {"group": 2, "vals": ["PerfectForecast", "PersistenceForecast", "SpatialFilterForecast", "KalmanFilterForecast", "SVRForecast", 
                                                                                              "MLForecast", "MLForecast", 
                                                                                              "MLForecast", "MLForecast", 
                                                                                              "MLForecast", "MLForecast", 
@@ -715,7 +716,8 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                             input_dicts[start_case_idx + c]["controller"][property_name] = "all"
                             
                     elif property_name == "uncertain":
-                        if (controller_class := case.setdefault("controller_class", whoc_config["controller"]["controller_class"])) == "GreedyController":
+                        if (case.setdefault("controller_class", whoc_config["controller"]["controller_class"])) == "GreedyController":
+                            logging.info("GreedyController cannot be run for uncertain flag. Setting uncertain to False.")
                             input_dicts[start_case_idx + c]["controller"]["uncertain"] = False
                         else:
                             input_dicts[start_case_idx + c]["controller"]["uncertain"] = property_value
