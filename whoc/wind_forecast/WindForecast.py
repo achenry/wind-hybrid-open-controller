@@ -443,7 +443,7 @@ class WindForecast:
                 # storage.get_all_studies()[0]._study_id
                 self.model[output] = self.create_model(**storage.get_best_trial(study_id).params)
         else:
-            storage = self.get_storage(use_rdb=backend, study_name=f"{study_name_root}")
+            storage = self.get_storage(backend=backend, study_name=f"{study_name_root}", storage_dir=storage_dir)
             try:
                 study_id = storage.get_study_id_from_name(f"{study_name_root}")
             except KeyError:
@@ -929,7 +929,7 @@ class GaussianForecast(WindForecast):
 @dataclass
 class SVRForecast(WindForecast):
     """Wind speed component forecasting using Support Vector Regression."""
-    multiprocessor: str = "cf"
+    
     
     def __post_init__(self):
         super().__post_init__()
@@ -965,12 +965,9 @@ class SVRForecast(WindForecast):
         self.last_measurement_time = None
             
         if self.use_tuned_params and self.model_config is not None:
-            try:
-                self.set_tuned_params(backend=self.model_config["optuna"]["backend"], 
-                                      study_name_root=self.model_config["optuna"]["study_name"], 
-                                      storage_dir=self.model_config["optuna"]["storage_dir"])
-            except KeyError as e:
-                logging.warning(e)
+            self.set_tuned_params(backend=self.model_config["optuna"]["storage"]["backend"], 
+                                    study_name_root=self.kwargs["study_name_root"], 
+                                    storage_dir=self.model_config["optuna"]["storage_dir"])
     
     @staticmethod
     def create_scaler():
@@ -1006,17 +1003,19 @@ class SVRForecast(WindForecast):
     def predict_sample(self, n_samples: int):
         pass
     
-    def train_single_output(self, training_measurements, output, scale, reload):
+    def train_single_output(self, training_measurements, output, scale, reload_model):
         # feat_type = re.search(f"^\\w+(?=_{self.turbine_signature}$)", output).group()
         # tid = re.search(f"(?<=_){self.turbine_signature}$", output).group()
         # training_inputs, output_idx = self._get_inputs(training_measurements, self.scaler[output], feat_type, tid, scale)
-        if reload and os.path.exists(os.path.join(self.temp_save_dir, f"svr_model_{output}.pkl")):
+        if not reload_model \
+            and os.path.exists(os.path.join(self.temp_save_dir, f"svr_model_{output}_{self.prediction_timedelta.total_seconds()}.pkl")) \
+                and os.path.exists(os.path.join(self.temp_save_dir, f"svr_scaler_{output}_{self.prediction_timedelta.total_seconds()}.pkl")):
             with open(os.path.join(self.temp_save_dir, f"svr_model_{output}_{self.prediction_timedelta.total_seconds()}.pkl"), "rb") as fp:
                 self.model[output] = pickle.load(fp)
             with open(os.path.join(self.temp_save_dir, f"svr_scaler_{output}_{self.prediction_timedelta.total_seconds()}.pkl"), "rb") as fp:
                 self.scaler[output] = pickle.load(fp)
         else:
-            X_train, y_train, self.scaler[output] = self._get_output_data(measurements=training_measurements, output=output, split="train", reload=reload, scale=scale, return_scaler=True)
+            X_train, y_train, self.scaler[output] = self._get_output_data(measurements=training_measurements, output=output, split="train", reload=False, scale=scale, return_scaler=True)
             self.model[output].fit(X_train, y_train)
             
             # self.scaler[output], self.model[output] = \
@@ -1033,8 +1032,9 @@ class SVRForecast(WindForecast):
                 pickle.dump(self.model[output], fp, protocol=5)
             with open(os.path.join(self.temp_save_dir, f"svr_scaler_{output}_{self.prediction_timedelta.total_seconds()}.pkl"), "wb") as fp:
                 pickle.dump(self.scaler[output], fp, protocol=5)
+        return self.model[output], self.scaler[output]
     
-    def train_all_outputs(self, historic_measurements, scale, multiprocessor, reload=True):
+    def train_all_outputs(self, historic_measurements, scale, multiprocessor, reload_models=True):
         # training_measurements = historic_measurements.gather_every(self.n_prediction_interval)
         # scale = (training_measurements.select(pl.len()).item() > 1) and scale
         outputs = self._get_ws_cols(historic_measurements)
@@ -1058,12 +1058,15 @@ class SVRForecast(WindForecast):
                                         training_measurements=None, 
                                         output=output, 
                                         scale=scale, 
-                                        reload=reload) for output in outputs]
-                [fut.result() for fut in futures]
+                                        reload_model=reload_models) for output in outputs]
+                for output, fut in zip(outputs, futures):
+                    m, s = fut.result()
+                    self.model[output] = m
+                    self.scaler[output] = s
         else:    
             for output in outputs:
-                self.train_single_output(training_measurements=None, 
-                                            output=output, scale=scale, reload=reload)
+                self.model[output], self.scaler[output] = self.train_single_output(training_measurements=None, 
+                                            output=output, scale=scale, reload_model=reload_models)
         # else:
         #     logging.warning("Insufficient training data to train SVR!")
 
@@ -1085,7 +1088,8 @@ class SVRForecast(WindForecast):
         scale = (training_measurements.select(pl.len()).item() > 1)
         
         if training_measurements.select(pl.len()).item() >= self.n_context + self.n_prediction:
-            training_measurements = training_measurements.tail(self.max_n_samples)
+            if self.max_n_samples:
+                training_measurements = training_measurements.tail(self.max_n_samples)
             
             pred = {}
             for output in outputs:
@@ -1459,7 +1463,7 @@ class MLForecast(WindForecast):
                 logging.info("Getting tuned parameters")
                 tuned_params = get_tuned_params(model=self.model_key,
                                                 data_source=os.path.splitext(os.path.basename(self.model_config["dataset"]["data_path"]))[0], 
-                                                backend=self.model_config["optuna"]["backend"], 
+                                                backend=self.model_config["optuna"]["storage"]["backend"], 
                                                 storage_dir=self.model_config["optuna"]["storage_dir"])
                 logging.info(f"Declaring estimator {self.model_key.capitalize()} with tuned parameters")
                 self.model_config["dataset"].update({k: v for k, v in tuned_params.items() if k in self.model_config["dataset"]})
@@ -1827,7 +1831,7 @@ def make_predictions(forecaster, test_data, true_wind_field, prediction_type):
     # means = []
     # covariances_p = []
     # covariances = []
-    
+    # TODO CHECK THIS, right to only predict labels?
     for i, (inp, label) in enumerate(iter(test_data)):
         start = inp[FieldName.START].to_timestamp()
         # end = min((label[FieldName.START] + label['target'].shape[1]).to_timestamp(), pd.Timestamp(true_wind_field.select(pl.col("time").last()).item()))
@@ -2180,15 +2184,16 @@ if __name__ == "__main__":
     with open(args.model_config, 'r') as file:
         model_config  = yaml.safe_load(file)
     
-    controller_timedelta = pd.Timedelta(60, unit="s") 
     
     if args.prediction_interval is None:
-        prediction_timedelta = [model_config["dataset"]["prediction_length"] * pd.Timedelta(model_config["dataset"]["resample_freq"]).to_pytimedelta()]
+        prediction_timedelta = [pd.Timedelta(seconds=model_config["dataset"]["prediction_length"])]
     else:
         prediction_timedelta = [pd.Timedelta(int(i), unit="s").to_pytimedelta() for i in args.prediction_interval]
         
-    context_timedelta = model_config["dataset"]["context_length"] * pd.Timedelta(model_config["dataset"]["resample_freq"]).to_pytimedelta()
+    context_timedelta = pd.Timedelta(seconds=model_config["dataset"]["context_length"])
     measurements_timedelta = pd.Timedelta(model_config["dataset"]["resample_freq"])
+    
+    controller_timedelta = max(pd.Timedelta(5, unit="s"), measurements_timedelta)
 
     with open(args.data_config, 'r') as file:
         data_config  = yaml.safe_load(file)
@@ -2382,10 +2387,11 @@ if __name__ == "__main__":
                                     fmodel=fmodel,
                                     true_wind_field=true_wind_field,
                                     kwargs=dict(kernel="rbf", C=1.0, degree=3, gamma="auto", epsilon=0.1, cache_size=200,
-                                                n_neighboring_turbines=3, max_n_samples=None),
+                                                n_neighboring_turbines=3, max_n_samples=None, 
+                                                study_name_root=f"svr_tuning_{data_config['config_label']}"),
                                     tid2idx_mapping=tid2idx_mapping,
                                     turbine_signature=turbine_signature,
-                                    use_tuned_params=True,
+                                    use_tuned_params=args.use_tuned_params,
                                     model_config=model_config,
                                     temp_save_dir=data_config["temp_storage_dir"])
             
@@ -2498,9 +2504,10 @@ if __name__ == "__main__":
     for forecaster in forecasters:
         if forecaster.train_first:
             forecaster.prepare_data(dataset_splits={"train": train_data.partition_by("continuity_group")}, scale=True, reload=False)
-            forecaster.train_all_outputs(train_data, scale=False, multiprocessor=args.multiprocessor, reload=False)
-            
-    if args.multiprocessor is not None:
+            forecaster.train_all_outputs(train_data, scale=False, multiprocessor=args.multiprocessor, reload_models=False)
+    
+    # TODO TESTING
+    if False and args.multiprocessor is not None:
         if args.multiprocessor == "mpi":
             comm_size = MPI.COMM_WORLD.Get_size()
             executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
@@ -2520,7 +2527,7 @@ if __name__ == "__main__":
             results = [dict([(k, v) for k, v in chain(
                 zip(["agg_metrics", "ts_metrics", "forecast_fig"], fut.result()), 
                 zip(["forecaster_name", "prediction_timedelta"], [forecaster.__class__.__name__, forecaster.prediction_timedelta.total_seconds()]))]) 
-                       for forecaster, fut in zip(forecaster, test_futures)] # agg_metrics, ts_metrics, forecast_fig
+                       for forecaster, fut in zip(forecasters, test_futures)] # agg_metrics, ts_metrics, forecast_fig
     else:
         results = []
         for forecaster in forecasters:
