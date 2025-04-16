@@ -79,6 +79,9 @@ class LookupBasedWakeSteeringController(ControllerBase):
             
         self.uncertain = simulation_input_dict["controller"]["uncertain"]
         
+        self.ws_horz_cols = [f"ws_horz_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.tid2idx_mapping))]
+        self.ws_vert_cols = [f"ws_vert_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.tid2idx_mapping))]
+        
         if self.wind_forecast and self.uncertain:
             self.mean_ws_horz_cols = [f"loc_ws_horz_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.idx2tid_mapping))]
             self.mean_ws_vert_cols = [f"loc_ws_vert_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.idx2tid_mapping))]
@@ -92,12 +95,13 @@ class LookupBasedWakeSteeringController(ControllerBase):
             self.sd_ws_horz_cols = self.sd_ws_vert_cols = []
          
         # self.turbine_ids = np.arange(self.n_turbines) + 1
-        self.historic_measurements = pd.DataFrame(columns=["time"] 
-                                                + [f"ws_horz_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.tid2idx_mapping))]
-                                                + [f"ws_vert_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.tid2idx_mapping))]
-                                                + [f"nd_cos_{tid}" for tid in self.tid2idx_mapping]
-                                                + [f"nd_sin_{tid}" for tid in self.tid2idx_mapping], 
-                                                dtype=pd.Float64Dtype())
+        self.historic_measurements = None
+        # pd.DataFrame(columns=["time"] 
+        #                                         + [f"ws_horz_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.tid2idx_mapping))]
+        #                                         + [f"ws_vert_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.tid2idx_mapping))]
+        #                                         + [f"nd_cos_{tid}" for tid in self.tid2idx_mapping]
+        #                                         + [f"nd_sin_{tid}" for tid in self.tid2idx_mapping], 
+        #                                         dtype=pd.Float64Dtype())
 
         self._last_measured_time = None
         self.is_yawing = np.array([False for _ in range(self.n_turbines)])
@@ -339,12 +343,13 @@ class LookupBasedWakeSteeringController(ControllerBase):
         
         # need historic measurements for filter or for wind forecast
         if self.wind_dir_use_filt or self.wind_mag_use_filt or self.wind_forecast:
-            if len(self.historic_measurements):
+            if self.historic_measurements is None:
                 self.historic_measurements = pl.concat([self.historic_measurements, 
-                                                        pl.from_pandas(current_measurements[["time"] + self.mean_ws_horz_cols + self.mean_ws_vert_cols])], how="vertical")\
+                                                        pl.from_pandas(current_measurements[["time"] + self.ws_horz_cols + self.ws_vert_cols])], how="vertical")\
                                                             .tail(int(np.ceil(self.wind_dir_lpf_time_const // self.simulation_dt) * 20))
             else:
-                self.historic_measurements = pl.from_pandas(current_measurements[["time"] + self.mean_ws_horz_cols + self.mean_ws_vert_cols])
+                self.historic_measurements = pl.from_pandas(
+                    current_measurements[["time"] + self.ws_horz_cols + self.ws_vert_cols])
                 
         current_yaw_setpoints = self.controls_dict["yaw_angles"]
         

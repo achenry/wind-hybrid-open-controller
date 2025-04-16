@@ -717,7 +717,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                             
                     elif property_name == "uncertain":
                         if (case.setdefault("controller_class", whoc_config["controller"]["controller_class"])) == "GreedyController":
-                            logging.info("GreedyController cannot be run for uncertain flag. Setting uncertain to False.")
+                            # logging.info("GreedyController cannot be run for uncertain flag. Setting uncertain to False.")
                             input_dicts[start_case_idx + c]["controller"]["uncertain"] = False
                         else:
                             input_dicts[start_case_idx + c]["controller"]["uncertain"] = property_value

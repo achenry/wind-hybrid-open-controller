@@ -46,8 +46,8 @@ class GreedyController(ControllerBase):
         
         self.uncertain = simulation_input_dict["controller"]["uncertain"]
         
-        self.mean_ws_horz_cols = [f"ws_horz_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.idx2tid_mapping))]
-        self.mean_ws_vert_cols = [f"ws_vert_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.idx2tid_mapping))]
+        self.ws_horz_cols = self.mean_ws_horz_cols = [f"ws_horz_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.idx2tid_mapping))]
+        self.ws_vert_cols = self.mean_ws_vert_cols = [f"ws_vert_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.idx2tid_mapping))]
             
         self.historic_measurements = pd.DataFrame(columns=["time"] 
                                                   + self.mean_ws_horz_cols 
@@ -158,12 +158,12 @@ class GreedyController(ControllerBase):
         current_wind_directions = current_wind_directions[self.sorted_tids]
         
         if self.wind_dir_use_filt or self.wind_forecast:
-            if len(self.historic_measurements):
+            if self.historic_measurements is None:
                 self.historic_measurements = pl.concat([self.historic_measurements, 
-                                                        pl.from_pandas(current_measurements[["time"] + self.mean_ws_horz_cols + self.mean_ws_vert_cols])], how="vertical")\
+                                                        pl.from_pandas(current_measurements[["time"] + self.ws_horz_cols + self.ws_vert_cols])], how="vertical")\
                                                             .tail(int(np.ceil(self.wind_dir_lpf_time_const // self.simulation_dt) * 20))
             else:
-                self.historic_measurements = pl.from_pandas(current_measurements[["time"] + self.mean_ws_horz_cols + self.mean_ws_vert_cols])
+                self.historic_measurements = pl.from_pandas(current_measurements[["time"] + self.ws_horz_cols + self.ws_vert_cols])
                 
         # NOTE: this is run every simulation_dt, not every controller_dt, because the yaw angle may be moving gradually towards the correct setpoint
         
