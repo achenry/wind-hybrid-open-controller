@@ -6,6 +6,7 @@ from time import perf_counter
 from memory_profiler import profile
 import re
 from psutil import virtual_memory
+from shutil import move
 
 from whoc.interfaces.controlled_floris_interface import ControlledFlorisModel
 from whoc.wind_field.WindField import first_ord_filter
@@ -24,16 +25,24 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     
     fn = f"time_series_results_case_{kwargs['case_name']}_seed_{kwargs['wind_case_idx']}.csv".replace("/", "_")
     save_path = os.path.join(results_dir, fn)
-    if os.path.exists(save_path):
-        os.remove(save_path)
+    temp_save_path = os.path.join(results_dir, fn.replace(".csv", "_temp.csv"))
     
-    if not kwargs["rerun_simulations"] and os.path.exists(os.path.join(results_dir, fn)):
+    if os.path.exists(temp_save_path):
+        os.remove(temp_save_path)
+    
+    if not kwargs["rerun_simulations"] and os.path.exists(save_path):
         results_df = pd.read_csv(os.path.join(results_dir, fn))
-        logging.info(f"Loaded existing {fn} since rerun_simulations argument is false")
-        return results_df
+        # check if this saved df completed successfully
+        if results_df["Time"].iloc[-1] == simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"] - simulation_input_dict["simulation_dt"]:
+            logging.info(f"Loaded existing {fn} since rerun_simulations argument is false")
+            return
     elif not kwargs["rerun_simulations"] and os.path.exists(os.path.join(results_dir, fn.replace("results", f"chk"))):
         # TODO load checkpoint if exists
         pass
+    
+    if os.path.exists(save_path):
+        os.remove(save_path)
+        
     
     logging.info(f"Running instance of {controller_class.__name__} - {kwargs['case_name']} with wind seed {kwargs['wind_case_idx']}")
     # Load a FLORIS object for power calculations
@@ -265,6 +274,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         if (ram_used := virtual_memory().percent) > kwargs["ram_limit"]:
             logging.info(f"Used {ram_used}% RAM.")
             # turn data into arrays, pandas dataframe, and export to csv
+            final = (t>=simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"])
             write_df(case_family=kwargs["case_family"],
                     case_name=kwargs["case_name"],
                     wind_case_idx=kwargs["wind_case_idx"],
@@ -287,8 +297,12 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
                     wind_forecast_class=wind_forecast_class, 
                     simulation_input_dict=simulation_input_dict,
                     idx2tid_mapping=idx2tid_mapping,
-                    save_path=save_path,
-                    final=(t>=simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"]))
+                    save_path=temp_save_path,
+                    final=final)
+            
+            if final:
+                logging.info(f"Moving final result to {save_path}.")
+                move(temp_save_path, save_path)
             
             turbine_powers_ts = []
             turbine_wind_mag_ts = []
@@ -327,8 +341,12 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
                 wind_forecast_class=wind_forecast_class, 
                 simulation_input_dict=simulation_input_dict,
                 idx2tid_mapping=idx2tid_mapping,
-                save_path=save_path,
+                save_path=temp_save_path,
                 final=True)
+        
+        logging.info(f"Moving final result to {save_path}.")
+        move(temp_save_path, save_path)
+        
     logging.info(f"Saved {fn}")
     
     # return results_data

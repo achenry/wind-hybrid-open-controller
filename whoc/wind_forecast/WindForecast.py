@@ -19,6 +19,7 @@ from torch import tensor
 import gc
 from memory_profiler import profile
 import pickle
+import glob
 
 # from joblib import parallel_backend
 
@@ -936,9 +937,6 @@ class SVRForecast(WindForecast):
         self.train_first = True
         self.max_n_samples = self.kwargs["max_n_samples"] 
 
-        self.scaler = defaultdict(SVRForecast.create_scaler)
-        self.model = defaultdict(SVRForecast.create_model)
-        
         self.n_turbines = self.fmodel.n_turbines
         self.measurement_layout = np.vstack([self.fmodel.layout_x, self.fmodel.layout_y]).T
         
@@ -963,19 +961,58 @@ class SVRForecast(WindForecast):
         #     self.max_n_samples = (self.n_context + self.n_prediction) * 1000
             
         self.last_measurement_time = None
+        
+        self.study_name_root = self.kwargs["study_name_root"]
             
         if self.use_tuned_params and self.model_config is not None:
             self.set_tuned_params(backend=self.model_config["optuna"]["storage"]["backend"], 
-                                    study_name_root=self.kwargs["study_name_root"], 
+                                    study_name_root=self.study_name_root, 
                                     storage_dir=self.model_config["optuna"]["storage_dir"])
+        
+        self.use_trained_models = self.kwargs["use_trained_models"]
+        self.scaler = defaultdict(SVRForecast.create_scaler)
+        self.model = defaultdict(SVRForecast.create_model)
+        
+        # if we want to use previously trained models fetch them, otherwise models will need to be trained
+        
+        if self.kwargs["use_trained_models"]:
+            for model_file in glob.glob(os.path.join(self.temp_save_dir, f"{self.study_name_root}_model_*.pkl")):
+                # if os.path.exists(os.path.join(self.temp_save_dir, f"svr_model_{output}_{self.prediction_timedelta.total_seconds()}.pkl")):
+                output = re.search(f"(?<={self.study_name_root}_model_)([\\w\\_]+\\d+)(?=\\_)", os.path.basename(model_file)).group()
+                prediction_length = float(re.search(f"(?<={self.study_name_root}_model_{output}_)([\\d\\.]+)(?=.pkl)", os.path.basename(model_file)).group())
+                if prediction_length != self.prediction_timedelta.total_seconds():
+                    continue
+                with open(os.path.join(self.temp_save_dir, model_file), "rb") as fp:
+                    self.model[output] = pickle.load(fp)
+                # else:
+                #     raise FileNotFoundError(f"Tuned model 'svr_model_{output}_{self.prediction_timedelta.total_seconds()}.pkl' doesn't exist.")
+            
+            for scaler_file in glob.glob(os.path.join(self.temp_save_dir, f"{self.study_name_root}_scaler_*.pkl")):
+                # if os.path.exists(os.path.join(self.temp_save_dir, f"svr_scaler_{output}_{self.prediction_timedelta.total_seconds()}.pkl")):
+                output = re.search(f"(?<={self.study_name_root}_scaler_)([\\w\\_]+\\d+)(?=\\_)", os.path.basename(scaler_file)).group()
+                prediction_length = float(re.search(f"(?<={self.study_name_root}_scaler_{output}_)([\\d\\.]+)(?=.pkl)", os.path.basename(scaler_file)).group())
+                if prediction_length != self.prediction_timedelta.total_seconds():
+                    continue
+                with open(os.path.join(self.temp_save_dir, scaler_file), "rb") as fp:
+                    self.scaler[output] = pickle.load(fp)
+                # else:
+                #     raise FileNotFoundError(f"Tuned scaler 'svr_scaler_{output}_{self.prediction_timedelta.total_seconds()}.pkl' doesn't exist.")
+        # else:
+            # pass
     
     @staticmethod
     def create_scaler():
-        return MinMaxScaler(feature_range=(-1, 1))
+        if self.use_trained_models:
+            return None
+        else:
+            return MinMaxScaler(feature_range=(-1, 1))
     
     @staticmethod
     def create_model(**kwargs):
-        return SVR(**kwargs)
+        if self.use_trained_models:
+            return None
+        else:
+            return SVR(**kwargs)
    
     def _prepare_arrays(self, training_inputs, feat_type, tid, output_idx):
         
@@ -1008,11 +1045,11 @@ class SVRForecast(WindForecast):
         # tid = re.search(f"(?<=_){self.turbine_signature}$", output).group()
         # training_inputs, output_idx = self._get_inputs(training_measurements, self.scaler[output], feat_type, tid, scale)
         if not reload_model \
-            and os.path.exists(os.path.join(self.temp_save_dir, f"svr_model_{output}_{self.prediction_timedelta.total_seconds()}.pkl")) \
+            and os.path.exists(os.path.join(self.temp_save_dir, f"{self.study_name_root}_model_{output}_{self.prediction_timedelta.total_seconds()}.pkl")) \
                 and os.path.exists(os.path.join(self.temp_save_dir, f"svr_scaler_{output}_{self.prediction_timedelta.total_seconds()}.pkl")):
-            with open(os.path.join(self.temp_save_dir, f"svr_model_{output}_{self.prediction_timedelta.total_seconds()}.pkl"), "rb") as fp:
+            with open(os.path.join(self.temp_save_dir, f"{self.study_name_root}_model_{output}_{self.prediction_timedelta.total_seconds()}.pkl"), "rb") as fp:
                 self.model[output] = pickle.load(fp)
-            with open(os.path.join(self.temp_save_dir, f"svr_scaler_{output}_{self.prediction_timedelta.total_seconds()}.pkl"), "rb") as fp:
+            with open(os.path.join(self.temp_save_dir, f"{self.study_name_root}_scaler_{output}_{self.prediction_timedelta.total_seconds()}.pkl"), "rb") as fp:
                 self.scaler[output] = pickle.load(fp)
         else:
             X_train, y_train, self.scaler[output] = self._get_output_data(measurements=training_measurements, output=output, split="train", reload=False, scale=scale, return_scaler=True)
@@ -1028,9 +1065,9 @@ class SVRForecast(WindForecast):
             #         scale=scale,
             #         output_idx=output_idx
             #     )
-            with open(os.path.join(self.temp_save_dir, f"svr_model_{output}_{self.prediction_timedelta.total_seconds()}.pkl"), "wb") as fp:
+            with open(os.path.join(self.temp_save_dir, f"{self.study_name_root}_model_{output}_{self.prediction_timedelta.total_seconds()}.pkl"), "wb") as fp:
                 pickle.dump(self.model[output], fp, protocol=5)
-            with open(os.path.join(self.temp_save_dir, f"svr_scaler_{output}_{self.prediction_timedelta.total_seconds()}.pkl"), "wb") as fp:
+            with open(os.path.join(self.temp_save_dir, f"{self.study_name_root}_scaler_{output}_{self.prediction_timedelta.total_seconds()}.pkl"), "wb") as fp:
                 pickle.dump(self.scaler[output], fp, protocol=5)
         return self.model[output], self.scaler[output]
     
@@ -1095,6 +1132,8 @@ class SVRForecast(WindForecast):
             for output in outputs:
                 feat_type = re.search(f"^\\w+(?=_{self.turbine_signature}$)", output).group()
                 tid = re.search(f"(?<=_){self.turbine_signature}$", output).group()
+                if self.scaler[output] is None or self.model[output] is None:
+                    raise Exception(f"scaler/model for {output} has not been trained!")
                 training_inputs, output_idx = self._get_inputs(training_measurements, self.scaler[output], feat_type, tid, scale)
                 # self.scaler[output], self.model[output] = \
                 #     self._train_model(
@@ -2388,7 +2427,8 @@ if __name__ == "__main__":
                                     true_wind_field=true_wind_field,
                                     kwargs=dict(kernel="rbf", C=1.0, degree=3, gamma="auto", epsilon=0.1, cache_size=200,
                                                 n_neighboring_turbines=3, max_n_samples=None, 
-                                                study_name_root=f"svr_tuning_{data_config['config_label']}"),
+                                                study_name_root=f"svr_tuning_{data_config['config_label']}",
+                                                use_trained_models=True),
                                     tid2idx_mapping=tid2idx_mapping,
                                     turbine_signature=turbine_signature,
                                     use_tuned_params=args.use_tuned_params,
