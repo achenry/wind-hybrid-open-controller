@@ -185,7 +185,6 @@ if __name__ == "__main__":
                     case_family_case_names[case_families[i]] = [fn for fn in os.listdir(os.path.join(args.save_dir, case_families[i])) if ".csv" in fn and "time_series_results_case" in fn]
 
                 # case_family_case_names["slsqp_solver_sweep"] = [f"time_series_results_case_alpha_1.0_controller_class_MPC_diff_type_custom_cd_dt_30_n_horizon_24_n_wind_preview_samples_5_nu_0.01_solver_slsqp_use_filtered_wind_dir_False_wind_preview_type_stochastic_interval_seed_{s}" for s in range(6)]
-            # TODO need check here for time_series/agg_results_all/time_Series_all files containing data from case names no longer included in case family
             # if using multiprocessing
             if args.multiprocessor is not None:
                 if args.multiprocessor == "mpi":
@@ -282,7 +281,6 @@ if __name__ == "__main__":
                 for i in args.case_ids:
                     # if reaggregate_simulations, or if the aggregated time series data doesn't exist for this case family, read the csv files for that case family
                     if args.reaggregate_simulations or not os.path.exists(os.path.join(args.save_dir, case_families[i], "time_series_results_all.csv")):
-                        # TODO HIGH check that we are only reading time series files corresponding to the cases, number of seeds, stop times used, or just delete everything in case family directory that isn't supposed to be there
                         for fn in case_family_case_names[case_families[i]]:
                             new_case_family_time_series_df.append(
                                 read_time_series_data(results_path=os.path.join(args.save_dir, case_families[i], fn),
@@ -372,17 +370,6 @@ if __name__ == "__main__":
                         bad_df.loc[bad_df[bad_cols].isna().any(axis=1)]
 
             agg_df = pd.concat(agg_df)
-
-        
-        # TODO FIX to prevent confusing errors
-        # for i in args.case_ids:
-        #     assert all([case_name in case_family_case_names[case_families[i]] for case_name in time_series_df.iloc[(time_series_df.index.get_level_values("CaseFamily") == case_families[i])].index.get_level_values("CaseName")]), \
-        #         f"old time series .csv files exist in {os.path.join(args.save_dir, case_families[i])} that are no longer included in case_family {case_families[i]}. Please remove them, and the corresponding time_series_results_all.csv, and run again."
-
-        # for i in args.case_ids:
-        #     assert all([case_name in case_family_case_names[case_families[i]] for case_name in agg_df.iloc[(agg_df.index.get_level_values("CaseFamily") == case_families[i])].index.get_level_values("CaseName")]), \
-        #         f"old time series .csv files exist in {os.path.join(args.save_dir, case_families[i])} that are no longer included in case_family {case_families[i]}. Please remove them, and the corresponding agg_results_all.csv, and run again."
-
         
         if RUN_ONCE and PLOT:
             

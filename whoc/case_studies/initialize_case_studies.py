@@ -10,6 +10,7 @@ from memory_profiler import profile
 from wind_forecasting.preprocessing.data_module import DataModule
 from whoc.wind_forecast.WindForecast import generate_wind_field_df
 import gc
+import re
 #from line_profiler import profile
 # from datetime import timedelta
 
@@ -62,8 +63,9 @@ case_studies = {
                                     "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
                                     "simulation_dt": {"group": 0, "vals": [1]},
                                     "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
-                                    "uncertain": {"group": 2, "vals": [True, False]},
-                                    "wind_forecast_class": {"group": 3, "vals": ["KalmanFilterForecast"]},
+                                    "uncertain": {"group": 3, "vals": [True]},
+                                    "model_key": {"group": 3, "vals": ["informer"]},
+                                    "wind_forecast_class": {"group": 3, "vals": ["MLForecast"]},
                                     "prediction_timedelta": {"group": 4, "vals": [60, 120, 180]},
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]}
                                     },
@@ -645,7 +647,6 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         if False:
             import csv
             from itertools import islice
-            import re
             check_seed_times = []
             with open("/Users/ahenry/Documents/toolboxes/wind_forecasting/wind_forecasting/run_scripts/perfect_testing.txt") as fp:
                 csv_reader = csv.reader(fp)
@@ -787,6 +788,27 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
 
             input_filenames.append((case_study_key, case_lists[start_case_idx + c]["wind_case_idx"], fn)) 
 
+    # delete any input files/time series files that don't belong
+    # fn = f"time_series_results_case_{kwargs['case_name']}_seed_{kwargs['wind_case_idx']}.csv".replace("/", "_")
+    # for case_study_key, wind_case_idx, inp_fn in input_filenames:
+    pattern = "(?<=input_config_case_)(.*)(?=\\.pkl)"
+    # case_names = [re.search(pattern, fn).group() for _,_,fn in input_filenames]
+    ts_filenames = [tuple([csk, wind_case_idx, f"time_series_results_case_{re.search(pattern, fn).group()}_seed_{wind_case_idx}.csv".replace("/", "_")]) for csk, wind_case_idx, fn in input_filenames]
+    for case_study_key in case_study_keys:
+        allowed_input_files = set([fn for csk, _, fn in input_filenames if csk == case_study_key])
+        allowed_ts_files = set([fn for csk, _, fn in ts_filenames if csk == case_study_key])
+        # allowed_ts_files = set([
+        #     f"time_series_results_case_{re.search('(?<=input_config_case_)(.*)(?=\\.pkl)', fn).group()}_seed_{wind_case_idx}.csv".replace("/", "_") 
+        #     for csk, wind_case_idx, fn in input_filenames if csk == case_study_key])
+        
+        results_dir = os.path.join(save_dir, case_study_key)
+        for inp_file in glob(os.path.join(results_dir, "input_config_case_*.pkl")):
+            if inp_file not in allowed_input_files:
+                os.remove(inp_file)
+        for ts_file in glob(os.path.join(results_dir, "*.csv")):
+            if ts_file not in allowed_ts_files:
+                os.remove(ts_file)
+        
     prediction_timedelta = max(inp["wind_forecast"]["prediction_timedelta"] for inp in input_dicts if inp["controller"]["wind_forecast_class"]) \
             if any(inp["controller"]["wind_forecast_class"] for inp in input_dicts) else pd.Timedelta(seconds=0)
     horizon_timedelta = max(pd.Timedelta(seconds=inp["controller"]["n_horizon"] * inp["controller"]["controller_dt"]) for inp in input_dicts if inp["controller"]["n_horizon"]) \

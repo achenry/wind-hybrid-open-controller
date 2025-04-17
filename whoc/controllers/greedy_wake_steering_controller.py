@@ -5,7 +5,7 @@ Output yaw angles equal to those wind directions
 import numpy as np
 import pandas as pd
 import polars as pl
-
+import polars.selectors as cs
 from scipy.signal import lfilter
 
 from whoc.controllers.controller_base import ControllerBase
@@ -48,12 +48,13 @@ class GreedyController(ControllerBase):
         
         self.ws_horz_cols = self.mean_ws_horz_cols = [f"ws_horz_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.idx2tid_mapping))]
         self.ws_vert_cols = self.mean_ws_vert_cols = [f"ws_vert_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.idx2tid_mapping))]
-            
-        self.historic_measurements = pd.DataFrame(columns=["time"] 
-                                                  + self.mean_ws_horz_cols 
-                                                  + self.mean_ws_vert_cols
-                                                  + [f"nd_cos_{tid}" for tid in self.tid2idx_mapping]
-                                                  + [f"nd_sin_{tid}" for tid in self.tid2idx_mapping], dtype=pd.Float64Dtype())
+        
+        self.historic_measurements = None 
+        # self.historic_measurements = pd.DataFrame(columns=["time"] 
+        #                                           + self.mean_ws_horz_cols 
+        #                                           + self.mean_ws_vert_cols
+        #                                           + [f"nd_cos_{tid}" for tid in self.tid2idx_mapping]
+        #                                           + [f"nd_sin_{tid}" for tid in self.tid2idx_mapping], dtype=pd.Float64Dtype())
         
         self.wind_dir_lpf_time_const = simulation_input_dict["controller"]["wind_dir_lpf_time_const"]
         self.lpf_start_time = self.init_time + pd.Timedelta(seconds=simulation_input_dict["controller"]["lpf_start_time"])
@@ -161,7 +162,8 @@ class GreedyController(ControllerBase):
             if self.historic_measurements is not None:
                 self.historic_measurements = pl.concat([self.historic_measurements, 
                                                         pl.from_pandas(current_measurements[["time"] + self.ws_horz_cols + self.ws_vert_cols])], how="vertical")\
-                                                            .tail(int(np.ceil(self.wind_dir_lpf_time_const // self.simulation_dt) * 20))
+                                                            .tail(max(int(np.ceil(self.wind_dir_lpf_time_const // self.simulation_dt) * 100), 
+                                                                      self.wind_forecast.n_context))
             else:
                 self.historic_measurements = pl.from_pandas(current_measurements[["time"] + self.ws_horz_cols + self.ws_vert_cols])
                 
@@ -202,8 +204,10 @@ class GreedyController(ControllerBase):
                 # use filtered wind direction and speed     
                 if self.wind_forecast:
                     hist_meas = self.historic_measurements
-                    wind = pl.concat([hist_meas.select(self.mean_ws_horz_cols+self.mean_ws_vert_cols), 
-                                        forecasted_wind_field.select(self.mean_ws_horz_cols+self.mean_ws_vert_cols)], how="vertical")
+                    wind = pl.concat([hist_meas.select(self.mean_ws_horz_cols + self.mean_ws_vert_cols).with_columns(cs.numeric().cast(pl.Float32)), 
+                                        forecasted_wind_field.select(self.mean_ws_horz_cols + self.mean_ws_vert_cols).with_columns(cs.numeric().cast(pl.Float32))
+                                        ], how="vertical")
+                    del hist_meas
                 else:
                     wind = self.historic_measurements
                     
@@ -269,7 +273,8 @@ class GreedyController(ControllerBase):
         if self.wind_forecast:
             
             newest_predictions = forecasted_wind_field.filter(pl.col("time") <= self.current_time + self.num_prediction_stored)\
-                                                      .select(["time"] + self.mean_ws_horz_cols + self.mean_ws_vert_cols)
+                                                      .select(["time"] + self.mean_ws_horz_cols + self.mean_ws_vert_cols)\
+                                                      .with_columns(cs.numeric().cast(pl.Float32), pl.col("time").cast(pl.Datetime(time_unit="us")))
             self.controls_dict = {"yaw_angles": list(constrained_yaw_setpoints),
                                   "predicted_wind_speeds": newest_predictions
                                     # "predicted_time":  newest_predictions["time"].values,
