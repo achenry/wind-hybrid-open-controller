@@ -102,7 +102,7 @@ case_studies = {
         "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
         # "lut_path": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4_lut.csv"]},
         "yaw_limits": {"group": 0, "vals": ["-15,15"]},
-        "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
+        "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController"]},
         "target_turbine_indices": {"group": 1, "vals": ["74,73", "4,"]},
         "uncertain": {"group": 1, "vals": [False, False]},
         "wind_forecast_class": {"group": 1, "vals": ["PerfectForecast", "PerfectForecast"]},
@@ -485,7 +485,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
          whoc_config["controller"]["target_turbine_indices"] = "all"
          
     if n_seeds != "auto":
-        n_seeds = int (n_seeds)
+        n_seeds = int(n_seeds)
 
     if wf_source == "floris":
         from whoc.wind_field.WindField import plot_ts

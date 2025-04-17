@@ -1394,7 +1394,7 @@ class KalmanFilterForecast(WindForecast):
             measurement_times = zs.select(pl.col("time")).to_series() 
             zs = zs.select(outputs).to_numpy()
             
-            logging.info(f"Adding {zs.shape[0]} new measurements to Kalman filter at time {current_time}.")
+            # logging.info(f"Adding {zs.shape[0]} new measurements to Kalman filter at time {current_time}.")
             
             # initialize state
             if not self.initialized:
@@ -1530,22 +1530,21 @@ class MLForecast(WindForecast):
         if self.use_tuned_params:
             try:
                 logging.info("Getting tuned parameters")
-                tuned_params = get_tuned_params(model=self.model_key,
-                                                data_source=os.path.splitext(os.path.basename(self.model_config["dataset"]["data_path"]))[0], 
+                # study_name, backend, storage_dir
+                tuned_params = get_tuned_params(study_name=f"tuning_{self.model_key}_{self.model_config['experiment']['run_name']}", 
                                                 backend=self.model_config["optuna"]["storage"]["backend"], 
                                                 storage_dir=self.model_config["optuna"]["storage_dir"])
                 logging.info(f"Declaring estimator {self.model_key.capitalize()} with tuned parameters")
                 self.model_config["dataset"].update({k: v for k, v in tuned_params.items() if k in self.model_config["dataset"]})
                 self.model_config["model"][self.model_key].update({k: v for k, v in tuned_params.items() if k in self.model_config["model"][self.model_key]})
                 self.model_config["trainer"].update({k: v for k, v in tuned_params.items() if k in self.model_config["trainer"]})
-            except FileNotFoundError as e:
+            except Exception as e:
                 logging.warning(e)
                 logging.info(f"Declaring estimator {self.model_key.capitalize()} with default parameters")
         else:
             logging.info(f"Declaring estimator {self.model_key.capitalize()} with default parameters")
             
-        self.model_prediction_timedelta = self.model_config["dataset"]["prediction_length"] \
-            * pd.Timedelta(self.model_config["dataset"]["resample_freq"]).to_pytimedelta()
+        self.model_prediction_timedelta = pd.Timedelta(seconds=self.model_config["dataset"]["prediction_length"])
             
         assert self.model_prediction_timedelta >= self.prediction_timedelta, "model is tuned for shorter prediction timedelta!"
         # self.context_timedelta = self.model_config["dataset"]["context_length"] \
@@ -1563,10 +1562,12 @@ class MLForecast(WindForecast):
                                       target_prefixes=["ws_horz", "ws_vert"], 
                                       feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                                       freq=self.model_config["dataset"]["resample_freq"], 
+                                      normalized=True,
                                       target_suffixes=self.model_config["dataset"]["target_turbine_ids"],
-                                      per_turbine_target=self.model_config["dataset"]["per_turbine_target"], dtype=None)
+                                      per_turbine_target=self.model_config["dataset"]["per_turbine_target"], dtype=None,
+                                      normalization_consts_path=self.model_config["dataset"]["normalization_consts_path"])
         self.data_module.get_dataset_info()
-        norm_params = {"norm_scale": data_module.norm_scale, "min": data_module.norm_min}
+        self.scaler_params = self.data_module.compute_scaler_params()
         
         estimator_class = globals()[f"{self.model_key.capitalize()}Estimator"]
         lightning_module = globals()[f"{self.model_key.capitalize()}LightningModule"]
@@ -1592,7 +1593,6 @@ class MLForecast(WindForecast):
             **self.model_config["model"][self.model_key]
         )
         self.data_module.freq = pd.Timedelta(self.data_module.freq).to_pytimedelta()
-        self.normalization_consts = pd.read_csv(self.model_config["dataset"]["normalization_consts_path"], index_col=None)
         
         metric = "val_loss_epoch"
         mode = "min"
@@ -1607,16 +1607,6 @@ class MLForecast(WindForecast):
         # self.sample_predictor = estimator.create_predictor(transformation, model, 
         #                                                    forecast_generator=SampleForecastGenerator())
         
-        # normalize data to -1, 1 using saved normalization consts TODO normalize in data module?
-        norm_min_cols = [col for col in self.normalization_consts if "_min" in col]
-        norm_max_cols = [col for col in self.normalization_consts if "_max" in col]
-        data_min = self.normalization_consts[norm_min_cols].values.flatten()
-        data_max = self.normalization_consts[norm_max_cols].values.flatten()
-        self.norm_min_cols = [col.replace("_min", "") for col in norm_min_cols]
-        self.norm_max_cols = [col.replace("_max", "") for col in norm_max_cols]
-        feature_range = (-1, 1)
-        self.norm_scale = ((feature_range[1] - feature_range[0]) / (data_max - data_min))
-        self.norm_min = feature_range[0] - (data_min * self.norm_scale)
     
     # def read_measurements(self):
     #     pass
@@ -1667,9 +1657,10 @@ class MLForecast(WindForecast):
             return_pl = True
             
         # normalize historic measurements
-        historic_measurements = historic_measurements.with_columns([(cs.starts_with(col) * self.norm_scale[c]) 
-                                                    + self.norm_min[c] 
-                                                    for c, col in enumerate(self.norm_min_cols)])
+        historic_measurements = historic_measurements.with_columns([
+            (cs.starts_with(k) * self.scaler_params["scale_"][k]) + self.scaler_params["min_"][k] for k in self.scaler_params["min_"]]
+        )
+
         test_data = self._generate_test_data(historic_measurements)
             
         pred = self.sample_predictor.predict(test_data, num_samples=n_samples, output_distr_params=False)
@@ -1725,48 +1716,58 @@ class MLForecast(WindForecast):
             return_pl = True
             
         # normalize historic measurements
-        historic_measurements = historic_measurements.with_columns([(cs.starts_with(col) * self.norm_scale[c]) 
-                                                    + self.norm_min[c] 
-                                                    for c, col in enumerate(self.norm_min_cols)])
-        test_data = self._generate_test_data(historic_measurements)
+        feature_types = list(self.scaler_params["min_"].keys())
+        
+        if historic_measurements.select(pl.len()).item() >= self.n_context:
+            historic_measurements = historic_measurements.with_columns([
+                (cs.starts_with(feat_type) * self.scaler_params["scale_"][feat_type]) + self.scaler_params["min_"][feat_type]
+                                                        for feat_type in feature_types])
+            test_data = self._generate_test_data(historic_measurements)
             
-        pred = self.distr_predictor.predict(test_data, num_samples=1, output_distr_params=True)
-        pred = next(pred)
-        # .cast(pl.Datetime(time_unit="us"))
-        
-        if self.data_module.per_turbine_target:
-            # TODO test
-            pred_df = pl.concat([pl.DataFrame(
-                data={
-                    **{"time": pred.index.to_timestamp().as_unit("us")},
-                    **{col: turbine_pred.distribution.loc[:, c].flatten() for c, col in enumerate(self.data_module.target_cols)}
-                }
-            ).rename({output_type: f"{output_type}_{self.data_module.static_features.iloc[t]['turbine_id']}" 
-                              for output_type in self.data_module.target_cols}).sort_values(["time"]) for t, turbine_pred in enumerate(pred)], how="horizontal")
-        else:
-            # pred_turbine_id = pd.Categorical([col.split("_")[-1] for col in col_names for t in range(pred.prediction_length)])
-            pred_df = pl.DataFrame(
-                data={
-                    **{"time": pred.index.to_timestamp().as_unit("us")},
-                    **{col: pred.distribution.loc[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_cols)}
-                }
-            ).sort(by=["time"])
-        
-        # denormalize data 
-        pred_df = pred_df.with_columns([(cs.contains(col) - self.norm_min[c]) 
-                                                    / self.norm_scale[c] 
-                                                    for c, col in enumerate(self.norm_min_cols)])
-        pred_df = pred_df.filter(pl.col("time") <= (current_time + self.prediction_timedelta))
-        # check if the data that trained the model differs from the frequency of historic_measurments
-        if self.data_module.freq != self.measurements_timedelta:
-            # resample historic measurements to historic_measurements frequency and return as pandas dataframe
-            if self.measurements_timedelta > self.data_module.freq:
-                pred_df = pred_df.with_columns(time=pl.col("time").dt.round(self.measurements_timedelta)
-                                               + pl.duration(seconds=pred_df.select(pl.col("time").last().dt.second() % self.data_module.freq.seconds).item()))\
-                                                              .group_by("time").agg(cs.numeric().mean()).sort("time")
+            pred = self.distr_predictor.predict(test_data, num_samples=1, 
+                                                output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"})
+            pred = next(pred)
+            # .cast(pl.Datetime(time_unit="us"))
+            
+            if self.data_module.per_turbine_target:
+                # TODO test
+                pred_df = pl.concat([pl.DataFrame(
+                    data={
+                        **{"time": pred.index.to_timestamp().as_unit("us")},
+                        **{col: turbine_pred.distribution.loc[:, c].flatten() for c, col in enumerate(self.data_module.target_cols)}
+                    }
+                ).rename({output_type: f"{output_type}_{self.data_module.static_features.iloc[t]['turbine_id']}" 
+                                for output_type in self.data_module.target_cols}).sort_values(["time"]) for t, turbine_pred in enumerate(pred)], how="horizontal")
             else:
-                pred_df = pred_df.upsample(time_column="time", every=self.measurements_timedelta).fill_null(strategy="forward")
-        
+                # pred_turbine_id = pd.Categorical([col.split("_")[-1] for col in col_names for t in range(pred.prediction_length)])
+                pred_df = pl.DataFrame(
+                    data={
+                        **{"time": pred.index.to_timestamp().as_unit("us")},
+                        **{col: pred.distribution.loc[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_cols)}
+                    }
+                ).sort(by=["time"])
+            
+            # denormalize data 
+            pred_df = pred_df.with_columns([
+                (cs.starts_with(feat_type) - self.scaler_params["min_"][feat_type]) / self.scaler_params["scale_"][feat_type]
+                                                        for feat_type in feature_types])
+            
+            pred_df = pred_df.filter(pl.col("time") <= (current_time + self.prediction_timedelta))
+            # check if the data that trained the model differs from the frequency of historic_measurments
+            if self.data_module.freq != self.measurements_timedelta:
+                # resample historic measurements to historic_measurements frequency and return as pandas dataframe
+                if self.measurements_timedelta > self.data_module.freq:
+                    pred_df = pred_df.with_columns(time=pl.col("time").dt.round(self.measurements_timedelta)
+                                                + pl.duration(seconds=pred_df.select(pl.col("time").last().dt.second() % self.data_module.freq.seconds).item()))\
+                                                                .group_by("time").agg(cs.numeric().mean()).sort("time")
+                else:
+                    pred_df = pred_df.upsample(time_column="time", every=self.measurements_timedelta).fill_null(strategy="forward")
+        else:
+            # not enough data points to train SVR, assume persistance
+            logging.info(f"Not enough data points at time {current_time} to train ML, have {historic_measurements.select(pl.len()).item()} but require {self.n_context}, assuming persistance instead.")
+            pred_slice = self.get_pred_interval(current_time)
+            pred_df = pl.concat([pred_slice.to_frame(), historic_measurements.slice(-1, 1).select(self.data_module.target_cols)], how="horizontal")
+            
         if return_pl: 
             return pred_df
         else:
@@ -1787,7 +1788,8 @@ class MLForecast(WindForecast):
                                                     for c, col in enumerate(self.norm_min_cols)])
         test_data = self._generate_test_data(historic_measurements)
             
-        pred = self.distr_predictor.predict(test_data, num_samples=1, output_distr_params=True)
+        pred = self.distr_predictor.predict(test_data, num_samples=1, 
+                                            output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"})
         
         if self.data_module.per_turbine_target:
             # TODO HIGH test
@@ -2205,6 +2207,9 @@ if __name__ == "__main__":
                         # choices=["perfect", "persistence", "svr", "kf", "informer", "autoformer", "spacetimeformer", "preview"], 
                         required=True, nargs="+",
                         help="Which model(s) to simulate, compute score for, and plot.")
+    parser.add_argument("-st", "--simulation_timestep", 
+                        required=True, type=int,
+                        help="Simulation time step to use (sec)")
     parser.add_argument("-pi", "--prediction_interval", 
                         required=False, nargs="+", default=None,
                         help="What multiples of the measurements timedelta to use as prediction_timedelta..")
@@ -2248,7 +2253,8 @@ if __name__ == "__main__":
         prediction_timedelta = [pd.Timedelta(int(i), unit="s").to_pytimedelta() for i in args.prediction_interval]
         
     context_timedelta = pd.Timedelta(seconds=model_config["dataset"]["context_length"])
-    measurements_timedelta = pd.Timedelta(model_config["dataset"]["resample_freq"])
+    measurements_timedelta = pd.Timedelta(seconds=args.simulation_timestep)
+    # measurements_timedelta = pd.Timedelta(model_config["dataset"]["resample_freq"])
     
     controller_timedelta = max(pd.Timedelta(5, unit="s"), measurements_timedelta)
 
@@ -2275,12 +2281,13 @@ if __name__ == "__main__":
                              normalization_consts_path=model_config["dataset"]["normalization_consts_path"],
                              normalized=False, 
                              n_splits=1, #model_config["dataset"]["n_splits"],
-                            continuity_groups=None, train_split=(1.0 - model_config["dataset"]["val_split"] - model_config["dataset"]["test_split"]),
-                                val_split=model_config["dataset"]["val_split"], test_split=model_config["dataset"]["test_split"],
-                                prediction_length=model_config["dataset"]["prediction_length"], context_length=model_config["dataset"]["context_length"],
-                                target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
-                                freq=model_config["dataset"]["resample_freq"], target_suffixes=model_config["dataset"]["target_turbine_ids"],
-                                    per_turbine_target=model_config["dataset"]["per_turbine_target"], as_lazyframe=False, dtype=pl.Float32)
+                             continuity_groups=None, train_split=(1.0 - model_config["dataset"]["val_split"] - model_config["dataset"]["test_split"]),
+                             val_split=model_config["dataset"]["val_split"], test_split=model_config["dataset"]["test_split"],
+                             prediction_length=model_config["dataset"]["prediction_length"], context_length=model_config["dataset"]["context_length"],
+                             target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
+                             freq=f"{int(measurements_timedelta.total_seconds())}s", 
+                             target_suffixes=model_config["dataset"]["target_turbine_ids"],
+                             per_turbine_target=model_config["dataset"]["per_turbine_target"], as_lazyframe=False, dtype=pl.Float32)
     
     if not os.path.exists(data_module.train_ready_data_path):
         data_module.generate_datasets()
@@ -2417,70 +2424,25 @@ if __name__ == "__main__":
         
     ## GENERATE ML PREVIEW
     elif any(ml_model in args.model for ml_model in ["informer", "autoformer", "spacetimeformer", "tactis"]):
-            
-        forecaster = MLForecast(measurements_timedelta=measurements_timedelta,
-                                 controller_timedelta=controller_timedelta,
-                                 prediction_timedelta=model_config["dataset"]["prediction_length"] * pd.Timedelta(model_config["dataset"]["resample_freq"]).to_pytimedelta(),
-                                 context_timedelta=model_config["dataset"]["context_length"] * pd.Timedelta(model_config["dataset"]["resample_freq"]).to_pytimedelta(),
-                                 fmodel=fmodel,
-                                 true_wind_field=None,
-                                 tid2idx_mapping=tid2idx_mapping,
-                                 turbine_signature=turbine_signature,
-                                 use_tuned_params=True,
-                                 model_config=model_config,
-                                 kwargs=dict(model_key=args.model,
-                                             model_checkpoint=args.checkpoint),
-                                 temp_save_dir=data_config["temp_storage_dir"]
-                                 )
+        # "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/informer_aoifemac_awaken/wind_forecasting/z55orlbf/checkpoints/epoch=3-step=4000.ckpt"
+        
+        for model in args.model:
+            forecaster = MLForecast(measurements_timedelta=measurements_timedelta,
+                                    controller_timedelta=controller_timedelta,
+                                    prediction_timedelta=pd.Timedelta(seconds=model_config["dataset"]["prediction_length"]),
+                                    context_timedelta=pd.Timedelta(seconds=model_config["dataset"]["context_length"]),
+                                    fmodel=fmodel,
+                                    true_wind_field=None,
+                                    tid2idx_mapping=tid2idx_mapping,
+                                    turbine_signature=turbine_signature,
+                                    use_tuned_params=True,
+                                    model_config=model_config,
+                                    kwargs=dict(model_key=model,
+                                                model_checkpoint=args.checkpoint),
+                                    temp_save_dir=data_config["temp_storage_dir"]
+                                    )
         forecasters.append(forecaster)
         
-        ml_forecast_wf = []
-        # args.prediction_type = "distribution" # TODO
-        for current_row in historic_measurements.select(pl.col("time")).gather_every(forecaster.n_controller).iter_rows(named=True):
-            current_time = current_row["time"]
-            logging.info(f"Predicting future wind field using MLForecaster at time {current_time}")
-            if args.prediction_type == "point":
-                ml_forecast_wf.append(forecaster.predict_point(
-                    historic_measurements=historic_measurements.filter(pl.col("time") <= current_time), 
-                            current_time=current_time))
-            elif args.prediction_type == "distribution":
-                ml_forecast_wf.append(forecaster.predict_distr(
-                    historic_measurements=historic_measurements.filter(pl.col("time") <= current_time), 
-                            current_time=current_time))
-            elif args.prediction_type == "sample":
-                ml_forecast_wf.append(forecaster.predict_sample(
-                    historic_measurements=historic_measurements.filter(pl.col("time") <= current_time), 
-                            current_time=current_time, n_samples=50))
-        
-        ml_forecast_wf = [wf.filter(pl.col("time") < (
-            pl.col("time").first() + max(forecaster.controller_timedelta, forecaster.prediction_timedelta))) for wf in ml_forecast_wf] 
-        ml_forecast_wf = pl.concat(ml_forecast_wf, how="vertical")
-        ml_forecast_wf = ml_forecast_wf.with_columns(data_type=pl.lit("Forecast"))
-        
-        # id_vars = ml_forecast_wf.select(~(cs.contains("ws_horz") | cs.contains("ws_vert") | cs.contains("nd_cos") | cs.contains("nd_sin"))).columns # use contains, because we have loc and var columns
-        id_vars = ml_forecast_wf.select(id_var_selector).columns  
-        if args.prediction_type == "point":
-            value_vars = ["nd_cos", "nd_sin", "ws_horz", "ws_vert"]
-            target_vars = ["ws_horz", "ws_vert"] 
-        elif args.prediction_type == "distribution":
-            value_vars = ["nd_cos", "nd_sin", "loc_ws_horz", "loc_ws_vert", "sd_ws_horz", "sd_ws_vert"]
-            target_vars = ["loc_ws_horz", "loc_ws_vert", "sd_ws_horz", "sd_ws_vert"] 
-         
-        ml_forecast_wf = DataInspector.unpivot_dataframe(ml_forecast_wf, 
-                                                    value_vars=value_vars, 
-                                                    turbine_signature=turbine_signature)\
-                                            .unpivot(index=["turbine_id"] + id_vars, 
-                                                     on=target_vars, variable_name="feature", value_name="value")
-        
-        WindForecast.plot_forecast(ml_forecast_wf, true_wf_long, 
-                                   prediction_type=args.prediction_type, 
-                                   label=f"_{args.model}_{data_config['config_label']}", fig_dir=args.fig_dir, turbine_ids=["6"])
-        
-        ml_forecast_scores = WindForecast.compute_score(forecast_wf=ml_forecast_wf, true_wf=true_wf_long, metric=mean_squared_error, 
-                                                        feature_types=target_vars, 
-                                                        probabilistic=(args.prediction_type == "distribution"),
-                                                        plot=True, label=f"_{args.model}_{data_config['config_label']}", fig_dir=args.fig_dir)
-    
     if any(forecaster.train_first for forecaster in forecasters):
         # load training data
         data_module = DataModule(data_path=model_config["dataset"]["data_path"], 
