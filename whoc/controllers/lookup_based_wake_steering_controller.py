@@ -17,6 +17,7 @@ import pandas as pd
 import os
 import re
 import polars as pl
+import polars.selectors as cs
 from memory_profiler import profile
 
 from whoc.controllers.controller_base import ControllerBase
@@ -81,7 +82,8 @@ class LookupBasedWakeSteeringController(ControllerBase):
         
         self.ws_horz_cols = [f"ws_horz_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.tid2idx_mapping))]
         self.ws_vert_cols = [f"ws_vert_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.tid2idx_mapping))]
-        
+        self.nd_sin_cols = [f"nd_sin_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.tid2idx_mapping))]
+        self.nd_cos_cols = [f"nd_cos_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.tid2idx_mapping))]
         if self.wind_forecast and self.uncertain:
             self.mean_ws_horz_cols = [f"loc_ws_horz_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.idx2tid_mapping))]
             self.mean_ws_vert_cols = [f"loc_ws_vert_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.idx2tid_mapping))]
@@ -345,11 +347,13 @@ class LookupBasedWakeSteeringController(ControllerBase):
         if self.wind_dir_use_filt or self.wind_mag_use_filt or self.wind_forecast:
             if self.historic_measurements is not None:
                 self.historic_measurements = pl.concat([self.historic_measurements, 
-                                                        pl.from_pandas(current_measurements[["time"] + self.ws_horz_cols + self.ws_vert_cols])], how="vertical")\
-                                                            .tail(int(np.ceil(self.wind_dir_lpf_time_const // self.simulation_dt) * 20))
+                                                        pl.from_pandas(
+                                                            current_measurements[["time"] + self.ws_horz_cols + self.ws_vert_cols + self.nd_cos_cols + self.nd_sin_cols])], 
+                                                       how="vertical")\
+                                                            .tail(max(int(np.ceil(self.wind_dir_lpf_time_const // self.simulation_dt) * 100), self.wind_forecast.n_context))
             else:
                 self.historic_measurements = pl.from_pandas(
-                    current_measurements[["time"] + self.ws_horz_cols + self.ws_vert_cols])
+                    current_measurements[["time"] + self.ws_horz_cols + self.ws_vert_cols + self.nd_cos_cols + self.nd_sin_cols])
                 
         current_yaw_setpoints = self.controls_dict["yaw_angles"]
         
@@ -394,8 +398,10 @@ class LookupBasedWakeSteeringController(ControllerBase):
                 # forecasted_wind_field.iloc[-1:].rename(columns={old_col: re.search("(?<=loc_)\\w+", old_col).group(0) for old_col in self.mean_ws_horz_cols+self.mean_ws_vert_cols})
                 if self.wind_forecast:
                     hist_meas = self.historic_measurements.rename({re.search("(?<=loc_)\\w+", new_col).group(0): new_col for new_col in self.mean_ws_horz_cols + self.mean_ws_vert_cols}) if self.uncertain else self.historic_measurements
-                    wind = pl.concat([hist_meas.select(self.mean_ws_horz_cols+self.mean_ws_vert_cols), 
-                                        forecasted_wind_field.select(self.mean_ws_horz_cols + self.mean_ws_vert_cols)], how="vertical")
+                    wind = pl.concat([hist_meas.select(self.mean_ws_horz_cols+self.mean_ws_vert_cols).with_columns(cs.numeric().cast(pl.Float32)), 
+                                        forecasted_wind_field.select(self.mean_ws_horz_cols + self.mean_ws_vert_cols).with_columns(cs.numeric().cast(pl.Float32))
+                                        ], how="vertical")
+                    del hist_meas
                                             
                 else:
                     wind = self.historic_measurements
@@ -441,14 +447,16 @@ class LookupBasedWakeSteeringController(ControllerBase):
                                         + single_forecasted_wind_field.select(self.mean_ws_vert_cols).slice(0, 1).to_numpy()[0, :]**2)
                 c1 = single_forecasted_wind_field.select(self.mean_ws_vert_cols).slice(0, 1).to_numpy()[0, :] / forecasted_wind_norm
                 c2 = -single_forecasted_wind_field.select(self.mean_ws_horz_cols).slice(0, 1).to_numpy()[0, :] / forecasted_wind_norm
-                wind_dir_stddevs = ((c1 * ws_horz_stddevs)**2 + (c2 * ws_vert_stddevs)**2)**0.5 
+                wind_dir_stddevs = ((c1 * ws_horz_stddevs)**2 + (c2 * ws_vert_stddevs)**2)**0.5 # TODO to degrees
             
             # only get wind_dirs corresponding to target_turbine_ids
             wind_dirs = wind_dirs[self.sorted_tids]
             wind_mags = wind_mags[self.sorted_tids]
             if self.uncertain:
                 wind_dir_stddevs = wind_dir_stddevs[self.sorted_tids]
-                logging.info(f"min wd_stdev = {min(wind_dir_stddevs)}, max wd_stdev = {max(wind_dir_stddevs)}")
+                logging.info(f"min wd_stdev = {min(wind_dir_stddevs)}, mean wd_stdev = {np.mean(wind_dir_stddevs)}, max wd_stdev = {max(wind_dir_stddevs)}")
+                logging.info(f"min ws_horz_stdevs = {min(ws_horz_stddevs)}, mean ws_horz_stddevs = {np.mean(ws_horz_stddevs)}, max ws_horz_stddevs = {max(ws_horz_stddevs)}")
+                logging.info(f"min ws_vert_stdevs = {min(ws_vert_stddevs)}, mean ws_vert_stdevs = {np.mean(ws_vert_stddevs)}, max ws_vert_stdevs = {max(ws_vert_stddevs)}")
            
             # TODO HIGH feed just upstream turbine or mean?
             if self.target_turbine_indices == "all":
@@ -514,7 +522,8 @@ class LookupBasedWakeSteeringController(ControllerBase):
             # wf.filter(pl.col("time") < pl.col("time").first() + preview_forecast.controller_timedelta)
             newest_predictions = forecasted_wind_field.filter(pl.col("time") <= self.current_time + self.num_prediction_stored)\
                                                       .select(["time"] + self.mean_ws_horz_cols + self.mean_ws_vert_cols 
-                                                            + ((self.sd_ws_horz_cols + self.sd_ws_vert_cols) if self.uncertain else []))
+                                                            + ((self.sd_ws_horz_cols + self.sd_ws_vert_cols) if self.uncertain else []))\
+                                                      .with_columns(cs.numeric().cast(pl.Float32), pl.col("time").cast(pl.Datetime(time_unit="us")))
             self.controls_dict = {
                 "yaw_angles": list(constrained_yaw_setpoints),
                 "predicted_wind_speeds": newest_predictions

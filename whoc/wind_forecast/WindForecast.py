@@ -675,6 +675,7 @@ class PerfectForecast(WindForecast):
     
     def __post_init__(self):
         logging.info(f"id(wind_field_ts) in PerfectForecast __init__ is {id(self.true_wind_field)}")
+        super().__post_init__()
         self.train_first = False
         if isinstance(self.true_wind_field, pd.DataFrame):
             self.true_wind_field = pl.from_pandas(self.true_wind_field)
@@ -1597,7 +1598,9 @@ class MLForecast(WindForecast):
         metric = "val_loss_epoch"
         mode = "min"
         # log_dir = os.path.join(self.model_config["trainer"]["default_root_dir"], "lightning_logs")
-        checkpoint_path = get_checkpoint(checkpoint=self.kwargs["model_checkpoint"], metric=metric, mode=mode, log_dir=self.model_config["trainer"]["default_root_dir"])
+        # "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/informer_aoifemac_awaken/wind_forecasting/z55orlbf/checkpoints/epoch=7-step=8000.ckpt"
+        checkpoint_path = get_checkpoint(checkpoint=self.kwargs["model_checkpoint"], metric=metric, 
+                                         mode=mode, log_dir=self.model_config["experiment"]["log_dir"])
         logging.info("Found pretrained model, loading...")
         model = lightning_module.load_from_checkpoint(checkpoint_path)
         transformation = estimator.create_transformation(use_lazyframe=False)
@@ -1743,11 +1746,11 @@ class MLForecast(WindForecast):
                 pred_df = pl.DataFrame(
                     data={
                         **{"time": pred.index.to_timestamp().as_unit("us")},
-                        **{col: pred.distribution.loc[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_cols)}
+                        **{col: pred.distribution.mean[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_cols)}
                     }
                 ).sort(by=["time"])
             
-            # denormalize data 
+            # denormalize data
             pred_df = pred_df.with_columns([
                 (cs.starts_with(feat_type) - self.scaler_params["min_"][feat_type]) / self.scaler_params["scale_"][feat_type]
                                                         for feat_type in feature_types])
@@ -1783,51 +1786,72 @@ class MLForecast(WindForecast):
             return_pl = True
             
         # normalize historic measurements
-        historic_measurements = historic_measurements.with_columns([(cs.starts_with(col) * self.norm_scale[c]) 
-                                                    + self.norm_min[c] 
-                                                    for c, col in enumerate(self.norm_min_cols)])
-        test_data = self._generate_test_data(historic_measurements)
+        feature_types = list(self.scaler_params["min_"].keys())
+        
+        if historic_measurements.select(pl.len()).item() >= self.n_context:
+            historic_measurements = historic_measurements.with_columns([
+                    (cs.starts_with(feat_type) * self.scaler_params["scale_"][feat_type]) + self.scaler_params["min_"][feat_type]
+                                                            for feat_type in feature_types])
+            test_data = self._generate_test_data(historic_measurements)
+                
+            pred = self.distr_predictor.predict(test_data, num_samples=1, 
+                                                output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"})
             
-        pred = self.distr_predictor.predict(test_data, num_samples=1, 
-                                            output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"})
-        
-        if self.data_module.per_turbine_target:
-            # TODO HIGH test
-            pred_df = pl.concat([pl.DataFrame(
-                data={
-                    **{"time": pred.index.to_timestamp()},
-                    **{f"loc_{col}": turbine_pred.distribution.loc[:, c].flatten() for c, col in enumerate(self.data_module.target_cols)},
-                    **{f"sd_{col}": np.sqrt(turbine_pred.distribution.stddev[:, c].flatten()) for c, col in enumerate(self.data_module.target_cols)}
-                }
-            ).rename({output_type: f"{output_type}_{self.data_module.static_features.iloc[t]['turbine_id']}" 
-                              for output_type in self.data_module.target_cols}).sort_values(["time"]) for t, turbine_pred in enumerate(pred)], how="horizontal")
-        else:
-            # TODO HIGH test
-            pred = next(pred)
-            # pred_turbine_id = pd.Categorical([col.split("_")[-1] for col in col_names for t in range(pred.prediction_length)])
-            pred_df = pl.DataFrame(
-                data={
-                    **{"time": pred.index.to_timestamp()},
-                    **{f"loc_{col}": pred.distribution.loc[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_cols)},
-                    **{f"sd_{col}": np.sqrt(pred.distribution.stddev[:, c].cpu().numpy()) for c, col in enumerate(self.data_module.target_cols)}
-                }
-            ).sort(by=["time"])
-        
-        # denormalize data 
-        pred_df = pred_df.with_columns([(cs.contains(col) - self.norm_min[c]) 
-                                                    / self.norm_scale[c] 
-                                                    for c, col in enumerate(self.norm_min_cols)])
-        pred_df = pred_df.filter(pl.col("time") <= (current_time + self.prediction_timedelta)) 
-        # check if the data that trained the model differs from the frequency of historic_measurments
-        if self.data_module.freq != self.measurements_timedelta:
-            # resample historic measurements to historic_measurements frequency and return as pandas dataframe
-            if self.measurements_timedelta > self.data_module.freq:
-                pred_df = pred_df.with_columns(time=pl.col("time").dt.round(self.measurements_timedelta)
-                                               + pl.duration(seconds=pred_df.select(pl.col("time").last().dt.second() % self.data_module.freq.seconds).item()))\
-                                                              .group_by("time").agg(cs.numeric().mean()).sort("time")
+            if self.data_module.per_turbine_target:
+                # TODO TEST
+                pred_df = pl.concat([pl.DataFrame(
+                    data={
+                        **{"time": pred.index.to_timestamp()},
+                        **{f"loc_{col}": turbine_pred.distribution.mean[:, c].flatten() for c, col in enumerate(self.data_module.target_cols)},
+                        **{f"sd_{col}": turbine_pred.distribution.stddev[:, c].flatten() for c, col in enumerate(self.data_module.target_cols)}
+                    }
+                ).rename({output_type: f"{output_type}_{self.data_module.static_features.iloc[t]['turbine_id']}" 
+                                for output_type in self.data_module.target_cols}).sort_values(["time"]) for t, turbine_pred in enumerate(pred)], how="horizontal")
             else:
-                pred_df = pred_df.upsample(time_column="time", every=self.measurements_timedelta).fill_null(strategy="forward")
-        
+                
+                pred = next(pred)
+                # pred_turbine_id = pd.Categorical([col.split("_")[-1] for col in col_names for t in range(pred.prediction_length)])
+                pred_df = pl.DataFrame(
+                    data={
+                        **{"time": pred.index.to_timestamp()},
+                        **{f"loc_{col}": pred.distribution.mean[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_cols)},
+                        **{f"sd_{col}": pred.distribution.stddev[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_cols)}
+                    }
+                ).sort(by=["time"])
+            
+            # denormalize data
+            pred_df = pred_df.with_columns([
+                    (cs.starts_with(f"loc_{feat_type}") - self.scaler_params["min_"][feat_type]) / self.scaler_params["scale_"][feat_type]
+                                                            for feat_type in feature_types])\
+                             .with_columns([
+                    cs.starts_with(f"sd_{feat_type}") / self.scaler_params["scale_"][feat_type]
+                                                            for feat_type in feature_types])                                   
+            pred_df = pred_df.filter(pl.col("time") <= (current_time + self.prediction_timedelta)) 
+            # check if the data that trained the model differs from the frequency of historic_measurments
+            if self.data_module.freq != self.measurements_timedelta:
+                # resample historic measurements to historic_measurements frequency and return as pandas dataframe
+                if self.measurements_timedelta > self.data_module.freq:
+                    pred_df = pred_df.with_columns(time=pl.col("time").dt.round(self.measurements_timedelta)
+                                                + pl.duration(seconds=pred_df.select(pl.col("time").last().dt.second() % self.data_module.freq.seconds).item()))\
+                                                                .group_by("time").agg(cs.numeric().mean()).sort("time")
+                else:
+                    pred_df = pred_df.upsample(time_column="time", every=self.measurements_timedelta).fill_null(strategy="forward")
+        else:
+            # not enough data points to train SVR, assume persistance
+            logging.info(f"Not enough data points at time {current_time} to train ML, have {historic_measurements.select(pl.len()).item()} but require {self.n_context}, assuming persistance instead.")
+            pred_slice = self.get_pred_interval(current_time)
+            pred_df = pl.DataFrame(
+                    data={
+                        **{"time": pred_slice},
+                        **{f"loc_{col}": historic_measurements.select(pl.col(col).last().repeat_by(len(pred_slice)).explode())
+                                                      for col in self.data_module.target_cols},
+                        **{f"sd_{col}": [0] * len(pred_slice) for c, col in enumerate(self.data_module.target_cols)}
+                    }
+            )
+            # pred_df = pl.concat([pred_slice.to_frame(), 
+            #                      historic_measurements.slice(-1, 1).select(self.data_module.target_cols)
+            #                      ], how="horizontal")
+            
         if return_pl: 
             return pred_df
         else:
