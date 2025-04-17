@@ -162,7 +162,7 @@ class GreedyController(ControllerBase):
             if self.historic_measurements is not None:
                 self.historic_measurements = pl.concat([self.historic_measurements, 
                                                         pl.from_pandas(current_measurements[["time"] + self.ws_horz_cols + self.ws_vert_cols])], how="vertical")\
-                                                            .tail(max(int(np.ceil(self.wind_dir_lpf_time_const // self.simulation_dt) * 100), 
+                                                            .tail(max(int(np.ceil(self.wind_dir_lpf_time_const // self.simulation_dt) * 50), 
                                                                       self.wind_forecast.n_context))
             else:
                 self.historic_measurements = pl.from_pandas(current_measurements[["time"] + self.ws_horz_cols + self.ws_vert_cols])

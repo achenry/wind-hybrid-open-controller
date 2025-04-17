@@ -803,10 +803,10 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         
         results_dir = os.path.join(save_dir, case_study_key)
         for inp_file in glob(os.path.join(results_dir, "input_config_case_*.pkl")):
-            if inp_file not in allowed_input_files:
+            if os.path.basename(inp_file) not in allowed_input_files:
                 os.remove(inp_file)
         for ts_file in glob(os.path.join(results_dir, "*.csv")):
-            if ts_file not in allowed_ts_files:
+            if os.path.basename(ts_file) not in allowed_ts_files:
                 os.remove(ts_file)
         
     prediction_timedelta = max(inp["wind_forecast"]["prediction_timedelta"] for inp in input_dicts if inp["controller"]["wind_forecast_class"]) \
