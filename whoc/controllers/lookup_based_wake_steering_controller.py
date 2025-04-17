@@ -350,7 +350,9 @@ class LookupBasedWakeSteeringController(ControllerBase):
                                                         pl.from_pandas(
                                                             current_measurements[["time"] + self.ws_horz_cols + self.ws_vert_cols + self.nd_cos_cols + self.nd_sin_cols])], 
                                                        how="vertical")\
-                                                            .tail(max(int(np.ceil(self.wind_dir_lpf_time_const // self.simulation_dt) * 100), self.wind_forecast.n_context))
+                                                            .tail(max(int(np.ceil(
+                                                                max(self.wind_dir_lpf_time_const, self.wind_mag_lpf_time_const) 
+                                                                // self.simulation_dt) * 50), self.wind_forecast.n_context))
             else:
                 self.historic_measurements = pl.from_pandas(
                     current_measurements[["time"] + self.ws_horz_cols + self.ws_vert_cols + self.nd_cos_cols + self.nd_sin_cols])

@@ -674,7 +674,7 @@ class PerfectForecast(WindForecast):
     is_probabilistic = False
     
     def __post_init__(self):
-        logging.info(f"id(wind_field_ts) in PerfectForecast __init__ is {id(self.true_wind_field)}")
+        # logging.info(f"id(wind_field_ts) in PerfectForecast __init__ is {id(self.true_wind_field)}")
         super().__post_init__()
         self.train_first = False
         if isinstance(self.true_wind_field, pd.DataFrame):

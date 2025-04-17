@@ -248,8 +248,8 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         
         # assert np.all(ctrl.controls_dict['yaw_angles'] == ctrl.measurements_dict["wind_directions"] - fi.env.floris.farm.yaw_angles)
         # add freestream wind mags/dirs provided to controller, yaw angles computed at this time-step, resulting turbine powers, wind mags, wind dirs
-        if ctrl.verbose:
-            logging.info(f"Time = {t} of {controller_class.__name__} - {kwargs['case_name']} with wind seed {kwargs['wind_case_idx']}")
+        # if ctrl.verbose:
+        logging.info(f"Time = {t} of {controller_class.__name__} - {kwargs['case_name']} with wind seed {kwargs['wind_case_idx']}")
         if ctrl.verbose and False:
             logging.info(f"Measured Freestream Wind Direction = {simulation_dir[k]}",
                 f"Measured Freestream Wind Magnitude = {simulation_mag[k]}",
