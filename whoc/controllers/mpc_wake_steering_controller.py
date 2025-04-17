@@ -538,9 +538,9 @@ class MPC(ControllerBase):
         
         self.use_filt = simulation_input_dict["controller"]["use_filtered_wind_dir"]
         
-        self.lpf_time_const = simulation_input_dict["controller"]["lpf_time_const"]
+        self.wind_dir_lpf_time_const = simulation_input_dict["controller"]["wind_dir_lpf_time_const"]
         self.lpf_start_time = self.init_time + pd.Timedelta(seconds=simulation_input_dict["controller"]["lpf_start_time"])
-        self.lpf_alpha = np.exp(-(1 / simulation_input_dict["controller"]["lpf_time_const"]) * simulation_input_dict["simulation_dt"])
+        self.lpf_alpha = np.exp(-(1 / simulation_input_dict["controller"]["wind_dir_lpf_time_const"]) * simulation_input_dict["simulation_dt"])
         self.historic_measurements = {"wind_directions": [],
                                       "wind_speeds": []}
         self.state_cons_activated = {"lower": None, "upper": None}
@@ -1149,7 +1149,7 @@ class MPC(ControllerBase):
         # need historic measurements for filter or for wind forecast
         if self.use_filt or self.wind_forecast:
             self.historic_measurements["wind_directions"] = np.append(self.historic_measurements["wind_directions"],
-                                                            current_farm_wind_direction)[-int((self.lpf_time_const // self.simulation_dt) * 1e3):]
+                                                            current_farm_wind_direction)[-int((self.wind_dir_lpf_time_const // self.simulation_dt) * 1e3):]
             
         assert np.all(self.wind_field_ts["FreestreamWindDir"][:len(self.historic_measurements["wind_directions"])] == self.historic_measurements["wind_directions"]), "collected historic wind_direction measurements should be equal to actual historci wind_direction measurements in MPC.compute_controls"
 

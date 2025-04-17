@@ -10,11 +10,13 @@ from memory_profiler import profile
 from wind_forecasting.preprocessing.data_module import DataModule
 from whoc.wind_forecast.WindForecast import generate_wind_field_df
 import gc
+import re
 #from line_profiler import profile
 # from datetime import timedelta
 
 import pandas as pd
 import polars as pl
+import polars.selectors as cs
 import numpy as np
 
 from whoc import __file__ as whoc_file
@@ -60,8 +62,9 @@ case_studies = {
                                     "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
                                     "simulation_dt": {"group": 0, "vals": [1]},
                                     "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
-                                    "uncertain": {"group": 3, "vals": [False, False]},
-                                    "wind_forecast_class": {"group": 3, "vals": ["KalmanFilterForecast", "PerfectForecast"]},
+                                    "uncertain": {"group": 3, "vals": [True]},
+                                    "model_key": {"group": 3, "vals": ["informer"]},
+                                    "wind_forecast_class": {"group": 3, "vals": ["MLForecast"]},
                                     "prediction_timedelta": {"group": 4, "vals": [60, 120, 180]},
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]}
                                     },
@@ -79,7 +82,7 @@ case_studies = {
                                                                                    True, False,
                                                                                    True, False,
                                                                                    True, False]},
-                                                "wind_forecast_class": {"group": 2, "vals": ["PerfectForecast", "PersistenceForecast", "PreviewForecast", "KalmanFilterForecast", "SVRForecast", 
+                                                "wind_forecast_class": {"group": 2, "vals": ["PerfectForecast", "PersistenceForecast", "SpatialFilterForecast", "KalmanFilterForecast", "SVRForecast", 
                                                                                              "MLForecast", "MLForecast", 
                                                                                              "MLForecast", "MLForecast", 
                                                                                              "MLForecast", "MLForecast", 
@@ -100,7 +103,7 @@ case_studies = {
         "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
         # "lut_path": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4_lut.csv"]},
         "yaw_limits": {"group": 0, "vals": ["-15,15"]},
-        "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
+        "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController"]},
         "target_turbine_indices": {"group": 1, "vals": ["74,73", "4,"]},
         "uncertain": {"group": 1, "vals": [False, False]},
         "wind_forecast_class": {"group": 1, "vals": ["PerfectForecast", "PerfectForecast"]},
@@ -481,6 +484,9 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         
     if whoc_config["controller"]["target_turbine_indices"] is None:
          whoc_config["controller"]["target_turbine_indices"] = "all"
+         
+    if n_seeds != "auto":
+        n_seeds = int(n_seeds)
 
     if wf_source == "floris":
         from whoc.wind_field.WindField import plot_ts
@@ -519,8 +525,9 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             wind_field_data = generate_multi_wind_ts(full_wf, wind_field_dir, init_seeds=[seed + i for i in range(n_seeds)])
             write_abl_velocity_timetable([wfd.df for wfd in wind_field_data], wind_field_dir) # then use these timetables in amr precursor
             # write_abl_velocity_timetable(wind_field_data, wind_field_dir) # then use these timetables in amr precursor
-            lpf_alpha = np.exp(-(1 / whoc_config["controller"]["lpf_time_const"]) * whoc_config["simulation_dt"])
-            plot_wind_field_ts(wind_field_data[0].df, wind_field_dir, filter_func=partial(first_ord_filter, alpha=lpf_alpha))
+            wind_dir_lpf_alpha = np.exp(-(1 / whoc_config["controller"]["wind_dir_lpf_time_const"]) * whoc_config["simulation_dt"])
+            # wind_mag_lpf_alpha = np.exp(-(1 / whoc_config["controller"]["wind_mag_lpf_time_const"]) * whoc_config["simulation_dt"])
+            plot_wind_field_ts(wind_field_data[0].df, wind_field_dir, filter_func=partial(first_ord_filter, alpha=wind_dir_lpf_alpha))
             plot_ts(pd.concat([wfd.df for wfd in wind_field_data]), wind_field_dir)
             wind_field_filenames = [os.path.join(wind_field_dir, f"case_{i}.csv") for i in range(n_seeds)]
             regenerate_wind_field = True
@@ -532,17 +539,17 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         wind_field_ts = []
         if os.path.exists(wind_field_dir):
             for f, fn in enumerate(wind_field_filenames):
-                wind_field_ts.append(pd.read_csv(fn, index_col=0, parse_dates=["time"]))
+                wind_field_ts.append(pl.read_csv(fn, try_parse_dates=True)) #index_col=0, parse_dates=["time"]))
                 
                 # wind_field_data[f]["time"] = pd.to_timedelta(wind_field_data[-1]["time"], unit="s") + pd.to_datetime("2025-01-01")
                 # wind_field_data[f].to_csv(fn)
                 
-                if WIND_TYPE == "step":
-                    # n_rows = len(wind_field_data[-1].index)
-                    wind_field_ts[-1].loc[:15, f"FreestreamWindMag"] = 8.0
-                    wind_field_ts[-1].loc[15:, f"FreestreamWindMag"] = 11.0
-                    wind_field_ts[-1].loc[:45, f"FreestreamWindDir"] = 260.0
-                    wind_field_ts[-1].loc[45:, f"FreestreamWindDir"] = 270.0
+                # if WIND_TYPE == "step":
+                #     # n_rows = len(wind_field_data[-1].index)
+                #     wind_field_ts[-1].loc[:15, f"FreestreamWindMag"] = 8.0
+                #     wind_field_ts[-1].loc[15:, f"FreestreamWindMag"] = 11.0
+                #     wind_field_ts[-1].loc[:45, f"FreestreamWindDir"] = 260.0
+                #     wind_field_ts[-1].loc[45:, f"FreestreamWindDir"] = 270.0
         
         # write_abl_velocity_timetable(wind_field_data, wind_field_dir)
         
@@ -550,13 +557,13 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         #plot_wind_field_ts(pd.concat(wind_field_data), os.path.join(wind_field_fig_dir, "seeds.png"))
         # wind_mag_ts = [wind_field_data[case_idx]["FreestreamWindMag"].to_numpy() for case_idx in range(n_seeds)]
         # wind_dir_ts = [wind_field_data[case_idx]["FreestreamWindDir"].to_numpy() for case_idx in range(n_seeds)]
-        assert np.all([np.isclose((wind_field_ts[case_idx]["time"].iloc[1] - wind_field_ts[case_idx]["time"].iloc[0]).total_seconds(), whoc_config["simulation_dt"]) for case_idx in range(n_seeds)]), "sampling time of wind field should be equal to simulation sampling time"
+        assert np.all([np.isclose(wind_field_ts[case_idx].select(pl.col("time").diff().slice(1,1).dt.total_seconds()).item(), whoc_config["simulation_dt"]) for case_idx in range(n_seeds)]), "sampling time of wind field should be equal to simulation sampling time"
         
-        wind_field_ts = [wind_field_ts[case_idx][["time", "FreestreamWindMag", "FreestreamWindDir"]] for case_idx in range(n_seeds)] 
+        wind_field_ts = [wind_field_ts[case_idx].select(["time", "FreestreamWindMag", "FreestreamWindDir"]) for case_idx in range(n_seeds)] 
         
         
         if stoptime == "auto": 
-            durations = [(df["time"].iloc[-1] - df["time"].iloc[0]).total_seconds() for df in wind_field_ts]
+            durations = [(df.select((pl.col("time").last() - pl.col("time").first()).dt.total_seconds())) for df in wind_field_ts]
             # whoc_config["hercules_comms"]["helics"]["config"]["stoptime"] = stoptime = min([d.total_seconds() if hasattr(d, 'total_seconds') else d for d in durations])
             whoc_config["hercules_comms"]["helics"]["config"]["stoptime"] = stoptime = [d.total_seconds() if hasattr(d, 'total_seconds') else d for d in durations]
         else:
@@ -581,32 +588,44 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             reload = False
         
         # pull ws_horz, ws_vert, nacelle_direction, normalization_consts from awaken data and run for ML, SVR
-        data_module.generate_splits(splits=["test"], save=True, reload=reload)
+        data_module.generate_splits(splits=["test"], save=True, reload=reload) # TODO should reload if context/prediction length has changed
         wind_field_ts = generate_wind_field_df(data_module.test_dataset, data_module.target_cols, data_module.feat_dynamic_real_cols)
         delattr(data_module, "test_dataset")
-        del data_module
-        gc.collect()
         
-        wind_field_ts = [df.to_pandas() for df in wind_field_ts.partition_by("continuity_group")]
+        wind_field_ts = wind_field_ts.partition_by("continuity_group")
         
-        wind_field_ts = sorted(wind_field_ts, reverse=True, key=lambda df: df["time"].iloc[-1] - df["time"].iloc[0])
+        wind_field_ts = sorted(wind_field_ts, reverse=True, key=lambda df: df.select(pl.col("time").last() - pl.col("time").first()).item())
         if n_seeds != "auto":
             wind_field_ts = wind_field_ts[:int(n_seeds)]
         else:
             n_seeds = len(wind_field_ts)
         
-        logging.info(f"Loaded and normalized SCADA wind field from {model_config['dataset']['data_path']} with dt = {wind_field_ts[0]['time'].diff().iloc[1]}")
+        wind_dt = wind_field_ts[0].select(pl.col("time").diff().slice(1,1).dt.total_seconds()).item()
+        logging.info(f"Loaded and normalized SCADA wind field from {model_config['dataset']['data_path']} with dt = {wind_dt} seconds.")
         
         # make sure wind_dt == simulation_dt
-        if simulation_dt != wind_field_ts[0]["time"].diff().iloc[1].total_seconds():
+        
+        if simulation_dt != wind_dt:
             logging.info(f"Resampling to {simulation_dt} seconds.")
             wind_field_ts = [wf.set_index("time").resample(f"{simulation_dt}s").mean().reset_index(names=["time"]) for wf in wind_field_ts]
+            
+            if wind_dt < simulation_dt:
+                wind_field_ts = [wf.with_columns(
+                    time=pl.col("time").dt.round(simulation_dt))\
+                    .group_by("time", maintain_order=True).agg(cs.numeric().mean()) for wf in wind_field_ts]
+            else:
+                wind_field_ts = [wf.upsample(time_column="time", every=f"{simulation_dt}s").interpolate() for wf in wind_field_ts]
+        
         
         # import matplotlib.pyplot as plt
         # import seaborn as sns
         # import polars.selectors as cs
         # target_turbine_ids = [75, 74, 5]
-        # for wf in wind_field_ts[50:100]:
+        # # for seed, wf in enumerate(wind_field_ts):
+        # for seed, time in check_seed_times:
+        #     wf = wind_field_ts[seed].copy()
+        #     timestamp = wf.loc[(wf["time"] - wf["time"].iloc[0]).dt.total_seconds() == time, "time"].iloc[0]
+        #     wf = wf.loc[(wf["time"] - wf["time"].iloc[0]).dt.total_seconds().between(time - 120, time + 120), :]
         #     df = wf[["time"] + [c for c in wf.columns if c.startswith("ws_") and any(c.endswith("_" + str(tid)) for tid in target_turbine_ids)]]
         #     df = pd.melt(df, id_vars=["time"], value_vars=[c for c in df.columns if c.startswith("ws_")])
         #     df["turbine_id"] = df["variable"].str.extract("_(\\d+)", expand=False)
@@ -614,21 +633,44 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         #     fig, ax = plt.subplots(2, 1, sharex=True)
         #     sns.lineplot(data=df.loc[df["variable"]=="ws_horz", :], x="time", y="value", hue="turbine_id", ax=ax[0])
         #     sns.lineplot(data=df.loc[df["variable"]=="ws_vert", :], x="time", y="value", hue="turbine_id", ax=ax[1])
+        #     ax[0].axvline(x=timestamp)
+        #     ax[1].axvline(x=timestamp)
         #     ax[0].set_title("Horizontal Wind Speed (m/s)")
         #     ax[1].set_title("Vertical Wind Speed (m/s)")
         #     ax[0].set_xlabel("")
         #     ax[1].set_xlabel("Time (s)")
-            
-        
+                
         wind_field_config = {}
+
+        # TODO TESTING
+        if False:
+            import csv
+            from itertools import islice
+            check_seed_times = []
+            with open("/Users/ahenry/Documents/toolboxes/wind_forecasting/wind_forecasting/run_scripts/perfect_testing.txt") as fp:
+                csv_reader = csv.reader(fp)
+                for row in islice(csv_reader, 2, None):
+                    if row:
+                        seed = re.search("(?<=seed_)(\\d+)", row[0])
+                        time = re.search("(?<=time\\s)(\\d+)", row[1])
+                        if seed and time:
+                            seed = int(seed.group(0))
+                            time = float(time.group(0))
+                            check_seed_times.append((seed, time))
+                wind_field_ts = [wind_field_ts[seed].loc[(wind_field_ts[seed]["time"] - wind_field_ts[seed]["time"].iloc[0]).dt.total_seconds().between(0, time + 120), :] for seed, time in check_seed_times]
+                n_seeds = len(wind_field_ts)
         
         if stoptime == "auto":
-            durations = [df["time"].iloc[-1] - df["time"].iloc[0] for df in wind_field_ts]
+            durations = [df.select(pl.col("time").last() - pl.col("time").first()).item() for df in wind_field_ts]
+            if any(int(d / pd.Timedelta(data_module.freq)) < data_module.context_length + data_module.prediction_length for d in durations):
+                logging.warning(f"One or more continuity groups are too short, delete train ready path {data_module.train_ready_path} to reload.")
             # whoc_config["hercules_comms"]["helics"]["config"]["stoptime"] = stoptime = min([d.total_seconds() for d in durations])
             whoc_config["hercules_comms"]["helics"]["config"]["stoptime"] = stoptime = [d.total_seconds() for d in durations]
         else:
             stoptime = [stoptime] * len(wind_field_ts)
-    
+
+        del data_module
+        gc.collect()
     for case_family in case_families:
         case_studies[case_family]["wind_case_idx"] = {"group": max(d["group"] for d in case_studies[case_family].values()) + 1, "vals": [i for i in range(int(n_seeds))]}
 
@@ -674,7 +716,8 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                             input_dicts[start_case_idx + c]["controller"][property_name] = "all"
                             
                     elif property_name == "uncertain":
-                        if (controller_class := case.setdefault("controller_class", whoc_config["controller"]["controller_class"])) == "GreedyController":
+                        if (case.setdefault("controller_class", whoc_config["controller"]["controller_class"])) == "GreedyController":
+                            # logging.info("GreedyController cannot be run for uncertain flag. Setting uncertain to False.")
                             input_dicts[start_case_idx + c]["controller"]["uncertain"] = False
                         else:
                             input_dicts[start_case_idx + c]["controller"]["uncertain"] = property_value
@@ -690,7 +733,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             if input_dicts[start_case_idx + c]["controller"]["wind_forecast_class"] or "wind_forecast_class" in case: 
                 input_dicts[start_case_idx + c]["wind_forecast"] \
                     = {**{
-                        "measurements_timedelta": wind_field_ts[0]["time"].iloc[1] - wind_field_ts[0]["time"].iloc[0],
+                        "measurements_timedelta": wind_field_ts[0].select(pl.col("time").diff().slice(1,1)).item(),
                         "context_timedelta": pd.Timedelta(seconds=input_dicts[start_case_idx + c]["wind_forecast"]["context_timedelta"]),
                         "prediction_timedelta": pd.Timedelta(seconds=input_dicts[start_case_idx + c]["wind_forecast"]["prediction_timedelta"]),
                         "controller_timedelta": pd.Timedelta(seconds=input_dicts[start_case_idx + c]["controller"]["controller_dt"])
@@ -744,6 +787,27 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
 
             input_filenames.append((case_study_key, case_lists[start_case_idx + c]["wind_case_idx"], fn)) 
 
+    # delete any input files/time series files that don't belong
+    # fn = f"time_series_results_case_{kwargs['case_name']}_seed_{kwargs['wind_case_idx']}.csv".replace("/", "_")
+    # for case_study_key, wind_case_idx, inp_fn in input_filenames:
+    pattern = "(?<=input_config_case_)(.*)(?=\\.pkl)"
+    # case_names = [re.search(pattern, fn).group() for _,_,fn in input_filenames]
+    ts_filenames = [tuple([csk, wind_case_idx, f"time_series_results_case_{re.search(pattern, fn).group()}_seed_{wind_case_idx}.csv".replace("/", "_")]) for csk, wind_case_idx, fn in input_filenames]
+    for case_study_key in case_study_keys:
+        allowed_input_files = set([fn for csk, _, fn in input_filenames if csk == case_study_key])
+        allowed_ts_files = set([fn for csk, _, fn in ts_filenames if csk == case_study_key])
+        # allowed_ts_files = set([
+        #     f"time_series_results_case_{re.search('(?<=input_config_case_)(.*)(?=\\.pkl)', fn).group()}_seed_{wind_case_idx}.csv".replace("/", "_") 
+        #     for csk, wind_case_idx, fn in input_filenames if csk == case_study_key])
+        
+        results_dir = os.path.join(save_dir, case_study_key)
+        for inp_file in glob(os.path.join(results_dir, "input_config_case_*.pkl")):
+            if os.path.basename(inp_file) not in allowed_input_files:
+                os.remove(inp_file)
+        for ts_file in glob(os.path.join(results_dir, "*.csv")):
+            if os.path.basename(ts_file) not in allowed_ts_files:
+                os.remove(ts_file)
+        
     prediction_timedelta = max(inp["wind_forecast"]["prediction_timedelta"] for inp in input_dicts if inp["controller"]["wind_forecast_class"]) \
             if any(inp["controller"]["wind_forecast_class"] for inp in input_dicts) else pd.Timedelta(seconds=0)
     horizon_timedelta = max(pd.Timedelta(seconds=inp["controller"]["n_horizon"] * inp["controller"]["controller_dt"]) for inp in input_dicts if inp["controller"]["n_horizon"]) \
@@ -752,11 +816,11 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
     # assert stoptime > 0, "increase stoptime parameter and/or decresease prediction_timedetla, as stoptime < prediction_timedelta"
 
     # assert all([(df["time"].iloc[-1] - df["time"].iloc[0]).total_seconds() >= stoptime + prediction_timedelta + horizon_timedelta for df in wind_field_ts])
-    wind_field_ts = [df.loc[(df["time"] - df["time"].iloc[0]).dt.total_seconds() 
-                        <= stoptime[d] + prediction_timedelta.total_seconds() + horizon_timedelta.total_seconds()] 
+    wind_field_ts = [df.filter((pl.col("time") - pl.col("time").first()).dt.total_seconds() 
+                        <= stoptime[d] + prediction_timedelta.total_seconds() + horizon_timedelta.total_seconds())
                     for d, df in enumerate(wind_field_ts)]
     # stoptime = max(min([((df["time"].iloc[-1] - df["time"].iloc[0]) - prediction_timedelta - horizon_timedelta).total_seconds() for df in wind_field_ts]), stoptime)
-    stoptime = [max(((df["time"].iloc[-1] - df["time"].iloc[0]) - prediction_timedelta - horizon_timedelta).total_seconds(), stoptime[d]) for d, df in enumerate(wind_field_ts)]
+    stoptime = [min((df.select(pl.col("time").last() - pl.col("time").first()).item() - prediction_timedelta - horizon_timedelta).total_seconds(), stoptime[d]) for d, df in enumerate(wind_field_ts)]
     
     total_cases = len(input_filenames)
     for f, ((case_study_key, wind_case_idx, fn), inp) in enumerate(zip(input_filenames, input_dicts)):

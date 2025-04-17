@@ -20,6 +20,9 @@ import pandas as pd
 from scipy.interpolate import LinearNDInterpolator
 import floris.flow_visualization as wakeviz
 import matplotlib.pyplot as plt
+from memory_profiler import profile
+import logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class ControlledFlorisModel(InterfaceBase):
     def __init__(self, t0, yaw_limits, simulation_dt, yaw_rate, config_path, turbine_signature, tid2idx_mapping, target_turbine_indices="all",
@@ -125,10 +128,10 @@ class ControlledFlorisModel(InterfaceBase):
         )
         
         # TODO TEST
-        try:
-            self.env.run()
-        except Exception as e:
-            raise(f"yaw offsets {self.env.core.farm.yaw_angles}, wd {np.array(disturbances['wind_directions'])}, yaw angles {ctrl_dict['yaw_angles']} caused an error")
+        # try:
+        self.env.run()
+        # except Exception as e:
+        #     raise(f"yaw offsets {self.env.core.farm.yaw_angles}, wd {np.array(disturbances['wind_directions'])}, yaw angles {ctrl_dict['yaw_angles']} caused an error")
 
         return disturbances
     
@@ -141,7 +144,7 @@ class ControlledFlorisModel(InterfaceBase):
             yaw_offsets = self.env.core.flow_field.wind_directions[:, np.newaxis] - self.current_yaw_setpoints
             if np.any(yaw_offsets > 90):
                 bad_idx = np.where(yaw_offsets > 90)
-                print(f"WARNING: yaw_offset exceeding 90deg for wind dirs {self.env.core.flow_field.wind_directions[bad_idx[0]]} and turbines {bad_idx[1]}")
+                logging.warning(f"yaw_offset exceeding 90deg for wind dirs {self.env.core.flow_field.wind_directions[bad_idx[0]]} and turbines {bad_idx[1]}")
             # yaw_offsets = self.env.core.flow_field.wind_directions[:, np.newaxis] - controls["yaw_angles"]
             self.env.set(yaw_angles=yaw_offsets, disable_turbines=self.offline_status)
             self.env.run()

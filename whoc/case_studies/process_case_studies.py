@@ -103,7 +103,7 @@ def write_case_family_time_series_data(case_family, new_time_series_df, save_dir
     logging.info(f"Writing combined case family {case_family} time-series dataframe.")
     logging.info(f"Directory of time_series_results_all.csv: {os.path.join(save_dir, case_family)}")
 
-    new_time_series_df[new_time_series_df.index.get_level_values("CaseFamily") == case_family].to_csv(all_ts_df_path)
+    new_time_series_df.loc[new_time_series_df.index.get_level_values("CaseFamily") == case_family, :].to_csv(all_ts_df_path)
 
 def read_time_series_data(results_path, input_dict_path):
     # TODO fix scalability Greedy/LUT offline status at end for 25 turbines
@@ -1462,7 +1462,7 @@ def plot_power_increase_vs_prediction_time(plot_df, save_dir):
     """
     
     
-    fig, ax = plt.subplots(figsize=(10, 6))
+    fig, ax = plt.subplots(figsize=(15, 9))
     plot_df["prediction_timedelta"] = plot_df["prediction_timedelta"].dt.total_seconds()
     plot_df = plot_df.rename(columns={"prediction_timedelta": "Prediction Horizon (s)", "wind_forecast_class": "Forecaster", "power_ratio": "Power Increase (%)"})
     sns.scatterplot(x="Prediction Horizon (s)", y="Power Increase (%)", style="Forecaster", data=plot_df, ax=ax)
