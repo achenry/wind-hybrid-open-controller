@@ -65,7 +65,7 @@ class GreedyController(ControllerBase):
         self.rated_turbine_power = simulation_input_dict["controller"]["rated_turbine_power"]
         
         self.wind_field_ts = kwargs["wind_field_ts"]
-        logging.info(f"id(wind_field_ts) in GreedyController __init__ is {id(self.wind_field_ts)}")
+        # logging.info(f"id(wind_field_ts) in GreedyController __init__ is {id(self.wind_field_ts)}")
 
         self.is_yawing = np.array([False for _ in range(self.n_turbines)])
 

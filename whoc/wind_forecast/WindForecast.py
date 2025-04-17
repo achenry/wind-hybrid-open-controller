@@ -814,8 +814,9 @@ class SpatialFilterForecast(WindForecast):
         
         ws_inputs = np.dstack([ws_horz.select(turbine_ids).to_numpy(), ws_vert.select(turbine_ids).to_numpy()])
         
-        farm_wind_direction = wd.select(pl.mean_horizontal(pl.all())).to_numpy().flatten()
-        weights = self.neighbor_weights_directional_gaussian(cluster_turbines=self.cluster_turbines, farm_wind_direction=farm_wind_direction, wind_speeds=wm.to_numpy() ) #, shift_distance)
+        # farm_wind_direction = wd.select(pl.mean_horizontal(pl.all())).to_numpy().flatten()
+        weights = self.neighbor_weights_directional_gaussian(cluster_turbines=self.cluster_turbines, 
+                                                             wind_dirs=wd.to_numpy(), wind_speeds=wm.to_numpy() ) #, shift_distance)
         
         pred = np.zeros_like(ws_inputs)
          
@@ -826,7 +827,7 @@ class SpatialFilterForecast(WindForecast):
         return pred.T.reshape((2*self.n_turbines, -1)).T 
 
     def neighbor_weights_directional_gaussian(
-        self, cluster_turbines, farm_wind_direction, wind_speeds, #shift_distance=0
+        self, cluster_turbines, wind_dirs, wind_speeds, #shift_distance=0
     ):
         """
         wd_mean should be in radians, CCW
@@ -836,16 +837,17 @@ class SpatialFilterForecast(WindForecast):
 
         weights = dict()
         # n_turbines = np.shape(measurement_layout)[0]
-        farm_wind_direction = np.deg2rad(farm_wind_direction) 
+       
         for i in range(self.n_turbines):
             idx = cluster_turbines[i]
+            cluster_wind_direction = np.mean(np.deg2rad(wind_dirs[:, idx]), axis=1)
             cluster_layout = self.measurement_layout[idx, :]
             shift_distance = self.prediction_timedelta.total_seconds() * wind_speeds[:, i]
             
             center_point = (self.measurement_layout[i, :] + np.array(
                 [
-                    -shift_distance * np.sin(np.pi + farm_wind_direction), # -cos=
-                    -shift_distance * np.cos(np.pi + farm_wind_direction),
+                    -shift_distance * np.sin(np.pi + cluster_wind_direction), # -cos=
+                    -shift_distance * np.cos(np.pi + cluster_wind_direction),
                 ]
             ).T)
 
@@ -1418,12 +1420,12 @@ class KalmanFilterForecast(WindForecast):
             init_x = self.model.x.copy()
             # use batch_filter to, on each controller sampling time
             # mean estimates from Kalman Filter
-            means = np.zeros((zs.shape[0], self.model.dim_x)) # after update step
-            means_p = np.zeros((zs.shape[0], self.model.dim_x)) # after predict step
+            means_p = np.zeros((zs.shape[0], self.model.dim_x)) # after predict step (prior)
+            means = np.zeros((zs.shape[0], self.model.dim_x)) # after update step (posterior)
             
             # state covariances from Kalman Filter
-            covariances = np.zeros((zs.shape[0], self.model.dim_x, self.model.dim_x))
-            covariances_p = np.zeros((zs.shape[0], self.model.dim_x, self.model.dim_x))
+            covariances_p = np.zeros((zs.shape[0], self.model.dim_x, self.model.dim_x)) # (prior)
+            covariances = np.zeros((zs.shape[0], self.model.dim_x, self.model.dim_x)) # (posterior)
             
             # (means, covariances, means_p, covariances_p) = self.model.batch_filter(zs=z, Qs=Qt, Rs=Rt)
             # use single longer prediction time; by performing predict/update steps at time intervals == prediction_timedelta
@@ -2522,7 +2524,7 @@ if __name__ == "__main__":
                        for forecaster in forecasters]
             
             results = [dict([(k, v) for k, v in chain(
-                zip(["true_df", "forecasts_df", "agg_metrics", "ts_metrics"], fut.result()), 
+                zip(["true_df", "forecast_df", "agg_metrics", "ts_metrics"], fut.result()), 
                 zip(["forecaster_name", "prediction_timedelta"], [forecaster.__class__.__name__, forecaster.prediction_timedelta.total_seconds()]))]) 
                        for forecaster, fut in zip(forecasters, test_futures)] # agg_metrics, ts_metrics, forecast_fig
     else:
@@ -2534,8 +2536,8 @@ if __name__ == "__main__":
                 prediction_type=args.prediction_type)
             results.append({
                 "forecaster_name": forecaster.__class__.__name__,
-                "true": true_df,
-                "forecasts": forecast_df,
+                "true_df": true_df,
+                "forecast_df": forecast_df,
                 "agg_metrics": agg_metrics, 
                 "ts_metrics": ts_metrics, 
                 "prediction_timedelta": forecaster.prediction_timedelta.total_seconds()})

@@ -65,7 +65,7 @@ class LookupBasedWakeSteeringController(ControllerBase):
         self.max_workers = kwargs["max_workers"] if "max_workers" in kwargs else 16
         self.rated_turbine_power = simulation_input_dict["controller"]["rated_turbine_power"]
         self.wind_field_ts = kwargs["wind_field_ts"]
-        logging.info(f"id(wind_field_ts) in LUTController __init__ is {id(self.wind_field_ts)}")
+        # logging.info(f"id(wind_field_ts) in LUTController __init__ is {id(self.wind_field_ts)}")
         self.wf_source = kwargs["wf_source"]
         
         self.turbine_signature = kwargs["turbine_signature"]
