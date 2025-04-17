@@ -411,6 +411,7 @@ if __name__ == "__main__":
                                             (baseline_agg_df.index.get_level_values("CaseName") == case_name), col] = full_config[col]
 
                 # Filter data for the two forecast types
+                # forecasters_agg_df = baseline_agg_df.loc[baseline_agg_df["wind_forecast_class"] != "PerfectForecast", :]
                 forecasters_agg_df = baseline_agg_df.loc[baseline_agg_df["wind_forecast_class"] != "PerfectForecast", :] 
                 perfect_agg_df = baseline_agg_df.loc[baseline_agg_df["wind_forecast_class"] == "PerfectForecast", :] #PerfectForecast
                 controllers = pd.unique(perfect_agg_df["controller_class"])
