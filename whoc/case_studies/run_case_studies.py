@@ -50,6 +50,7 @@ if __name__ == "__main__":
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("-st", "--stoptime", default="auto")
     parser.add_argument("-ns", "--n_seeds", default="auto")
+    parser.add_argument("-ep", "--exclude_prediction", action="store_true")
     parser.add_argument("-m", "--multiprocessor", type=str, choices=["mpi", "cf"], help="which multiprocessing backend to use, omit for sequential processing", default=None)
     parser.add_argument("-sd", "--save_dir", type=str, default=os.path.join(os.getcwd(), "simulation_results"))
     parser.add_argument("-wf", "--wf_source", type=str, choices=["floris", "scada"], required=True)
@@ -151,6 +152,7 @@ if __name__ == "__main__":
                                             use_tuned_params=True, 
                                             model_config=model_config, wind_field_config=wind_field_config, 
                                             ram_limit=args.ram_limit,
+                                            include_prediction=not args.exclude_prediction,
                                             temp_storage_dir=temp_storage_dir)
 
                     for c, d in enumerate(input_dicts)]
@@ -170,6 +172,7 @@ if __name__ == "__main__":
                                 wind_field_config=wind_field_config, verbose=args.verbose, save_dir=args.save_dir, rerun_simulations=args.rerun_simulations,
                                 turbine_signature=turbine_signature, tid2idx_mapping=tid2idx_mapping,
                                 use_tuned_params=True, model_config=model_config, ram_limit=args.ram_limit,
+                                include_prediction=not args.exclude_prediction,
                                 temp_storage_dir=temp_storage_dir)
     
     if args.postprocess_simulations:
@@ -370,7 +373,7 @@ if __name__ == "__main__":
                         bad_df.loc[bad_df[bad_cols].isna().any(axis=1)]
 
             agg_df = pd.concat(agg_df)
-        
+
         if RUN_ONCE and PLOT:
             
             if (case_families.index("baseline_controllers_perfect_forecaster_awaken") in args.case_ids
@@ -474,45 +477,60 @@ if __name__ == "__main__":
                 baseline_time_df["StddevTurbineWindSpeedHorzMean"] = baseline_time_df[[col for col in baseline_time_df.columns if "StddevTurbineWindSpeedHorz_" in col]].mean(axis=1)
                 baseline_time_df["StddevTurbineWindSpeedVertMean"] = baseline_time_df[[col for col in baseline_time_df.columns if "StddevTurbineWindSpeedVert_" in col]].mean(axis=1)
                 
+                
+                
                 # color = sns.color_palette()[t]
                 #     ax.fill_between(
                 #         forecast.index.to_timestamp(), tid_df["loc"] - 1*tid_df["std_dev"], tid_df["loc"] + 1*tid_df["std_dev"], alpha=0.2, color=color
                 #     )
+                import seaborn as sns
+                import matplotlib.pyplot as plt
+                # controllers = pd.unique(baseline_time_df["controller_class"])
+                controllers = baseline_agg_df[["controller_class", "uncertain"]].reset_index(drop=True)
                 
-                controllers = pd.unique(baseline_time_df["controller_class"])
-                fig, ax = plt.subplots(2, len(controllers))
                 xlim = (baseline_time_df[["Time", "TrueTurbineWindSpeedHorzMean", "TrueTurbineWindSpeedVertMean"]].dropna()["Time"].min(),
                         baseline_time_df[["Time", "TrueTurbineWindSpeedHorzMean", "TrueTurbineWindSpeedVertMean"]].dropna()["Time"].max())
-                controllers = pd.unique(baseline_time_df["controller_class"])
-                for c, ctrl in enumerate(controllers):
-                    cond = (baseline_time_df["controller_class"] == ctrl) & (baseline_time_df["WindSeed"] == 0)
+                
+                # controllers = controllers.iloc[1:]
+                fig, ax = plt.subplots(2, len(controllers), sharex=True)
+                if ax.ndim == 1 :
+                    ax = ax[:, np.newaxis]
+                for c, row in controllers.iterrows():
+                    ctrl = row["controller_class"].iloc[0]
+                    uncertain = row["uncertain"].iloc[0]
+                    cond = (baseline_time_df["controller_class"] == ctrl) & (baseline_time_df["uncertain"] == uncertain) & (baseline_time_df["WindSeed"] == 0)
                     df = baseline_time_df.reset_index(level=["CaseFamily", "CaseName"], drop=True).loc[cond.values, :].dropna(subset=["TrueTurbineWindSpeedHorzMean", "TrueTurbineWindSpeedVertMean"])
                     df["prediction_timedelta"] = df["prediction_timedelta"].dt.total_seconds().astype(int)
                     df = df.rename(columns={"prediction_timedelta": "Prediction Horizon (s)", "wind_forecast_class": "Forecaster"})
                     sns.lineplot(df,
-                                 x="Time", y="PredictedTurbineWindSpeedHorzMean", 
-                                 hue="Prediction Horizon (s)",
-                                 style="Forecaster", ax=ax[0, c])
+                                x="Time", y="PredictedTurbineWindSpeedHorzMean", 
+                                hue="Prediction Horizon (s)",
+                                style="Forecaster", ax=ax[0, c],
+                                palette=sns.color_palette("tab10"))
+                    ax[0, c].plot(df["Time"], df["TrueTurbineWindSpeedHorzMean"], linestyle="-", color="black")
                     sns.lineplot(df,
-                                 x="Time", y="PredictedTurbineWindSpeedVertMean", 
-                                 hue="Prediction Horizon (s)",
-                                 style="Forecaster", ax=ax[1, c])
+                                x="Time", y="PredictedTurbineWindSpeedVertMean", 
+                                hue="Prediction Horizon (s)",
+                                style="Forecaster", ax=ax[1, c],
+                                palette=sns.color_palette("tab10"))
+                    ax[1, c].plot(df["Time"], df["TrueTurbineWindSpeedVertMean"], linestyle="-", color="black")
                     
-                    for p, pred_len in enumerate(pd.unique(df["Prediction Horizon (s)"])):
-                        sub_df = df.loc[(df["uncertain"] == True) & (df["Prediction Horizon (s)"] == pred_len), :]
-                        color = sns.color_palette()[p]
-                        ax[0, c].fill_between(
-                            sub_df["Time"], 
-                            sub_df["PredictedTurbineWindSpeedHorzMean"] - 1*sub_df["StddevTurbineWindSpeedHorzMean"], 
-                            sub_df["PredictedTurbineWindSpeedHorzMean"] + 1*sub_df["StddevTurbineWindSpeedHorzMean"], 
-                            alpha=0.2, color=ax[0, c].get_lines()[p].get_color()
-                        )
-                        ax[1, c].fill_between(
-                            sub_df["Time"], 
-                            sub_df["PredictedTurbineWindSpeedVertMean"] - 1*sub_df["StddevTurbineWindSpeedVertMean"], 
-                            sub_df["PredictedTurbineWindSpeedVertMean"] + 1*sub_df["StddevTurbineWindSpeedVertMean"], 
-                            alpha=0.2, color=ax[1, c].get_lines()[p].get_color()
-                        )
+                    if uncertain:
+                        for p, pred_len in enumerate(pd.unique(df["Prediction Horizon (s)"])):
+                            sub_df = df.loc[(df["Prediction Horizon (s)"] == pred_len), :]
+                            color = sns.color_palette("tab10")[p]
+                            ax[0, c].fill_between(
+                                sub_df["Time"], 
+                                sub_df["PredictedTurbineWindSpeedHorzMean"] - 1*sub_df["StddevTurbineWindSpeedHorzMean"], 
+                                sub_df["PredictedTurbineWindSpeedHorzMean"] + 1*sub_df["StddevTurbineWindSpeedHorzMean"], 
+                                alpha=0.2, color=ax[0, c].get_lines()[p].get_color()
+                            )
+                            ax[1, c].fill_between(
+                                sub_df["Time"], 
+                                sub_df["PredictedTurbineWindSpeedVertMean"] - 1*sub_df["StddevTurbineWindSpeedVertMean"], 
+                                sub_df["PredictedTurbineWindSpeedVertMean"] + 1*sub_df["StddevTurbineWindSpeedVertMean"], 
+                                alpha=0.2, color=ax[1, c].get_lines()[p].get_color()
+                            )
                     
                     single_df = df.loc[df["Prediction Horizon (s)"] == df["Prediction Horizon (s)"].max(), :]
                     # ax[0, c].plot(single_df["Time"], single_df["TrueTurbineWindSpeedHorzMean"], color=None, linestyle=":")
@@ -526,16 +544,17 @@ if __name__ == "__main__":
                     ax[1, c].set_xlabel("Time (s)")
                     ax[0, c].set_xlim(xlim)
                     ax[1, c].set_xlim(xlim)
-                    ax[0, c].set_xticks([])
+                    # ax[0, c].set_xticks([])
                 
-                ax[0, 0].set_ylabel("Horizontal \nWind \nSpeed \n(m/s)", rotation=0, labelpad=50)
-                ax[1, 0].set_ylabel("Vertical \nWind \nSpeed \n(m/s)", rotation=0, labelpad=50)
-                h, l = ax[0, 1].get_legend_handles_labels()
+                ax[0, 0].set_ylabel("$u$ Wind \nSpeed (m/s)", rotation=0, labelpad=50)
+                ax[1, 0].set_ylabel("$v$ Wind \nSpeed (m/s)", rotation=0, labelpad=50)
+                h, l = ax[0, -1].get_legend_handles_labels()
                 # new_labels = [" ".join([lll.capitalize() for lll in ll.split("_")]) for ll in l]
                 new_labels = l[:l.index("Forecaster")+1] + [" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", ll).group())) for ll in l[l.index("Forecaster")+1:]]
                 
-                ax[0, 1].legend(h, new_labels, frameon=False, loc='upper left', bbox_to_anchor=(1.01, 1))
+                ax[0, -1].legend(h, new_labels, frameon=False, loc='upper left', bbox_to_anchor=(1.01, 1))
                 plt.tight_layout()
+                fig.savefig(os.path.join(args.save_dir, "prob_forecast.png"))
                 
                 # PLOT 4) Yaw angles/power for persistent vs. other forecasters for best lead times
                 best_forecaster_prediction_delta = forecasters_agg_df.groupby("wind_forecast_class", group_keys=False).apply(lambda x: x.sort_values(by=("FarmPowerMean", "mean"), ascending=False).head(10)) #[("FarmPowerMean", "mean")] 
