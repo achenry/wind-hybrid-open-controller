@@ -121,7 +121,7 @@ if __name__ == "__main__":
         
         logging.info(f"Resetting args.n_seeds to {len(wind_field_ts)}")
         args.n_seeds = len(wind_field_ts)
-        # TODO HIGH broadcast/scatter/gather wind_field_ts to share between processes
+        # TODO broadcast/scatter/gather wind_field_ts to share between processes
         
     if args.multiprocessor is not None:
         if args.multiprocessor == "mpi":

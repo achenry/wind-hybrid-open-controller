@@ -460,11 +460,13 @@ class LookupBasedWakeSteeringController(ControllerBase):
                 # logging.info(f"min ws_horz_stdevs = {min(ws_horz_stddevs)}, mean ws_horz_stddevs = {np.mean(ws_horz_stddevs)}, max ws_horz_stddevs = {max(ws_horz_stddevs)}")
                 # logging.info(f"min ws_vert_stdevs = {min(ws_vert_stddevs)}, mean ws_vert_stdevs = {np.mean(ws_vert_stddevs)}, max ws_vert_stdevs = {max(ws_vert_stddevs)}")
            
-            # TODO HIGH feed just upstream turbine or mean?
             if self.target_turbine_indices == "all":
                 wd_inp, wm_inp, wd_stddev_inp = wind_dirs.mean(), wind_mags.mean(), wind_dir_stddevs.mean() if self.uncertain else None
             else:
+                # feeds wind from feed just upstream turbine to LUT, could also do mean
                 upstream_turbine_idx = np.argsort(self.target_turbine_indices)[0]
+                if len(self.target_turbine_indices) > 2:
+                    logging.warning("There are more than 2 target turbines under study, but only the upstream wind direction is being used.")
                 wd_inp, wm_inp, wd_stddev_inp = wind_dirs[upstream_turbine_idx], wind_mags[upstream_turbine_idx], wind_dir_stddevs[upstream_turbine_idx] if self.uncertain else None
             if self.uncertain:
                 target_yaw_offsets = self.wake_steering_interpolant(

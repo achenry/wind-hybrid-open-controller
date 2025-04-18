@@ -119,7 +119,7 @@ case_studies = {
         # "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73"]},
         # "uncertain": {"group": 1, "vals": [False, True]},
         # "wind_forecast_class": {"group": 1, "vals": ["PerfectForecast", "PerfectForecast"]},
-        "prediction_timedelta": {"group": 2, "vals": [60, 120, 180, 240, 300, 360, 420, 480, 540, 600, 660, 720, 780, 840, 900, 960, 1020, 1080]},
+        "prediction_timedelta": {"group": 2, "vals": [0, 60, 120, 180, 240, 300, 360, 420, 480, 540, 600, 660, 720, 780, 840, 900, 960, 1020, 1080]},
         },
     "baseline_controllers_perfect_forecaster_flasc": {
         "controller_dt": {"group": 0, "vals": [5]},
@@ -600,7 +600,8 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         
         wind_field_ts = sorted(wind_field_ts, reverse=True, key=lambda df: df.select(pl.col("time").last() - pl.col("time").first()).item())
         if n_seeds != "auto":
-            wind_field_ts = wind_field_ts[:n_seeds]
+            wind_field_ts = wind_field_ts[:n_seeds] # TODO HIGH
+            # wind_field_ts = wind_field_ts[10:11]
         else:
             n_seeds = len(wind_field_ts)
         
