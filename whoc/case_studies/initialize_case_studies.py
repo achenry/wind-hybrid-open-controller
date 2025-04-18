@@ -119,7 +119,7 @@ case_studies = {
         # "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73"]},
         # "uncertain": {"group": 1, "vals": [False, True]},
         # "wind_forecast_class": {"group": 1, "vals": ["PerfectForecast", "PerfectForecast"]},
-        "prediction_timedelta": {"group": 2, "vals": [60, 120, 180, 240, 300, 360, 420, 480, 540, 600, 660, 720, 780, 840, 900, 960, 1020, 1080][::-1]},
+        "prediction_timedelta": {"group": 2, "vals": [60, 120, 180, 240, 300, 360, 420, 480, 540, 600, 660, 720, 780, 840, 900, 960, 1020, 1080]},
         },
     "baseline_controllers_perfect_forecaster_flasc": {
         "controller_dt": {"group": 0, "vals": [5]},
@@ -789,7 +789,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                     if key not in ["simulation_dt", "use_filtered_wind_dir", "use_lut_filtered_wind_dir", "yaw_limits", "wind_case_idx", "seed", "floris_input_file", "lut_path"]]) \
                     if "case_names" not in case else case["case_names"]}.pkl'.replace("/", "_")
 
-            input_filenames.append((case_study_key, case_lists[start_case_idx + c]["wind_case_idx"], fn)) 
+            input_filenames.append((case_study_key, case_lists[start_case_idx + c]["wind_case_idx"], fn))
 
     # delete any input files/time series files that don't belong
     # fn = f"time_series_results_case_{kwargs['case_name']}_seed_{kwargs['wind_case_idx']}.csv".replace("/", "_")
@@ -826,14 +826,18 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
     # stoptime = max(min([((df["time"].iloc[-1] - df["time"].iloc[0]) - prediction_timedelta - horizon_timedelta).total_seconds() for df in wind_field_ts]), stoptime)
     stoptime = [min((df.select(pl.col("time").last() - pl.col("time").first()).item() - prediction_timedelta - horizon_timedelta).total_seconds(), stoptime[d]) for d, df in enumerate(wind_field_ts)]
     
-    total_cases = len(input_filenames)
+    total_cases = len(input_filenames) / n_seeds
+    written_input_files = set()
     for f, ((case_study_key, wind_case_idx, fn), inp) in enumerate(zip(input_filenames, input_dicts)):
-        logging.info(f"Writing input_config file {f} of {total_cases}")
+        
         inp["hercules_comms"]["helics"]["config"]["stoptime"] = stoptime[wind_case_idx]
-        results_dir = os.path.join(save_dir, case_study_key)
-        os.makedirs(results_dir, exist_ok=True)
-        with open(os.path.join(results_dir, fn), 'wb') as fp:
-            pickle.dump(inp, fp)
+        if fn not in written_input_files:
+            logging.info(f"Writing input_config file {len(written_input_files)} of {total_cases}")
+            results_dir = os.path.join(save_dir, case_study_key)
+            os.makedirs(results_dir, exist_ok=True)
+            with open(os.path.join(results_dir, fn), 'wb') as fp:
+                pickle.dump(inp, fp)
+            written_input_files.add(fn)
     
     # instantiate controller and run_simulations simulation
     # with open(os.path.join(save_dir, "init_simulations.pkl"), "wb") as fp:
