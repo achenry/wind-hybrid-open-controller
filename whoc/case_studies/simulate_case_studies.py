@@ -203,7 +203,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
             turbine_wind_mag_ts += [ctrl.measurements_dict["wind_speeds"]]
             turbine_wind_dir_ts += [ctrl.measurements_dict["wind_directions"]]
             
-            if wind_forecast_class:
+            if wind_forecast_class and kwargs["include_prediction"]:
                 predicted_wind_speeds_ts += [ctrl.controls_dict["predicted_wind_speeds"]]
                 # predicted_time_ts += [ctrl.controls_dict["predicted_time"]]
                 # predicted_turbine_wind_speed_horz_ts += [ctrl.controls_dict["predicted_wind_speeds_horz"]]
@@ -300,7 +300,8 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
                     simulation_input_dict=simulation_input_dict,
                     idx2tid_mapping=idx2tid_mapping,
                     save_path=temp_save_path,
-                    final=final)
+                    final=final,
+                    include_prediction=kwargs["include_prediction"])
             
             if final:
                 logging.info(f"Moving final result to {save_path}.")
@@ -344,7 +345,8 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
                 simulation_input_dict=simulation_input_dict,
                 idx2tid_mapping=idx2tid_mapping,
                 save_path=temp_save_path,
-                final=True)
+                final=True,
+                include_prediction=kwargs["include_prediction"])
         
         logging.info(f"Moving final result to {save_path}.")
         move(temp_save_path, save_path)
@@ -360,7 +362,8 @@ def write_df(case_family, case_name, wind_case_idx, wf_source, wind_field_ts,
              opt_cost_terms_ts, convergence_time_ts,
              predicted_wind_speeds_ts,
              lower_state_cons_activated_ts, upper_state_cons_activated_ts,
-             ctrl, wind_forecast_class, simulation_input_dict, idx2tid_mapping, save_path, final=False):
+             ctrl, wind_forecast_class, simulation_input_dict, idx2tid_mapping, save_path, 
+             final=False, include_prediction=True):
     
     turbine_wind_mag_ts = np.vstack(turbine_wind_mag_ts)
     turbine_wind_dir_ts = np.vstack(turbine_wind_dir_ts)
@@ -449,7 +452,7 @@ def write_df(case_family, case_name, wind_case_idx, wf_source, wind_field_ts,
         # "TotalRunningOptimizationCost": np.sum(running_opt_cost_terms_ts, axis=1),
     }
     
-    if wf_source == "scada":
+    if wf_source == "scada" and include_predictions:
         results_data.update({
             **{
                 f"TrueTurbineWindSpeedHorz_{idx2tid_mapping[i]}": 
@@ -471,7 +474,7 @@ def write_df(case_family, case_name, wind_case_idx, wf_source, wind_field_ts,
 
     results_data = pd.DataFrame(results_data)
     
-    if wind_forecast_class:
+    if wind_forecast_class and include_prediction:
         predicted_wind_speeds_ts = pl.concat(predicted_wind_speeds_ts, how="vertical")\
                                      .group_by("time", maintain_order=True).agg(pl.all().last())\
                                      .with_columns(time=((pl.col("time") - ctrl.init_time).dt.total_seconds().cast(pl.Int64)))

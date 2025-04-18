@@ -50,6 +50,7 @@ if __name__ == "__main__":
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("-st", "--stoptime", default="auto")
     parser.add_argument("-ns", "--n_seeds", default="auto")
+    parser.add_argument("-ep", "--exclude_prediction", action="store_true")
     parser.add_argument("-m", "--multiprocessor", type=str, choices=["mpi", "cf"], help="which multiprocessing backend to use, omit for sequential processing", default=None)
     parser.add_argument("-sd", "--save_dir", type=str, default=os.path.join(os.getcwd(), "simulation_results"))
     parser.add_argument("-wf", "--wf_source", type=str, choices=["floris", "scada"], required=True)
@@ -151,6 +152,7 @@ if __name__ == "__main__":
                                             use_tuned_params=True, 
                                             model_config=model_config, wind_field_config=wind_field_config, 
                                             ram_limit=args.ram_limit,
+                                            include_prediction=not args.exclude_prediction,
                                             temp_storage_dir=temp_storage_dir)
 
                     for c, d in enumerate(input_dicts)]
@@ -170,6 +172,7 @@ if __name__ == "__main__":
                                 wind_field_config=wind_field_config, verbose=args.verbose, save_dir=args.save_dir, rerun_simulations=args.rerun_simulations,
                                 turbine_signature=turbine_signature, tid2idx_mapping=tid2idx_mapping,
                                 use_tuned_params=True, model_config=model_config, ram_limit=args.ram_limit,
+                                include_prediction=not args.exclude_prediction,
                                 temp_storage_dir=temp_storage_dir)
     
     if args.postprocess_simulations:
