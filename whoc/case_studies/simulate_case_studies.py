@@ -33,9 +33,9 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         os.remove(temp_save_path)
     
     if not kwargs["rerun_simulations"] and os.path.exists(save_path):
-        results_df = pd.read_csv(os.path.join(results_dir, fn))
+        results_df = pd.read_csv(os.path.join(results_dir, fn), low_memory=False)
         # check if this saved df completed successfully
-        if results_df["Time"].iloc[-1] == simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"] - simulation_input_dict["simulation_dt"]:
+        if results_df["Time"].iloc[-1] == simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"] - simulation_input_dict["simulation_dt"] + simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds():
             logging.info(f"Loaded existing {fn} since rerun_simulations argument is false")
             return
     elif not kwargs["rerun_simulations"] and os.path.exists(os.path.join(results_dir, fn.replace("results", f"chk"))):
@@ -474,7 +474,7 @@ def write_df(case_family, case_name, wind_case_idx, wf_source, wind_field_ts,
     if wind_forecast_class:
         predicted_wind_speeds_ts = pl.concat(predicted_wind_speeds_ts, how="vertical")\
                                      .group_by("time", maintain_order=True).agg(pl.all().last())\
-                                     .with_columns(time=(pl.col("time") - ctrl.init_time).dt.total_seconds().cast(pl.Int64))
+                                     .with_columns(time=((pl.col("time") - ctrl.init_time).dt.total_seconds().cast(pl.Int64)))
         # results_df = pd.concat([results_df, predicted_wind_speeds_ts], axis=1)
         # sd_ws_vert_cols
         cols = ["time"] + ctrl.mean_ws_horz_cols + ctrl.mean_ws_vert_cols + ((ctrl.sd_ws_horz_cols + ctrl.sd_ws_vert_cols) if ctrl.uncertain else [])
@@ -491,7 +491,9 @@ def write_df(case_family, case_name, wind_case_idx, wf_source, wind_field_ts,
         #     predicted_wind_speeds_ts = predicted_wind_speeds_ts.assign(**{key: results_data[key].values[0]})
         # results_data = results_data.merge(predicted_wind_speeds_ts, on=["CaseFamily", "CaseName", "WindSeed", "Time"], how="outer")
         predicted_wind_speeds_ts = predicted_wind_speeds_ts.to_pandas()
-        results_data.loc[results_data["Time"] >= predicted_wind_speeds_ts["Time"].iloc[0], predicted_wind_speeds_ts.drop(columns=["Time"]).columns] = predicted_wind_speeds_ts.drop(columns=["Time"])
+        results_data = results_data.merge(predicted_wind_speeds_ts, on=["Time"], how="outer")
+        results_data[["CaseFamily", "CaseName", "WindSeed"]] = results_data[["CaseFamily", "CaseName", "WindSeed"]].ffill()
+        # results_data.loc[results_data["Time"] >= predicted_wind_speeds_ts["Time"].iloc[0], predicted_wind_speeds_ts.drop(columns=["Time"]).columns] = predicted_wind_speeds_ts.drop(columns=["Time"])
         del predicted_wind_speeds_ts
     
         # if not final:
@@ -499,7 +501,11 @@ def write_df(case_family, case_name, wind_case_idx, wf_source, wind_field_ts,
         #     results_data = results_data.iloc[:-int(simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() / simulation_input_dict["simulation_dt"])]
     
     logging.info(f"Writing {'final' if final else 'intermediary'} result to file.")
-    if os.path.exists(save_path):
+    if final and os.path.exists(save_path):
+        results_data = pd.concat([pd.read_csv(save_path, index_col=None),
+                                  results_data], axis=0).groupby("Time").last()
+        results_data.to_csv(save_path, mode="w", header=True, index=False)
+    elif os.path.exists(save_path):
         results_data.to_csv(save_path, mode="a", header=False, index=False)
     else:
         results_data.to_csv(save_path, mode="w", header=True, index=False)
