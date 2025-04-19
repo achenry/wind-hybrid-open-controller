@@ -1,9 +1,8 @@
 from whoc.wind_forecast.WindForecast import SVRForecast, generate_wind_field_df
 from wind_forecasting.preprocessing.data_module import DataModule
-from gluonts.dataset.split import split, slice_data_entry
+from gluonts.dataset.split import slice_data_entry
 import numpy as np
 import polars as pl
-import polars.selectors as cs
 import pandas as pd
 import argparse
 import yaml
@@ -13,8 +12,15 @@ from floris import FlorisModel
 import gc
 import re
 import random
+from wind_forecasting.utils.optuna_db_utils import setup_optuna_storage
+from wind_forecasting.run_scripts.tuning import generate_df_setup_params
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+try:
+    from mpi4py import MPI
+except Exception as e:
+    logging.warning("Could not import MPI.")
 
 def replace_env_vars(dirpath):
     env_vars = re.findall(r"(?:^|\/)\$(\w+)(?:\/|$)", dirpath)
@@ -78,12 +84,12 @@ if __name__ == "__main__":
     np.random.seed(args.seed)
     
     # %% PREPARING DIRECTORIES
-    model_config["optuna"]["storage_dir"] = replace_env_vars(model_config["optuna"]["storage_dir"])
-    data_config["temp_storage_dir"] = replace_env_vars(data_config["temp_storage_dir"])
-
-    logging.info(f"Making Optuna storage directory {model_config['optuna']['storage_dir']}.")
-    os.makedirs(model_config["optuna"]["storage_dir"], exist_ok=True)
+    if model_config["optuna"]["storage"].get("storage_dir", None) and model_config["optuna"]["storage"]["backend"] in ["sqlite", "journal"]:
+        model_config["optuna"]["storage"]["storage_dir"] = replace_env_vars(model_config["optuna"]["storage"]["storage_dir"])
+        logging.info(f"Making Optuna storage directory {model_config['optuna']['storage']['storage_dir']}.")
+        os.makedirs(model_config["optuna"]["storage"]["storage_dir"], exist_ok=True)
     
+    data_config["temp_storage_dir"] = replace_env_vars(data_config["temp_storage_dir"])
     logging.info(f"Making temporary train/val storage directory {data_config['temp_storage_dir']}.")
     os.makedirs(data_config["temp_storage_dir"], exist_ok=True)
     
@@ -98,17 +104,18 @@ if __name__ == "__main__":
                             true_wind_field=None,
                             model_config=model_config,
                             kwargs=dict(kernel="rbf", C=1.0, degree=3, gamma="auto", epsilon=0.1, cache_size=200,
-                                        n_neighboring_turbines=3, max_n_samples=None),
+                                        n_neighboring_turbines=3, max_n_samples=None, 
+                                        study_name_root=f"svr_{model_config['experiment']['run_name']}",
+                                        use_trained_models=False),
                             tid2idx_mapping=tid2idx_mapping,
                             turbine_signature=turbine_signature,
                             use_tuned_params=False,
-                            temp_save_dir=data_config["temp_storage_dir"],
-                            multiprocessor=args.multiprocessor)
+                            temp_save_dir=data_config["temp_storage_dir"])
     
     
-    # %% PREPARING DATA FOR TUNING
+    # %% PREPARING DATA FOR TUNING # TODO HIGH replace this with only running at rank 0
     if args.initialize:
-        # %% READING WIND FIELD TRAINING DATA # TODO fetch training and test data here
+        # %% READING WIND FIELD TRAINING DATA
         logging.info("Preparing data for tuning")
         if not os.path.exists(data_module.train_ready_data_path):
             data_module.generate_datasets()
@@ -135,26 +142,29 @@ if __name__ == "__main__":
         
         model.prepare_data(dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, scale=False)
         
-        logging.info("Reinitializing storage") 
-        if args.restart_tuning:
-            storage = model.get_storage(
-                backend=model_config["optuna"]["storage"]["backend"], 
-                    study_name=args.study_name, 
-                    storage_dir=model_config["optuna"]["storage_dir"])
-            for s in storage.get_all_studies():
-                storage.delete_study(s._study_id)
-    else: 
+        logging.info("Reinitializing storage")
+        
+    db_setup_params = generate_df_setup_params(args.model, model_config)
+            
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
+    optuna_storage = setup_optuna_storage(
+        db_setup_params=db_setup_params,
+        restart_tuning=args.restart_tuning,
+        rank=rank
+    )
+    
+    if not args.initialize: 
         # %% TUNING MODEL
         logging.info("Running tune_hyperparameters_multi")
         pruning_kwargs = model_config["optuna"]["pruning"] 
         
         #{"type": "hyperband", "min_resource": 2, "max_resource": 5, "reduction_factor": 3, "percentile": 25}
-        model.tune_hyperparameters_single(study_name=args.study_name,
-                                        backend=model_config["optuna"]["storage"]["backend"],
-                                        n_trials=model_config["optuna"]["n_trials"], 
-                                        storage_dir=model_config["optuna"]["storage_dir"],
-                                        seed=args.seed,
-                                        pruning_kwargs=pruning_kwargs)
+        model.tune_hyperparameters_single(study_name=db_setup_params["study_name"],
+                                          storage=optuna_storage,
+                                            n_trials_per_worker=model_config["optuna"]["n_trials_per_worker"], 
+                                            seed=args.seed,
+                                            pruning_kwargs=pruning_kwargs)
                                         #  trial_protection_callback=handle_trial_with_oom_protection)
     
         # %% TESTING LOADING HYPERPARAMETERS
