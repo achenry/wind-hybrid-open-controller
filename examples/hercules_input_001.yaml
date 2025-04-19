@@ -106,6 +106,7 @@ wind_forecast:
   context_timedelta: 1200 # seconds
   prediction_timedelta: 1200 # seconds
   SVRForecast:
+    model_key: svr
     kernel: rbf
     C: 1.0
     degree: 3
