@@ -368,8 +368,7 @@ class LookupBasedWakeSteeringController(ControllerBase):
 
         new_yaw_setpoints = np.array(current_yaw_setpoints)
         
-        # NOTE: this is run every simulation_dt, not every controller_dt, because the yaw angle may be moving gradually towards the correct setpoint
-        if self.wind_forecast:
+        if self.wind_forecast and self.wind_forecast.prediction_timedelta.total_seconds() > 0:
             if self.uncertain:
                 # forecasted_wind_sample = self.wind_forecast.predict_sample(self.historic_measurements, self.current_time)
                 forecasted_wind_field = self.wind_forecast.predict_distr(self.historic_measurements, self.current_time)
@@ -377,12 +376,18 @@ class LookupBasedWakeSteeringController(ControllerBase):
                 forecasted_wind_field = self.wind_forecast.predict_point(self.historic_measurements, self.current_time)
             
             single_forecasted_wind_field = forecasted_wind_field.filter(pl.col("time") == self.current_time + self.wind_forecast.prediction_timedelta)
-                
+            
+            use_wind_forecast = True
+        else:
+            forecasted_wind_field = None
+            single_forecasted_wind_field = None
+            use_wind_forecast = False
+        
         if (((self.current_time - self.init_time).total_seconds() % self.controller_dt) == 0.0):
             # if (abs((self.current_time - self.init_time).total_seconds() % self.controller_dt) == 0.0):
             
             if self.current_time < self.lpf_start_time or (not self.wind_dir_use_filt and not self.wind_mag_use_filt):
-                wind = single_forecasted_wind_field if self.wind_forecast else current_measurements
+                wind = single_forecasted_wind_field if use_wind_forecast else pl.from_dataframe(current_measurements)
                 
                 wind_dirs = 180.0 + np.rad2deg(np.arctan2(
                     wind.select(self.mean_ws_horz_cols).to_numpy()[-1, :], 
@@ -398,7 +403,7 @@ class LookupBasedWakeSteeringController(ControllerBase):
             else:
                 # use filtered wind direction, NOTE historic_measurements includes controller_dt steps into the future such that we can run simulation in time batches
                 # forecasted_wind_field.iloc[-1:].rename(columns={old_col: re.search("(?<=loc_)\\w+", old_col).group(0) for old_col in self.mean_ws_horz_cols+self.mean_ws_vert_cols})
-                if self.wind_forecast:
+                if use_wind_forecast:
                     hist_meas = self.historic_measurements.rename({re.search("(?<=loc_)\\w+", new_col).group(0): new_col for new_col in self.mean_ws_horz_cols + self.mean_ws_vert_cols}) if self.uncertain else self.historic_measurements
                     wind = pl.concat([hist_meas.select(self.mean_ws_horz_cols+self.mean_ws_vert_cols).with_columns(cs.numeric().cast(pl.Float32)), 
                                         forecasted_wind_field.select(self.mean_ws_horz_cols + self.mean_ws_vert_cols).with_columns(cs.numeric().cast(pl.Float32))
@@ -525,10 +530,13 @@ class LookupBasedWakeSteeringController(ControllerBase):
         
         if self.wind_forecast:
             # wf.filter(pl.col("time") < pl.col("time").first() + preview_forecast.controller_timedelta)
-            newest_predictions = forecasted_wind_field.filter(pl.col("time") <= self.current_time + self.num_prediction_stored)\
-                                                      .select(["time"] + self.mean_ws_horz_cols + self.mean_ws_vert_cols 
-                                                            + ((self.sd_ws_horz_cols + self.sd_ws_vert_cols) if self.uncertain else []))\
-                                                      .with_columns(cs.numeric().cast(pl.Float32), pl.col("time").cast(pl.Datetime(time_unit="us")))
+            if use_wind_forecast:
+                newest_predictions = forecasted_wind_field.filter(pl.col("time") <= self.current_time + self.num_prediction_stored)\
+                                                        .select(["time"] + self.mean_ws_horz_cols + self.mean_ws_vert_cols 
+                                                                + ((self.sd_ws_horz_cols + self.sd_ws_vert_cols) if self.uncertain else []))\
+                                                        .with_columns(cs.numeric().cast(pl.Float32), pl.col("time").cast(pl.Datetime(time_unit="us")))
+            else:
+                newest_predictions = None
             # print(newest_predictions)
             self.controls_dict = {
                 "yaw_angles": list(constrained_yaw_setpoints),
