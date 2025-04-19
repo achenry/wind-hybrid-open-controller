@@ -41,7 +41,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
             logging.info(f"Loaded existing {fn} since rerun_simulations argument is false")
             return
     elif not kwargs["rerun_simulations"] and os.path.exists(os.path.join(results_dir, fn.replace("results", f"chk"))):
-        # TODO load checkpoint if exists
+        # TODO HIGH setup checkpointing from temp unless restart flag is passed
         pass
     
     if os.path.exists(save_path):
@@ -101,8 +101,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
                                             use_tuned_params=kwargs["use_tuned_params"],
                                             model_config=kwargs["model_config"],
                                             **{k: v for k, v in simulation_input_dict["wind_forecast"].items() if "timedelta" in k},
-                                            kwargs={k: v for k, v in simulation_input_dict["wind_forecast"].items() if "timedelta" not in k},
-                                            temp_save_dir=kwargs["temp_storage_dir"])
+                                            kwargs={k: v for k, v in simulation_input_dict["wind_forecast"].items() if "timedelta" not in k})
     else:
         wind_forecast = None
     ctrl = controller_class(fi, wind_forecast=wind_forecast, simulation_input_dict=simulation_input_dict, **kwargs)

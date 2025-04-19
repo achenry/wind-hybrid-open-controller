@@ -87,14 +87,14 @@ if __name__ == "__main__":
         logging.info(f"Making Optuna storage directory {model_config['optuna']['storage']['storage_dir']}.")
         os.makedirs(model_config["optuna"]["storage"]["storage_dir"], exist_ok=True)
     
-    data_config["temp_storage_dir"] = replace_env_vars(data_config["temp_storage_dir"])
-    logging.info(f"Making temporary train/val storage directory {data_config['temp_storage_dir']}.")
-    os.makedirs(data_config["temp_storage_dir"], exist_ok=True)
+    # data_config["temp_storage_dir"] = replace_env_vars(data_config["temp_storage_dir"])
+    # logging.info(f"Making temporary train/val storage directory {data_config['temp_storage_dir']}.")
+    # os.makedirs(data_config["temp_storage_dir"], exist_ok=True)
     
     # %% INSTANTIATING MODEL
     logging.info("Instantiating model.")  
     if args.model == "svr": 
-        model = SVRForecast(measurements_timedelta=pd.Timedelta(model_config["dataset"]["resample_freq"]),
+        forecaster = SVRForecast(measurements_timedelta=pd.Timedelta(model_config["dataset"]["resample_freq"]),
                             controller_timedelta=None,
                             prediction_timedelta=data_module.prediction_length*pd.Timedelta(model_config["dataset"]["resample_freq"]),
                             context_timedelta=data_module.context_length*pd.Timedelta(model_config["dataset"]["resample_freq"]),
@@ -103,13 +103,10 @@ if __name__ == "__main__":
                             model_config=model_config,
                             kwargs=dict(kernel="rbf", C=1.0, degree=3, gamma="auto", epsilon=0.1, cache_size=200,
                                         n_neighboring_turbines=3, max_n_samples=None, 
-                                        study_name_root=f"svr_{model_config['experiment']['run_name']}",
                                         use_trained_models=False),
                             tid2idx_mapping=tid2idx_mapping,
                             turbine_signature=turbine_signature,
-                            use_tuned_params=False,
-                            temp_save_dir=data_config["temp_storage_dir"])
-    
+                            use_tuned_params=False)
     
     try:
         # Use the WORKER_RANK variable set explicitly in the Slurm script's nohup block
@@ -147,8 +144,10 @@ if __name__ == "__main__":
         delattr(data_module, "train_dataset")
         delattr(data_module, "val_dataset")
         
-        model.prepare_data(dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, scale=False)
+        forecaster.prepare_data(dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, scale=False)
     
+    scaler_params = data_module.compute_scaler_params()
+        
     logging.info("Initializing storage")
     db_setup_params = generate_df_setup_params(args.model, model_config)
             
@@ -166,19 +165,18 @@ if __name__ == "__main__":
     pruning_kwargs = model_config["optuna"]["pruning"] 
     
     #{"type": "hyperband", "min_resource": 2, "max_resource": 5, "reduction_factor": 3, "percentile": 25}
-    model.tune_hyperparameters_single(study_name=db_setup_params["study_name"],
-                                        storage=optuna_storage,
+    forecaster.tune_hyperparameters_single(storage=optuna_storage,
                                         n_trials_per_worker=model_config["optuna"]["n_trials_per_worker"], 
                                         seed=args.seed,
                                         pruning_kwargs=pruning_kwargs)
                                     #  trial_protection_callback=handle_trial_with_oom_protection)
 
-    # %% TESTING LOADING HYPERPARAMETERS
-    # Test setting parameters
-    # model.set_tuned_params(backend=model_config["optuna"]["backend"], study_name_root=args.study_name, 
-    #                        storage_dir=model_config["optuna"]["storage_dir"]) 
-
+    # %% TRAINING MODEL
+    logging.info("Training model using best hyperparameters.")
+    forecaster.set_tuned_params(storage=optuna_storage, study_name=forecaster.study_name)
+    forecaster.train_all_outputs(train_dataset, scale=False, multiprocessor=args.multiprocessor, 
+                                    retrain_models=True,
+                                    scaler_params=scaler_params)
+    
     # %% After training completes
-    # torch.cuda.empty_cache()
-    gc.collect()
     logging.info("Optuna hyperparameter tuning completed.")

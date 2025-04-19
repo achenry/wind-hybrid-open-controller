@@ -152,8 +152,7 @@ if __name__ == "__main__":
                                             use_tuned_params=True, 
                                             model_config=model_config, wind_field_config=wind_field_config, 
                                             ram_limit=args.ram_limit,
-                                            include_prediction=not args.exclude_prediction,
-                                            temp_storage_dir=None)
+                                            include_prediction=not args.exclude_prediction)
 
                     for c, d in enumerate(input_dicts)]
             
@@ -172,8 +171,7 @@ if __name__ == "__main__":
                                 wind_field_config=wind_field_config, verbose=args.verbose, save_dir=args.save_dir, rerun_simulations=args.rerun_simulations,
                                 turbine_signature=turbine_signature, tid2idx_mapping=tid2idx_mapping,
                                 use_tuned_params=True, model_config=model_config, ram_limit=args.ram_limit,
-                                include_prediction=not args.exclude_prediction,
-                                temp_storage_dir=None)
+                                include_prediction=not args.exclude_prediction)
     
     if args.postprocess_simulations:
         # if (not os.path.exists(os.path.join(args.save_dir, f"time_series_results.csv"))) or (not os.path.exists(os.path.join(args.save_dir, f"agg_results.csv"))):

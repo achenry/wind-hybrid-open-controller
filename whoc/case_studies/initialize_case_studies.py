@@ -53,7 +53,7 @@ case_studies = {
                                     "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/smarteole_farm.yaml"]},
                                     "uncertain": {"group": 2, "vals": [True]},
                                     "wind_forecast_class": {"group": 3, "vals": ["KalmanFilterForecast"]}, #, ", "KalmanFilterForecast", "SpatialFilterForecast"]},
-                                    "study_name_root": {"group": 3, "vals": ["svr_aoifemac_flasc"]},
+                                    "study_name": {"group": 3, "vals": ["svr_aoifemac_flasc"]},
                                     "prediction_timedelta": {"group": 4, "vals": [120]}, #, 120, 180]},
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]}
                                     },
@@ -68,7 +68,7 @@ case_studies = {
                                     "simulation_dt": {"group": 0, "vals": [1]},
                                     "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
                                     "uncertain": {"group": 2, "vals": [True]},
-                                    "wind_forecast_class": {"group": 3, "vals": ["KalmanFilterForecast"]},
+                                    "wind_forecast_class": {"group": 3, "vals": ["SVRForecast"]}, # "MLForecast"
                                     # "model_key": {"group": 3, "vals": ["informer"]},
                                     # "wind_forecast_class": {"group": 3, "vals": ["MLForecast"]},
                                     "prediction_timedelta": {"group": 4, "vals": [60]},
@@ -753,16 +753,17 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                         }, 
                     **input_dicts[start_case_idx + c]["wind_forecast"].setdefault(input_dicts[start_case_idx + c]["controller"]["wind_forecast_class"], {}),
                     }
-                    
-                db_setup_params = generate_df_setup_params(
-                    model=input_dicts[start_case_idx + c]["wind_forecast"][input_dicts[start_case_idx + c]["controller"]["wind_forecast_class"]]["model_key"], 
-                    model_config=input_dicts[start_case_idx + c]["controller"]["wind_forecast_class"])
-                optuna_storage = setup_optuna_storage(
-                    db_setup_params=db_setup_params,
-                    restart_tuning=False,
-                    rank=0
-                )
-                input_dicts[start_case_idx + c]["wind_forecast"]["optuna_storage"] = optuna_storage
+                
+                if "model_key" in input_dicts[start_case_idx + c]["wind_forecast"]:
+                    db_setup_params = generate_df_setup_params(
+                        model=input_dicts[start_case_idx + c]["wind_forecast"]["model_key"], 
+                        model_config=model_config)
+                    optuna_storage = setup_optuna_storage(
+                        db_setup_params=db_setup_params,
+                        restart_tuning=False,
+                        rank=0
+                    )
+                    input_dicts[start_case_idx + c]["wind_forecast"]["optuna_storage"] = optuna_storage
                 
             # need to change num_turbines, floris_input_file, lut_path
             if (target_turbine_indices := input_dicts[start_case_idx + c]["controller"]["target_turbine_indices"])  != "all":
@@ -780,9 +781,6 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             # **{k: v for k, v in input_dicts[start_case_idx + c]["wind_forecast"].items() if isinstance(k, str) and "_kwargs" in k} 
             assert input_dicts[start_case_idx + c]["controller"]["controller_dt"] >= input_dicts[start_case_idx + c]["simulation_dt"], "controller_dt must be greater than or equal to simulation_dt"
              
-             
-            
-            
             # regenerate floris lookup tables for all wind farms included
             # generate LUT for combinations of lut_path/floris_input_file, yaw_limits, uncertain, and target_turbine_indices that arise together
             if regenerate_lut or not os.path.exists(input_dicts[start_case_idx + c]["controller"]["lut_path"]):

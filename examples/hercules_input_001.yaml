@@ -113,11 +113,10 @@ wind_forecast:
     gamma: auto
     epsilon: 0.1
     cache_size: 200
-    n_neighboring_turbines: 3
+    n_neighboring_turbines: 5
     max_n_samples:
-    study_name_root: svr_aoifemac_awaken
   SpatialFilterForecast:
-    n_neighboring_turbines: 3
+    n_neighboring_turbines: 5
   MLForecast:
     model_key: informer
     model_checkpoint: latest
