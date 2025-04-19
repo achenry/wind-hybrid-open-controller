@@ -47,7 +47,6 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     if os.path.exists(save_path):
         os.remove(save_path)
     
-
     logging.info(f"Running instance of {controller_class.__name__} - {kwargs['case_name']} with wind seed {kwargs['wind_case_idx']}")
     # Load a FLORIS object for power calculations
     fi = ControlledFlorisModel(t0=kwargs["wind_field_ts"].select(pl.col("time").first()).item(),
