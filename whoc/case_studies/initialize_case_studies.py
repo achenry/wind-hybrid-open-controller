@@ -599,8 +599,9 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         
         wind_field_ts = sorted(wind_field_ts, reverse=True, key=lambda df: df.select(pl.col("time").last() - pl.col("time").first()).item())
         if n_seeds != "auto":
-            # wind_field_ts = wind_field_ts[:n_seeds] # TODO HIGH
-            wind_field_ts = wind_field_ts[143:144]
+            wind_field_ts = wind_field_ts[:n_seeds] # TODO HIGH
+            # wind_field_ts = wind_field_ts[143:144]
+            
         else:
             n_seeds = len(wind_field_ts)
         
@@ -673,6 +674,11 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         else:
             stoptime = [stoptime] * len(wind_field_ts)
 
+        # TODO HIGH TESTING
+        wind_field_ts = [df.filter((pl.col("time") - pl.col("time").first()).dt.total_seconds() < int(stoptime[d] * 0.15)) for d, df in enumerate(wind_field_ts)]
+        durations = [df.select(pl.col("time").last() - pl.col("time").first()).item() for df in wind_field_ts]
+        whoc_config["hercules_comms"]["helics"]["config"]["stoptime"] = stoptime = [d.total_seconds() for d in durations]
+        
         del data_module
         gc.collect()
     for case_family in case_families:
