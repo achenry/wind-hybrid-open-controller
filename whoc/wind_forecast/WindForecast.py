@@ -55,7 +55,8 @@ from wind_forecasting.preprocessing.data_inspector import DataInspector
 from wind_forecasting.preprocessing.data_module import DataModule
 from wind_forecasting.postprocessing.probabilistic_metrics import continuous_ranked_probability_score_gaussian, reliability, resolution, uncertainty, sharpness, pi_coverage_probability, pi_normalized_average_width, coverage_width_criterion 
 from wind_forecasting.run_scripts.testing import get_checkpoint
-from wind_forecasting.run_scripts.tuning import get_tuned_params
+from wind_forecasting.run_scripts.tuning import get_tuned_params, generate_df_setup_params
+from wind_forecasting.utils.optuna_db_utils import setup_optuna_storage
 
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -178,13 +179,13 @@ class WindForecast:
         # train svr model
         # total_score = 0
         # for output in self.outputs:
-        if self.multiprocessor == "mpi" and mpi_exists:
-            executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
-            # logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
-        else:
-            max_workers = mp.cpu_count()
-            executor = ProcessPoolExecutor(max_workers=max_workers,
-                                                mp_context=mp.get_context("spawn"))
+        # if self.multiprocessor == "mpi" and mpi_exists:
+        #     executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+        #     # logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
+        # else:
+        max_workers = mp.cpu_count()
+        executor = ProcessPoolExecutor(max_workers=max_workers,
+                                            mp_context=mp.get_context("spawn"))
             # logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
             
         with executor as ex:
@@ -216,11 +217,10 @@ class WindForecast:
                 self._get_output_data(measurements=measurements, output=output, split=split, reload=reload, scale=scale)
      
     # def tune_hyperparameters_single(self, historic_measurements, scaler, feat_type, tid, study_name, seed, restart_tuning, backend, storage_dir, n_trials=1):
-    def tune_hyperparameters_single(self, study_name, seed, backend, storage_dir, 
-                                    n_trials=1, 
+    def tune_hyperparameters_single(self, study_name, seed, storage, 
+                                    n_trials_per_worker=1, 
                                     pruning_kwargs=None):
         # for case when argument is list of multiple continuous time series AND to only get the training inputs/outputs relevant to this model
-        storage = self.get_storage(backend=backend, study_name=study_name, storage_dir=storage_dir)
         
         # Configure pruner based on settings
         if pruning_kwargs:
@@ -277,7 +277,7 @@ class WindForecast:
         objective_fn = self._tuning_objective
         
         try:
-            study.optimize(objective_fn, n_trials=n_trials, show_progress_bar=True)
+            study.optimize(objective_fn, n_trials=n_trials_per_worker, show_progress_bar=True)
         except Exception as e:
             logging.error(f"Worker {worker_id} failed with error: {str(e)}")
             logging.error(f"Error details: {type(e).__name__}")
@@ -423,7 +423,7 @@ class WindForecast:
         else:
             return X_all, y_all
     
-    def set_tuned_params(self, backend, study_name_root, storage_dir):
+    def set_tuned_params(self, storage, study_name_root):
         """_summary_
 
         Args:
@@ -437,7 +437,7 @@ class WindForecast:
         """
         if len(self.outputs) > 1:
             for output in self.outputs:
-                storage = self.get_storage(backend=backend, study_name=f"{study_name_root}_{output}", storage_dir=storage_dir)
+                # storage = self.get_storage(backend=backend, study_name=f"{study_name_root}_{output}", storage_dir=storage_dir)
                 try:
                     study_id = storage.get_study_id_from_name(f"{study_name_root}_{output}")
                     self.model[output] = self.create_model(**storage.get_best_trial(study_id).params)
@@ -988,9 +988,8 @@ class SVRForecast(WindForecast):
         
         # no need to load optuna trained hyperparams if we are loading models anyway
         if (not self.use_trained_models or len(model_files) < self.n_outputs or len(scaler_files) < self.n_outputs) and self.use_tuned_params:
-            self.set_tuned_params(backend=self.model_config["optuna"]["storage"]["backend"], 
-                                    study_name_root=self.study_name_root, 
-                                    storage_dir=self.model_config["optuna"]["storage_dir"])
+            self.set_tuned_params(storage=self.kwargs["optuna_storage"], 
+                                    study_name_root=self.study_name_root)
             self.use_trained_models = False
         
         # if we want to use previously trained models fetch them, otherwise models will need to be trained
@@ -1534,9 +1533,8 @@ class MLForecast(WindForecast):
             try:
                 logging.info("Getting tuned parameters")
                 # study_name, backend, storage_dir
-                tuned_params = get_tuned_params(study_name=f"tuning_{self.model_key}_{self.model_config['experiment']['run_name']}", 
-                                                backend=self.model_config["optuna"]["storage"]["backend"], 
-                                                storage_dir=self.model_config["optuna"]["storage_dir"])
+                tuned_params = get_tuned_params(storage=self.kwargs["optuna_storage"],
+                                                study_name=f"tuning_{self.model_key}_{self.model_config['experiment']['run_name']}")
                 logging.info(f"Declaring estimator {self.model_key.capitalize()} with tuned parameters")
                 self.model_config["dataset"].update({k: v for k, v in tuned_params.items() if k in self.model_config["dataset"]})
                 self.model_config["model"][self.model_key].update({k: v for k, v in tuned_params.items() if k in self.model_config["model"][self.model_key]})
@@ -2350,6 +2348,16 @@ if __name__ == "__main__":
     evaluator = MultivariateEvaluator(num_workers=None, 
         custom_eval_fn=custom_eval_fn
     )
+            
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
+    
+    db_setup_params = generate_df_setup_params(args.model, model_config)
+    optuna_storage = setup_optuna_storage(
+        db_setup_params=db_setup_params,
+        restart_tuning=args.restart_tuning,
+        rank=rank
+    )
      
     forecasters = []
     ## GENERATE PERFECT PREVIEW \
@@ -2392,6 +2400,7 @@ if __name__ == "__main__":
         
     ## GENERATE SVR PREVIEW
     if "svr" in args.model:
+        
         for td in prediction_timedelta:
             forecaster = SVRForecast(measurements_timedelta=measurements_timedelta,
                                     controller_timedelta=controller_timedelta,
@@ -2402,7 +2411,8 @@ if __name__ == "__main__":
                                     kwargs=dict(kernel="rbf", C=1.0, degree=3, gamma="auto", epsilon=0.1, cache_size=200,
                                                 n_neighboring_turbines=3, max_n_samples=None, 
                                                 study_name_root=f"svr_{model_config['experiment']['run_name']}",
-                                                use_trained_models=args.use_trained_models),
+                                                use_trained_models=args.use_trained_models,
+                                                optuna_storage=optuna_storage),
                                     tid2idx_mapping=tid2idx_mapping,
                                     turbine_signature=turbine_signature,
                                     use_tuned_params=args.use_tuned_params,
@@ -2464,7 +2474,9 @@ if __name__ == "__main__":
                                     use_tuned_params=True,
                                     model_config=model_config,
                                     kwargs=dict(model_key=model,
-                                                model_checkpoint=args.checkpoint),
+                                                model_checkpoint=args.checkpoint,
+                                                optuna_storage=optuna_storage,
+                                                study_name=study_name),
                                     temp_save_dir=data_config["temp_storage_dir"]
                                     )
         forecasters.append(forecaster)

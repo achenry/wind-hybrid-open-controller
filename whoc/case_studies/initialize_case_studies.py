@@ -119,7 +119,7 @@ case_studies = {
         # "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73"]},
         # "uncertain": {"group": 1, "vals": [False, True]},
         # "wind_forecast_class": {"group": 1, "vals": ["PerfectForecast", "PerfectForecast"]},
-        "prediction_timedelta": {"group": 2, "vals": [0, 60, 120, 180, 240, 300, 360, 420, 480, 540, 600, 660, 720, 780, 840, 900, 960, 1020, 1080]},
+        "prediction_timedelta": {"group": 2, "vals": [60, 0, 120, 180, 240, 300, 360, 420, 480, 540, 600, 660, 720, 780, 840, 900, 960, 1020, 1080]},
         },
     "baseline_controllers_perfect_forecaster_flasc": {
         "controller_dt": {"group": 0, "vals": [5]},
@@ -565,7 +565,6 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         
         wind_field_ts = [wind_field_ts[case_idx].select(["time", "FreestreamWindMag", "FreestreamWindDir"]) for case_idx in range(n_seeds)] 
         
-        
         if stoptime == "auto": 
             durations = [(df.select((pl.col("time").last() - pl.col("time").first()).dt.total_seconds())) for df in wind_field_ts]
             # whoc_config["hercules_comms"]["helics"]["config"]["stoptime"] = stoptime = min([d.total_seconds() if hasattr(d, 'total_seconds') else d for d in durations])
@@ -600,8 +599,8 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         
         wind_field_ts = sorted(wind_field_ts, reverse=True, key=lambda df: df.select(pl.col("time").last() - pl.col("time").first()).item())
         if n_seeds != "auto":
-            wind_field_ts = wind_field_ts[:n_seeds] # TODO HIGH
-            # wind_field_ts = wind_field_ts[10:11]
+            # wind_field_ts = wind_field_ts[:n_seeds] # TODO HIGH
+            wind_field_ts = wind_field_ts[143:144]
         else:
             n_seeds = len(wind_field_ts)
         
@@ -813,19 +812,19 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             if os.path.basename(ts_file) not in allowed_ts_files:
                 os.remove(ts_file)
         
-    prediction_timedelta = max(inp["wind_forecast"]["prediction_timedelta"] for inp in input_dicts if inp["controller"]["wind_forecast_class"]) \
-            if any(inp["controller"]["wind_forecast_class"] for inp in input_dicts) else pd.Timedelta(seconds=0)
-    horizon_timedelta = max(pd.Timedelta(seconds=inp["controller"]["n_horizon"] * inp["controller"]["controller_dt"]) for inp in input_dicts if inp["controller"]["n_horizon"]) \
-            if any(inp["controller"]["controller_class"] == "MPC" for inp in input_dicts) else pd.Timedelta(seconds=0)
+    # prediction_timedelta = max(inp["wind_forecast"]["prediction_timedelta"] for inp in input_dicts if inp["controller"]["wind_forecast_class"]) \
+    #         if any(inp["controller"]["wind_forecast_class"] for inp in input_dicts) else pd.Timedelta(seconds=0)
+    # horizon_timedelta = max(pd.Timedelta(seconds=inp["controller"]["n_horizon"] * inp["controller"]["controller_dt"]) for inp in input_dicts if inp["controller"]["n_horizon"]) \
+    #         if any(inp["controller"]["controller_class"] == "MPC" for inp in input_dicts) else pd.Timedelta(seconds=0)
     # stoptime -= prediction_timedelta.total_seconds()
     # assert stoptime > 0, "increase stoptime parameter and/or decresease prediction_timedetla, as stoptime < prediction_timedelta"
 
     # assert all([(df["time"].iloc[-1] - df["time"].iloc[0]).total_seconds() >= stoptime + prediction_timedelta + horizon_timedelta for df in wind_field_ts])
-    wind_field_ts = [df.filter((pl.col("time") - pl.col("time").first()).dt.total_seconds() 
-                        <= stoptime[d] + prediction_timedelta.total_seconds() + horizon_timedelta.total_seconds())
-                    for d, df in enumerate(wind_field_ts)]
+    # wind_field_ts = [df.filter((pl.col("time") - pl.col("time").first()).dt.total_seconds() 
+    #                     <= stoptime[d] + prediction_timedelta.total_seconds() + horizon_timedelta.total_seconds())
+    #                 for d, df in enumerate(wind_field_ts)]
     # stoptime = max(min([((df["time"].iloc[-1] - df["time"].iloc[0]) - prediction_timedelta - horizon_timedelta).total_seconds() for df in wind_field_ts]), stoptime)
-    stoptime = [min((df.select(pl.col("time").last() - pl.col("time").first()).item() - prediction_timedelta - horizon_timedelta).total_seconds(), stoptime[d]) for d, df in enumerate(wind_field_ts)]
+    # stoptime = [min((df.select(pl.col("time").last() - pl.col("time").first()).item() - prediction_timedelta - horizon_timedelta).total_seconds(), stoptime[d]) for d, df in enumerate(wind_field_ts)]
     
     total_cases = int(len(input_filenames) / n_seeds)
     written_input_files = set()
