@@ -96,8 +96,8 @@ if __name__ == "__main__":
             
             turbine_signature = data_config["turbine_signature"][0] if len(data_config["turbine_signature"]) == 1 else "\\d+"
             
-            temp_storage_dir = data_config["temp_storage_dir"]
-            os.makedirs(temp_storage_dir, exist_ok=True)
+            # temp_storage_dir = data_config["temp_storage_dir"]
+            # os.makedirs(temp_storage_dir, exist_ok=True)
             # optuna_args = model_config.setdefault("optuna", None)
     
         else:
@@ -105,7 +105,7 @@ if __name__ == "__main__":
             data_config = None
             turbine_signature = None
             tid2idx_mapping = None
-            temp_storage_dir = None
+            # temp_storage_dir = None
             
         logging.info(f"running initialize_simulations for case_ids {[case_families[i] for i in args.case_ids]}")
         case_lists, case_name_lists, input_dicts, wind_field_config, wind_field_ts \
@@ -153,7 +153,7 @@ if __name__ == "__main__":
                                             model_config=model_config, wind_field_config=wind_field_config, 
                                             ram_limit=args.ram_limit,
                                             include_prediction=not args.exclude_prediction,
-                                            temp_storage_dir=temp_storage_dir)
+                                            temp_storage_dir=None)
 
                     for c, d in enumerate(input_dicts)]
             
@@ -173,7 +173,7 @@ if __name__ == "__main__":
                                 turbine_signature=turbine_signature, tid2idx_mapping=tid2idx_mapping,
                                 use_tuned_params=True, model_config=model_config, ram_limit=args.ram_limit,
                                 include_prediction=not args.exclude_prediction,
-                                temp_storage_dir=temp_storage_dir)
+                                temp_storage_dir=None)
     
     if args.postprocess_simulations:
         # if (not os.path.exists(os.path.join(args.save_dir, f"time_series_results.csv"))) or (not os.path.exists(os.path.join(args.save_dir, f"agg_results.csv"))):
