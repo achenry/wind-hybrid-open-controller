@@ -11,6 +11,8 @@ from wind_forecasting.preprocessing.data_module import DataModule
 from whoc.wind_forecast.WindForecast import generate_wind_field_df
 import gc
 import re
+from wind_forecasting.utils.optuna_db_utils import setup_optuna_storage
+from wind_forecasting.run_scripts.tuning import generate_df_setup_params
 #from line_profiler import profile
 # from datetime import timedelta
 
@@ -751,6 +753,16 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                         }, 
                     **input_dicts[start_case_idx + c]["wind_forecast"].setdefault(input_dicts[start_case_idx + c]["controller"]["wind_forecast_class"], {}),
                     }
+                    
+                db_setup_params = generate_df_setup_params(
+                    model=input_dicts[start_case_idx + c]["wind_forecast"][input_dicts[start_case_idx + c]["controller"]["wind_forecast_class"]]["model_key"], 
+                    model_config=input_dicts[start_case_idx + c]["controller"]["wind_forecast_class"])
+                optuna_storage = setup_optuna_storage(
+                    db_setup_params=db_setup_params,
+                    restart_tuning=False,
+                    rank=0
+                )
+                input_dicts[start_case_idx + c]["wind_forecast"]["optuna_storage"] = optuna_storage
                 
             # need to change num_turbines, floris_input_file, lut_path
             if (target_turbine_indices := input_dicts[start_case_idx + c]["controller"]["target_turbine_indices"])  != "all":
@@ -768,6 +780,9 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             # **{k: v for k, v in input_dicts[start_case_idx + c]["wind_forecast"].items() if isinstance(k, str) and "_kwargs" in k} 
             assert input_dicts[start_case_idx + c]["controller"]["controller_dt"] >= input_dicts[start_case_idx + c]["simulation_dt"], "controller_dt must be greater than or equal to simulation_dt"
              
+             
+            
+            
             # regenerate floris lookup tables for all wind farms included
             # generate LUT for combinations of lut_path/floris_input_file, yaw_limits, uncertain, and target_turbine_indices that arise together
             if regenerate_lut or not os.path.exists(input_dicts[start_case_idx + c]["controller"]["lut_path"]):
