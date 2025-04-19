@@ -180,16 +180,20 @@ class GreedyController(ControllerBase):
 
         new_yaw_setpoints = np.array(current_yaw_setpoints)
         
-        if self.wind_forecast:
-            # TODO HIGH if still too memory intensive, could pass wind_field_ts to predict point for perfect forecast instead
+        if self.wind_forecast and self.wind_forecast.prediction_timedelta.total_seconds() > 0:
             forecasted_wind_field = self.wind_forecast.predict_point(self.historic_measurements, self.current_time)
             single_forecasted_wind_field = forecasted_wind_field.filter(pl.col("time") == self.current_time + self.wind_forecast.prediction_timedelta)
+            use_wind_forecast = True
+        else:
+            forecasted_wind_field = None
+            single_forecasted_wind_field = None
+            use_wind_forecast = False
         
         if (((self.current_time - self.init_time).total_seconds() % self.controller_dt) == 0.0):
             
             # if not enough wind data has been collected to filter with, or we are not using filtered data, just get the most recent wind measurements
             if self.current_time < self.lpf_start_time or not self.wind_dir_use_filt:
-                wind = single_forecasted_wind_field if self.wind_forecast else current_measurements
+                wind = single_forecasted_wind_field if use_wind_forecast else pl.from_dataframe(current_measurements)
                 wind_dirs = 180.0 + np.rad2deg(np.arctan2(
                     wind.select(self.mean_ws_horz_cols).to_numpy()[-1, :], 
                     wind.select(self.mean_ws_vert_cols).to_numpy()[-1, :]))
@@ -202,7 +206,7 @@ class GreedyController(ControllerBase):
                 
             else:
                 # use filtered wind direction and speed     
-                if self.wind_forecast:
+                if use_wind_forecast:
                     hist_meas = self.historic_measurements
                     wind = pl.concat([hist_meas.select(self.mean_ws_horz_cols + self.mean_ws_vert_cols).with_columns(cs.numeric().cast(pl.Float32)), 
                                         forecasted_wind_field.select(self.mean_ws_horz_cols + self.mean_ws_vert_cols).with_columns(cs.numeric().cast(pl.Float32))
@@ -271,10 +275,12 @@ class GreedyController(ControllerBase):
         # self.init_sol["control_inputs"] = (constrained_yaw_setpoints - self.controls_dict["yaw_angles"]) * (self.yaw_norm_const / (self.yaw_rate * self.controller_dt))
 
         if self.wind_forecast:
-            
-            newest_predictions = forecasted_wind_field.filter(pl.col("time") <= self.current_time + self.num_prediction_stored)\
-                                                      .select(["time"] + self.mean_ws_horz_cols + self.mean_ws_vert_cols)\
-                                                      .with_columns(cs.numeric().cast(pl.Float32), pl.col("time").cast(pl.Datetime(time_unit="us")))
+            if use_wind_forecast:
+                newest_predictions = forecasted_wind_field.filter(pl.col("time") <= self.current_time + self.num_prediction_stored)\
+                                                        .select(["time"] + self.mean_ws_horz_cols + self.mean_ws_vert_cols)\
+                                                        .with_columns(cs.numeric().cast(pl.Float32), pl.col("time").cast(pl.Datetime(time_unit="us")))
+            else:
+                newest_predictions = None
             self.controls_dict = {"yaw_angles": list(constrained_yaw_setpoints),
                                   "predicted_wind_speeds": newest_predictions
                                     # "predicted_time":  newest_predictions["time"].values,
