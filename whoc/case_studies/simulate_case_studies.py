@@ -35,7 +35,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     if not kwargs["rerun_simulations"] and os.path.exists(save_path):
         results_df = pd.read_csv(os.path.join(results_dir, fn), low_memory=False)
         # check if this saved df completed successfully
-        if results_df["Time"].iloc[-1] == simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"] - simulation_input_dict["simulation_dt"] + simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds():
+        if results_df["Time"].iloc[-1] == stoptime - simulation_input_dict["simulation_dt"] + simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds():
             logging.info(f"Loaded existing {fn} since rerun_simulations argument is false")
             return
     elif not kwargs["rerun_simulations"] and os.path.exists(os.path.join(results_dir, fn.replace("results", f"chk"))):
@@ -159,7 +159,8 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         simulation_v = simulation_mag * np.cos(np.deg2rad(180 + simulation_dir))
         
     # recompute controls and step floris forward by ctrl.controller_dt
-    while t < simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"]:
+    stoptime = simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"]
+    while t < stoptime:
 
         # reiniitialize and run FLORIS interface with current disturbances and disturbance up to (and excluding) next controls computation
         # using yaw angles as most recently sent from last time-step i.e. initial yaw conditions for first time step
@@ -249,7 +250,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         # assert np.all(ctrl.controls_dict['yaw_angles'] == ctrl.measurements_dict["wind_directions"] - fi.env.floris.farm.yaw_angles)
         # add freestream wind mags/dirs provided to controller, yaw angles computed at this time-step, resulting turbine powers, wind mags, wind dirs
         # if ctrl.verbose:
-        logging.info(f"Time = {t} of {controller_class.__name__} - {kwargs['case_name']} with wind seed {kwargs['wind_case_idx']}")
+        logging.info(f"Time = {t}/{stoptime} of {controller_class.__name__} - {kwargs['case_name']} with wind seed {kwargs['wind_case_idx']}")
         if ctrl.verbose and False:
             logging.info(f"Measured Freestream Wind Direction = {simulation_dir[k]}",
                 f"Measured Freestream Wind Magnitude = {simulation_mag[k]}",
@@ -276,7 +277,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         if (ram_used := virtual_memory().percent) > kwargs["ram_limit"]:
             logging.info(f"Used {ram_used}% RAM.")
             # turn data into arrays, pandas dataframe, and export to csv
-            final = (t>=simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"])
+            final = (t>=stoptime)
             write_df(case_family=kwargs["case_family"],
                     case_name=kwargs["case_name"],
                     wind_case_idx=kwargs["wind_case_idx"],
@@ -395,7 +396,7 @@ def write_df(case_family, case_name, wind_case_idx, wf_source, wind_field_ts,
     # running_opt_cost_terms_ts[:, 1] = np.sum(np.stack([0.5 * (norm_yaw_angle_changes[:, i])**2 * R for i in range(ctrl.n_turbines)], axis=1), axis=1)
     running_opt_cost_terms_ts[:, 1] = np.nan
     
-    # may be longer than following: int(simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"] // simulation_input_dict["simulation_dt"]), if controller step goes beyond
+    # may be longer than following: int(stoptime // simulation_input_dict["simulation_dt"]), if controller step goes beyond
     start_step = int(start_time / simulation_input_dict["simulation_dt"])
     
     if start_step >= 0:
