@@ -154,7 +154,7 @@ class WindForecast:
     
     def _compute_output_score(self, output, params):
         # logging.info(f"Defining model for output {output}.")
-        model = self.__class__.create_model(**{re.search(f"\\w+(?=_{output})", k).group(0): v for k, v in params.items() if k.endswith(f"_{output}")})
+        model = self.create_model(**{re.search(f"\\w+(?=_{output})", k).group(0): v for k, v in params.items() if k.endswith(f"_{output}")})
         
         # get training data for this output
         # logging.info(f"Getting training data for output {output}.")
@@ -448,7 +448,7 @@ class WindForecast:
                 # storage.get_all_studies()[0]._study_id
                 
         else:
-            storage = self.get_storage(backend=backend, study_name=f"{study_name_root}", storage_dir=storage_dir)
+            # storage = self.get_storage(backend=backend, study_name=f"{study_name_root}", storage_dir=storage_dir)
             try:
                 study_id = storage.get_study_id_from_name(f"{study_name_root}")
                 self.model = self.create_model(**storage.get_best_trial(study_id).params)
@@ -1294,13 +1294,13 @@ class KalmanFilterForecast(WindForecast):
         self.prediction_interval = self.n_prediction_interval * self.measurements_timedelta
         self.n_turbines = self.fmodel.n_turbines
         dim_x = dim_z = self.n_targets_per_turbine * self.n_turbines
-        self.model = KalmanFilterForecast.create_model(
+        self.model = self.create_model(
             dim_x=dim_x, 
             dim_z=dim_z,
             F=np.eye(dim_x), # identity matrix predicts x_t = x_t-1 + Q_t
             H=np.eye(dim_z) # identity matrix predicts x_t = x_t-1 + Q_t
         )
-        self.scaler = KalmanFilterForecast.create_scaler()
+        self.scaler = self.create_scaler()
         
         # store last context of w_t = x_t - x_(t-1) and v_t = z_t - H_t x_t
         self.historic_w = np.zeros((0, dim_x))
@@ -1313,12 +1313,10 @@ class KalmanFilterForecast(WindForecast):
         self.n_context = int(self.context_timedelta / self.prediction_timedelta)
         assert self.n_context >= 2, "For KalmanFilterForecaster, context_timedelta must be at least 2 times prediction_timedelta, since prediction_timedelta is the time interval at which it makes new estimates"
          
-    @staticmethod
-    def create_scaler():
+    def create_scaler(self):
         return None
     
-    @staticmethod
-    def create_model(dim_x, dim_z, **kwargs):
+    def create_model(self, dim_x, dim_z, **kwargs):
         model = KalmanFilterWrapper(dim_x=dim_x, dim_z=dim_z)
         if "F" in kwargs:
             model.F = kwargs["F"]
