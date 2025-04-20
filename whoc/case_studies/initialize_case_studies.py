@@ -3,6 +3,7 @@ import pickle
 import yaml
 import copy
 import sys
+import shutil
 from glob import glob
 from itertools import product
 from functools import partial
@@ -60,8 +61,8 @@ case_studies = {
     "baseline_controllers_forecasters_test_awaken": {
                                     # "target_turbine_indices": {"group": 1, "vals": ["74,73", "4,"]},
                                     # "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
-                                    "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
-                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
+                                    "target_turbine_indices": {"group": 1, "vals": ["74,73", "4,"]},
+                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
                                     "controller_dt": {"group": 0, "vals": [5]},
                                     "use_filtered_wind_dir": {"group": 0, "vals": [True]},
                                     "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
@@ -71,7 +72,7 @@ case_studies = {
                                     "wind_forecast_class": {"group": 3, "vals": ["SVRForecast"]}, # "MLForecast"
                                     # "model_key": {"group": 3, "vals": ["informer"]},
                                     # "wind_forecast_class": {"group": 3, "vals": ["MLForecast"]},
-                                    "prediction_timedelta": {"group": 4, "vals": [60]},
+                                    "prediction_timedelta": {"group": 4, "vals": [300]},
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]}
                                     },
     "baseline_controllers_forecasters_flasc": {"controller_dt": {"group": 0, "vals": [5]},
@@ -601,8 +602,9 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         
         wind_field_ts = sorted(wind_field_ts, reverse=True, key=lambda df: df.select(pl.col("time").last() - pl.col("time").first()).item())
         if n_seeds != "auto":
-            wind_field_ts = wind_field_ts[:n_seeds] # TODO HIGH
+            wind_field_ts = wind_field_ts[:n_seeds]
             # wind_field_ts = wind_field_ts[143:144]
+            # n_seeds = 1
             
         else:
             n_seeds = len(wind_field_ts)
@@ -649,7 +651,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                 
         wind_field_config = {}
 
-        # TODO TESTING
+        # FOR TESTING
         if False:
             import csv
             from itertools import islice
@@ -687,6 +689,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
     for case_family in case_families:
         case_studies[case_family]["wind_case_idx"] = {"group": max(d["group"] for d in case_studies[case_family].values()) + 1, "vals": [i for i in range(n_seeds)]}
 
+    input_dicts_to_write = []
     input_dicts = []
     case_lists = []
     case_name_lists = []
@@ -694,6 +697,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
     lut_cases = set()
     input_filenames = []
     for case_study_key in case_study_keys:
+        input_df = []
         case_list, case_names = CaseGen_General(case_studies[case_study_key], namebase=case_study_key)
         case_lists = case_lists + case_list
         case_name_lists = case_name_lists + case_names
@@ -744,10 +748,11 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             assert all(input_dicts[start_case_idx + c]["controller"]["controller_dt"] <= t for t in stoptime)
             
             if input_dicts[start_case_idx + c]["controller"]["wind_forecast_class"] or "wind_forecast_class" in case: 
+                assert (input_dicts[start_case_idx + c]["controller"]["wind_forecast_class"] == "PerfectForecast") or input_dicts[start_case_idx + c]["wind_forecast"]["prediction_timedelta"] <= model_config["dataset"]["prediction_length"], "Provided prediction_timedelta must be less or equal to model config prediction length."
                 input_dicts[start_case_idx + c]["wind_forecast"] \
                     = {**{
                         "measurements_timedelta": wind_field_ts[0].select(pl.col("time").diff().slice(1,1)).item(),
-                        "context_timedelta": pd.Timedelta(seconds=input_dicts[start_case_idx + c]["wind_forecast"]["context_timedelta"]),
+                        "context_timedelta": pd.Timedelta(seconds=model_config["dataset"]["context_length"]), # pd.Timedelta(seconds=input_dicts[start_case_idx + c]["wind_forecast"]["context_timedelta"]),
                         "prediction_timedelta": pd.Timedelta(seconds=input_dicts[start_case_idx + c]["wind_forecast"]["prediction_timedelta"]),
                         "controller_timedelta": pd.Timedelta(seconds=input_dicts[start_case_idx + c]["controller"]["controller_dt"])
                         }, 
@@ -803,23 +808,71 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
 
                 input_dicts[start_case_idx + c]["controller"]["generate_lut"] = False
             
-            # TODO rename this by index with only config updates from case inside
-            fn = f'input_config_case_{"_".join(
-                [f"{key}_{val if (isinstance(val, str) or isinstance(val, np.str_) or isinstance(val, bool)) else np.round(val, 6)}" for key, val in case.items() \
-                    if key not in ["simulation_dt", "use_filtered_wind_dir", "use_lut_filtered_wind_dir", "yaw_limits", "wind_case_idx", "seed", "floris_input_file", "lut_path"]]) \
-                    if "case_names" not in case else case["case_names"]}.pkl'.replace("/", "_")
-
+            # rename this by index with only config updates from case inside, add dataframe csv linking case indices to names/params
+            if case_lists[start_case_idx + c]["wind_case_idx"] == 0:
+                # only generate input_df row for one wind seed
+                input_df.append(pd.DataFrame(data={k: [v] for k, v in case.items() if k != "wind_case_idx"}))
+            
+            fn = f"input_config_case_{len(input_df) - 1}.pkl"
             input_filenames.append((case_study_key, case_lists[start_case_idx + c]["wind_case_idx"], fn))
+            # fn = f'input_config_case_{"_".join(
+            #     [f"{key}_{val if (isinstance(val, str) or isinstance(val, np.str_) or isinstance(val, bool)) else np.round(val, 6)}" for key, val in case.items() \
+            #         if key not in ["simulation_dt", "use_filtered_wind_dir", "use_lut_filtered_wind_dir", "yaw_limits", "wind_case_idx", "seed", "floris_input_file", "lut_path"]]) \
+            #         if "case_names" not in case else case["case_names"]}.pkl'.replace("/", "_")
 
+        input_df = pd.concat(input_df, ignore_index=True, axis=0)
+        input_df.to_csv(os.path.join(save_dir, case_study_key, "case_descriptions.csv"), index=False)
+        
+    # TEMP change the filenames of old simulations to new
+    if False:
+        for case_study_key in case_study_keys:
+            results_dir = os.path.join(save_dir, case_study_key)
+            inp_info = pd.read_csv(os.path.join(results_dir, "case_descriptions.csv"))
+            for inp_file in glob(os.path.join(results_dir, "input_config_case_*.pkl")):
+                fn = os.path.basename(inp_file)
+                # get info from filename, find which index in inp_info it corresponds to, and rename it
+                try:
+                    ctrl_cls = re.search("(?<=controller_class_)(\\w+)(?=_controller_dt)", fn).group()
+                    ctrl_dt = int(re.search("(?<=controller_dt_)(\\d+)(?=_prediction_timedelta)", fn).group())
+                    prediction_timedelta = int(re.search("(?<=prediction_timedelta_)(\\d+)(?=_target_turbine_indices)", fn).group())
+                    tgt_turb_ind = re.search("(?<=target_turbine_indices_)(.*)(?=_uncertain)", fn).group()
+                    unc_flag = True if re.search("(?<=uncertain_)(.*)(?=_wind_forecast_class)", fn).group() == "True" else False
+                    wind_fct_cls = re.search("(?<=wind_forecast_class_)(\\w+)(?=.pkl)", fn).group()
+                    new_case_name = inp_info.loc[(inp_info["controller_class"] == ctrl_cls) & (inp_info["controller_dt"] == ctrl_dt) & (inp_info["prediction_timedelta"] == prediction_timedelta) & (inp_info["target_turbine_indices"] == tgt_turb_ind) & (inp_info["uncertain"] == unc_flag) & (inp_info["wind_forecast_class"] == wind_fct_cls), :].index[0]
+                    shutil.move(inp_file, 
+                                os.path.join(results_dir, 
+                                             re.sub("(?<=input_config_case_)(.*)(?=\\.pkl)", 
+                                                    str(new_case_name), os.path.basename(inp_file))))
+                except AttributeError:
+                    continue
+            
+            for ts_file in glob(os.path.join(results_dir, "*.csv")):
+                if os.path.basename(ts_file) == "case_descriptions.csv":
+                    continue
+                try:
+                    fn = os.path.basename(ts_file)
+                    ctrl_cls = re.search("(?<=controller_class_)(\\w+)(?=_controller_dt)", fn).group()
+                    ctrl_dt = int(re.search("(?<=controller_dt_)(\\d+)(?=_prediction_timedelta)", fn).group())
+                    prediction_timedelta = int(re.search("(?<=prediction_timedelta_)(\\d+)(?=_target_turbine_indices)", fn).group())
+                    tgt_turb_ind = re.search("(?<=target_turbine_indices_)(.*)(?=_uncertain)", fn).group()
+                    unc_flag = True if re.search("(?<=uncertain_)(.*)(?=_wind_forecast_class)", fn).group() == "True" else False
+                    wind_fct_cls = re.search("(?<=wind_forecast_class_)(\\w+)(?=_seed_\\d+.csv)", fn).group()
+                    new_case_name = inp_info.loc[(inp_info["controller_class"] == ctrl_cls) & (inp_info["controller_dt"] == ctrl_dt) & (inp_info["prediction_timedelta"] == prediction_timedelta) & (inp_info["target_turbine_indices"] == tgt_turb_ind) & (inp_info["uncertain"] == unc_flag) & (inp_info["wind_forecast_class"] == wind_fct_cls), :].index[0]
+                    shutil.move(ts_file, 
+                                os.path.join(results_dir, 
+                                             re.sub("(?<=time_series_results_case_)(.*)(?=_seed_\\d+\\.csv)", 
+                                                    str(new_case_name), os.path.basename(ts_file))))
+                except AttributeError:
+                    continue
+        
     # delete any input files/time series files that don't belong
-    # fn = f"time_series_results_case_{kwargs['case_name']}_seed_{kwargs['wind_case_idx']}.csv".replace("/", "_")
-    # for case_study_key, wind_case_idx, inp_fn in input_filenames:
+    # pattern = "(?<=input_config_case_)(.*)(?=\\.pkl)"
     pattern = "(?<=input_config_case_)(.*)(?=\\.pkl)"
-    # case_names = [re.search(pattern, fn).group() for _,_,fn in input_filenames]
-    ts_filenames = [tuple([csk, wind_case_idx, f"time_series_results_case_{re.search(pattern, fn).group()}_seed_{wind_case_idx}.csv".replace("/", "_")]) for csk, wind_case_idx, fn in input_filenames]
+    # ts_filenames = [tuple([csk, wind_case_idx, f"time_series_results_case_{re.search(pattern, fn).group()}_seed_{wind_case_idx}.csv".replace("/", "_")]) for csk, wind_case_idx, fn in input_filenames]
+    ts_filenames = [tuple([csk, f"time_series_results_case_{re.search(pattern, fn).group()}_seed_{wind_case_idx}.csv"]) for csk, wind_case_idx, fn in input_filenames]
     for case_study_key in case_study_keys:
         allowed_input_files = set([fn for csk, _, fn in input_filenames if csk == case_study_key])
-        allowed_ts_files = set([fn for csk, _, fn in ts_filenames if csk == case_study_key])
+        allowed_ts_files = set([fn for csk, fn in ts_filenames if csk == case_study_key])
         # allowed_ts_files = set([
         #     f"time_series_results_case_{re.search('(?<=input_config_case_)(.*)(?=\\.pkl)', fn).group()}_seed_{wind_case_idx}.csv".replace("/", "_") 
         #     for csk, wind_case_idx, fn in input_filenames if csk == case_study_key])
@@ -828,7 +881,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         for inp_file in glob(os.path.join(results_dir, "input_config_case_*.pkl")):
             if os.path.basename(inp_file) not in allowed_input_files:
                 os.remove(inp_file)
-        for ts_file in glob(os.path.join(results_dir, "*.csv")):
+        for ts_file in glob(os.path.join(results_dir, "time_series_results_case_*.csv")):
             if os.path.basename(ts_file) not in allowed_ts_files:
                 os.remove(ts_file)
         
@@ -848,6 +901,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
     
     total_cases = int(len(input_filenames) / n_seeds)
     written_input_files = set()
+    
     for f, ((case_study_key, wind_case_idx, fn), inp) in enumerate(zip(input_filenames, input_dicts)):
         
         inp["hercules_comms"]["helics"]["config"]["stoptime"] = stoptime[wind_case_idx]
@@ -856,7 +910,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             results_dir = os.path.join(save_dir, case_study_key)
             os.makedirs(results_dir, exist_ok=True)
             with open(os.path.join(results_dir, fn), 'wb') as fp:
-                pickle.dump(inp, fp)
+                pickle.dump(inp, fp) # TODO this adds different stop times for each file
             written_input_files.add(fn)
     
     # instantiate controller and run_simulations simulation
