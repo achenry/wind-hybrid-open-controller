@@ -94,6 +94,7 @@ if __name__ == "__main__":
     # %% INSTANTIATING MODEL
     logging.info("Instantiating model.")  
     if args.model == "svr": 
+        # NOTE: n_neighboring_turbines must be the same as in herculesinput_001.yaml
         forecaster = SVRForecast(measurements_timedelta=pd.Timedelta(model_config["dataset"]["resample_freq"]),
                             controller_timedelta=None,
                             prediction_timedelta=data_module.prediction_length*pd.Timedelta(model_config["dataset"]["resample_freq"]),
@@ -102,7 +103,7 @@ if __name__ == "__main__":
                             true_wind_field=None,
                             model_config=model_config,
                             kwargs=dict(kernel="rbf", C=1.0, degree=3, gamma="auto", epsilon=0.1, cache_size=200,
-                                        n_neighboring_turbines=3, max_n_samples=None, 
+                                        n_neighboring_turbines=5, max_n_samples=None, 
                                         use_trained_models=False),
                             tid2idx_mapping=tid2idx_mapping,
                             turbine_signature=turbine_signature,

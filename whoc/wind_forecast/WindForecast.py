@@ -910,6 +910,10 @@ class SVRForecast(WindForecast):
         model_files = glob.glob(os.path.join(self.model_save_dir, f"{self.study_name}_model_*_{int(self.prediction_timedelta.total_seconds())}.pkl"))
         scaler_files = glob.glob(os.path.join(self.model_save_dir, f"{self.study_name}_scaler_*_{int(self.prediction_timedelta.total_seconds())}.pkl"))
         
+        if self.use_trained_models and len(model_files) == 0:
+            logging.error(f"No trained models found in {self.model_save_dir}. Please run tuning.py first for the correct prediction time {int(self.prediction_timedelta.total_seconds())}.")
+            raise Exception()
+        
         # no need to load optuna trained hyperparams if we are loading models anyway
         if (not self.use_trained_models or len(model_files) < self.n_outputs or len(scaler_files) < self.n_outputs) and self.use_tuned_params:
             self.set_tuned_params(storage=self.kwargs["optuna_storage"], 
@@ -926,9 +930,8 @@ class SVRForecast(WindForecast):
                     continue
                 with open(os.path.join(self.model_save_dir, model_file), "rb") as fp:
                     self.model[output] = pickle.load(fp)
-                # else:
-                #     raise FileNotFoundError(f"Tuned model 'svr_model_{output}_{self.prediction_timedelta.total_seconds()}.pkl' doesn't exist.")
-            
+                assert self.model[output].n_features_in_ == self.n_neighboring_turbines * self.n_context, f"SVR must be tuned and trained for n_neighboring_turbines = {self.n_neighboring_turbines} and context_timedelta = {self.context_timedelta}."
+                
             for scaler_file in scaler_files:
                 # if os.path.exists(os.path.join(self.model_save_dir, f"svr_scaler_{output}_{self.prediction_timedelta.total_seconds()}.pkl")):
                 output = re.search(f"(?<={self.study_name}_scaler_)([\\w\\_]+\\d+)(?=\\_)", os.path.basename(scaler_file)).group()
@@ -937,11 +940,7 @@ class SVRForecast(WindForecast):
                     continue
                 with open(os.path.join(self.model_save_dir, scaler_file), "rb") as fp:
                     self.scaler[output] = pickle.load(fp)
-                # else:
-                #     raise FileNotFoundError(f"Tuned scaler 'svr_scaler_{output}_{self.prediction_timedelta.total_seconds()}.pkl' doesn't exist.")
-        # else:
-            # pass
-    
+                #
     def create_scaler(self):
         return MinMaxScaler(feature_range=(-1, 1))
     
@@ -1086,16 +1085,7 @@ class SVRForecast(WindForecast):
                     or (check_is_fitted(self.model[output]) is not None):
                     raise Exception(f"scaler/model for {output} has not been trained!")
                 training_inputs = self._get_inputs(training_measurements, self.scaler[output], feat_type, tid, scale)
-                # self.scaler[output], self.model[output] = \
-                #     self._train_model(
-                #         model=self.model[output],
-                #         training_inputs=training_inputs,
-                #         feat_type=feat_type,
-                #         tid=tid,
-                #         scaler=self.scaler[output],
-                #         scale=scale,
-                #         output_idx=output_idx
-                #     )
+                
                 pred[output] = self._predict(model=self.model[output], 
                                              training_inputs=training_inputs)
                 
@@ -1109,7 +1099,7 @@ class SVRForecast(WindForecast):
             
         else:
             # not enough data points to train SVR, assume persistance
-            logging.info(f"Not enough data points at time {current_time} to train SVR, have {training_measurements.select(pl.len()).item()} but require {self.n_context}, assuming persistance instead.")
+            logging.info(f"Not enough data points at time {current_time} to train SVR, have {historic_measurements.select(pl.len()).item() * self.measurements_timedelta} but require {self.n_context * self.prediction_timedelta}, assuming persistance instead.")
             pred = pl.concat([pred_slice.to_frame(), historic_measurements.slice(-1, 1).select(outputs)], how="horizontal")
             
         if return_pl: 

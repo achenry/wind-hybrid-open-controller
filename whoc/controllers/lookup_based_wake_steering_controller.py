@@ -33,7 +33,6 @@ from floris.optimization.yaw_optimization.yaw_optimizer_scipy import YawOptimiza
 import logging 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# TODO TESTING
 import warnings
 warnings.simplefilter("error", category=FutureWarning)
 
@@ -46,7 +45,7 @@ class LookupBasedWakeSteeringController(ControllerBase):
         self.controller_dt = simulation_input_dict["controller"]["controller_dt"]  # Won't be needed here, but generally good to have
         self.n_turbines = interface.n_turbines #simulation_input_dict["controller"]["num_turbines"]
         
-        self.num_prediction_stored = max(pd.Timedelta(self.controller_dt, unit="s"), self.wind_forecast.prediction_timedelta)
+        self.prediction_timedelta_stored = max(pd.Timedelta(self.controller_dt, unit="s"), self.wind_forecast.prediction_timedelta)
         
         # self.filtered_measurements = pd.DataFrame(columns=["time"] + [f"ws_horz_{tid}" for tid in range(self.n_turbines)] + [f"ws_vert_{tid}" for tid in range(self.n_turbines)], dtype=pd.Float64Dtype())
         # self.ws_lpf_alpha = np.exp(-simulation_input_dict["controller"]["ws_lpf_omega_c"] * simulation_input_dict["controller"]["lpf_T"])
@@ -368,23 +367,20 @@ class LookupBasedWakeSteeringController(ControllerBase):
 
         new_yaw_setpoints = np.array(current_yaw_setpoints)
         
-        if self.wind_forecast and self.wind_forecast.prediction_timedelta.total_seconds() > 0:
-            if self.uncertain:
-                # forecasted_wind_sample = self.wind_forecast.predict_sample(self.historic_measurements, self.current_time)
-                forecasted_wind_field = self.wind_forecast.predict_distr(self.historic_measurements, self.current_time)
-            else:
-                forecasted_wind_field = self.wind_forecast.predict_point(self.historic_measurements, self.current_time)
-            
-            single_forecasted_wind_field = forecasted_wind_field.filter(pl.col("time") == self.current_time + self.wind_forecast.prediction_timedelta)
-            
-            use_wind_forecast = True
-        else:
-            forecasted_wind_field = None
-            single_forecasted_wind_field = None
-            use_wind_forecast = False
-        
+        use_wind_forecast = False
+        forecasted_wind_field = None
+        single_forecasted_wind_field = None
+           
         if (((self.current_time - self.init_time).total_seconds() % self.controller_dt) == 0.0):
-            # if (abs((self.current_time - self.init_time).total_seconds() % self.controller_dt) == 0.0):
+            if self.wind_forecast and self.wind_forecast.prediction_timedelta.total_seconds() > 0:
+                if self.uncertain:
+                    forecasted_wind_field = self.wind_forecast.predict_distr(self.historic_measurements, self.current_time)
+                else:
+                    forecasted_wind_field = self.wind_forecast.predict_point(self.historic_measurements, self.current_time)
+                
+                single_forecasted_wind_field = forecasted_wind_field.filter(pl.col("time") == self.current_time + self.wind_forecast.prediction_timedelta)
+                
+                use_wind_forecast = True
             
             if self.current_time < self.lpf_start_time or (not self.wind_dir_use_filt and not self.wind_mag_use_filt):
                 wind = single_forecasted_wind_field if use_wind_forecast else pl.from_dataframe(current_measurements)
@@ -531,7 +527,8 @@ class LookupBasedWakeSteeringController(ControllerBase):
         if self.wind_forecast:
             # wf.filter(pl.col("time") < pl.col("time").first() + preview_forecast.controller_timedelta)
             if use_wind_forecast:
-                newest_predictions = forecasted_wind_field.filter(pl.col("time") <= self.current_time + self.num_prediction_stored)\
+                # newest_predictions = forecasted_wind_field.filter(pl.col("time") <= self.current_time + self.prediction_timedelta_stored)\
+                newest_predictions = forecasted_wind_field.filter(pl.col("time") == self.current_time + self.wind_forecast.prediction_timedelta)\
                                                         .select(["time"] + self.mean_ws_horz_cols + self.mean_ws_vert_cols 
                                                                 + ((self.sd_ws_horz_cols + self.sd_ws_vert_cols) if self.uncertain else []))\
                                                         .with_columns(cs.numeric().cast(pl.Float32), pl.col("time").cast(pl.Datetime(time_unit="us")))

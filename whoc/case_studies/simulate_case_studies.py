@@ -23,9 +23,14 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     if simulation_input_dict["controller"]["uncertain"] and not wind_forecast_class.is_probabilistic:
         logging.info(f"Can't run with uncertain flag for {wind_forecast_class.__name__}, setting uncertainty off.")
         simulation_input_dict["controller"]["uncertain"] = simulation_input_dict["controller"]["uncertain"] and wind_forecast_class.is_probabilistic
-        kwargs['case_name'] = re.sub("uncertain_True", "uncertain_False", kwargs['case_name'])
+        input_df = pd.read_csv(os.path.join(results_dir, f"case_descriptions.csv"))
+        input_df.loc[int(kwargs['case_name']), "uncertain"] = False
+        input_df.to_csv(os.path.join(results_dir, f"case_descriptions.csv"))
+        # old_case_name = kwargs['case_name']
+        # kwargs['case_name'] = re.sub("uncertain_True", "uncertain_False", kwargs['case_name'])
+        # move(os.path.join(results_dir, f"input_config_case_{old_case_name}.pkl"), os.path.join(results_dir, f"input_config_case_{kwargs['case_name']}.pkl"))
     
-    fn = f"time_series_results_case_{kwargs['case_name']}_seed_{kwargs['wind_case_idx']}.csv".replace("/", "_")
+    fn = f"time_series_results_case_{kwargs['case_name']}_seed_{kwargs['wind_case_idx']}.csv"
     save_path = os.path.join(results_dir, fn)
     temp_save_path = os.path.join(results_dir, fn.replace(".csv", "_temp.csv"))
     
@@ -203,18 +208,9 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
             turbine_wind_mag_ts += [ctrl.measurements_dict["wind_speeds"]]
             turbine_wind_dir_ts += [ctrl.measurements_dict["wind_directions"]]
             
-            if wind_forecast_class and kwargs["include_prediction"] and simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() > 0:
+            if wind_forecast_class and kwargs["include_prediction"] and (simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() > 0) and (ctrl.controls_dict["predicted_wind_speeds"] is not None):
                 predicted_wind_speeds_ts += [ctrl.controls_dict["predicted_wind_speeds"]]
-                # predicted_time_ts += [ctrl.controls_dict["predicted_time"]]
-                # predicted_turbine_wind_speed_horz_ts += [ctrl.controls_dict["predicted_wind_speeds_horz"]]
-                # predicted_turbine_wind_speed_vert_ts += [ctrl.controls_dict["predicted_wind_speeds_vert"]]
-                # if ctrl.uncertain:
-                #     stddev_turbine_wind_speed_horz_ts += [ctrl.controls_dict["stddev_wind_speeds_horz"]]
-                #     stddev_turbine_wind_speed_vert_ts += [ctrl.controls_dict["stddev_wind_speeds_vert"]]
-                # else:
-                #     stddev_turbine_wind_speed_horz_ts += [[np.nan] * fi_full.n_turbines]
-                #     stddev_turbine_wind_speed_vert_ts += [[np.nan] * fi_full.n_turbines]
-            # turbine_offline_status_ts += [fi.offline_status[tt, :]]
+            
             turbine_offline_status_ts += [np.isclose(ctrl.measurements_dict["turbine_powers"], 0, atol=1e-3)]
             
             if hasattr(ctrl, "state_cons_activated"):
@@ -444,9 +440,10 @@ def write_df(case_family, case_name, wind_case_idx, wf_source, wind_field_ts,
     results_data = pd.DataFrame(results_data)
     
     if wind_forecast_class and include_prediction and simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() > 0:
+        
+        # .group_by("time", maintain_order=True).agg(pl.all().last())\
         predicted_wind_speeds_ts = pl.concat(predicted_wind_speeds_ts, how="vertical")\
-                                     .group_by("time", maintain_order=True).agg(pl.all().last())\
-                                     .with_columns(time=((pl.col("time") - ctrl.init_time).dt.total_seconds().cast(pl.Int64)))
+                                     .with_columns(time=((pl.col("time") - ctrl.init_time).dt.total_seconds().cast(pl.Float32)))
         # results_df = pd.concat([results_df, predicted_wind_speeds_ts], axis=1)
         # sd_ws_vert_cols
         cols = ["time"] + ctrl.mean_ws_horz_cols + ctrl.mean_ws_vert_cols + ((ctrl.sd_ws_horz_cols + ctrl.sd_ws_vert_cols) if ctrl.uncertain else [])

@@ -96,7 +96,7 @@ def read_case_family_time_series_data(case_family, save_dir):
     # if reaggregate_simulations, or if the aggregated time series data doesn't exist for this case family, read the csv files for that case family
     all_ts_df_path = os.path.join(save_dir, case_family, "time_series_results_all.csv") 
     logging.info(f"Reading combined case family {case_family} time-series dataframe.")
-    return pd.read_csv(all_ts_df_path, index_col=[0, 1])
+    return pd.read_csv(all_ts_df_path, index_col=[0, 1], low_memory=False)
 
 def write_case_family_time_series_data(case_family, new_time_series_df, save_dir):
     all_ts_df_path = os.path.join(save_dir, case_family, "time_series_results_all.csv") # if reaggregate_simulations, or if the aggregated time series data doesn't exist for this case family, read the csv files for that case family
@@ -135,7 +135,20 @@ def read_time_series_data(results_path, input_dict_path):
         bad_df["Time"].max()
     except pd.errors.EmptyDataError as e:
         logging.info(f"Dataframe {results_path} not read correctly due to error {e}")
-        
+    
+    # TEMP
+    # cn = df.index.get_level_values("CaseName")[0]
+    # inp_info = pd.read_csv(os.path.join(os.path.dirname(results_path), "case_descriptions.csv"))
+    # ctrl_cls = re.search("(?<=controller_class_)(\\w+)(?=_controller_dt)", cn).group()
+    # ctrl_dt = int(re.search("(?<=controller_dt_)(\\d+)(?=_prediction_timedelta)", cn).group())
+    # prediction_timedelta = int(re.search("(?<=prediction_timedelta_)(\\d+)(?=_target_turbine_indices)", cn).group())
+    # tgt_turb_ind = re.search("(?<=target_turbine_indices_)(.*)(?=_uncertain)", cn).group()
+    # unc_flag = True if re.search("(?<=uncertain_)(.*)(?=_wind_forecast_class)", cn).group() == "True" else False
+    # wind_fct_cls = re.search("(?<=wind_forecast_class_)(\\w+)$", cn).group()
+    # new_case_name = inp_info.loc[(inp_info["controller_class"] == ctrl_cls) & (inp_info["controller_dt"] == ctrl_dt) & (inp_info["prediction_timedelta"] == prediction_timedelta) & (inp_info["target_turbine_indices"] == tgt_turb_ind) & (inp_info["uncertain"] == unc_flag) & (inp_info["wind_forecast_class"] == wind_fct_cls), :].index[0]
+    # df.index = df.index.set_levels([new_case_name], level="CaseName")
+    # df.to_csv(results_path)
+    
     with open(input_dict_path, 'rb') as fp:
         input_config = pickle.load(fp)
     
@@ -308,7 +321,7 @@ def generate_outputs(agg_results_df, save_dir):
             fp.write(compare_results_latex)
 
 def plot_simulations(time_series_df, plotting_cases, save_dir, include_power=True, legend_loc="best", single_plot=False):
-    # TODO delete all extra files in directories before rerunning simulations
+    
     if single_plot:
         yaw_power_ts_fig, yaw_power_ts_ax = plt.subplots(int(1 + include_power), 1, sharex=True) # 1 subplot of yaw, another for power
     
@@ -471,7 +484,7 @@ def plot_yaw_power_distribution(data_df, save_path):
     For each controller class (categorical, along x-axis), plot the distribution of total farm powers and total absolute yaw angle changes over all time-steps and seeds (different subplots), plot their angle changes and powers vs time with a combo plot for each turbine.
 
     results_path = os.path.join(os.path.dirname(whoc_file), "..", "examples")
-    # TODO how to find particular seed
+    
     results_dirs = [(controller_class, 0, os.path.join(results_path, controller_dir, "outputs", "hercules_output.csv"))
                     # for seed in range(6)
                     for controller_class, controller_dir in [("Greedy", "greedy_wake_steering_florisstandin"), 
@@ -550,9 +563,10 @@ def aggregate_time_series_data(time_series_df, input_dict_path, n_seeds):
     time_series_df = time_series_df.loc[time_series_df["Time"] < stoptime, :]
     time = pd.unique(time_series_df["Time"])
     
-    if len(time) != int(stoptime // input_config["simulation_dt"]):
-       logging.error(f"NOT aggregating data for {case_family}={case_name} due to insufficient time steps.")
-       return None
+    # TODO differnt stop times have been added for each seed to same config file so this is not correct
+    # if len(time) != int(stoptime // input_config["simulation_dt"]):
+    #    logging.error(f"NOT aggregating data for {case_family}={case_name} due to insufficient time steps.")
+    #    return None
    
     result_summary = []
     # input_fn = f"input_config_case_{case_name}.yaml"
@@ -578,24 +592,28 @@ def aggregate_time_series_data(time_series_df, input_dict_path, n_seeds):
             result_summary.append((seed_df.index.get_level_values("CaseFamily")[0], 
                                    seed_df.index.get_level_values("CaseName")[0], 
                                    seed, 
-                                yaw_angles_change_ts.abs().sum(axis=1).mean(), 
-                                ((yaw_angles_change_ts.abs().to_numpy() * np.logical_not(turbine_offline_status_ts)).sum(axis=1) / ((np.logical_not(turbine_offline_status_ts)).sum(axis=1))).mean(),
-                                turbine_power_ts.sum(axis=1).mean(), 
-                                ((turbine_power_ts.to_numpy() * np.logical_not(turbine_offline_status_ts)).sum(axis=1) / ((np.logical_not(turbine_offline_status_ts)).sum(axis=1))).mean(),
-                                seed_df["TotalRunningOptimizationCost"].mean(), 
-                                (seed_df["TotalRunningOptimizationCost"] / ((np.logical_not(turbine_offline_status_ts)).sum(axis=1))).mean(),
-                                (seed_df["RunningOptimizationCostTerm_0"] / ((np.logical_not(turbine_offline_status_ts)).sum(axis=1))).mean(),
-                                (seed_df["RunningOptimizationCostTerm_1"] / ((np.logical_not(turbine_offline_status_ts)).sum(axis=1))).mean(),
-                                seed_df["OptimizationConvergenceTime"].mean()))
+                                   yaw_angles_change_ts.abs().sum(axis=1).mean(), 
+                                #    ((yaw_angles_change_ts.abs().to_numpy() * np.logical_not(turbine_offline_status_ts)).sum(axis=1).divide((np.logical_not(turbine_offline_status_ts)).sum(axis=1))).mean(),
+                                   turbine_power_ts.sum(axis=1).mean(), 
+                                #    ((turbine_power_ts.to_numpy() * np.logical_not(turbine_offline_status_ts)).sum(axis=1) / ((np.logical_not(turbine_offline_status_ts)).sum(axis=1))).mean(),
+                                   seed_df["TotalRunningOptimizationCost"].mean(), 
+                                #    (seed_df["TotalRunningOptimizationCost"] / ((np.logical_not(turbine_offline_status_ts)).sum(axis=1))).mean(),
+                                #    (seed_df["RunningOptimizationCostTerm_0"] / ((np.logical_not(turbine_offline_status_ts)).sum(axis=1))).mean(),
+                                #    (seed_df["RunningOptimizationCostTerm_1"] / ((np.logical_not(turbine_offline_status_ts)).sum(axis=1))).mean(),
+                                   seed_df["OptimizationConvergenceTime"].mean()))
         except ZeroDivisionError:
             logging.error("All turbines are offline! Can't generate RelativeYawAngleChangeAbsMean or RelativeFarmPowerMean.")
         
     # print(f"Aggregated data for {case_family}={case_name}")
     agg_df = pd.DataFrame(result_summary, columns=["CaseFamily", "CaseName", "WindSeed",
-                                              "YawAngleChangeAbsMean", "RelativeYawAngleChangeAbsMean",
-                                              "FarmPowerMean", "RelativeFarmPowerMean", 
-                                              "TotalRunningOptimizationCostMean", "RelativeTotalRunningOptimizationCostMean",
-                                              "RelativeRunningOptimizationCostTerm_0", "RelativeRunningOptimizationCostTerm_1",
+                                              "YawAngleChangeAbsMean", 
+                                            #   "RelativeYawAngleChangeAbsMean",
+                                              "FarmPowerMean", 
+                                            #   "RelativeFarmPowerMean", 
+                                              "TotalRunningOptimizationCostMean", 
+                                            #   "RelativeTotalRunningOptimizationCostMean",
+                                            #   "RelativeRunningOptimizationCostTerm_0", 
+                                            #   "RelativeRunningOptimizationCostTerm_1",
                                               "OptimizationConvergenceTime"])
     
     agg_df = agg_df.groupby(by=["CaseFamily", "CaseName"])[[col for col in agg_df.columns if col not in ["CaseFamily", "CaseName", "WindSeed"]]].agg(["min", "max", "mean"])
@@ -858,7 +876,7 @@ def plot_yaw_offset_wind_direction(data_dfs, case_names, case_labels, lut_path, 
     return fig, ax
 
 def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, include_filtered_wind_dir=True, controller_dt=None, legend_loc="best", single_plot=False, fig=None, ax=None, case_label=None):
-    #TODO only plot some turbines, not ones with overlapping yaw offsets, eg single column on farm
+    
     colors = sns.color_palette("Paired")
     colors = [colors[1], colors[3], colors[5]]
 
@@ -1453,7 +1471,6 @@ def plot_power_increase_vs_prediction_time(plot_df, save_dir):
     
     
     fig, ax = plt.subplots(figsize=(15, 9))
-    plot_df["prediction_timedelta"] = plot_df["prediction_timedelta"].dt.total_seconds()
     plot_df = plot_df.rename(columns={"prediction_timedelta": "Prediction Horizon (s)", "wind_forecast_class": "Forecaster", "power_ratio": "Power Increase (%)"})
     sns.scatterplot(x="Prediction Horizon (s)", y="Power Increase (%)", style="Forecaster", data=plot_df, ax=ax)
     
@@ -1462,7 +1479,7 @@ def plot_power_increase_vs_prediction_time(plot_df, save_dir):
     new_labels = [" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", ll).group())) for ll in l]
     ax.legend(h, new_labels, title="Forecaster")
     ax.grid(True)
-    
+    ax.set_xticks(ax.get_xticks()[::2])
     # Save the figure
     fig.tight_layout()
     fig.savefig(os.path.join(save_dir, "power_increase_vs_prediction_time.png"))

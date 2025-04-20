@@ -103,8 +103,8 @@ controller:
   target_turbine_indices:
 
 wind_forecast:
-  context_timedelta: 1200 # seconds
-  prediction_timedelta: 1200 # seconds
+  context_timedelta: 600 # seconds
+  prediction_timedelta: 300 # seconds
   SVRForecast:
     model_key: svr
     kernel: rbf
