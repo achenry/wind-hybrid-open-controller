@@ -163,13 +163,12 @@ if __name__ == "__main__":
     # if not args.initialize: 
     # %% TUNING MODEL
     logging.info("Running tune_hyperparameters_multi")
-    pruning_kwargs = model_config["optuna"]["pruning"] 
     
     #{"type": "hyperband", "min_resource": 2, "max_resource": 5, "reduction_factor": 3, "percentile": 25}
     forecaster.tune_hyperparameters_single(storage=optuna_storage,
                                         n_trials_per_worker=model_config["optuna"]["n_trials_per_worker"], 
                                         seed=args.seed,
-                                        pruning_kwargs=pruning_kwargs)
+                                        config=model_config)
                                     #  trial_protection_callback=handle_trial_with_oom_protection)
 
     # %% TRAINING MODEL
