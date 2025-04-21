@@ -2191,7 +2191,7 @@ if __name__ == "__main__":
     parser.add_argument("--plot_arima", action="store_true", help="Run ARIMA and plot historic wind speed data")
     args = parser.parse_args()
     
-    assert all(model in ["perfect", "persistence", "svr", "kf", "informer", "autoformer", "spacetimeformer", "tactis", "sf"] for model in args.model)
+    assert all(model in ["perfect", "persistence", "svr", "kf", "informer", "autoformer", "spacetimeformer", "tactis", "sf", "arima"] for model in args.model)
     RUN_ONCE = (args.multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
     
     TRANSFORM_WIND = {"added_wm": args.added_wind_mag, "added_wd": args.added_wind_dir}
@@ -2407,6 +2407,22 @@ if __name__ == "__main__":
                                                 study_name=db_setup_params["study_name"])
                                     )
         forecasters.append(forecaster)
+
+    ## GENERATE ARIMA PREVIEW
+    if "arima" in args.model:
+        for td in prediction_timedelta:
+            forecaster = ARIMAForecast(measurements_timedelta=measurements_timedelta,
+                                        controller_timedelta=controller_timedelta,
+                                        prediction_timedelta=td, 
+                                        context_timedelta=context_timedelta,
+                                        fmodel=fmodel,
+                                        true_wind_field=None,
+                                        tid2idx_mapping=tid2idx_mapping,
+                                        turbine_signature=turbine_signature,
+                                        use_tuned_params=False,
+                                        model_config=model_config,
+                                        kwargs={})
+            forecasters.append(forecaster)
         
     # if any(forecaster.train_first for forecaster in forecasters):
     #     # load training data
