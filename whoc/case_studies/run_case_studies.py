@@ -374,7 +374,7 @@ if __name__ == "__main__":
 
             agg_df = pd.concat(agg_df)
 
-        if RUN_ONCE and PLOT:
+        if RUN_ONCE and PLOT:            
             
             if (case_families.index("baseline_controllers_perfect_forecaster_awaken") in args.case_ids
                 or case_families.index("baseline_controllers_perfect_forecaster_flasc") in args.case_ids):
@@ -428,15 +428,14 @@ if __name__ == "__main__":
                 plot_df["power_ratio"] = (plot_df[("FarmPowerMean", "mean")] / perfect_agg_df.set_index(["controller_class", "prediction_timedelta"])[("FarmPowerMean", "mean")]) * 100
                 plot_df = plot_df.reset_index()
                 plot_power_increase_vs_prediction_time(plot_df, args.save_dir)
-
-            
-            if (case_families.index("baseline_controllers_forecasters_test_flasc") in args.case_ids
+           
+            if (case_families.index("baseline_controllers_preview_flasc_perfect") in args.case_ids
                 or case_families.index("baseline_controllers_forecasters_test_awaken") in args.case_ids):
                 from whoc.wind_forecast.WindForecast import WindForecast
                 from wind_forecasting.preprocessing.data_inspector import DataInspector
                 
-                if case_families.index("baseline_controllers_forecasters_test_flasc") in args.case_ids:
-                    forecaster_case_fam = "baseline_controllers_forecasters_test_flasc"
+                if case_families.index("baseline_controllers_preview_flasc_perfect") in args.case_ids:
+                    forecaster_case_fam = "baseline_controllers_preview_flasc_perfect"
                 elif case_families.index("baseline_controllers_forecasters_test_awaken") in args.case_ids:
                     forecaster_case_fam = "baseline_controllers_forecasters_test_awaken"
                 
@@ -565,7 +564,7 @@ if __name__ == "__main__":
                         legend_loc="outer", single_plot=False) 
                 # TODO yaw, power, and offline columns are only present for turbine in target_turbine_indices, otherwise nan = these should be renamed to reflect which turbines they are
                 # PLOT 5) True vs predicted values
-                forecast_wf = time_series_df.iloc[
+                forecast_wf =time_series_df.iloc[
                     (time_series_df.index.get_level_values("CaseFamily") == forecaster_case_fam)]\
                         .reset_index(level=["CaseFamily", "CaseName"], drop=True)[
                            ["WindSeed", "PredictedTime", "controller_class", "wind_forecast_class", "prediction_timedelta"] 

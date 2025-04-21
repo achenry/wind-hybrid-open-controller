@@ -1465,7 +1465,7 @@ def plot_power_increase_vs_prediction_time(plot_df, save_dir):
     fig, ax = plt.subplots(figsize=(15, 9))
     plot_df["prediction_timedelta"] = plot_df["prediction_timedelta"].dt.total_seconds()
     plot_df = plot_df.rename(columns={"prediction_timedelta": "Prediction Horizon (s)", "wind_forecast_class": "Forecaster", "power_ratio": "Power Increase (%)"})
-    sns.scatterplot(x="Prediction Horizon (s)", y="Power Increase (%)", style="Forecaster", data=plot_df, ax=ax)
+    sns.scatterplot(x="Prediction Horizon (s)", y="Power Increase (%)", data=plot_df, ax=ax) #style="Forecaster"
     
     # ax.set(title="Percentage Power Increase vs. Prediction Time for Different Forecasters")
     h, l = ax.get_legend_handles_labels()
@@ -1542,3 +1542,25 @@ def plot_yaw_angles_and_power(data_df, save_dir):
     fig.savefig(os.path.join(save_dir, "yaw_angles_and_power.png"))
 
     plt.show()
+
+def arima_plot(historic_df, turbine_id: str, save_dir: str, component_type: str = "ws_horz"):
+    """
+    Plot ARIMA DATA
+    """
+
+    component_col = f"{component_type}_{turbine_id}"
+
+    ts_df = (historic_df.select(["Time", component_col])).sort("Time").to_pandas()
+
+    fig, ax = plt.subplots(figsize=(12, 6))
+    sns.lineplot(data=ts_df, x="Time", y=component_col, ax=ax)
+
+    ax.set_title(f"ARIMA Data for Turbine {turbine_id} - {component_type}")
+    ax.set_xlabel("Time")
+    ax.set_ylabel(f"{component_col} (m/s)")
+    ax.grid(True)
+
+    plt.show()
+
+    
+

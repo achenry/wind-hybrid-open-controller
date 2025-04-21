@@ -855,4 +855,4 @@ case_families = ["baseline_controllers", "solver_type", # 0, 1
                     "cost_func_tuning_small", "sr_solve", # 13, 14
                     "baseline_controllers_forecasters_flasc", "baseline_controllers_forecasters_awaken", # 15, 16
                     "baseline_controllers_preview_flasc_perfect", "baseline_controllers_perfect_forecaster_awaken", # 17, 18
-                    "baseline_controllers_forecasters_test_awaken"] # 19, 20 #baseline_controllers_forecasters_test_flasc
+                    "baseline_controllers_forecasters_test_awaken", "baseline_controllers_perfect_forecaster_flasc"] # 19, 20 #baseline_controllers_forecasters_test_flasc

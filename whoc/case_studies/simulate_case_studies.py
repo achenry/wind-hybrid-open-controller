@@ -14,11 +14,7 @@ from whoc.wind_field.WindField import first_ord_filter
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-<<<<<<< HEAD
 # @profile
-=======
-# @ profile
->>>>>>> e5333ee85dbf320bc7cc57cb891edf363e0d1619
 def simulate_controller(controller_class, wind_forecast_class, simulation_input_dict, **kwargs):
     
     results_dir = os.path.join(kwargs["save_dir"], kwargs['case_family'])
