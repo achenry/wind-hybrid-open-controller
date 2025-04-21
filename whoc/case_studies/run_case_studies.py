@@ -96,8 +96,8 @@ if __name__ == "__main__":
             
             turbine_signature = data_config["turbine_signature"][0] if len(data_config["turbine_signature"]) == 1 else "\\d+"
             
-            temp_storage_dir = data_config["temp_storage_dir"]
-            os.makedirs(temp_storage_dir, exist_ok=True)
+            # temp_storage_dir = data_config["temp_storage_dir"]
+            # os.makedirs(temp_storage_dir, exist_ok=True)
             # optuna_args = model_config.setdefault("optuna", None)
     
         else:
@@ -105,7 +105,7 @@ if __name__ == "__main__":
             data_config = None
             turbine_signature = None
             tid2idx_mapping = None
-            temp_storage_dir = None
+            # temp_storage_dir = None
             
         logging.info(f"running initialize_simulations for case_ids {[case_families[i] for i in args.case_ids]}")
         case_lists, case_name_lists, input_dicts, wind_field_config, wind_field_ts \
@@ -121,59 +121,60 @@ if __name__ == "__main__":
         
         logging.info(f"Resetting args.n_seeds to {len(wind_field_ts)}")
         args.n_seeds = len(wind_field_ts)
-        # TODO HIGH broadcast/scatter/gather wind_field_ts to share between processes
-        
-    if args.multiprocessor is not None:
-        if args.multiprocessor == "mpi":
-            comm_size = MPI.COMM_WORLD.Get_size()
-            executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
-        elif args.multiprocessor == "cf":
-            executor = ProcessPoolExecutor()
-        with executor as run_simulations_exec:
+        # TODO broadcast/scatter/gather wind_field_ts to share between processes
+    
+    if args.run_simulations: 
+        if args.multiprocessor is not None:
             if args.multiprocessor == "mpi":
-                run_simulations_exec.max_workers = comm_size
+                comm_size = MPI.COMM_WORLD.Get_size()
+                executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+            elif args.multiprocessor == "cf":
+                executor = ProcessPoolExecutor()
+            with executor as run_simulations_exec:
+                if args.multiprocessor == "mpi":
+                    run_simulations_exec.max_workers = comm_size
+                    
+                logging.info(f"Submitting simulate_controller calls to pool executor with {run_simulations_exec._max_workers} workers")
+                # for MPIPool executor, (waiting as if shutdown() were called with wait set to True)
+                futures = [run_simulations_exec.submit(simulate_controller, 
+                                                controller_class=globals()[d["controller"]["controller_class"]], 
+                                                wind_forecast_class=globals()[d["controller"]["wind_forecast_class"]] if d["controller"]["wind_forecast_class"] else None,
+                                                simulation_input_dict=d,
+                                                wf_source=args.wf_source, 
+                                                wind_case_idx=case_lists[c]["wind_case_idx"], wind_field_ts=wind_field_ts[case_lists[c]["wind_case_idx"]],
+                                                # case_name="_".join([f"{key}_{val if (isinstance(val, str) or isinstance(val, np.str_) or isinstance(val, bool)) else np.round(val, 6)}" for key, val in case_lists[c].items() if key not in ["simulation_dt", "use_filtered_wind_dir", "use_lut_filtered_wind_dir", "yaw_limits", "wind_case_idx", "seed", "floris_input_file", "lut_path"]]) if "case_names" not in case_lists[c] else case_lists[c]["case_names"], 
+                                                case_name=f"{c}" if "case_names" not in case_lists[c] else case_lists[c]["case_names"],
+                                                case_family="_".join(case_name_lists[c].split("_")[:-1]), 
+                                                verbose=args.verbose, 
+                                                save_dir=args.save_dir, 
+                                                rerun_simulations=args.rerun_simulations,
+                                                multiprocessor=False, 
+                                                turbine_signature=turbine_signature, 
+                                                tid2idx_mapping=tid2idx_mapping,
+                                                use_tuned_params=True, 
+                                                model_config=model_config, wind_field_config=wind_field_config, 
+                                                ram_limit=args.ram_limit,
+                                                include_prediction=not args.exclude_prediction)
+
+                        for c, d in enumerate(input_dicts)]
                 
-            logging.info(f"Submitting simulate_controller calls to pool executor with {run_simulations_exec._max_workers} workers")
-            # for MPIPool executor, (waiting as if shutdown() were called with wait set to True)
-            futures = [run_simulations_exec.submit(simulate_controller, 
-                                            controller_class=globals()[d["controller"]["controller_class"]], 
-                                            wind_forecast_class=globals()[d["controller"]["wind_forecast_class"]] if d["controller"]["wind_forecast_class"] else None,
-                                            simulation_input_dict=d,
-                                            wf_source=args.wf_source, 
-                                            wind_case_idx=case_lists[c]["wind_case_idx"], wind_field_ts=wind_field_ts[case_lists[c]["wind_case_idx"]],
-                                            case_name="_".join([f"{key}_{val if (isinstance(val, str) or isinstance(val, np.str_) or isinstance(val, bool)) else np.round(val, 6)}" for key, val in case_lists[c].items() if key not in ["simulation_dt", "use_filtered_wind_dir", "use_lut_filtered_wind_dir", "yaw_limits", "wind_case_idx", "seed", "floris_input_file", "lut_path"]]) if "case_names" not in case_lists[c] else case_lists[c]["case_names"], 
-                                            case_family="_".join(case_name_lists[c].split("_")[:-1]), 
-                                            verbose=args.verbose, 
-                                            save_dir=args.save_dir, 
-                                            rerun_simulations=args.rerun_simulations,
-                                            multiprocessor=False, 
-                                            turbine_signature=turbine_signature, 
-                                            tid2idx_mapping=tid2idx_mapping,
-                                            use_tuned_params=True, 
-                                            model_config=model_config, wind_field_config=wind_field_config, 
-                                            ram_limit=args.ram_limit,
-                                            include_prediction=not args.exclude_prediction,
-                                            temp_storage_dir=temp_storage_dir)
+                _ = [fut.result() for fut in futures]
 
-                    for c, d in enumerate(input_dicts)]
-            
-            _ = [fut.result() for fut in futures]
-
-    else:
-        for c, d in enumerate(input_dicts):
-            simulate_controller(controller_class=globals()[d["controller"]["controller_class"]], 
-                                wind_forecast_class=globals()[d["controller"]["wind_forecast_class"]] if d["controller"]["wind_forecast_class"] else None, 
-                                simulation_input_dict=d, 
-                                wf_source=args.wf_source,
-                                wind_case_idx=case_lists[c]["wind_case_idx"], wind_field_ts=wind_field_ts[case_lists[c]["wind_case_idx"]],
-                                case_name="_".join([f"{key}_{val if (isinstance(val, str) or isinstance(val, np.str_) or isinstance(val, bool)) else np.round(val, 6)}" for key, val in case_lists[c].items() if key not in ["simulation_dt", "use_filtered_wind_dir", "use_lut_filtered_wind_dir", "yaw_limits", "wind_case_idx", "seed", "floris_input_file", "lut_path"]]) if "case_names" not in case_lists[c] else case_lists[c]["case_names"], 
-                                case_family="_".join(case_name_lists[c].split("_")[:-1]),
-                                multiprocessor=False, 
-                                wind_field_config=wind_field_config, verbose=args.verbose, save_dir=args.save_dir, rerun_simulations=args.rerun_simulations,
-                                turbine_signature=turbine_signature, tid2idx_mapping=tid2idx_mapping,
-                                use_tuned_params=True, model_config=model_config, ram_limit=args.ram_limit,
-                                include_prediction=not args.exclude_prediction,
-                                temp_storage_dir=temp_storage_dir)
+        else:
+            for c, d in enumerate(input_dicts):
+                simulate_controller(controller_class=globals()[d["controller"]["controller_class"]], 
+                                    wind_forecast_class=globals()[d["controller"]["wind_forecast_class"]] if d["controller"]["wind_forecast_class"] else None, 
+                                    simulation_input_dict=d, 
+                                    wf_source=args.wf_source,
+                                    wind_case_idx=case_lists[c]["wind_case_idx"], wind_field_ts=wind_field_ts[case_lists[c]["wind_case_idx"]],
+                                    # case_name="_".join([f"{key}_{val if (isinstance(val, str) or isinstance(val, np.str_) or isinstance(val, bool)) else np.round(val, 6)}" for key, val in case_lists[c].items() if key not in ["simulation_dt", "use_filtered_wind_dir", "use_lut_filtered_wind_dir", "yaw_limits", "wind_case_idx", "seed", "floris_input_file", "lut_path"]]) if "case_names" not in case_lists[c] else case_lists[c]["case_names"], 
+                                    case_name=f"{c}" if "case_names" not in case_lists[c] else case_lists[c]["case_names"],
+                                    case_family="_".join(case_name_lists[c].split("_")[:-1]),
+                                    multiprocessor=False, 
+                                    wind_field_config=wind_field_config, verbose=args.verbose, save_dir=args.save_dir, rerun_simulations=args.rerun_simulations,
+                                    turbine_signature=turbine_signature, tid2idx_mapping=tid2idx_mapping,
+                                    use_tuned_params=True, model_config=model_config, ram_limit=args.ram_limit,
+                                    include_prediction=not args.exclude_prediction)
     
     if args.postprocess_simulations:
         # if (not os.path.exists(os.path.join(args.save_dir, f"time_series_results.csv"))) or (not os.path.exists(os.path.join(args.save_dir, f"agg_results.csv"))):
@@ -216,7 +217,7 @@ if __name__ == "__main__":
                     new_time_series_df = [fut.result() for fut in read_futures]
                     # if there are new resulting dataframes, concatenate them from a list into a dataframe
                     if new_time_series_df:
-                        new_time_series_df = pd.concat(new_time_series_df)
+                        new_time_series_df = [pd.concat(new_time_series_df)]
 
                     read_futures = [run_simulations_exec.submit(read_case_family_time_series_data, 
                                                                 case_family=case_families[i], save_dir=args.save_dir)
@@ -233,7 +234,7 @@ if __name__ == "__main__":
                                         if args.reaggregate_simulations or not os.path.exists(os.path.join(args.save_dir, case_families[i], "time_series_results_all.csv"))]
                         _ = [fut.result() for fut in write_futures]
                     
-                    time_series_df = pd.concat(existing_time_series_df + [new_time_series_df])
+                    time_series_df = pd.concat(existing_time_series_df + new_time_series_df)
                     
                     # if args.reaggregate_simulations is true, or for any case family where doesn't agg_results_all.csv exist, compute the aggregate stats for each case families and case name, over all wind seeds
                     futures = [run_simulations_exec.submit(aggregate_time_series_data,
@@ -411,23 +412,30 @@ if __name__ == "__main__":
                 plot_df["prediction_timedelta"] = plot_df["prediction_timedelta"].dt.total_seconds()
                 plot_df[("FarmPowerMean", "mean")] = plot_df[("FarmPowerMean", "mean")] / 1e6
                 
-                x_vals = pd.unique(plot_df["prediction_timedelta"])
+                plot_df.loc[(plot_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")] = 100 * (plot_df.loc[(plot_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")] - plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")].iloc[0]) / plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")].iloc[0]
+                plot_df.loc[(plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] = 100 * (plot_df.loc[(plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] - plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")].iloc[0]) / plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")].iloc[0]
+
+                x_vals = np.sort(pd.unique(plot_df["prediction_timedelta"]))
                 xlim = (x_vals.min(), x_vals.max())
-                fig, ax = plt.subplots(1, len(controllers))
+                fig, ax = plt.subplots(1, len(controllers), sharey=True)
                 for c, ctrl in enumerate(controllers):
                     sns.lineplot(plot_df.loc[plot_df["controller_class"] == ctrl, :], 
                                 x="prediction_timedelta", y=("FarmPowerMean", "mean"), ax=ax[c])
                     ax[c].set_ylabel("")
                     ax[c].set_xlabel("Prediction Horizon (s)")
-                    ax[c].set_title(f"{controller_labels[ctrl]} Mean Farm Power (MW)")
+                    # ax[c].set_title(f"{controller_labels[ctrl]} Mean Farm Power (MW)")
+                    ax[c].set_title(f"{controller_labels[ctrl]} Mean Farm Power Gain (%)")
                     ax[c].set_xlim(xlim)
-                    ax[c].set_xticks(x_vals)
+                    ax[c].set_xticks(x_vals[1::2])
+                    ax[c].tick_params("x", rotation=45)
+                plt.tight_layout()
+                fig.savefig(os.path.join(args.save_dir, "perfect_forecaster_power_vs_prediction_time.png"))
                 
                 # PLOT 2) Farm power ratio of other forecasters relative to perfect forecaster vs prediction timedela for different controllers (diff plots)
-                plot_df = forecasters_agg_df.set_index(["controller_class", "prediction_timedelta"])
+                plot_df = plot_df.set_index(["controller_class", "prediction_timedelta"])
                 plot_df["power_ratio"] = (plot_df[("FarmPowerMean", "mean")] / perfect_agg_df.set_index(["controller_class", "prediction_timedelta"])[("FarmPowerMean", "mean")]) * 100
                 plot_df = plot_df.reset_index()
-                plot_power_increase_vs_prediction_time(plot_df, args.save_dir)
+                # plot_power_increase_vs_prediction_time(plot_df, args.save_dir)
            
             if (case_families.index("baseline_controllers_preview_flasc_perfect") in args.case_ids
                 or case_families.index("baseline_controllers_forecasters_test_awaken") in args.case_ids):

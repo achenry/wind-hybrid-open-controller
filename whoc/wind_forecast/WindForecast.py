@@ -1,4 +1,4 @@
-"""Module for wind speed component forecasting and preview functionality."""
+"""Module for wind speed component forecasting and sf functionality."""
 
 from typing import Optional, Union
 from collections.abc import Iterable
@@ -55,7 +55,8 @@ from wind_forecasting.preprocessing.data_inspector import DataInspector
 from wind_forecasting.preprocessing.data_module import DataModule
 from wind_forecasting.postprocessing.probabilistic_metrics import continuous_ranked_probability_score_gaussian, reliability, resolution, uncertainty, sharpness, pi_coverage_probability, pi_normalized_average_width, coverage_width_criterion 
 from wind_forecasting.run_scripts.testing import get_checkpoint
-from wind_forecasting.run_scripts.tuning import get_tuned_params
+from wind_forecasting.run_scripts.tuning import get_tuned_params, generate_df_setup_params
+from wind_forecasting.utils.optuna_db_utils import setup_optuna_storage
 
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -108,7 +109,6 @@ class WindForecast:
     turbine_signature: str
     use_tuned_params: bool
     model_config: Optional[dict]
-    temp_save_dir: Path
     kwargs: dict
     true_wind_field: Optional[Union[pd.DataFrame, pl.DataFrame]]
     # n_targets_per_turbine: int 
@@ -162,10 +162,12 @@ class WindForecast:
     
     def _compute_output_score(self, output, params):
         # logging.info(f"Defining model for output {output}.")
-        model = self.__class__.create_model(**{re.search(f"\\w+(?=_{output})", k).group(0): v for k, v in params.items() if k.endswith(f"_{output}")})
+        # model = self.create_model(**{re.search(f"\\w+(?=_{output})", k).group(0): v for k, v in params.items() if k.endswith(f"_{output}")})
+        model = self.create_model(**params)
         
         # get training data for this output
         # logging.info(f"Getting training data for output {output}.")
+        # TODO this is v inefficient, better to load all at once...
         X_train, y_train = self._get_output_data(output=output, split="train", reload=False)
         X_val, y_val = self._get_output_data(output=output, split="val", reload=False)
         
@@ -187,13 +189,13 @@ class WindForecast:
         # train svr model
         # total_score = 0
         # for output in self.outputs:
-        if self.multiprocessor == "mpi" and mpi_exists:
-            executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
-            # logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
-        else:
-            max_workers = mp.cpu_count()
-            executor = ProcessPoolExecutor(max_workers=max_workers,
-                                                mp_context=mp.get_context("spawn"))
+        # if self.multiprocessor == "mpi" and mpi_exists:
+        #     executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+        #     # logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
+        # else:
+        max_workers = mp.cpu_count()
+        executor = ProcessPoolExecutor(max_workers=max_workers,
+                                            mp_context=mp.get_context("spawn"))
             # logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
             
         with executor as ex:
@@ -225,11 +227,10 @@ class WindForecast:
                 self._get_output_data(measurements=measurements, output=output, split=split, reload=reload, scale=scale)
      
     # def tune_hyperparameters_single(self, historic_measurements, scaler, feat_type, tid, study_name, seed, restart_tuning, backend, storage_dir, n_trials=1):
-    def tune_hyperparameters_single(self, study_name, seed, backend, storage_dir, 
-                                    n_trials=1, 
+    def tune_hyperparameters_single(self, seed, storage, 
+                                    n_trials_per_worker=1, 
                                     pruning_kwargs=None):
         # for case when argument is list of multiple continuous time series AND to only get the training inputs/outputs relevant to this model
-        storage = self.get_storage(backend=backend, study_name=study_name, storage_dir=storage_dir)
         
         # Configure pruner based on settings
         if pruning_kwargs:
@@ -262,14 +263,14 @@ class WindForecast:
             pruner = NopPruner()
          
         try:
-            logging.info(f"Creating Optuna study {study_name}.") 
-            study = create_study(study_name=study_name,
+            logging.info(f"Creating Optuna study {self.study_name}.") 
+            study = create_study(study_name=self.study_name,
                                     storage=storage,
                                     direction="maximize",
                                     load_if_exists=True,
                                     sampler=TPESampler(seed=seed),
                                     pruner=pruner) # maximize negative mse ie minimize mse
-            logging.info(f"Study successfully created or loaded: {study_name}")
+            logging.info(f"Study successfully created or loaded: {self.study_name}")
         except Exception as e:
             logging.error(f"Error creating study: {str(e)}")
             logging.error(f"Error type: {type(e).__name__}")
@@ -281,12 +282,12 @@ class WindForecast:
         worker_id = os.environ.get('SLURM_PROCID', '0')
         
         # Each worker contributes the same number of trials to the shared study = n_trials
-        logging.info(f"Worker {worker_id} is optimizing Optuna study {study_name}.")
+        logging.info(f"Worker {worker_id} is optimizing Optuna study {self.study_name}.")
         
         objective_fn = self._tuning_objective
         
         try:
-            study.optimize(objective_fn, n_trials=n_trials, show_progress_bar=True)
+            study.optimize(objective_fn, n_trials=n_trials_per_worker, show_progress_bar=True)
         except Exception as e:
             logging.error(f"Worker {worker_id} failed with error: {str(e)}")
             logging.error(f"Error details: {type(e).__name__}")
@@ -306,75 +307,11 @@ class WindForecast:
         
         return study.best_params
     
-    def get_storage(self, backend, study_name, storage_dir=None):
-        """
-        Get storage for Optuna studies.
-        
-        Args:
-            use_rdb: Whether to use SQLite storage
-            study_name: Name of the study
-            storage_dir: Directory to store journal files
-            
-        Returns:
-            Storage object for Optuna
-        """
-        if backend == "mysql":
-            logging.info(f"Connecting to MySQL RDB database {study_name}")
-            conn = sql_connect(host="localhost", user="root")
-            cursor = conn.cursor()
-            cursor.execute("SHOW DATABASES")
-            if study_name in [res[0] for res in cursor]:
-                # connect to existing database
-                conn = sql_connect(host="localhost", user="root", database=study_name)
-            else:
-                # make new database
-                conn = sql_connect(host="localhost", user="root")
-                cursor = conn.cursor()
-                cursor.execute(f"CREATE DATABASE {study_name}") 
-                
-            storage = RDBStorage(url=f"mysql://{conn.user}@{conn.server_host}:{conn.server_port}/{study_name}")
-        elif backend == "sqlite":
-            logging.info(f"Connecting to SQLite RDB database {study_name}")
-            # SQLite with WAL mode - using a simpler URL format
-            os.makedirs(storage_dir, exist_ok=True)
-            db_path = os.path.join(storage_dir, f"{study_name}.db")
-            
-            # Use a simplified connection string format that Optuna expects
-            storage_url = f"sqlite:///{db_path}"
-            
-            # Check if database already exists and initialize WAL mode directly
-            if not os.path.exists(db_path):
-                try:
-                    import sqlite3
-                    # Create the database manually first with WAL settings
-                    conn = sqlite3.connect(db_path, timeout=60000)
-                    conn.execute("PRAGMA journal_mode=WAL")
-                    conn.execute("PRAGMA synchronous=NORMAL")
-                    conn.execute("PRAGMA cache_size=10000")
-                    conn.execute("PRAGMA temp_store=MEMORY")
-                    conn.execute("PRAGMA busy_timeout=60000")
-                    conn.execute("PRAGMA wal_autocheckpoint=1000")
-                    conn.commit()
-                    conn.close()
-                    logging.info(f"Created SQLite database with WAL mode at {db_path}")
-                except Exception as e:
-                    logging.error(f"Error initializing SQLite database: {e}")
-                    
-            # return storage_url
-            storage = RDBStorage(url=storage_url)
-        else:
-            logging.info(f"Connecting to Journal database {study_name}")
-            journal_file = os.path.join(storage_dir, f"{study_name}.journal")
-            storage = JournalStorage(
-                JournalFileBackend(journal_file)
-            )
-        return storage
-     
     def _get_output_data(self, output, reload, split, measurements=None, scale=None, return_scaler=False):
         assert split in ["train", "test", "val"]
         feat_type = re.search(f"\\w+(?=_{self.turbine_signature})", output).group()
         tid = re.search(self.turbine_signature, output).group()
-        Xy_path = os.path.join(self.temp_save_dir, f"Xy_{self.study_name_root}_{split}_{output}.dat")
+        Xy_path = os.path.join(self.model_save_dir, f"Xy_{self.study_name}_{split}_{output}.dat")
         
         input_turbine_indices = self.cluster_turbines[self.tid2idx_mapping[tid]]
         output_idx = input_turbine_indices.index(self.tid2idx_mapping[tid])
@@ -419,7 +356,7 @@ class WindForecast:
             logging.info(f"Saved {split} data to {Xy_path}")
         else:
             # assert os.path.exists(Xy_path), "Must run prepare_training_data before tuning"
-            logging.info(f"Loading existing {split} data from {Xy_path}")
+            # logging.info(f"Loading existing {split} data from {Xy_path}")
             data_shape = tuple(np.load(Xy_path.replace(".dat", "_shape.npy")))
             fp = np.memmap(Xy_path, dtype="float32", 
                            mode="r", shape=data_shape)
@@ -432,40 +369,29 @@ class WindForecast:
         else:
             return X_all, y_all
     
-    def set_tuned_params(self, backend, study_name_root, storage_dir):
+    def set_tuned_params(self, storage, study_name):
         """_summary_
 
         Args:
             backend (_type_): journal, sqlite, or mysql
-            study_name_root (_type_): _description_
+            study_name (_type_): _description_
             storage_dir (FilePath): required for sqlite or journal storage
 
         Raises:
             Exception: _description_
             Exception: _description_
         """
-        if len(self.outputs) > 1:
+        try:
+            study_id = storage.get_study_id_from_name(study_name)
             for output in self.outputs:
-                storage = self.get_storage(backend=backend, study_name=f"{study_name_root}_{output}", storage_dir=storage_dir)
-                try:
-                    study_id = storage.get_study_id_from_name(f"{study_name_root}_{output}")
-                    self.model[output] = self.create_model(**storage.get_best_trial(study_id).params)
-                except KeyError:
-                    logging.error(f"Optuna study {study_name_root}_{output} not found. Please run tuning.py first. Using default parameters for now.")
-                    self.model[output] = self.create_model(**{k: v for k, v in self.kwargs.items() if k in self.model[output].get_params()})
-                # self.model[output].set_params(**storage.get_best_trial(study_id).params)
-                # storage.get_all_studies()[0]._study_id
-                
-        else:
-            storage = self.get_storage(backend=backend, study_name=f"{study_name_root}", storage_dir=storage_dir)
-            try:
-                study_id = storage.get_study_id_from_name(f"{study_name_root}")
-                self.model = self.create_model(**storage.get_best_trial(study_id).params)
-            except KeyError:
-                logging.error(f"Optuna study {study_name_root} not found. Please run tuning.py first. Using default parameters for now.")
-                self.model = self.create_model(**{k: v for k, v in self.kwargs.items() if k in self.model.get_params()})
-            
-   
+                self.model[output] = self.create_model(**storage.get_best_trial(study_id).params)
+        except KeyError:
+            logging.error(f"Optuna study {study_name} not found. Please run tuning.py first. Using default parameters for now.")
+            for output in self.outputs:
+                self.model[output] = self.create_model(**{k: v for k, v in self.kwargs.items() if k in self.model[output].get_params()})
+        # self.model[output].set_params(**storage.get_best_trial(study_id).params)
+        # storage.get_all_studies()[0]._study_id
+        
     def predict_sample(self, historic_measurements: Union[pd.DataFrame, pl.DataFrame], n_samples: int):
         """_summary_
         Predict a given number of samples for each time step in the horizon
@@ -840,7 +766,7 @@ class SpatialFilterForecast(WindForecast):
     ):
         """
         wd_mean should be in radians, CCW
-        mu = 0: no preview
+        mu = 0: no sf
         sigma = None: will default to using the standard deviation of turbine distances.
         """
 
@@ -949,8 +875,7 @@ class GaussianForecast(WindForecast):
 @dataclass
 class SVRForecast(WindForecast):
     """Wind speed component forecasting using Support Vector Regression."""
-    
-    
+    is_probabilistic = False
     def __post_init__(self):
         super().__post_init__()
         self.train_first = True
@@ -981,53 +906,50 @@ class SVRForecast(WindForecast):
         #     self.max_n_samples = (self.n_context + self.n_prediction) * 1000
             
         self.last_measurement_time = None
-        
-        self.study_name_root = self.kwargs["study_name_root"]
+        # study_name=f"tuning_{self.model_key}_{self.model_config['experiment']['run_name']}"
+        self.study_name = f"svr_{self.model_config['experiment']['run_name']}"
+        self.model_save_dir = os.path.join(self.model_config["experiment"]["log_dir"], self.study_name)
+        os.makedirs(self.model_save_dir, exist_ok=True)
         
         self.scaler = defaultdict(self.create_scaler)
         self.model = defaultdict(self.create_model)
             
-        if "use_trained_models" in self.kwargs:
-            self.use_trained_models = self.kwargs["use_trained_models"]
-        else:
-            self.use_trained_models = True
+        self.use_trained_models = self.kwargs.get("use_trained_models", True)
         
-        model_files = glob.glob(os.path.join(self.temp_save_dir, f"{self.study_name_root}_model_*_{self.prediction_timedelta.total_seconds()}.pkl"))
-        scaler_files = glob.glob(os.path.join(self.temp_save_dir, f"{self.study_name_root}_scaler_*_{self.prediction_timedelta.total_seconds()}.pkl"))
+        model_files = glob.glob(os.path.join(self.model_save_dir, f"{self.study_name}_model_*_{int(self.prediction_timedelta.total_seconds())}.pkl"))
+        scaler_files = glob.glob(os.path.join(self.model_save_dir, f"{self.study_name}_scaler_*_{int(self.prediction_timedelta.total_seconds())}.pkl"))
+        
+        if self.use_trained_models and len(model_files) == 0:
+            logging.error(f"No trained models found in {self.model_save_dir}. Please run tuning.py first for the correct prediction time {int(self.prediction_timedelta.total_seconds())}.")
+            raise Exception()
         
         # no need to load optuna trained hyperparams if we are loading models anyway
         if (not self.use_trained_models or len(model_files) < self.n_outputs or len(scaler_files) < self.n_outputs) and self.use_tuned_params:
-            self.set_tuned_params(backend=self.model_config["optuna"]["storage"]["backend"], 
-                                    study_name_root=self.study_name_root, 
-                                    storage_dir=self.model_config["optuna"]["storage_dir"])
+            self.set_tuned_params(storage=self.kwargs["optuna_storage"], 
+                                    study_name=self.study_name)
             self.use_trained_models = False
         
         # if we want to use previously trained models fetch them, otherwise models will need to be trained
         if self.use_trained_models:
             for model_file in model_files:
-                # if os.path.exists(os.path.join(self.temp_save_dir, f"svr_model_{output}_{self.prediction_timedelta.total_seconds()}.pkl")):
-                output = re.search(f"(?<={self.study_name_root}_model_)([\\w\\_]+\\d+)(?=\\_)", os.path.basename(model_file)).group()
-                prediction_length = float(re.search(f"(?<={self.study_name_root}_model_{output}_)([\\d\\.]+)(?=.pkl)", os.path.basename(model_file)).group())
+                # if os.path.exists(os.path.join(self.model_save_dir, f"svr_model_{output}_{self.prediction_timedelta.total_seconds()}.pkl")):
+                output = re.search(f"(?<={self.study_name}_model_)([\\w\\_]+\\d+)(?=\\_)", os.path.basename(model_file)).group()
+                prediction_length = float(re.search(f"(?<={self.study_name}_model_{output}_)([\\d\\.]+)(?=.pkl)", os.path.basename(model_file)).group())
                 if prediction_length != self.prediction_timedelta.total_seconds():
                     continue
-                with open(os.path.join(self.temp_save_dir, model_file), "rb") as fp:
+                with open(os.path.join(self.model_save_dir, model_file), "rb") as fp:
                     self.model[output] = pickle.load(fp)
-                # else:
-                #     raise FileNotFoundError(f"Tuned model 'svr_model_{output}_{self.prediction_timedelta.total_seconds()}.pkl' doesn't exist.")
-            
+                assert self.model[output].n_features_in_ == self.n_neighboring_turbines * self.n_context, f"SVR must be tuned and trained for n_neighboring_turbines = {self.n_neighboring_turbines} and context_timedelta = {self.context_timedelta}."
+                
             for scaler_file in scaler_files:
-                # if os.path.exists(os.path.join(self.temp_save_dir, f"svr_scaler_{output}_{self.prediction_timedelta.total_seconds()}.pkl")):
-                output = re.search(f"(?<={self.study_name_root}_scaler_)([\\w\\_]+\\d+)(?=\\_)", os.path.basename(scaler_file)).group()
-                prediction_length = float(re.search(f"(?<={self.study_name_root}_scaler_{output}_)([\\d\\.]+)(?=.pkl)", os.path.basename(scaler_file)).group())
+                # if os.path.exists(os.path.join(self.model_save_dir, f"svr_scaler_{output}_{self.prediction_timedelta.total_seconds()}.pkl")):
+                output = re.search(f"(?<={self.study_name}_scaler_)([\\w\\_]+\\d+)(?=\\_)", os.path.basename(scaler_file)).group()
+                prediction_length = float(re.search(f"(?<={self.study_name}_scaler_{output}_)([\\d\\.]+)(?=.pkl)", os.path.basename(scaler_file)).group())
                 if prediction_length != self.prediction_timedelta.total_seconds():
                     continue
-                with open(os.path.join(self.temp_save_dir, scaler_file), "rb") as fp:
+                with open(os.path.join(self.model_save_dir, scaler_file), "rb") as fp:
                     self.scaler[output] = pickle.load(fp)
-                # else:
-                #     raise FileNotFoundError(f"Tuned scaler 'svr_scaler_{output}_{self.prediction_timedelta.total_seconds()}.pkl' doesn't exist.")
-        # else:
-            # pass
-    
+                #
     def create_scaler(self):
         return MinMaxScaler(feature_range=(-1, 1))
     
@@ -1050,28 +972,33 @@ class SVRForecast(WindForecast):
     
     def get_params(self, trial):
          
+        # return {
+        #     **{f"C_{output}": trial.suggest_float(f"C_{output}", 1e-6, 1e6, log=True) for output in self.outputs},
+        #     **{f"epsilon_{output}": trial.suggest_float(f"epsilon_{output}", 1e-6, 1e-1, log=True) for output in self.outputs},
+        #     **{f"gamma_{output}": trial.suggest_categorical(f"gamma_{output}", ["scale", "auto"]) for output in self.outputs}
+        # }
         return {
-            **{f"C_{output}": trial.suggest_float("C", 1e-6, 1e6, log=True) for output in self.outputs},
-            **{f"epsilon_{output}": trial.suggest_float("epsilon", 1e-6, 1e-1, log=True) for output in self.outputs},
-            **{f"gamma_{output}": trial.suggest_categorical("gamma", ["scale", "auto"]) for output in self.outputs}
+            "C": trial.suggest_float(f"C", 1e-6, 1e6, log=True),
+            "epsilon": trial.suggest_float(f"epsilon", 1e-6, 1e-1, log=True),
+            "gamma": trial.suggest_categorical(f"gamma", ["scale", "auto"])
         }
     
 
     def predict_sample(self, n_samples: int):
         pass
     
-    def train_single_output(self, training_measurements, output, reload_model, scale, scaler_params=None):
+    def train_single_output(self, training_measurements, output, retrain_models, scale, scaler_params=None):
         
-        if not reload_model \
-            and os.path.exists(os.path.join(self.temp_save_dir, f"{self.study_name_root}_model_{output}_{self.prediction_timedelta.total_seconds()}.pkl")) \
-                and (not scale or scaler_params or os.path.exists(os.path.join(self.temp_save_dir, f"svr_scaler_{output}_{self.prediction_timedelta.total_seconds()}.pkl"))):
+        if not retrain_models \
+            and os.path.exists(os.path.join(self.model_save_dir, f"{self.study_name}_model_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl")) \
+                and (not scale or scaler_params or os.path.exists(os.path.join(self.model_save_dir, f"svr_scaler_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl"))):
             
             logging.info(f"Loading trained SVR model for output {output}.")
-            with open(os.path.join(self.temp_save_dir, f"{self.study_name_root}_model_{output}_{self.prediction_timedelta.total_seconds()}.pkl"), "rb") as fp:
+            with open(os.path.join(self.model_save_dir, f"{self.study_name}_model_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl"), "rb") as fp:
                 self.model[output] = pickle.load(fp)
 
             if scale and scaler_params is None:
-                with open(os.path.join(self.temp_save_dir, f"{self.study_name_root}_scaler_{output}_{self.prediction_timedelta.total_seconds()}.pkl"), "rb") as fp:
+                with open(os.path.join(self.model_save_dir, f"{self.study_name}_scaler_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl"), "rb") as fp:
                     self.scaler[output] = pickle.load(fp)
         else:
             
@@ -1080,21 +1007,11 @@ class SVRForecast(WindForecast):
             logging.info(f"Training SVR model for output {output}.")
             self.model[output].fit(X_train, y_train)
             
-            # self.scaler[output], self.model[output] = \
-            #     self._train_model(
-            #         model=self.model[output],
-            #         training_inputs=training_inputs,
-            #         feat_type=feat_type,
-            #         tid=tid,
-            #         scaler=self.scaler[output],
-            #         scale=scale,
-            #         output_idx=output_idx
-            #     )
-            with open(os.path.join(self.temp_save_dir, f"{self.study_name_root}_model_{output}_{self.prediction_timedelta.total_seconds()}.pkl"), "wb") as fp:
+            with open(os.path.join(self.model_save_dir, f"{self.study_name}_model_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl"), "wb") as fp:
                 pickle.dump(self.model[output], fp, protocol=5)
                 
             if scale and scaler_params is None:
-                with open(os.path.join(self.temp_save_dir, f"{self.study_name_root}_scaler_{output}_{self.prediction_timedelta.total_seconds()}.pkl"), "wb") as fp:
+                with open(os.path.join(self.model_save_dir, f"{self.study_name}_scaler_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl"), "wb") as fp:
                     pickle.dump(self.scaler[output], fp, protocol=5)
         
         feat_type = re.search(f"\\w+(?=_{self.turbine_signature})", output).group()
@@ -1105,11 +1022,11 @@ class SVRForecast(WindForecast):
             for k, v in scaler_params.items():
                 setattr(self.scaler[output], k, np.ones_like(input_turbine_indices) * v[feat_type])
                 
-            with open(os.path.join(self.temp_save_dir, f"{self.study_name_root}_scaler_{output}_{self.prediction_timedelta.total_seconds()}.pkl"), "wb") as fp:
+            with open(os.path.join(self.model_save_dir, f"{self.study_name}_scaler_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl"), "wb") as fp:
                     pickle.dump(self.scaler[output], fp, protocol=5)
         return self.model[output], self.scaler[output]
     
-    def train_all_outputs(self, historic_measurements, scale, multiprocessor, reload_models=True,
+    def train_all_outputs(self, historic_measurements, scale, multiprocessor, retrain_models=True,
                           scaler_params=None):
         # training_measurements = historic_measurements.gather_every(self.n_prediction_interval)
         # scale = (training_measurements.select(pl.len()).item() > 1) and scale
@@ -1119,7 +1036,7 @@ class SVRForecast(WindForecast):
         #     if self.max_n_samples:
         #         training_measurements = training_measurements.tail(self.max_n_samples)
             
-        pred = {}
+        # pred = {}
         if multiprocessor is not None:
             if multiprocessor == "mpi":
                 comm_size = MPI.COMM_WORLD.Get_size()
@@ -1135,7 +1052,7 @@ class SVRForecast(WindForecast):
                                         output=output, 
                                         scale=scale, 
                                         scaler_params=scaler_params,
-                                        reload_model=reload_models) for output in outputs]
+                                        retrain_models=retrain_models) for output in outputs]
                 for output, fut in zip(outputs, futures):
                     m, s = fut.result()
                     self.model[output] = m
@@ -1145,7 +1062,7 @@ class SVRForecast(WindForecast):
                 self.model[output], self.scaler[output] = self.train_single_output(
                     training_measurements=None, 
                     output=output, scale=scale, 
-                    scaler_params=scaler_params, reload_model=reload_models)
+                    scaler_params=scaler_params, retrain_models=retrain_models)
     
     def predict_point(self, historic_measurements: Union[pd.DataFrame, pl.DataFrame], current_time):
         # TODO LOW include yaw angles in inputs?
@@ -1180,16 +1097,7 @@ class SVRForecast(WindForecast):
                     or (check_is_fitted(self.model[output]) is not None):
                     raise Exception(f"scaler/model for {output} has not been trained!")
                 training_inputs = self._get_inputs(training_measurements, self.scaler[output], feat_type, tid, scale)
-                # self.scaler[output], self.model[output] = \
-                #     self._train_model(
-                #         model=self.model[output],
-                #         training_inputs=training_inputs,
-                #         feat_type=feat_type,
-                #         tid=tid,
-                #         scaler=self.scaler[output],
-                #         scale=scale,
-                #         output_idx=output_idx
-                #     )
+                
                 pred[output] = self._predict(model=self.model[output], 
                                              training_inputs=training_inputs)
                 
@@ -1203,26 +1111,13 @@ class SVRForecast(WindForecast):
             
         else:
             # not enough data points to train SVR, assume persistance
-            logging.info(f"Not enough data points at time {current_time} to train SVR, have {training_measurements.select(pl.len()).item()} but require {self.n_context}, assuming persistance instead.")
+            logging.info(f"Not enough data points at time {current_time} to train SVR, have {historic_measurements.select(pl.len()).item() * self.measurements_timedelta} but require {self.n_context * self.prediction_timedelta}, assuming persistance instead.")
             pred = pl.concat([pred_slice.to_frame(), historic_measurements.slice(-1, 1).select(outputs)], how="horizontal")
             
         if return_pl: 
             return pred
         else:
             return pred.to_pandas()  
-            
-        # executor = ProcessPoolExecutor()
-        
-        # with executor as train_exec:
-        #     # for output in historic_measurements.select(cs.starts_with("ws_horz") | cs.starts_with("ws_vert")).columns:
-        #     futures = {output: train_exec.submit(self._train_model, 
-        #                                          historic_measurements.select(pl.col(output)), 
-        #                                          self.scaler[output],
-        #                                          self.model[output])
-        #                for output in outputs}
-        #     res = {output: futures[output].result() for output in outputs}
-        #     self.scaler = {output: res[output][0] for output in outputs}
-        #     self.model = {output: res[output][1] for output in outputs}
             
     def _inverse_scale(self, pred, output):
         tid = re.search(f"(?<=_){self.turbine_signature}$", output).group()
@@ -1232,34 +1127,11 @@ class SVRForecast(WindForecast):
     def _get_inputs(self, training_measurements, scaler, feat_type, tid, scale):
         input_turbine_indices = self.cluster_turbines[self.tid2idx_mapping[tid]] 
         training_inputs = training_measurements.select([f"{feat_type}_{self.idx2tid_mapping[t]}" for t in input_turbine_indices]).to_numpy()
-        output_idx = input_turbine_indices.index(self.tid2idx_mapping[tid])
         
         if scale: 
             training_inputs = scaler.transform(training_inputs)
         
         return training_inputs
-    
-    # def _train_model(self, model, training_inputs, scaler, feat_type, tid, scale, output_idx):
-        
-    #     # self.cluster_turbines[self.tid2idx_mapping[tid]] gives the zero-indexed turbines indices that should be considered as inputs to this model
-    #     # if we care about the output of turbine tid, we need to find at what index that is in the inputs, to formulate y_train
-        
-    #     X_train, y_train = self._prepare_arrays(training_inputs=training_inputs, 
-    #                                                feat_type=feat_type, tid=tid,
-    #                                                output_idx=output_idx) 
-        
-    #     # logging.info(f"Fitting SVR for output {feat_type}_{tid} with {len(y_train)} samples.")
-    #     model.fit(X_train, y_train)
-        
-        # # start test
-        # X_train, y_train = self._prepare_arrays(training_inputs=training_inputs[:training_inputs.shape[0]-1, :], 
-        #                                            feat_type=feat_type, tid=tid, output_idx=output_idx) 
-        # y_true = training_inputs[-1, output_idx]
-        # model.fit(X_train, y_train)
-        # X_pred = np.ascontiguousarray(training_inputs)[-self.n_context-1:-1, :].flatten()[np.newaxis, :]
-        # y_pred = model.predict(X_pred)
-        # end test
-        # return scaler, model
     
     def _predict(self, model, training_inputs):
         X_pred = np.ascontiguousarray(training_inputs)[-self.n_context:, :].flatten()[np.newaxis, :]
@@ -1270,7 +1142,7 @@ class SVRForecast(WindForecast):
         return pred
     
     def predict_distr(self):
-        pass
+        raise NotImplementedError("SVRForecast does not support predict_distr()")
 
 class KalmanFilterWrapper(KalmanFilter):
     def __init__(self, dim_x=1, dim_z=1, **kwargs): # TODO need this st cross validation will work in Optuna objective function, ideally clone could capture dim_x, dim_z automatically
@@ -1307,13 +1179,13 @@ class KalmanFilterForecast(WindForecast):
         self.prediction_interval = self.n_prediction_interval * self.measurements_timedelta
         self.n_turbines = self.fmodel.n_turbines
         dim_x = dim_z = self.n_targets_per_turbine * self.n_turbines
-        self.model = KalmanFilterForecast.create_model(
+        self.model = self.create_model(
             dim_x=dim_x, 
             dim_z=dim_z,
             F=np.eye(dim_x), # identity matrix predicts x_t = x_t-1 + Q_t
             H=np.eye(dim_z) # identity matrix predicts x_t = x_t-1 + Q_t
         )
-        self.scaler = KalmanFilterForecast.create_scaler()
+        self.scaler = self.create_scaler()
         
         # store last context of w_t = x_t - x_(t-1) and v_t = z_t - H_t x_t
         self.historic_w = np.zeros((0, dim_x))
@@ -1326,12 +1198,10 @@ class KalmanFilterForecast(WindForecast):
         self.n_context = int(self.context_timedelta / self.prediction_timedelta)
         assert self.n_context >= 2, "For KalmanFilterForecaster, context_timedelta must be at least 2 times prediction_timedelta, since prediction_timedelta is the time interval at which it makes new estimates"
          
-    @staticmethod
-    def create_scaler():
+    def create_scaler(self):
         return None
     
-    @staticmethod
-    def create_model(dim_x, dim_z, **kwargs):
+    def create_model(self, dim_x, dim_z, **kwargs):
         model = KalmanFilterWrapper(dim_x=dim_x, dim_z=dim_z)
         if "F" in kwargs:
             model.F = kwargs["F"]
@@ -1548,9 +1418,8 @@ class MLForecast(WindForecast):
             try:
                 logging.info("Getting tuned parameters")
                 # study_name, backend, storage_dir
-                tuned_params = get_tuned_params(study_name=f"tuning_{self.model_key}_{self.model_config['experiment']['run_name']}", 
-                                                backend=self.model_config["optuna"]["storage"]["backend"], 
-                                                storage_dir=self.model_config["optuna"]["storage_dir"])
+                tuned_params = get_tuned_params(storage=self.kwargs["optuna_storage"],
+                                                study_name=f"tuning_{self.model_key}_{self.model_config['experiment']['run_name']}")
                 logging.info(f"Declaring estimator {self.model_key.capitalize()} with tuned parameters")
                 self.model_config["dataset"].update({k: v for k, v in tuned_params.items() if k in self.model_config["dataset"]})
                 self.model_config["model"][self.model_key].update({k: v for k, v in tuned_params.items() if k in self.model_config["model"][self.model_key]})
@@ -2290,7 +2159,7 @@ if __name__ == "__main__":
     parser.add_argument("-fd", "--fig_dir", type=str, 
                         help="Directory to save plots to.", default="./")
     parser.add_argument("-m", "--model", #type=str, 
-                        # choices=["perfect", "persistence", "svr", "kf", "informer", "autoformer", "spacetimeformer", "preview"], 
+                        # choices=["perfect", "persistence", "svr", "kf", "informer", "autoformer", "spacetimeformer", "sf"], 
                         required=True, nargs="+",
                         help="Which model(s) to simulate, compute score for, and plot.")
     parser.add_argument("-st", "--simulation_timestep", 
@@ -2322,7 +2191,7 @@ if __name__ == "__main__":
     parser.add_argument("--plot_arima", action="store_true", help="Run ARIMA and plot historic wind speed data")
     args = parser.parse_args()
     
-    assert all(model in ["perfect", "persistence", "svr", "kf", "informer", "autoformer", "spacetimeformer", "tactis", "preview", "arima"] for model in args.model)
+    assert all(model in ["perfect", "persistence", "svr", "kf", "informer", "autoformer", "spacetimeformer", "tactis", "sf"] for model in args.model)
     RUN_ONCE = (args.multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
     
     TRANSFORM_WIND = {"added_wm": args.added_wind_mag, "added_wd": args.added_wind_dir}
@@ -2411,6 +2280,16 @@ if __name__ == "__main__":
     evaluator = MultivariateEvaluator(num_workers=None, 
         custom_eval_fn=custom_eval_fn
     )
+            
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
+    
+    db_setup_params = generate_df_setup_params(args.model, model_config)
+    optuna_storage = setup_optuna_storage(
+        db_setup_params=db_setup_params,
+        restart_tuning=args.restart_tuning,
+        rank=rank
+    )
      
     forecasters = []
     ## GENERATE PERFECT PREVIEW \
@@ -2427,7 +2306,6 @@ if __name__ == "__main__":
                 turbine_signature=turbine_signature,
                 use_tuned_params=False,
                 model_config=None,
-                temp_save_dir=data_config["temp_storage_dir"],
                 kwargs={}
             )
                                 
@@ -2446,13 +2324,13 @@ if __name__ == "__main__":
                                                     turbine_signature=turbine_signature,
                                                     use_tuned_params=False,
                                                     model_config=None,
-                                                    temp_save_dir=data_config["temp_storage_dir"],
                                                     kwargs={})
 
             forecasters.append(forecaster)
         
     ## GENERATE SVR PREVIEW
     if "svr" in args.model:
+        
         for td in prediction_timedelta:
             forecaster = SVRForecast(measurements_timedelta=measurements_timedelta,
                                     controller_timedelta=controller_timedelta,
@@ -2462,13 +2340,14 @@ if __name__ == "__main__":
                                     true_wind_field=None,
                                     kwargs=dict(kernel="rbf", C=1.0, degree=3, gamma="auto", epsilon=0.1, cache_size=200,
                                                 n_neighboring_turbines=3, max_n_samples=None, 
-                                                study_name_root=f"svr_{model_config['experiment']['run_name']}",
-                                                use_trained_models=args.use_trained_models),
+                                                study_name=f"svr_{model_config['experiment']['run_name']}",
+                                                use_trained_models=args.use_trained_models,
+                                                optuna_storage=optuna_storage,
+                                                model_save_dir=data_config["model_save_dir"]),
                                     tid2idx_mapping=tid2idx_mapping,
                                     turbine_signature=turbine_signature,
                                     use_tuned_params=args.use_tuned_params,
-                                    model_config=model_config,
-                                    temp_save_dir=data_config["temp_storage_dir"])
+                                    model_config=model_config)
             
             forecasters.append(forecaster)
         
@@ -2487,12 +2366,11 @@ if __name__ == "__main__":
                                                 turbine_signature=turbine_signature,
                                                 use_tuned_params=False,
                                                 model_config=model_config,
-                                                temp_save_dir=data_config["temp_storage_dir"],
                                                 kwargs={})
             forecasters.append(forecaster)
         
     ## GENERATE KF PREVIEW 
-    if "preview" in args.model:
+    if "sf" in args.model:
         # tune this use single, longer, prediction time, since we have only identity state transition matrix, and must use final posterior only prediction
         for td in prediction_timedelta:
             forecaster = SpatialFilterForecast(measurements_timedelta=measurements_timedelta,
@@ -2505,7 +2383,6 @@ if __name__ == "__main__":
                                                 turbine_signature=turbine_signature,
                                                 use_tuned_params=False,
                                                 model_config=model_config,
-                                                temp_save_dir=data_config["temp_storage_dir"],
                                                 kwargs=dict(n_neighboring_turbines=6))
             forecasters.append(forecaster)
         
@@ -2525,48 +2402,49 @@ if __name__ == "__main__":
                                     use_tuned_params=True,
                                     model_config=model_config,
                                     kwargs=dict(model_key=model,
-                                                model_checkpoint=args.checkpoint),
-                                    temp_save_dir=data_config["temp_storage_dir"]
+                                                model_checkpoint=args.checkpoint,
+                                                optuna_storage=optuna_storage,
+                                                study_name=db_setup_params["study_name"])
                                     )
         forecasters.append(forecaster)
         
-    if any(forecaster.train_first for forecaster in forecasters):
-        # load training data
-        data_module = DataModule(data_path=model_config["dataset"]["data_path"], 
-                             normalization_consts_path=model_config["dataset"]["normalization_consts_path"],
-                             normalized=True, 
-                             n_splits=1, #model_config["dataset"]["n_splits"],
-                            continuity_groups=None, train_split=(1.0 - model_config["dataset"]["val_split"] - model_config["dataset"]["test_split"]),
-                                val_split=model_config["dataset"]["val_split"], test_split=model_config["dataset"]["test_split"],
-                                prediction_length=model_config["dataset"]["prediction_length"], context_length=model_config["dataset"]["context_length"],
-                                target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
-                                freq=model_config["dataset"]["resample_freq"], target_suffixes=model_config["dataset"]["target_turbine_ids"],
-                                    per_turbine_target=model_config["dataset"]["per_turbine_target"], as_lazyframe=False, dtype=pl.Float32)
+    # if any(forecaster.train_first for forecaster in forecasters):
+    #     # load training data
+    #     data_module = DataModule(data_path=model_config["dataset"]["data_path"], 
+    #                          normalization_consts_path=model_config["dataset"]["normalization_consts_path"],
+    #                          normalized=True, 
+    #                          n_splits=1, #model_config["dataset"]["n_splits"],
+    #                         continuity_groups=None, train_split=(1.0 - model_config["dataset"]["val_split"] - model_config["dataset"]["test_split"]),
+    #                             val_split=model_config["dataset"]["val_split"], test_split=model_config["dataset"]["test_split"],
+    #                             prediction_length=model_config["dataset"]["prediction_length"], context_length=model_config["dataset"]["context_length"],
+    #                             target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
+    #                             freq=model_config["dataset"]["resample_freq"], target_suffixes=model_config["dataset"]["target_turbine_ids"],
+    #                                 per_turbine_target=model_config["dataset"]["per_turbine_target"], as_lazyframe=False, dtype=pl.Float32)
     
-        if not os.path.exists(data_module.train_ready_data_path):
-            data_module.generate_datasets()
+    #     if not os.path.exists(data_module.train_ready_data_path):
+    #         data_module.generate_datasets()
             
-        data_module.generate_splits(save=True, reload=False, splits=["train"])._df.collect()
+    #     data_module.generate_splits(save=True, reload=False, splits=["train"])._df.collect()
         
-        if args.max_splits:
-            train_data = data_module.train_dataset[:args.max_splits]
-        else:
-            train_data = data_module.train_dataset
+    #     if args.max_splits:
+    #         train_data = data_module.train_dataset[:args.max_splits]
+    #     else:
+    #         train_data = data_module.train_dataset
         
-        if args.max_steps:
-            train_data = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in train_data]
+    #     if args.max_steps:
+    #         train_data = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in train_data]
         
-        train_data = generate_wind_field_df(datasets=train_data, target_cols=data_module.target_cols, 
-                                            feat_dynamic_real_cols=data_module.feat_dynamic_real_cols)
-        delattr(data_module, "train_dataset")
+    #     train_data = generate_wind_field_df(datasets=train_data, target_cols=data_module.target_cols, 
+    #                                         feat_dynamic_real_cols=data_module.feat_dynamic_real_cols)
+    #     delattr(data_module, "train_dataset")
         
-        for forecaster in forecasters:
-            if forecaster.train_first and not args.use_trained_models:
-                forecaster.prepare_data(dataset_splits={"train": train_data.partition_by("continuity_group")}, scale=False, reload=True)
-                scaler_params = data_module.compute_scaler_params()
-                forecaster.train_all_outputs(train_data, scale=False, multiprocessor=args.multiprocessor, 
-                                             reload_models=True,
-                                             scaler_params=scaler_params)
+    #     for forecaster in forecasters:
+    #         if forecaster.train_first and not args.use_trained_models:
+    #             forecaster.prepare_data(dataset_splits={"train": train_data.partition_by("continuity_group")}, scale=False, reload=True)
+    #             scaler_params = data_module.compute_scaler_params()
+    #             forecaster.train_all_outputs(train_data, scale=False, multiprocessor=args.multiprocessor, 
+    #                                          reload_models=True,
+    #                                          scaler_params=scaler_params)
                 
     if args.multiprocessor is not None:
         if args.multiprocessor == "mpi":
@@ -2658,29 +2536,3 @@ if __name__ == "__main__":
     
     print("here")
 
-
-if __name__ == "__main__":
-    from process_case_studies import arima_plot
-    from pathlib import Path
-    from datetime import timedelta
-    import polars as pl
-
-    arima_fc = ARIMAForecast(
-        context_timedelta=timedelta(minutes=2),
-        prediction_timedelta=timedelta(minutes=1),
-        measurements_timedelta=timedelta(minutes=1),
-        controller_timedelta=None,
-        fmodel=None,
-        tid2idx_mapping={"T001": 0},
-        turbine_signature="T001",
-        use_tuned_params=False,
-        model_config=None,
-        temp_save_dir=Path("./temp"),
-        kwargs={},
-        true_wind_field=None
-    )
-
-    arima_fc.generate_splits(splits=["train"])
-    historic = arima_fc.train_dataset["SPLIT0"].collect()
-
-    arima_plot(historic_df=historic, turbine_id="T001", save_dir="./plots")

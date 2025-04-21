@@ -23,29 +23,35 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     if simulation_input_dict["controller"]["uncertain"] and not wind_forecast_class.is_probabilistic:
         logging.info(f"Can't run with uncertain flag for {wind_forecast_class.__name__}, setting uncertainty off.")
         simulation_input_dict["controller"]["uncertain"] = simulation_input_dict["controller"]["uncertain"] and wind_forecast_class.is_probabilistic
-        kwargs['case_name'] = re.sub("uncertain_True", "uncertain_False", kwargs['case_name'])
+        input_df = pd.read_csv(os.path.join(results_dir, f"case_descriptions.csv"))
+        input_df.loc[int(kwargs['case_name']), "uncertain"] = False
+        input_df.to_csv(os.path.join(results_dir, f"case_descriptions.csv"))
+        # old_case_name = kwargs['case_name']
+        # kwargs['case_name'] = re.sub("uncertain_True", "uncertain_False", kwargs['case_name'])
+        # move(os.path.join(results_dir, f"input_config_case_{old_case_name}.pkl"), os.path.join(results_dir, f"input_config_case_{kwargs['case_name']}.pkl"))
     
-    fn = f"time_series_results_case_{kwargs['case_name']}_seed_{kwargs['wind_case_idx']}.csv".replace("/", "_")
+    fn = f"time_series_results_case_{kwargs['case_name']}_seed_{kwargs['wind_case_idx']}.csv"
     save_path = os.path.join(results_dir, fn)
     temp_save_path = os.path.join(results_dir, fn.replace(".csv", "_temp.csv"))
     
     if os.path.exists(temp_save_path):
         os.remove(temp_save_path)
+        
+    stoptime = simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"] - simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() - (simulation_input_dict["controller"]["n_horizon"] * simulation_input_dict["controller"]["controller_dt"])
     
     if not kwargs["rerun_simulations"] and os.path.exists(save_path):
         results_df = pd.read_csv(os.path.join(results_dir, fn), low_memory=False)
         # check if this saved df completed successfully
-        if results_df["Time"].iloc[-1] == simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"] - simulation_input_dict["simulation_dt"] + simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds():
+        if results_df["Time"].iloc[-1] == stoptime - simulation_input_dict["simulation_dt"] + simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds():
             logging.info(f"Loaded existing {fn} since rerun_simulations argument is false")
             return
     elif not kwargs["rerun_simulations"] and os.path.exists(os.path.join(results_dir, fn.replace("results", f"chk"))):
-        # TODO load checkpoint if exists
+        # TODO HIGH setup checkpointing from temp unless restart flag is passed
         pass
     
     if os.path.exists(save_path):
         os.remove(save_path)
     
-
     logging.info(f"Running instance of {controller_class.__name__} - {kwargs['case_name']} with wind seed {kwargs['wind_case_idx']}")
     # Load a FLORIS object for power calculations
     fi = ControlledFlorisModel(t0=kwargs["wind_field_ts"].select(pl.col("time").first()).item(),
@@ -100,8 +106,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
                                             use_tuned_params=kwargs["use_tuned_params"],
                                             model_config=kwargs["model_config"],
                                             **{k: v for k, v in simulation_input_dict["wind_forecast"].items() if "timedelta" in k},
-                                            kwargs={k: v for k, v in simulation_input_dict["wind_forecast"].items() if "timedelta" not in k},
-                                            temp_save_dir=kwargs["temp_storage_dir"])
+                                            kwargs={k: v for k, v in simulation_input_dict["wind_forecast"].items() if "timedelta" not in k})
     else:
         wind_forecast = None
     ctrl = controller_class(fi, wind_forecast=wind_forecast, simulation_input_dict=simulation_input_dict, **kwargs)
@@ -168,7 +173,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         simulation_v = simulation_mag * np.cos(np.deg2rad(180 + simulation_dir))
         
     # recompute controls and step floris forward by ctrl.controller_dt
-    while t < simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"]:
+    while t < stoptime:
 
         # reiniitialize and run FLORIS interface with current disturbances and disturbance up to (and excluding) next controls computation
         # using yaw angles as most recently sent from last time-step i.e. initial yaw conditions for first time step
@@ -212,18 +217,9 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
             turbine_wind_mag_ts += [ctrl.measurements_dict["wind_speeds"]]
             turbine_wind_dir_ts += [ctrl.measurements_dict["wind_directions"]]
             
-            if wind_forecast_class and kwargs["include_prediction"]:
+            if wind_forecast_class and kwargs["include_prediction"] and (simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() > 0) and (ctrl.controls_dict["predicted_wind_speeds"] is not None):
                 predicted_wind_speeds_ts += [ctrl.controls_dict["predicted_wind_speeds"]]
-                # predicted_time_ts += [ctrl.controls_dict["predicted_time"]]
-                # predicted_turbine_wind_speed_horz_ts += [ctrl.controls_dict["predicted_wind_speeds_horz"]]
-                # predicted_turbine_wind_speed_vert_ts += [ctrl.controls_dict["predicted_wind_speeds_vert"]]
-                # if ctrl.uncertain:
-                #     stddev_turbine_wind_speed_horz_ts += [ctrl.controls_dict["stddev_wind_speeds_horz"]]
-                #     stddev_turbine_wind_speed_vert_ts += [ctrl.controls_dict["stddev_wind_speeds_vert"]]
-                # else:
-                #     stddev_turbine_wind_speed_horz_ts += [[np.nan] * fi_full.n_turbines]
-                #     stddev_turbine_wind_speed_vert_ts += [[np.nan] * fi_full.n_turbines]
-            # turbine_offline_status_ts += [fi.offline_status[tt, :]]
+            
             turbine_offline_status_ts += [np.isclose(ctrl.measurements_dict["turbine_powers"], 0, atol=1e-3)]
             
             if hasattr(ctrl, "state_cons_activated"):
@@ -258,7 +254,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         # assert np.all(ctrl.controls_dict['yaw_angles'] == ctrl.measurements_dict["wind_directions"] - fi.env.floris.farm.yaw_angles)
         # add freestream wind mags/dirs provided to controller, yaw angles computed at this time-step, resulting turbine powers, wind mags, wind dirs
         # if ctrl.verbose:
-        logging.info(f"Time = {t} of {controller_class.__name__} - {kwargs['case_name']} with wind seed {kwargs['wind_case_idx']}")
+        logging.info(f"Time = {t}/{stoptime} of {controller_class.__name__} - {kwargs['case_name']} with wind seed {kwargs['wind_case_idx']}")
         if ctrl.verbose and False:
             logging.info(f"Measured Freestream Wind Direction = {simulation_dir[k]}",
                 f"Measured Freestream Wind Magnitude = {simulation_mag[k]}",
@@ -282,10 +278,10 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         k += int(ctrl.controller_dt / simulation_input_dict["simulation_dt"])
     
         # if RAM is running low, write existing data to dataframe and continue
-        if (ram_used := virtual_memory().percent) > kwargs["ram_limit"]:
+        # turn data into arrays, pandas dataframe, and export to csv
+        if ((ram_used := virtual_memory().percent) > kwargs["ram_limit"]) or (final := (t>=stoptime)):
             logging.info(f"Used {ram_used}% RAM.")
             # turn data into arrays, pandas dataframe, and export to csv
-            final = (t>=simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"])
             write_df(case_family=kwargs["case_family"],
                     case_name=kwargs["case_name"],
                     wind_case_idx=kwargs["wind_case_idx"],
@@ -329,39 +325,8 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
             if wind_forecast_class:
                 predicted_wind_speeds_ts = []
 
-    # turn data into arrays, pandas dataframe, and export to csv
-    if turbine_wind_mag_ts:
-        write_df(case_family=kwargs["case_family"],
-                case_name=kwargs["case_name"],
-                wind_case_idx=kwargs["wind_case_idx"],
-                wf_source=kwargs["wf_source"],
-                wind_field_ts=kwargs["wind_field_ts"],
-                simulation_mag=simulation_mag, simulation_dir=simulation_dir,
-                fi_full=fi_full,
-                start_time=(k-len(turbine_powers_ts)) * simulation_input_dict["simulation_dt"],
-                turbine_wind_mag_ts=turbine_wind_mag_ts, 
-                turbine_wind_dir_ts=turbine_wind_dir_ts, 
-                turbine_offline_status_ts=turbine_offline_status_ts, 
-                yaw_angles_ts=yaw_angles_ts, 
-                turbine_powers_ts=turbine_powers_ts,
-                opt_cost_terms_ts=opt_cost_terms_ts, 
-                convergence_time_ts=convergence_time_ts,
-                predicted_wind_speeds_ts=predicted_wind_speeds_ts,
-                lower_state_cons_activated_ts=lower_state_cons_activated_ts,
-                upper_state_cons_activated_ts=upper_state_cons_activated_ts,
-                ctrl=ctrl, 
-                wind_forecast_class=wind_forecast_class, 
-                simulation_input_dict=simulation_input_dict,
-                idx2tid_mapping=idx2tid_mapping,
-                save_path=temp_save_path,
-                final=True,
-                include_prediction=kwargs["include_prediction"])
-        
-        logging.info(f"Moving final result to {save_path}.")
-        move(temp_save_path, save_path)
-        
     logging.info(f"Saved {fn}")
-    
+    return
     # return results_data
 
 # @profile
@@ -404,7 +369,7 @@ def write_df(case_family, case_name, wind_case_idx, wf_source, wind_field_ts,
     # running_opt_cost_terms_ts[:, 1] = np.sum(np.stack([0.5 * (norm_yaw_angle_changes[:, i])**2 * R for i in range(ctrl.n_turbines)], axis=1), axis=1)
     running_opt_cost_terms_ts[:, 1] = np.nan
     
-    # may be longer than following: int(simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"] // simulation_input_dict["simulation_dt"]), if controller step goes beyond
+    # may be longer than following: int(stoptime // simulation_input_dict["simulation_dt"]), if controller step goes beyond
     start_step = int(start_time / simulation_input_dict["simulation_dt"])
     
     if start_step >= 0:
@@ -461,7 +426,7 @@ def write_df(case_family, case_name, wind_case_idx, wf_source, wind_field_ts,
         # "TotalRunningOptimizationCost": np.sum(running_opt_cost_terms_ts, axis=1),
     }
     
-    if wf_source == "scada" and include_predictions:
+    if wf_source == "scada" and include_prediction:
         results_data.update({
             **{
                 f"TrueTurbineWindSpeedHorz_{idx2tid_mapping[i]}": 
@@ -483,10 +448,11 @@ def write_df(case_family, case_name, wind_case_idx, wf_source, wind_field_ts,
 
     results_data = pd.DataFrame(results_data)
     
-    if wind_forecast_class and include_prediction:
+    if wind_forecast_class and include_prediction and simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() > 0:
+        
+        # .group_by("time", maintain_order=True).agg(pl.all().last())\
         predicted_wind_speeds_ts = pl.concat(predicted_wind_speeds_ts, how="vertical")\
-                                     .group_by("time", maintain_order=True).agg(pl.all().last())\
-                                     .with_columns(time=((pl.col("time") - ctrl.init_time).dt.total_seconds().cast(pl.Int64)))
+                                     .with_columns(time=((pl.col("time") - ctrl.init_time).dt.total_seconds().cast(pl.Float32)))
         # results_df = pd.concat([results_df, predicted_wind_speeds_ts], axis=1)
         # sd_ws_vert_cols
         cols = ["time"] + ctrl.mean_ws_horz_cols + ctrl.mean_ws_vert_cols + ((ctrl.sd_ws_horz_cols + ctrl.sd_ws_vert_cols) if ctrl.uncertain else [])

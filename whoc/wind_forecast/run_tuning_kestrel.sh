@@ -3,19 +3,19 @@
 #SBATCH --account=ssc
 #SBATCH --output=model_tuning_%j.out
 ##SBATCH --nodes=4
-##SBATCH --time=12:00:00
+##SBATCH --time=24:00:00
 #SBATCH --nodes=1
 #SBATCH --time=01:00:00
-##SBATCH --partition=debug
-#SBATCH --partition=nvme
-#SBATCH --ntasks-per-node=12
-#SBATCH --cpus-per-task=1
+#SBATCH --partition=debug
+##SBATCH --partition=nvme
+#SBATCH --ntasks-per-node=104
+##SBATCH --cpus-per-task=1
 
 #  srun -n 1 --exclusive python tuning.py --config $HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel.yaml --study_name "svr_tuning" --model "svr" &
 # salloc --account=ssc --job-name=model_tuning  --ntasks=104 --cpus-per-task=1 --time=01:00:00 --partition=debug
 # python tuning.py --config $HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel.yaml --study_name "svr_tuning" --model "svr"
 
-export NTASKS_PER_TUNER=12
+export NTASKS_PER_TUNER=13
 export MODEL=$1
 NTUNERS=$((SLURM_NTASKS / NTASKS_PER_TUNER))
 
@@ -41,28 +41,17 @@ export MODEL_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examp
 #export MODEL_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel_flasc.yaml"
 export DATA_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_awaken_new.yaml"
 #export DATA_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_flasc.yaml"
-export STUDY_NAME="${1}_${2}_tuning"
+
 echo "MODEL=${MODEL}"
-echo "STUDY_NAME=${STUDY_NAME}"
 echo "MODEL_CONFIG=${MODEL_CONFIG}"
 echo "DATA_CONFIG=${DATA_CONFIG}"
 echo "TMPDIR=${TMPDIR}"
 
 # prepare training data first
-echo "=== STARTING DATA PREPARATION ==="
 date +"%Y-%m-%d %H:%M:%S"
 module purge
 module load mamba
 mamba activate wind_forecasting
-python tuning.py \
-            --model $MODEL \
-            --model_config $MODEL_CONFIG \
-            --data_config $DATA_CONFIG \
-            --study_name $STUDY_NAME \
-            --initialize \
-            --seed 0
-wait
-echo "=== DATA PREPARATION COMPLETE ==="
 
 echo "=== STARTING TUNING ==="
 date +"%Y-%m-%d %H:%M:%S"
@@ -81,9 +70,9 @@ for i in $(seq 0 $((${NTUNERS}-1))); do
 	export WORKER_SEED=$((42 + i*10)) #+ j))
 
         # Calculate worker index for logging
-	WORKER_INDEX=$((i)) #$((i*NUM_WORKERS_PER_CPU + j))
+	export WORKER_RANK=${i} #$((i*NUM_WORKERS_PER_CPU + j))
 
-        echo "Starting worker ${WORKER_INDEX} on CPU ${i} with seed ${WORKER_SEED}"
+        echo "Starting worker ${WORKER_RANK} on CPU ${i} with seed ${WORKER_SEED}"
         
         # Launch worker with environment settings
 	nohup bash -c "
@@ -91,7 +80,8 @@ for i in $(seq 0 $((${NTUNERS}-1))); do
         module load mamba
         module load PrgEnv-intel
         mamba activate wind_forecasting
-        python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG} --data_config ${DATA_CONFIG} --study_name ${STUDY_NAME} --multiprocessor cf --seed ${WORKER_SEED} ${RESTART_FLAG}" &
+
+        python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG} --data_config ${DATA_CONFIG} --multiprocessor cf --seed ${WORKER_SEED} ${RESTART_FLAG}" &
 
         # Store the process ID
         WORKER_PIDS+=($!)

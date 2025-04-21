@@ -33,7 +33,6 @@ from floris.optimization.yaw_optimization.yaw_optimizer_scipy import YawOptimiza
 import logging 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# TODO TESTING
 import warnings
 warnings.simplefilter("error", category=FutureWarning)
 
@@ -46,7 +45,7 @@ class LookupBasedWakeSteeringController(ControllerBase):
         self.controller_dt = simulation_input_dict["controller"]["controller_dt"]  # Won't be needed here, but generally good to have
         self.n_turbines = interface.n_turbines #simulation_input_dict["controller"]["num_turbines"]
         
-        self.num_prediction_stored = max(pd.Timedelta(self.controller_dt, unit="s"), self.wind_forecast.prediction_timedelta)
+        self.prediction_timedelta_stored = max(pd.Timedelta(self.controller_dt, unit="s"), self.wind_forecast.prediction_timedelta)
         
         # self.filtered_measurements = pd.DataFrame(columns=["time"] + [f"ws_horz_{tid}" for tid in range(self.n_turbines)] + [f"ws_vert_{tid}" for tid in range(self.n_turbines)], dtype=pd.Float64Dtype())
         # self.ws_lpf_alpha = np.exp(-simulation_input_dict["controller"]["ws_lpf_omega_c"] * simulation_input_dict["controller"]["lpf_T"])
@@ -368,21 +367,23 @@ class LookupBasedWakeSteeringController(ControllerBase):
 
         new_yaw_setpoints = np.array(current_yaw_setpoints)
         
-        # NOTE: this is run every simulation_dt, not every controller_dt, because the yaw angle may be moving gradually towards the correct setpoint
-        if self.wind_forecast:
-            if self.uncertain:
-                # forecasted_wind_sample = self.wind_forecast.predict_sample(self.historic_measurements, self.current_time)
-                forecasted_wind_field = self.wind_forecast.predict_distr(self.historic_measurements, self.current_time)
-            else:
-                forecasted_wind_field = self.wind_forecast.predict_point(self.historic_measurements, self.current_time)
-            
-            single_forecasted_wind_field = forecasted_wind_field.filter(pl.col("time") == self.current_time + self.wind_forecast.prediction_timedelta)
-                
+        use_wind_forecast = False
+        forecasted_wind_field = None
+        single_forecasted_wind_field = None
+           
         if (((self.current_time - self.init_time).total_seconds() % self.controller_dt) == 0.0):
-            # if (abs((self.current_time - self.init_time).total_seconds() % self.controller_dt) == 0.0):
+            if self.wind_forecast and self.wind_forecast.prediction_timedelta.total_seconds() > 0:
+                if self.uncertain:
+                    forecasted_wind_field = self.wind_forecast.predict_distr(self.historic_measurements, self.current_time)
+                else:
+                    forecasted_wind_field = self.wind_forecast.predict_point(self.historic_measurements, self.current_time)
+                
+                single_forecasted_wind_field = forecasted_wind_field.filter(pl.col("time") == self.current_time + self.wind_forecast.prediction_timedelta)
+                
+                use_wind_forecast = True
             
             if self.current_time < self.lpf_start_time or (not self.wind_dir_use_filt and not self.wind_mag_use_filt):
-                wind = single_forecasted_wind_field if self.wind_forecast else current_measurements
+                wind = single_forecasted_wind_field if use_wind_forecast else pl.from_dataframe(current_measurements)
                 
                 wind_dirs = 180.0 + np.rad2deg(np.arctan2(
                     wind.select(self.mean_ws_horz_cols).to_numpy()[-1, :], 
@@ -398,7 +399,7 @@ class LookupBasedWakeSteeringController(ControllerBase):
             else:
                 # use filtered wind direction, NOTE historic_measurements includes controller_dt steps into the future such that we can run simulation in time batches
                 # forecasted_wind_field.iloc[-1:].rename(columns={old_col: re.search("(?<=loc_)\\w+", old_col).group(0) for old_col in self.mean_ws_horz_cols+self.mean_ws_vert_cols})
-                if self.wind_forecast:
+                if use_wind_forecast:
                     hist_meas = self.historic_measurements.rename({re.search("(?<=loc_)\\w+", new_col).group(0): new_col for new_col in self.mean_ws_horz_cols + self.mean_ws_vert_cols}) if self.uncertain else self.historic_measurements
                     wind = pl.concat([hist_meas.select(self.mean_ws_horz_cols+self.mean_ws_vert_cols).with_columns(cs.numeric().cast(pl.Float32)), 
                                         forecasted_wind_field.select(self.mean_ws_horz_cols + self.mean_ws_vert_cols).with_columns(cs.numeric().cast(pl.Float32))
@@ -460,11 +461,13 @@ class LookupBasedWakeSteeringController(ControllerBase):
                 # logging.info(f"min ws_horz_stdevs = {min(ws_horz_stddevs)}, mean ws_horz_stddevs = {np.mean(ws_horz_stddevs)}, max ws_horz_stddevs = {max(ws_horz_stddevs)}")
                 # logging.info(f"min ws_vert_stdevs = {min(ws_vert_stddevs)}, mean ws_vert_stdevs = {np.mean(ws_vert_stddevs)}, max ws_vert_stdevs = {max(ws_vert_stddevs)}")
            
-            # TODO HIGH feed just upstream turbine or mean?
             if self.target_turbine_indices == "all":
                 wd_inp, wm_inp, wd_stddev_inp = wind_dirs.mean(), wind_mags.mean(), wind_dir_stddevs.mean() if self.uncertain else None
             else:
+                # feeds wind from feed just upstream turbine to LUT, could also do mean
                 upstream_turbine_idx = np.argsort(self.target_turbine_indices)[0]
+                if len(self.target_turbine_indices) > 2:
+                    logging.warning("There are more than 2 target turbines under study, but only the upstream wind direction is being used.")
                 wd_inp, wm_inp, wd_stddev_inp = wind_dirs[upstream_turbine_idx], wind_mags[upstream_turbine_idx], wind_dir_stddevs[upstream_turbine_idx] if self.uncertain else None
             if self.uncertain:
                 target_yaw_offsets = self.wake_steering_interpolant(
@@ -523,10 +526,14 @@ class LookupBasedWakeSteeringController(ControllerBase):
         
         if self.wind_forecast:
             # wf.filter(pl.col("time") < pl.col("time").first() + preview_forecast.controller_timedelta)
-            newest_predictions = forecasted_wind_field.filter(pl.col("time") <= self.current_time + self.num_prediction_stored)\
-                                                      .select(["time"] + self.mean_ws_horz_cols + self.mean_ws_vert_cols 
-                                                            + ((self.sd_ws_horz_cols + self.sd_ws_vert_cols) if self.uncertain else []))\
-                                                      .with_columns(cs.numeric().cast(pl.Float32), pl.col("time").cast(pl.Datetime(time_unit="us")))
+            if use_wind_forecast:
+                # newest_predictions = forecasted_wind_field.filter(pl.col("time") <= self.current_time + self.prediction_timedelta_stored)\
+                newest_predictions = forecasted_wind_field.filter(pl.col("time") == self.current_time + self.wind_forecast.prediction_timedelta)\
+                                                        .select(["time"] + self.mean_ws_horz_cols + self.mean_ws_vert_cols 
+                                                                + ((self.sd_ws_horz_cols + self.sd_ws_vert_cols) if self.uncertain else []))\
+                                                        .with_columns(cs.numeric().cast(pl.Float32), pl.col("time").cast(pl.Datetime(time_unit="us")))
+            else:
+                newest_predictions = None
             # print(newest_predictions)
             self.controls_dict = {
                 "yaw_angles": list(constrained_yaw_setpoints),

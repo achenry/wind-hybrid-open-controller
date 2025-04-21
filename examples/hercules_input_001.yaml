@@ -103,20 +103,20 @@ controller:
   target_turbine_indices:
 
 wind_forecast:
-  context_timedelta: 1200 # seconds
-  prediction_timedelta: 1200 # seconds
+  context_timedelta: 600 # seconds
+  prediction_timedelta: 300 # seconds
   SVRForecast:
+    model_key: svr
     kernel: rbf
     C: 1.0
     degree: 3
     gamma: auto
     epsilon: 0.1
     cache_size: 200
-    n_neighboring_turbines: 3
+    n_neighboring_turbines: 5
     max_n_samples:
-    study_name_root: svr_aoifemac_awaken
   SpatialFilterForecast:
-    n_neighboring_turbines: 3
+    n_neighboring_turbines: 5
   MLForecast:
     model_key: informer
     model_checkpoint: latest
