@@ -10,6 +10,7 @@ import os
 import datetime
 from datetime import timedelta
 import yaml
+import time
 import re
 import argparse
 from concurrent.futures import ProcessPoolExecutor
@@ -57,6 +58,7 @@ from wind_forecasting.postprocessing.probabilistic_metrics import continuous_ran
 from wind_forecasting.run_scripts.testing import get_checkpoint
 from wind_forecasting.run_scripts.tuning import get_tuned_params, generate_df_setup_params
 from wind_forecasting.utils.optuna_db_utils import setup_optuna_storage
+from wind_forecasting.utils.optuna_visualization import launch_optuna_dashboard, log_optuna_visualizations_to_wandb
 
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -66,12 +68,13 @@ import polars as pl
 import polars.selectors as cs
 
 from mysql.connector import Error as SQLError, connect as sql_connect
-from optuna import create_study
+from optuna import create_study, load_study
 from optuna.samplers import TPESampler
 from optuna.storages import JournalStorage, RDBStorage
 from optuna.storages.journal import JournalFileBackend
 from optuna.pruners import HyperbandPruner, MedianPruner, PercentilePruner, NopPruner
 from optuna.integration import PyTorchLightningPruningCallback
+from optuna.trial import TrialState # Added for checking trial status
 
 # from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import MinMaxScaler
@@ -220,18 +223,24 @@ class WindForecast:
     # def tune_hyperparameters_single(self, historic_measurements, scaler, feat_type, tid, study_name, seed, restart_tuning, backend, storage_dir, n_trials=1):
     def tune_hyperparameters_single(self, seed, storage, 
                                     n_trials_per_worker=1, 
-                                    pruning_kwargs=None):
+                                    config=None):
         # for case when argument is list of multiple continuous time series AND to only get the training inputs/outputs relevant to this model
-        
+        # Log safely without credentials if they were included (they aren't for socket trust)
+        if hasattr(storage, "url"):
+            log_storage_url = storage.url.split('@')[0] + '@...' if '@' in storage.url else storage.url
+            logging.info(f"Using Optuna storage URL: {log_storage_url}")
+
         # Configure pruner based on settings
-        if pruning_kwargs:
-            pruning_type = pruning_kwargs["type"]
-            logging.info(f"Configuring pruner: type={pruning_type}, min_resource={pruning_kwargs['min_resource']}")
+        if "pruning" in config["optuna"] and config["optuna"]["pruning"].get("enabled", False):
+            pruning_type = config["optuna"]["pruning"].get("type", "hyperband").lower()
+            
+            min_resource = config["optuna"]["pruning"]["min_resource"]
+            max_resource = config["optuna"]["pruning"]["max_resource"]
+                
+            logging.info(f"Configuring pruner: type={pruning_type}, min_resource={config["optuna"]["pruning"]['min_resource']}")
 
             if pruning_type == "hyperband":
-                reduction_factor = pruning_kwargs["reduction_factor"]
-                min_resource = pruning_kwargs["min_resource"]
-                max_resource = pruning_kwargs["max_resource"]
+                reduction_factor = config["optuna"]["pruning"]["reduction_factor"]
                 
                 pruner = HyperbandPruner(
                     min_resource=min_resource,
@@ -243,7 +252,7 @@ class WindForecast:
                 pruner = MedianPruner(n_startup_trials=5, n_warmup_steps=min_resource)
                 logging.info(f"Created MedianPruner with n_startup_trials=5, n_warmup_steps={min_resource}")
             elif pruning_type == "percentile":
-                percentile = pruning_kwargs[percentile]
+                percentile = config["optuna"][percentile]
                 pruner = PercentilePruner(percentile=percentile, n_startup_trials=5, n_warmup_steps=min_resource)
                 logging.info(f"Created PercentilePruner with percentile={percentile}, n_startup_trials=5, n_warmup_steps={min_resource}")
             else:
@@ -252,46 +261,142 @@ class WindForecast:
         else:
             logging.info("Pruning is disabled, using NopPruner")
             pruner = NopPruner()
-         
+        
+        # Get worker ID for study creation/loading logic
+        # Use WORKER_RANK consistent with run_model.py. Default to '0' if not set.
+        worker_id = os.environ.get('WORKER_RANK', '0')
+
+        # Create study on rank 0, load on other ranks
+        study = None # Initialize study variable
+        
         try:
-            logging.info(f"Creating Optuna study {self.study_name}.") 
-            study = create_study(study_name=self.study_name,
-                                    storage=storage,
-                                    direction="maximize",
-                                    load_if_exists=True,
-                                    sampler=TPESampler(seed=seed),
-                                    pruner=pruner) # maximize negative mse ie minimize mse
-            logging.info(f"Study successfully created or loaded: {self.study_name}")
+            if worker_id == '0':
+                logging.info(f"Rank 0: Creating/loading Optuna study '{self.study_name}' with pruner: {type(pruner).__name__}")
+                study = create_study(study_name=self.study_name,
+                                        storage=storage,
+                                        direction="maximize",
+                                        load_if_exists=True,
+                                        sampler=TPESampler(seed=seed),
+                                        pruner=pruner) # maximize negative mse ie minimize mse
+                logging.info(f"Rank 0: Study '{self.study_name}' created or loaded successfully.")
+                
+                # --- Launch Dashboard (Rank 0 only) ---
+                if hasattr(storage, "url"):
+                    launch_optuna_dashboard(config, storage.url) # Call imported function
+                # --------------------------------------
+            else:
+                # Non-rank-0 workers MUST load the study created by rank 0
+                logging.info(f"Rank {worker_id}: Attempting to load existing Optuna study '{study_name}'")
+                # Add a small delay and retry mechanism for loading, in case rank 0 is slightly delayed
+                max_retries = 6 # Increased retries slightly
+                retry_delay = 10 # Increased delay slightly
+                for attempt in range(max_retries):
+                    try:
+                        study = load_study(
+                            study_name=self.study_name,
+                            storage=storage,
+                            sampler=TPESampler(seed=seed), # Sampler might be needed for load_study too
+                            pruner=pruner
+                        )
+                        logging.info(f"Rank {worker_id}: Study '{self.study_name}' loaded successfully on attempt {attempt+1}.")
+                        break # Exit loop on success
+                    except KeyError as e: # Optuna <3.0 raises KeyError if study doesn't exist yet
+                        if attempt < max_retries - 1:
+                            logging.warning(f"Rank {worker_id}: Study '{self.study_name}' not found yet (attempt {attempt+1}/{max_retries}). Retrying in {retry_delay}s... Error: {e}")
+                            time.sleep(retry_delay)
+                        else:
+                            logging.error(f"Rank {worker_id}: Failed to load study '{self.study_name}' after {max_retries} attempts (KeyError). Aborting.")
+                            raise
+                    except Exception as e: # Catch other potential loading errors (e.g., DB connection issues)
+                        logging.error(f"Rank {worker_id}: An unexpected error occurred while loading study '{self.study_name}' on attempt {attempt+1}: {e}", exc_info=True)
+                        # Decide whether to retry on other errors or raise immediately
+                        if attempt < max_retries - 1:
+                            logging.warning(f"Retrying in {retry_delay}s...")
+                            time.sleep(retry_delay)
+                        else:
+                            logging.error(f"Rank {worker_id}: Failed to load study '{self.study_name}' after {max_retries} attempts due to persistent errors. Aborting.")
+                            raise # Re-raise other errors after retries
+                
+                # Check if study was successfully loaded after the loop
+                if study is None:
+                    # This condition should ideally be caught by the error handling within the loop, but added for safety.
+                    raise RuntimeError(f"Rank {worker_id}: Could not load study '{self.study_name}' after multiple retries.")
+   
         except Exception as e:
-            logging.error(f"Error creating study: {str(e)}")
-            logging.error(f"Error type: {type(e).__name__}")
-            logging.error(f"Storage type: {type(storage).__name__}")
-            logging.error(f"Storage value: {storage}")
+            # Log error with rank information
+            logging.error(f"Rank {worker_id}: Error creating/loading study '{self.study_name}': {str(e)}", exc_info=True)
+            # Log storage URL safely
+            if hasattr(optuna_storage, "url"):
+                log_storage_url_safe = str(optuna_storage.url).split('@')[0] + '@...' if '@' in str(optuna_storage.url) else str(optuna_storage.url)
+                logging.error(f"Error details - Type: {type(e).__name__}, Storage: {log_storage_url_safe}")
+            else:
+                logging.error(f"Error details - Type: {type(e).__name__}, Storage: Journal")
             raise
         
-        # Get worker ID for logging
-        worker_id = os.environ.get('SLURM_PROCID', '0')
         
-        # Each worker contributes the same number of trials to the shared study = n_trials
-        logging.info(f"Worker {worker_id} is optimizing Optuna study {self.study_name}.")
-        
+        logging.info(f"Worker {worker_id}: Participating in Optuna study {self.study_name}")
+
         objective_fn = self._tuning_objective
         
         try:
-            study.optimize(objective_fn, n_trials=n_trials_per_worker, show_progress_bar=True)
+            study.optimize(objective_fn,
+                           n_trials=n_trials_per_worker, 
+                           show_progress_bar=(worker_id=='0'))
         except Exception as e:
-            logging.error(f"Worker {worker_id} failed with error: {str(e)}")
-            logging.error(f"Error details: {type(e).__name__}")
+            logging.error(f"Worker {worker_id}: Failed during study optimization: {str(e)}", exc_info=True)
             raise
             
-        if worker_id == '0':  # Only the first worker prints the final results
-            logging.info("Number of finished trials: {}".format(len(study.trials)))
-            logging.info("Best trial:")
-            trial = study.best_trial
-            logging.info("  Value: {}".format(trial.value))
-            logging.info("  Params: ")
-            for key, value in trial.params.items():
-                logging.info("    {}: {}".format(key, value))
+        if worker_id == '0' and study:
+            logging.info("Rank 0: Starting W&B summary run creation.")
+
+            # Wait for all expected trials to complete
+            num_workers = int(os.environ.get('WORLD_SIZE', 1))
+            expected_total_trials = num_workers * n_trials_per_worker
+            logging.info(f"Rank 0: Expecting a total of {expected_total_trials} trials ({num_workers} workers * {n_trials_per_worker} trials/worker).")
+
+            logging.info("Rank 0: Waiting for all expected Optuna trials to reach a terminal state...")
+            wait_interval_seconds = 30
+            while True:
+                # Refresh trials from storage
+                all_trials_current = study.get_trials(deepcopy=False)
+                finished_trials = [t for t in all_trials_current if t.state in (TrialState.COMPLETE, TrialState.PRUNED, TrialState.FAIL)]
+                num_finished = len(finished_trials)
+                num_total_in_db = len(all_trials_current) # Current count in DB
+
+                logging.info(f"Rank 0: Trial status check: {num_finished} finished / {num_total_in_db} in DB (expected total: {expected_total_trials}).")
+
+                if num_finished >= expected_total_trials:
+                    logging.info(f"Rank 0: All {expected_total_trials} expected trials have reached a terminal state.")
+                    break
+                elif num_total_in_db > expected_total_trials and num_finished >= expected_total_trials:
+                    logging.warning(f"Rank 0: Found {num_total_in_db} trials in DB (expected {expected_total_trials}), but {num_finished} finished trials meet the expectation.")
+                    break
+
+                logging.info(f"Rank 0: Still waiting for trials to finish ({num_finished}/{expected_total_trials}). Sleeping for {wait_interval_seconds} seconds...")
+                time.sleep(wait_interval_seconds)
+
+            # Fetch best trial *before* initializing summary run
+            best_trial = None
+            try:
+                best_trial = study.best_trial
+                logging.info(f"Rank 0: Fetched best trial: Number={best_trial.number}, Value={best_trial.value}")
+            except ValueError:
+                logging.warning("Rank 0: Could not retrieve best trial (likely no trials completed successfully).")
+            except Exception as e_best_trial:
+                logging.error(f"Rank 0: Error fetching best trial: {e_best_trial}", exc_info=True)
+                
+        # Log best trial details (only rank 0)
+        if worker_id == '0' and study: # Check if study object exists
+            if len(study.trials) > 0:
+                logging.info("Number of finished trials: {}".format(len(study.trials)))
+                logging.info("Best trial:")
+                trial = study.best_trial
+                logging.info("  Value: {}".format(trial.value))
+                logging.info("  Params: ")
+                for key, value in trial.params.items():
+                    logging.info("    {}: {}".format(key, value))
+            else:
+                logging.warning("No trials were completed")
         
         # for output in self.outputs:
         #     os.remove(os.path.join(self.temp_save_dir, f"Xy_train_{output}.dat"))
@@ -1814,39 +1919,71 @@ def make_predictions(forecaster, test_data, prediction_type):
         # split_true_wf = true_wind_field.filter(pl.col("time").is_between(start, end, closed="both"))
         split_controller_times = controller_times.filter(pl.col("time").is_between(start, end, closed="both"))
         for current_row in split_controller_times.iter_rows(named=True):
+            
             current_time = current_row["time"]
-            logging.info(f"Predicting future wind field using {forecaster.__class__.__name__} at time {current_time}/{end} of split {d}/{n_splits}.")
-            if prediction_type == "point":
-                pred = forecaster.predict_point(
-                    ds.filter(pl.col("time") <= current_time), current_time)
-            elif prediction_type == "distribution":
-                pred = forecaster.predict_distr(
-                    ds.filter(pl.col("time") <= current_time), current_time)
-            elif prediction_type == "sample":
-                raise NotImplementedError()
             
-            # for kf testing
-            # means_p.append(forecaster.means_p)
-            # means.append(forecaster.means)
-            # covariances_p.append(forecaster.covariances_p)
-            # covariances.append(forecaster.covariances)
+            if current_time - start >= forecaster.context_timedelta:
+                logging.info(f"Predicting future wind field using {forecaster.__class__.__name__} at time {current_time}/{end} of split {d}/{n_splits}.")
+                if prediction_type == "distribution" and forecaster.is_probabilistic:
+                    pred = forecaster.predict_distr(
+                        ds.filter(pl.col("time") <= current_time), current_time)
+                elif prediction_type == "point" or not forecaster.is_probabilistic:
+                    pred = forecaster.predict_point(
+                        ds.filter(pl.col("time") <= current_time), current_time)
+                elif prediction_type == "sample":
+                    raise NotImplementedError()
+                
+                # for kf testing
+                # means_p.append(forecaster.means_p)
+                # means.append(forecaster.means)
+                # covariances_p.append(forecaster.covariances_p)
+                # covariances.append(forecaster.covariances)
             
-            forecasts[-1].append(pred)
+                forecasts[-1].append(pred)
             
             # if current_time >= label[FieldName.START].to_timestamp():
             #     # fetch predictions from label part
             #     forecasts[-1].append(pred)
-            
-        forecasts[-1] = [wf.filter(pl.col("time") < (
-            pl.col("time").first() + max(forecaster.controller_timedelta, forecaster.prediction_timedelta))) 
-                                        for wf in forecasts[-1]] 
-        forecasts[-1] = pl.concat(forecasts[-1], how="vertical_relaxed").group_by("time", maintain_order=True).agg(pl.all().last())
-
-    true = [test_data.filter(pl.col("time").is_between(
-                wf.select(pl.col("time").first()).item(), wf.select(pl.col("time").last()).item(), closed="both"))
-            .with_columns(data_type=pl.lit("True"), continuity_group=pl.lit(split_idx))
-            for split_idx, wf in enumerate(forecasts)]
-    forecasts = [wf.with_columns(data_type=pl.lit("Forecast"), continuity_group=pl.lit(split_idx)) for split_idx, wf in enumerate(forecasts)]
+        
+        # if save_last_pred:
+        #     forecasts[-1] = [wf.filter(pl.col("time") < (
+        #         pl.col("time").first() + max(forecaster.controller_timedelta, forecaster.prediction_timedelta))) 
+        #                                     for wf in forecasts[-1]] 
+        #     forecasts[-1] = pl.concat(forecasts[-1], how="vertical_relaxed").group_by("time", maintain_order=True).agg(pl.all().last())
+    
+    # if save_last_pred:
+    #     true = [test_data.filter(pl.col("time").is_between(
+    #                 wf.select(pl.col("time").first()).item(), wf.select(pl.col("time").last()).item(), closed="both"))
+    #             .with_columns(data_type=pl.lit("True"), continuity_group=pl.lit(split_idx))
+    #             for split_idx, wf in enumerate(forecasts)]
+    #     forecasts = [wf.with_columns(data_type=pl.lit("Forecast"), continuity_group=pl.lit(split_idx)) for split_idx, wf in enumerate(forecasts)]
+    # else:
+    # forecasts = np.concatenate(forecasts)
+    true = test_data
+    test_idx = 0
+    for f in range(len(forecasts)):
+        for ff in range(len(forecasts[f])):
+            forecasts[f][ff] = forecasts[f][ff].with_columns(test_idx=pl.lit(test_idx))
+            # time_cond = pl.col("time").is_between(
+            #                 forecasts[f][ff].select(pl.col("time").first()).item(), forecasts[f][ff].select(pl.col("time").last()).item(), 
+            #                 closed="both")
+            # true = true.with_columns([
+            #     pl.when(time_cond)\
+            #         .then(pl.lit(test_idx))\
+            #         .otherwise(pl.col("test_idx"))\
+            #         .alias("test_idx"), 
+            #     pl.when(time_cond)\
+            #         .then(pl.lit(f))\
+            #         .otherwise(pl.col("continuity_group"))\
+            #         .alias("continuity_group")])
+            test_idx += 1
+        forecasts[f] = pl.concat(forecasts[f], how="vertical_relaxed")
+    forecasts = pl.concat(forecasts, how="vertical_relaxed").with_columns(pl.col("time").cast(pl.Datetime(time_unit="ns")))
+    forecasts = forecasts.filter(pl.col("time").is_in(true.select(pl.col("time"))))
+    true = true.filter(pl.col("time").is_in(forecasts.select(pl.col("time"))))
+    
+    # true = true.filter(pl.col("time").is_between(
+    #     forecasts.select(pl.col("time").first()).item(), forecasts.select(pl.col("time").last()).item(), closed="both"))
     
     if False:
         means_p = np.vstack(means_p)
@@ -1929,24 +2066,24 @@ def generate_wind_field_df(datasets, target_cols, feat_dynamic_real_cols):
     return pl.from_pandas(wf)
 
 def generate_forecaster_results(forecaster, data_module, evaluator, test_data, prediction_type):
+    
     true_df, forecast_df = make_predictions(forecaster=forecaster, test_data=test_data, 
-                                                prediction_type=prediction_type)
+                                            prediction_type=prediction_type)
 
     # persistence_forecast_scores = WindForecast.compute_score(forecast_wf=persistence_forecast_wf, true_wf=true_wf_long, metric=mean_squared_error, feature_types=["ws_horz", "ws_vert"], plot=True, label=f"_{args.model}_{data_config['config_label']}", fig_dir=args.fig_dir)
     # wf.filter(pl.col("time") <= true[split_idx].select(pl.col("time").last()).item()) \
     #   .select([cs.starts_with(feat_type) & cs.contains("loc") for feat_type in target_vars])
-       
-    if prediction_type == "distribution":
+    # true_df = true_df.partition_by("test_idx")
+    forecast_df = forecast_df.partition_by("test_idx")
+    if prediction_type == "distribution" and forecaster.is_probabilistic:
         value_vars = ["nd_cos", "nd_sin", "loc_ws_horz", "loc_ws_vert", "sd_ws_horz", "sd_ws_vert"]
         target_vars = ["loc_ws_horz", "loc_ws_vert", "sd_ws_horz", "sd_ws_vert"] 
         distributions = []
         for split_idx, wf in enumerate(forecast_df):
-            loc = tensor(wf.filter(pl.col("time") <= true_df[split_idx].select(pl.col("time").last()).item()) \
-                           .select([cs.starts_with(feat_type) & cs.contains("loc") for feat_type in target_vars]).to_numpy())
+            loc = tensor(wfselect([cs.starts_with(feat_type) & cs.contains("loc") for feat_type in target_vars]).to_numpy())
             cov = tensor(np.apply_along_axis(
                         np.diag, axis=-1, 
-                        arr=wf.filter(pl.col("time") <= true_df[split_idx].select(pl.col("time").last()).item())
-                    .select([cs.starts_with(feat_type) & cs.contains("sd_") for feat_type in target_vars]).to_numpy()**2))
+                        arr=wf.select([cs.starts_with(feat_type) & cs.contains("sd_") for feat_type in target_vars]).to_numpy()**2))
             
             distr = DistributionForecast(
                 distribution=MultivariateNormal(loc=loc, covariance_matrix=cov), 
@@ -1957,17 +2094,23 @@ def generate_forecaster_results(forecaster, data_module, evaluator, test_data, p
     else:
         value_vars = ["nd_cos", "nd_sin", "ws_horz", "ws_vert"]
         target_vars = ["ws_horz", "ws_vert"] 
-        forecasts = [SampleForecast(samples=wf.filter(pl.col("time") <= true_df[split_idx].select(pl.col("time").last()).item())
-                                              .select([cs.starts_with(feat_type) for feat_type in target_vars]).to_numpy()[np.newaxis, :, :], 
-                        start_date=pd.Period(wf.select(pl.col("time").first()).item(), freq=data_module.freq), 
-                        item_id=f"SPLIT{split_idx}") for split_idx, wf in enumerate(forecast_df)]
+        
+        forecasts = [SampleForecast(
+            samples=wf.select([cs.starts_with(feat_type) for feat_type in target_vars]).to_numpy()[np.newaxis, :, :], 
+            start_date=pd.Period(wf.select(pl.col("time").first()).item(), freq=data_module.freq), 
+            item_id=f"SPLIT{split_idx}") for split_idx, wf in enumerate(forecast_df)]
     
     # compute agg metrics 
+    # for split_idx, wf in enumerate(forecast_df):
+    #     print(split_idx)
+    #     true_df.filter(pl.col("time").is_between(wf.select(pl.col("time").first()).item(), wf.select(pl.col("time").last()).item(), closed="both")).to_pandas()\
+    #            .set_index(pd.PeriodIndex(wf.to_pandas()["time"].dt.to_period(freq=data_module.freq)))
+          
     agg_metrics, ts_metrics = evaluator([
-        wf.to_pandas()
+        true_df.filter(pl.col("time").is_between(wf.select(pl.col("time").first()).item(), wf.select(pl.col("time").last()).item(), closed="both")).to_pandas()
           .set_index(pd.PeriodIndex(wf.to_pandas()["time"].dt.to_period(freq=data_module.freq)))[data_module.target_cols]
           .rename(columns={src: s for s, src in enumerate(data_module.target_cols)}) 
-                for wf in true_df], 
+                for wf in forecast_df], 
                 forecasts, 
                 num_series=data_module.num_target_vars)
     
@@ -2216,20 +2359,14 @@ if __name__ == "__main__":
                 "CWC": (coverage_width_criterion, "mean", "mean"),
                 "CRPS": (continuous_ranked_probability_score_gaussian, "mean", "mean"),
     }
-    evaluator = MultivariateEvaluator(num_workers=None, 
-        custom_eval_fn=custom_eval_fn
+    evaluator = MultivariateEvaluator(
+        custom_eval_fn=custom_eval_fn,
+        num_workers=mp.cpu_count() if args.multiprocessor == "cf" else None,
     )
             
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     
-    db_setup_params = generate_df_setup_params(args.model, model_config)
-    optuna_storage = setup_optuna_storage(
-        db_setup_params=db_setup_params,
-        restart_tuning=args.restart_tuning,
-        rank=rank
-    )
-     
     forecasters = []
     ## GENERATE PERFECT PREVIEW \
     if "perfect" in args.model:
@@ -2271,6 +2408,13 @@ if __name__ == "__main__":
     if "svr" in args.model:
         
         for td in prediction_timedelta:
+            # TODO DEBUG
+            db_setup_params = generate_df_setup_params("svr", model_config.update({"prediction_timedelta": td.total_seconds()}),)
+            optuna_storage = setup_optuna_storage(
+                db_setup_params=db_setup_params,
+                restart_tuning=False,
+                rank=rank
+            )
             forecaster = SVRForecast(measurements_timedelta=measurements_timedelta,
                                     controller_timedelta=controller_timedelta,
                                     prediction_timedelta=td,
@@ -2328,8 +2472,22 @@ if __name__ == "__main__":
     ## GENERATE ML PREVIEW
     elif any(ml_model in args.model for ml_model in ["informer", "autoformer", "spacetimeformer", "tactis"]):
         # "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/informer_aoifemac_awaken/wind_forecasting/z55orlbf/checkpoints/epoch=3-step=4000.ckpt"
-        
-        for model in args.model:
+            
+        # TODO DEBUG
+        db_setup_params = generate_df_setup_params(args.model, model_config)
+        optuna_storage = setup_optuna_storage(
+            db_setup_params=db_setup_params,
+            restart_tuning=False,
+            rank=rank
+        )
+        for model in [ml_model for ml_model in args.model if ml_model in ["informer", "autoformer", "spacetimeformer", "tactis"]]:
+            # TODO DEBUG
+            db_setup_params = generate_df_setup_params(model, model_config)
+            optuna_storage = setup_optuna_storage(
+                db_setup_params=db_setup_params,
+                restart_tuning=False,
+                rank=rank
+            )
             forecaster = MLForecast(measurements_timedelta=measurements_timedelta,
                                     controller_timedelta=controller_timedelta,
                                     prediction_timedelta=pd.Timedelta(seconds=model_config["dataset"]["prediction_length"]),
@@ -2347,44 +2505,6 @@ if __name__ == "__main__":
                                     )
         forecasters.append(forecaster)
         
-    # if any(forecaster.train_first for forecaster in forecasters):
-    #     # load training data
-    #     data_module = DataModule(data_path=model_config["dataset"]["data_path"], 
-    #                          normalization_consts_path=model_config["dataset"]["normalization_consts_path"],
-    #                          normalized=True, 
-    #                          n_splits=1, #model_config["dataset"]["n_splits"],
-    #                         continuity_groups=None, train_split=(1.0 - model_config["dataset"]["val_split"] - model_config["dataset"]["test_split"]),
-    #                             val_split=model_config["dataset"]["val_split"], test_split=model_config["dataset"]["test_split"],
-    #                             prediction_length=model_config["dataset"]["prediction_length"], context_length=model_config["dataset"]["context_length"],
-    #                             target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
-    #                             freq=model_config["dataset"]["resample_freq"], target_suffixes=model_config["dataset"]["target_turbine_ids"],
-    #                                 per_turbine_target=model_config["dataset"]["per_turbine_target"], as_lazyframe=False, dtype=pl.Float32)
-    
-    #     if not os.path.exists(data_module.train_ready_data_path):
-    #         data_module.generate_datasets()
-            
-    #     data_module.generate_splits(save=True, reload=False, splits=["train"])._df.collect()
-        
-    #     if args.max_splits:
-    #         train_data = data_module.train_dataset[:args.max_splits]
-    #     else:
-    #         train_data = data_module.train_dataset
-        
-    #     if args.max_steps:
-    #         train_data = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in train_data]
-        
-    #     train_data = generate_wind_field_df(datasets=train_data, target_cols=data_module.target_cols, 
-    #                                         feat_dynamic_real_cols=data_module.feat_dynamic_real_cols)
-    #     delattr(data_module, "train_dataset")
-        
-    #     for forecaster in forecasters:
-    #         if forecaster.train_first and not args.use_trained_models:
-    #             forecaster.prepare_data(dataset_splits={"train": train_data.partition_by("continuity_group")}, scale=False, reload=True)
-    #             scaler_params = data_module.compute_scaler_params()
-    #             forecaster.train_all_outputs(train_data, scale=False, multiprocessor=args.multiprocessor, 
-    #                                          reload_models=True,
-    #                                          scaler_params=scaler_params)
-                
     if args.multiprocessor is not None:
         if args.multiprocessor == "mpi":
             comm_size = MPI.COMM_WORLD.Get_size()
