@@ -87,6 +87,15 @@ from scipy.stats import multivariate_normal as mvn
 import logging 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+#ARIMA packages
+import statsmodels.api as sm
+from statsmodels.tsa.arima.model import ARIMA
+from scipy.stats import boxcox
+from scipy.special import inv_boxcox
+
+
+
+
 @dataclass
 class WindForecast:
     """Wind speed component forecasting module that provides various prediction methods."""
@@ -206,7 +215,7 @@ class WindForecast:
         for ds_type, ds_list in dataset_splits.items():
             for ds in ds_list:
                 if ds.shape[0] < self.n_context + self.n_prediction:
-                    logging.warning(f"{ds_type} dataset with continuity groups {list(ds["continuity_group"].unique())} have insufficient length!")
+                    logging.warning(f"{ds_type} dataset with continuity groups {list(ds['continuity_group'].unique())} have insufficient length!")
                     continue
                     
         # For each output, prepare the training data
@@ -1864,6 +1873,52 @@ class MLForecast(WindForecast):
         else:
             return pred_df.to_pandas()
 
+@dataclass
+class ARIMAForecast(WindForecast):
+    """Wind speed forecasting using ARIMA model"""
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.models = {}
+        self.fitted = False
+
+    def train(self, historic_measurements: pl.DataFrame, turbine_ids=None):
+        if turbine_ids is None:
+            turbine_ids = self.tid2idx_mapping.keys()
+        
+        for turbine_id in turbine_ids:
+            logging.info(f"Training ARIMA model for {turbine_id}.")
+            turbine_df = historic_measurements.filter(pl.col("turbine_id") == turbine_id).select(pl.col("time"),  pl.col(f"ws_horz_{turbine_id}")).sort("time").unique(subset=["time"])
+            ts = turbine_df.to_pandas().set_index("time")[f"ws_horz_{turbine_id}"]           
+            # fit ARIMA model
+            model = sm.tsa.ARIMA(ts, order=(1, 0, 0)).fit()
+            
+            self.models[turbine_id] = model
+            self.fitted = True
+    
+    def model_items(self):
+            """Returns the list of turbine IDs for which models are trained."""
+            return self.models.keys()
+       
+    def predict_point(self, historic_measurements):
+        if not self.fitted:
+            raise ValueError("ARIMA model not fitted. Call train() method first.")
+        
+        horizon = self.n_prediction
+        prediction_freq = pd.Timedelta(self.measurements_timedelta)
+        current_time = historic_measurements.select(pl.col("time").max()).item()
+        forecast_frames = []
+
+        for target_col in self.model_items():
+            model = self.models[target_col]
+            forecast = model.forecast(steps=horizon)
+
+            forecast_times = pd.date_range(start=current_time + prediction_freq, periods=horizon, freq=prediction_freq)
+            forecast_df = pd.DataFrame({"time": forecast_times, target_col: forecast})
+            forecast_frames.append(pl.from_pandas(forecast_df))
+        
+        return pl.concat(forecast_frames, how="diagonal")
+
 def plot_wind_ts(data_df, save_path, turbine_ids="all", include_filtered_wind_dir=True, controller_timedelta=None, legend_loc="best", single_plot=False, fig=None, ax=None, case_label=None):
     #TODO only plot some turbines, not ones with overlapping yaw offsets, eg single column on farm
     colors = sns.color_palette("Paired")
@@ -2264,9 +2319,10 @@ if __name__ == "__main__":
                         help="Use parameters tuned from Optuna optimization, otherwise use defaults set in Module class.")
     parser.add_argument("-tm", "--use_trained_models", action="store_true",
                         help="Use parameters trained and stored for models that require training, e.g. SVR, read existing trained models from file.")
+    parser.add_argument("--plot_arima", action="store_true", help="Run ARIMA and plot historic wind speed data")
     args = parser.parse_args()
     
-    assert all(model in ["perfect", "persistence", "svr", "kf", "informer", "autoformer", "spacetimeformer", "tactis", "preview"] for model in args.model)
+    assert all(model in ["perfect", "persistence", "svr", "kf", "informer", "autoformer", "spacetimeformer", "tactis", "preview", "arima"] for model in args.model)
     RUN_ONCE = (args.multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
     
     TRANSFORM_WIND = {"added_wm": args.added_wind_mag, "added_wd": args.added_wind_dir}
@@ -2601,3 +2657,30 @@ if __name__ == "__main__":
                                 good_directions=[-1, 1, -1, -1, -1])
     
     print("here")
+
+
+if __name__ == "__main__":
+    from process_case_studies import arima_plot
+    from pathlib import Path
+    from datetime import timedelta
+    import polars as pl
+
+    arima_fc = ARIMAForecast(
+        context_timedelta=timedelta(minutes=2),
+        prediction_timedelta=timedelta(minutes=1),
+        measurements_timedelta=timedelta(minutes=1),
+        controller_timedelta=None,
+        fmodel=None,
+        tid2idx_mapping={"T001": 0},
+        turbine_signature="T001",
+        use_tuned_params=False,
+        model_config=None,
+        temp_save_dir=Path("./temp"),
+        kwargs={},
+        true_wind_field=None
+    )
+
+    arima_fc.generate_splits(splits=["train"])
+    historic = arima_fc.train_dataset["SPLIT0"].collect()
+
+    arima_plot(historic_df=historic, turbine_id="T001", save_dir="./plots")
