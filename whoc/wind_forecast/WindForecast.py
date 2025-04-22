@@ -210,6 +210,7 @@ class WindForecast:
         Returns:
             None
         """
+        logging.info(f"Reloading {dataset_splits} data.")
         for ds_type, ds_list in dataset_splits.items():
             for ds in ds_list:
                 if ds.shape[0] < self.n_context + self.n_prediction:
@@ -224,8 +225,8 @@ class WindForecast:
      
     # def tune_hyperparameters_single(self, historic_measurements, scaler, feat_type, tid, study_name, seed, restart_tuning, backend, storage_dir, n_trials=1):
     def tune_hyperparameters_single(self, seed, storage, 
-                                    n_trials_per_worker=1, 
-                                    config=None):
+                                    config,
+                                    n_trials_per_worker=1):
         # for case when argument is list of multiple continuous time series AND to only get the training inputs/outputs relevant to this model
         # Log safely without credentials if they were included (they aren't for socket trust)
         if hasattr(storage, "url"):
@@ -266,12 +267,13 @@ class WindForecast:
         
         # Get worker ID for study creation/loading logic
         # Use WORKER_RANK consistent with run_model.py. Default to '0' if not set.
-        # TODO
+        
         worker_id = os.environ.get('WORKER_RANK', '0')
 
         # Create study on rank 0, load on other ranks
         study = None # Initialize study variable
         
+        logging.info("line 275")
         try:
             if worker_id == '0':
                 logging.info(f"Rank 0: Creating/loading Optuna study '{self.study_name}' with pruner: {type(pruner).__name__}")
@@ -347,7 +349,8 @@ class WindForecast:
         except Exception as e:
             logging.error(f"Worker {worker_id}: Failed during study optimization: {str(e)}", exc_info=True)
             raise
-            
+        
+        logging.info("line 351")
         if worker_id == '0' and study:
             # logging.info("Rank 0: Starting W&B summary run creation.")
 
@@ -388,6 +391,7 @@ class WindForecast:
                 logging.error(f"Rank 0: Error fetching best trial: {e_best_trial}", exc_info=True)
                 
         # Log best trial details (only rank 0)
+        logging.info("line 393")
         if worker_id == '0' and study: # Check if study object exists
             if len(study.trials) > 0:
                 logging.info("Number of finished trials: {}".format(len(study.trials)))
@@ -1167,12 +1171,12 @@ class SVRForecast(WindForecast):
         tid = re.search(f"(?<=_){self.turbine_signature}$", output).group()
         if scaler_params:
             input_turbine_indices = self.cluster_turbines[self.tid2idx_mapping[tid]]
-            setattr(self.scaler[output], "n_features_in_", len(input_turbine_indices))
+            self.scaler[output].n_features_in_ = len(input_turbine_indices)
             for k, v in scaler_params.items():
                 setattr(self.scaler[output], k, np.ones_like(input_turbine_indices) * v[feat_type])
                 
             with open(os.path.join(self.model_save_dir, f"{self.study_name}_scaler_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl"), "wb") as fp:
-                    pickle.dump(self.scaler[output], fp, protocol=5)
+                pickle.dump(self.scaler[output], fp, protocol=5)
         return self.model[output], self.scaler[output]
     
     def train_all_outputs(self, historic_measurements, scale, multiprocessor, retrain_models=True,
