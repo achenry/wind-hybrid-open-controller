@@ -2103,13 +2103,8 @@ def make_predictions(forecaster, test_data, prediction_type):
     true = test_data
     test_idx = 0
     for f in range(len(forecasts)):
-        if isinstance(forecasts[f], list):
-            for ff in range(len(forecasts[f])):
-                forecasts[f][ff] = forecasts[f][ff].with_columns(pl.lit(test_idx).alias('test_idx'))
-                test_idx += 1
-
-            forecasts[f] = pl.concat(forecasts[f], how="vertical")
-
+        for ff in range(len(forecasts[f])):
+            forecasts[f][ff] = forecasts[f][ff].with_columns(test_idx=pl.lit(test_idx))
             # time_cond = pl.col("time").is_between(
             #                 forecasts[f][ff].select(pl.col("time").first()).item(), forecasts[f][ff].select(pl.col("time").last()).item(), 
             #                 closed="both")
@@ -2122,15 +2117,15 @@ def make_predictions(forecaster, test_data, prediction_type):
             #         .then(pl.lit(f))\
             #         .otherwise(pl.col("continuity_group"))\
             #         .alias("continuity_group")])
-   #forecasts[f] = pl.concat(forecasts[f], how="vertical") # how="vertical_relaxed")
-    
-    forecasts = pl.concat(forecasts, how="vertical").with_columns(pl.col("time").cast(pl.Datetime(time_unit="ns")))
+            test_idx += 1
+        forecasts[f] = pl.concat(forecasts[f], how="vertical_relaxed")
+    forecasts = pl.concat(forecasts, how="vertical_relaxed").with_columns(pl.col("time").cast(pl.Datetime(time_unit="ns")))
     forecasts = forecasts.filter(pl.col("time").is_in(true.select(pl.col("time"))))
     # true = true.filter(pl.col("time").is_in(forecasts.select(pl.col("time"))))
     
     # true = true.filter(pl.col("time").is_between(
     #     forecasts.select(pl.col("time").first()).item(), forecasts.select(pl.col("time").last()).item(), closed="both"))
-    
+
     if False:
         means_p = np.vstack(means_p)
         means = np.vstack(means)
