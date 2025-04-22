@@ -69,7 +69,7 @@ case_studies = {
                                     "simulation_dt": {"group": 0, "vals": [1]},
                                     "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
                                     "uncertain": {"group": 2, "vals": [True]},
-                                    "wind_forecast_class": {"group": 3, "vals": ["SVRForecast"]}, # "MLForecast"
+                                    "wind_forecast_class": {"group": 3, "vals": ["PerfectForecast"]}, # "MLForecast"
                                     # "model_key": {"group": 3, "vals": ["informer"]},
                                     # "wind_forecast_class": {"group": 3, "vals": ["MLForecast"]},
                                     "prediction_timedelta": {"group": 4, "vals": [300]},

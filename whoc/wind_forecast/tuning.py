@@ -163,7 +163,7 @@ if __name__ == "__main__":
     # if not args.initialize: 
     # %% TUNING MODEL
     logging.info("Running tune_hyperparameters_multi")
-    
+    # TODO HIGH this won't work without restart, something to do with worker id etc
     #{"type": "hyperband", "min_resource": 2, "max_resource": 5, "reduction_factor": 3, "percentile": 25}
     forecaster.tune_hyperparameters_single(storage=optuna_storage,
                                         n_trials_per_worker=model_config["optuna"]["n_trials_per_worker"], 
