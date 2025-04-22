@@ -187,7 +187,7 @@ class WindForecast:
         #     # logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
         # else:
         # max_workers = mp.cpu_count()
-        max_workers = os.environ.get("NTASKS_PER_TUNER", mp.cpu_count())
+        max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
         executor = ProcessPoolExecutor(max_workers=max_workers,
                                         mp_context=mp.get_context("spawn"))
         logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
@@ -209,7 +209,7 @@ class WindForecast:
         Returns:
             None
         """
-        logging.info(f"Reloading {dataset_splits} data.")
+        logging.info(f"Reloading data.")
         for ds_type, ds_list in dataset_splits.items():
             for ds in ds_list:
                 if ds.shape[0] < self.n_context + self.n_prediction:
@@ -1194,7 +1194,7 @@ class SVRForecast(WindForecast):
                 comm_size = MPI.COMM_WORLD.Get_size()
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
             elif multiprocessor == "cf":
-                max_workers = os.environ.get("NTASKS_PER_TUNER", mp.cpu_count())
+                max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
                 executor = ProcessPoolExecutor(max_workers=max_workers,
                                                 mp_context=mp.get_context("spawn"))
             with executor as ex:
@@ -2006,6 +2006,9 @@ def make_predictions(forecaster, test_data, prediction_type):
             #     # fetch predictions from label part
             #     forecasts[-1].append(pred)
         
+        if not len(forecasts[-1]):
+            raise Exception(f"{d}th dataset in data does not have sufficient data points, with {ds.select(pl.len()).item()}, to collect predictions after context_timedelta {forecaster.context_timedelta}")
+        
         # if save_last_pred:
         #     forecasts[-1] = [wf.filter(pl.col("time") < (
         #         pl.col("time").first() + max(forecaster.controller_timedelta, forecaster.prediction_timedelta))) 
@@ -2550,8 +2553,7 @@ if __name__ == "__main__":
                                                 n_neighboring_turbines=3, max_n_samples=None, 
                                                 study_name=f"svr_{model_config['experiment']['run_name']}",
                                                 use_trained_models=args.use_trained_models,
-                                                optuna_storage=optuna_storage,
-                                                model_save_dir=data_config["model_save_dir"]),
+                                                optuna_storage=optuna_storage),
                                     tid2idx_mapping=tid2idx_mapping,
                                     turbine_signature=turbine_signature,
                                     use_tuned_params=args.use_tuned_params,
