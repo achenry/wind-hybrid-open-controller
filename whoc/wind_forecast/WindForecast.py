@@ -2857,19 +2857,10 @@ if __name__ == "__main__":
 
     # best_prediction_dt = agg_df.groupby(["metric", "prediction_timedelta"])["score"].mean().idxmax()
     # generate grouped barcharpt of metrics (crps, picp, pinaw, cwc, mse, mae) grouped together vs model on x axis for best prediction time
-<<<<<<< HEAD
-    # best_prediction_dt = agg_df.groupby("prediction_timedelta")["score"].mean().idxmax()
-    best_prediction_dt = (agg_df.group_by("prediction_timedelta").agg(pl.col("score").mean().alias("mean_score")).sort("mean_score", descending=True).select("prediction_timedelta").row(0)[0])
-    plot_score_vs_forecaster(agg_df.filter(pl.col("prediction_timedelta") == best_prediction_dt),
-        metrics=plotting_metrics,
-        good_directions=[-1, 1, -1, -1, -1]
-    )
-=======
     best_prediction_dt = agg_df.group_by("prediction_timedelta")["score"].mean().idxmax()
     plot_score_vs_forecaster(agg_df.loc[agg_df["prediction_timedelta"] == best_prediction_dt, :], 
                              metrics=plotting_metrics,
                                 ax_indices=ax_indices)
->>>>>>> e0838536fe01116cd4607ba35203860c54af72a9
     
     print("here")
 
