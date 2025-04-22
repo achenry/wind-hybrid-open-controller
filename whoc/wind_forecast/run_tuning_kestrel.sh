@@ -51,7 +51,6 @@ echo "TMPDIR=${TMPDIR}"
 
 # prepare training data first
 module purge
-module load openmpi
 module load mamba
 mamba activate wind_forecasting
 module load PrgEnv-intel
@@ -79,12 +78,12 @@ for i in $(seq 1 $((${NTUNERS}))); do
 	export WORKER_SEED=$((42 + i*10)) #+ j))
 
         # Calculate worker index for logging
-	export WORKER_RANK=${i} #$((i*NUM_WORKERS_PER_CPU + j))
+	export WORKER_RANK=i #$((i*NUM_WORKERS_PER_CPU + j))
 
         echo "Starting worker ${WORKER_RANK} on CPU ${i} with seed ${WORKER_SEED}"
         
         # Launch worker with environment settings
-        srun -n ${NTASKS_PER_TUNER} python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --multiprocessor cf --seed ${WORKER_SEED}&
+        srun -n ${NTASKS_PER_TUNER} --export=WORKER_RANK=i python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --multiprocessor cf --seed ${WORKER_SEED}&
 
 	# nohup bash -c "
         # module purge
