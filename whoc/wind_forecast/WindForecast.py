@@ -267,7 +267,7 @@ class WindForecast:
         # Get worker ID for study creation/loading logic
         # Use WORKER_RANK consistent with run_model.py. Default to '0' if not set.
         # TODO
-        worker_id = os.environ.get('WORKER_RANK', '0') if multiprocessor == "mpi" else 0
+        worker_id = os.environ.get('WORKER_RANK', '0')
 
         # Create study on rank 0, load on other ranks
         study = None # Initialize study variable
