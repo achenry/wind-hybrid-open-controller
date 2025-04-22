@@ -17,7 +17,7 @@
 
 export NTASKS_PER_TUNER=104
 export MODEL=$1
-NTUNERS=$((SLURM_NTASKS / NTASKS_PER_TUNER))
+NTUNERS=$((SLURM_NTASKS / NTASKS_PER_TUNER)) # TODO force to int
 
 # Print environment info
 echo "SLURM_JOB_ID=${SLURM_JOB_ID}"
@@ -58,8 +58,11 @@ mamba activate wind_forecasting
 echo "=== STARTING TUNING ==="
 date +"%Y-%m-%d %H:%M:%S"
 
+export WORKER_RANK=0
+srun -np ${SLURM_NTASKS} python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --multiprocessor cf --seed ${WORKER_SEED} ${RESTART_FLAG}
+
 # for m in $(seq 0 $((${NUM_MODELS}-1))); do
-for i in $(seq 0 $((${NTUNERS}-1))); do
+for i in $(seq 1 $((${NTUNERS}))); do
 #    for j in $(seq 0 $((${NUM_WORKERS_PER_CPU}-1))); do
         # The restart flag should only be set for the very first worker (i=0, j=0)
         if [ $i -eq 0 ]; then #&& [ $j -eq 0 ]; then
@@ -77,13 +80,15 @@ for i in $(seq 0 $((${NTUNERS}-1))); do
         echo "Starting worker ${WORKER_RANK} on CPU ${i} with seed ${WORKER_SEED}"
         
         # Launch worker with environment settings
-	nohup bash -c "
-        module purge
-        module load mamba
-        module load PrgEnv-intel
-        mamba activate wind_forecasting
+        srun -np ${NTASKS_PER_TUNER} python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --multiprocessor cf --seed ${WORKER_SEED} ${RESTART_FLAG} &
 
-        python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --multiprocessor cf --seed ${WORKER_SEED} ${RESTART_FLAG}" &
+	# nohup bash -c "
+        # module purge
+        # module load mamba
+        # module load PrgEnv-intel
+        # mamba activate wind_forecasting
+
+        # python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --multiprocessor cf --seed ${WORKER_SEED} ${RESTART_FLAG}" &
 
         # Store the process ID
         WORKER_PIDS+=($!)

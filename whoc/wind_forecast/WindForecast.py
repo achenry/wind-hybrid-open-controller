@@ -3,9 +3,7 @@
 from typing import Optional, Union
 from collections.abc import Iterable
 from collections import defaultdict
-from pathlib import Path
 from dataclasses import dataclass
-from itertools import chain, repeat, islice
 import os
 import datetime
 from datetime import timedelta
@@ -188,10 +186,11 @@ class WindForecast:
         #     executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
         #     # logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
         # else:
-        max_workers = mp.cpu_count()
+        # max_workers = mp.cpu_count()
+        max_workers = os.environ.get("NTASKS_PER_TUNER", mp.cpu_count())
         executor = ProcessPoolExecutor(max_workers=max_workers,
-                                            mp_context=mp.get_context("spawn"))
-        # logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
+                                        mp_context=mp.get_context("spawn"))
+        logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
             
         with executor as ex:
             futures = [ex.submit(self._compute_output_score, output=output, params=params) for output in self.outputs]
@@ -1195,7 +1194,9 @@ class SVRForecast(WindForecast):
                 comm_size = MPI.COMM_WORLD.Get_size()
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
             elif multiprocessor == "cf":
-                executor = ProcessPoolExecutor()
+                max_workers = os.environ.get("NTASKS_PER_TUNER", mp.cpu_count())
+                executor = ProcessPoolExecutor(max_workers=max_workers,
+                                                mp_context=mp.get_context("spawn"))
             with executor as ex:
                 if multiprocessor == "mpi":
                     ex.max_workers = comm_size
