@@ -1926,20 +1926,25 @@ class ARIMAForecast(WindForecast):
         
         for turbine_id in turbine_ids:
             logging.info(f"Training ARIMA model for {turbine_id}.")
-            turbine_df = historic_measurements.select(
-                pl.col("time"),
-                pl.col(f"ws_horz_{turbine_id}")
-            ).sort("time").unique(subset=["time"])
+            turbine_df = historic_measurements.select(pl.col("time"), pl.col(f"ws_horz_{turbine_id}")).sort("time").unique(subset=["time"])
 
-            ts = turbine_df.to_pandas().set_index("time")[f"ws_horz_{turbine_id}"]
-            model = sm.tsa.ARIMA(ts, order=(1, 0, 0)).fit()
+            ts_horz = turbine_df.to_pandas().set_index("time")[f"ws_horz_{turbine_id}"]
+            model_horz = sm.tsa.ARIMA(ts_horz, order=(1, 0, 0)).fit()
+
+            # vertical wind speed
+            turbine_df_vert = historic_measurements.select(pl.col("time"), pl.col(f"ws_vert_{turbine_id}")).sort("time").unique(subset=["time"])
+            ts_vert = turbine_df_vert.to_pandas().set_index("time")[f"ws_vert_{turbine_id}"]
+            model_vert = sm.tsa.ARIMA(ts_vert, order=(1, 0, 0)).fit()
             
-            self.models[turbine_id] = model
+            self.models[turbine_id] = {"ws_horz": model_horz, "ws_vert": model_vert}
             self.fitted = True
     
     def model_items(self):
             """Returns the list of turbine IDs for which models are trained."""
             return self.models.keys()
+    
+    def reset(self):
+        pass
        
     def predict_point(self, historic_measurements, current_time=None):
         if not self.fitted:
@@ -1955,14 +1960,24 @@ class ARIMAForecast(WindForecast):
         forecast_df = pl.DataFrame({"time": forecast_times})
 
         for turbine_id in self.model_items():
-            model = self.models[turbine_id]
-            forecast = model.forecast(steps=horizon)
-            turbine_forecast = pl.DataFrame({
+            # horizontal wind speed
+            model_horz = self.models[turbine_id]
+            forecast = model_horz.forecast(steps=horizon)
+            turbine_forecast_horz = pl.DataFrame({
                     "time": forecast_times,
                     f"ws_horz_{turbine_id}": forecast
                 })
-            forecast_df = forecast_df.join(turbine_forecast, on="time", how="left")
+            # vertical wind speed
+            model_vert = self.models[turbine_id]["ws_vert"]
+            forecast_vert = model_vert.forecast(steps=horizon)
+            turbine_forecast_vert = pl.DataFrame({
+                    "time": forecast_times,
+                    f"ws_vert_{turbine_id}": forecast_vert
+                })
         
+        forecast_df = forecast_df.join(turbine_forecast_horz, on="time", how="left")
+        forecast_df = forecast_df.join(turbine_forecast_vert, on="time", how="left")        
+
         return forecast_df.sort("time")
 
 
