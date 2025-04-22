@@ -195,12 +195,12 @@ class GreedyController(ControllerBase):
             if self.current_time < self.lpf_start_time or not self.wind_dir_use_filt:
                 wind = single_forecasted_wind_field if use_wind_forecast else pl.from_dataframe(current_measurements)
                 wind_dirs = 180.0 + np.rad2deg(np.arctan2(
-                    wind.select(self.mean_ws_horz_cols).to_numpy()[-1, :], 
-                    wind.select(self.mean_ws_vert_cols).to_numpy()[-1, :]))
+                    wind.select(self.mean_ws_horz_cols).to_numpy()[-1, self.sorted_tids], 
+                    wind.select(self.mean_ws_vert_cols).to_numpy()[-1, self.sorted_tids]))
                 
                 if self.verbose:
                     if self.wind_forecast:
-                        logging.info(f"unfiltered forecasted wind directions = {wind_dirs[self.sorted_tids]}")
+                        logging.info(f"unfiltered forecasted wind directions = {wind_dirs}")
                     else:
                         logging.info(f"unfiltered current wind directions = {current_wind_directions}")
                 
@@ -225,18 +225,16 @@ class GreedyController(ControllerBase):
                     else:
                         logging.info(f"unfiltered current wind directions = {current_wind_directions}")
                 
-                # filter the wind direction
+                # filter the wind direction, only get wind_dirs corresponding to target_turbine_ids
                 wind_dirs = np.array([self._first_ord_filter(wind_dirs[:, i], self.wind_dir_lpf_alpha)
-                                                for i in range(wind_dirs.shape[1])]).T # [-int(self.controller_dt // self.simulation_dt), :]
+                                                for i in self.sorted_tids]).T # [-int(self.controller_dt // self.simulation_dt), :]
                 wind_dirs = wind_dirs[-1, :]
                 if self.verbose:
                     if self.wind_forecast:
-                        logging.info(f"filtered forecasted wind directions = {wind_dirs[self.sorted_tids]}")
+                        logging.info(f"filtered forecasted wind directions = {wind_dirs}")
                     else:
-                        logging.info(f"filtered current wind directions = {wind_dirs[self.sorted_tids]}")
+                        logging.info(f"filtered current wind directions = {wind_dirs}")
                     
-            # only get wind_dirs corresponding to target_turbine_ids
-            wind_dirs = wind_dirs[self.sorted_tids]
             
             # change the turbine yaw setpoints that have surpassed the threshold difference AND are not already yawing towards a previous setpoint
             target_yaw_setpoints = np.mod(np.rint(wind_dirs / self.yaw_increment) * self.yaw_increment, 360.0)
