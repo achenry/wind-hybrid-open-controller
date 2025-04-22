@@ -3,10 +3,10 @@
 #SBATCH --account=ssc
 #SBATCH --output=model_tuning_%j.out
 ##SBATCH --nodes=4
-#SBATCH --time=24:00:00
+##SBATCH --time=24:00:00
 #SBATCH --nodes=1
-##SBATCH --time=01:00:00
-##SBATCH --partition=debug
+#SBATCH --time=01:00:00
+#SBATCH --partition=debug
 ##SBATCH --partition=nvme
 #SBATCH --ntasks-per-node=104
 ##SBATCH --cpus-per-task=1
@@ -17,7 +17,7 @@
 
 export NTASKS_PER_TUNER=104
 export MODEL=$1
-NTUNERS=$((SLURM_NTASKS / NTASKS_PER_TUNER)) # TODO force to int
+NTUNERS=$((SLURM_NTASKS / NTASKS_PER_TUNER)) # cast to int
 
 # Print environment info
 echo "SLURM_JOB_ID=${SLURM_JOB_ID}"
@@ -50,26 +50,29 @@ echo "DATA_CONFIG_PATH=${DATA_CONFIG_PATH}"
 echo "TMPDIR=${TMPDIR}"
 
 # prepare training data first
-date +"%Y-%m-%d %H:%M:%S"
 module purge
+module load openmpi
 module load mamba
 mamba activate wind_forecasting
 
-echo "=== STARTING TUNING ==="
+echo "=== STARTING DATA PREPARATION ==="
 date +"%Y-%m-%d %H:%M:%S"
 
 export WORKER_RANK=0
-srun -np ${SLURM_NTASKS} python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --multiprocessor cf --seed ${WORKER_SEED} ${RESTART_FLAG}
+export WORKER_SEED=0
+srun -n ${SLURM_NTASKS} python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --multiprocessor cf --seed ${WORKER_SEED} --restart_tuning
 
+echo "=== STARTING TUNING ==="
+date +"%Y-%m-%d %H:%M:%S"
 # for m in $(seq 0 $((${NUM_MODELS}-1))); do
 for i in $(seq 1 $((${NTUNERS}))); do
 #    for j in $(seq 0 $((${NUM_WORKERS_PER_CPU}-1))); do
         # The restart flag should only be set for the very first worker (i=0, j=0)
-        if [ $i -eq 0 ]; then #&& [ $j -eq 0 ]; then
-            export RESTART_FLAG="--restart_tuning"
-        else
-            export RESTART_FLAG=""
-        fi
+        #iif [ $i -eq 1 ]; then #&& [ $j -eq 0 ]; then
+        #    export RESTART_FLAG="--restart_tuning"
+        #else
+        #    export RESTART_FLAG=""
+        #fi
 
         # Create a unique seed for each worker to ensure they explore different areas
 	export WORKER_SEED=$((42 + i*10)) #+ j))
@@ -80,7 +83,7 @@ for i in $(seq 1 $((${NTUNERS}))); do
         echo "Starting worker ${WORKER_RANK} on CPU ${i} with seed ${WORKER_SEED}"
         
         # Launch worker with environment settings
-        srun -np ${NTASKS_PER_TUNER} python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --multiprocessor cf --seed ${WORKER_SEED} ${RESTART_FLAG} &
+        srun -n ${NTASKS_PER_TUNER} python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --multiprocessor cf --seed ${WORKER_SEED}&
 
 	# nohup bash -c "
         # module purge
