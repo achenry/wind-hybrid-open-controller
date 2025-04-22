@@ -2368,7 +2368,7 @@ if __name__ == "__main__":
                         help="Whether to repeat validation for results that have already been stored.")
     parser.add_argument("-pi", "--prediction_interval", 
                         required=False, nargs="+", default=None,
-                        help="What multiples of the measurements timedelta to use as prediction_timedelta..")
+                        help="Number of seconds to use as prediction_timedelta..")
     parser.add_argument("-mp", "--multiprocessor", type=str, choices=["mpi", "cf"], help="which multiprocessing backend to use, omit for sequential processing", 
                         required=False, default=None)
     parser.add_argument("-msp", "--max_splits", type=int, required=False, default=None,
@@ -2406,7 +2406,7 @@ if __name__ == "__main__":
     if args.prediction_interval is None:
         prediction_timedelta = [pd.Timedelta(seconds=model_config["dataset"]["prediction_length"])]
     else:
-        prediction_timedelta = [pd.Timedelta(int(i), unit="s").to_pytimedelta() for i in args.prediction_interval]
+        prediction_timedelta = [pd.Timedelta(seconds=int(i)).to_pytimedelta() for i in args.prediction_interval]
         
     context_timedelta = pd.Timedelta(seconds=model_config["dataset"]["context_length"])
     measurements_timedelta = pd.Timedelta(seconds=args.simulation_timestep)
@@ -2451,6 +2451,7 @@ if __name__ == "__main__":
     # true_wind_field = data_module.generate_splits(save=True, reload=False, splits=["test"])._df.collect()
     data_module.generate_splits(save=True, reload=False, splits=["test"])
     
+    data_module.test_dataset = sorted(data_module.test_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
     if args.max_splits:
         test_data = data_module.test_dataset[:args.max_splits]
     else:
