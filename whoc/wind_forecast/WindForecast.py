@@ -588,6 +588,10 @@ class WindForecast:
             axs = axs[np.newaxis, :]
         else:
             fig, axs = plt.subplots(len(turbine_ids), len(feature_types), sharex=True)
+            if len(turbine_ids) == 1:
+                axs = axs[np.newaxis, :]  # force 2D shape if only one row (1, num_features)
+            if len(feature_types) == 1:
+                axs = axs[:, np.newaxis]  # force 2D shape if only one column (num_turbines, 1)
                 
         if continuity_groups is not None and "continuity_group" in true_wf.collect_schema().names():
             true_wf = true_wf.filter(pl.col("continuity_group").is_in(continuity_groups))
@@ -2400,16 +2404,13 @@ def plot_score_vs_forecaster(agg_df, metrics, good_directions):
     # fig, ax = plt.subplots(1, 1)
     if pos_metrics and neg_metrics:
         # TODO will have same color for different metrics over pos/neg
-        ax1 = sns.catplot(agg_df.loc[agg_df["metric"].isin(pos_metrics), :],
-                    kind="bar",
-                    hue="metric", x="forecaster", y="score")
+        ax1 = sns.catplot(data=agg_df.filter(pl.col("metric").is_in(pos_metrics)).to_pandas(), kind="bar", hue="metric", x="forecaster", y="score")
         sub_ax1 = ax1.ax
         
         sub_ax2 = sub_ax1.twinx()
-        ax2 = sns.catplot(agg_df.loc[agg_df["metric"].isin(neg_metrics), :],
-                    kind="bar",
-                    hue="metric", x="forecaster", y="score", ax=sub_ax2)
+        ax2 = sns.catplot(data=agg_df.filter(pl.col("metric").is_in(neg_metrics)).to_pandas(), kind="bar", hue="metric", x="forecaster", y="score", ax=sub_ax2)
         ax = ax2
+
     elif pos_metrics:
         ax1 = sns.catplot(agg_df.loc[agg_df["metric"].isin(pos_metrics), :],
                     kind="bar",
@@ -2824,7 +2825,7 @@ if __name__ == "__main__":
                                             .with_columns(data_type=pl.lit("True"))
         
         forecast_fig = WindForecast.plot_forecast(forecasts_long, true_long, 
-                                                  continuity_groups=[0], turbine_ids=["5", "74", "75"], 
+                                                  continuity_groups=[0], turbine_ids=["7"], 
                                                   label=f"_{forecaster.__class__.__name__}_{data_config['config_label']}", 
                                                   fig_dir=save_dir, include_turbine_legend=True) 
     
@@ -2850,10 +2851,12 @@ if __name__ == "__main__":
 
     # best_prediction_dt = agg_df.groupby(["metric", "prediction_timedelta"])["score"].mean().idxmax()
     # generate grouped barcharpt of metrics (crps, picp, pinaw, cwc, mse, mae) grouped together vs model on x axis for best prediction time
-    best_prediction_dt = agg_df.groupby("prediction_timedelta")["score"].mean().idxmax()
-    plot_score_vs_forecaster(agg_df.loc[agg_df["prediction_timedelta"] == best_prediction_dt, :], 
-                             metrics=plotting_metrics,
-                                good_directions=[-1, 1, -1, -1, -1])
+    # best_prediction_dt = agg_df.groupby("prediction_timedelta")["score"].mean().idxmax()
+    best_prediction_dt = (agg_df.group_by("prediction_timedelta").agg(pl.col("score").mean().alias("mean_score")).sort("mean_score", descending=True).select("prediction_timedelta").row(0)[0])
+    plot_score_vs_forecaster(agg_df.filter(pl.col("prediction_timedelta") == best_prediction_dt),
+        metrics=plotting_metrics,
+        good_directions=[-1, 1, -1, -1, -1]
+    )
     
     print("here")
 
