@@ -54,6 +54,7 @@ module purge
 module load openmpi
 module load mamba
 mamba activate wind_forecasting
+module load PrgEnv-intel
 
 echo "=== STARTING DATA PREPARATION ==="
 date +"%Y-%m-%d %H:%M:%S"
