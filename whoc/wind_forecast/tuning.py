@@ -73,7 +73,7 @@ if __name__ == "__main__":
                                 prediction_length=model_config["dataset"]["prediction_length"], context_length=model_config["dataset"]["context_length"],
                                 target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                                 freq=model_config["dataset"]["resample_freq"], target_suffixes=model_config["dataset"]["target_turbine_ids"],
-                                    per_turbine_target=model_config["dataset"]["per_turbine_target"], as_lazyframe=False, dtype=pl.Float32)
+                                    per_turbine_target=False, as_lazyframe=False, dtype=pl.Float32)
         
     # %% SETUP SEED
     logging.info(f"Setting random seed to {args.seed}")
@@ -82,10 +82,10 @@ if __name__ == "__main__":
     np.random.seed(args.seed)
     
     # %% PREPARING DIRECTORIES
-    if model_config["optuna"]["storage"].get("storage_dir", None) and model_config["optuna"]["storage"]["backend"] in ["sqlite", "journal"]:
-        model_config["optuna"]["storage"]["storage_dir"] = replace_env_vars(model_config["optuna"]["storage"]["storage_dir"])
-        logging.info(f"Making Optuna storage directory {model_config['optuna']['storage']['storage_dir']}.")
-        os.makedirs(model_config["optuna"]["storage"]["storage_dir"], exist_ok=True)
+    # if model_config["optuna"]["storage"].get("storage_dir", None) and model_config["optuna"]["storage"]["backend"] in ["sqlite", "journal"]:
+    #     model_config["optuna"]["storage"]["storage_dir"] = replace_env_vars(model_config["optuna"]["storage"]["storage_dir"])
+    #     logging.info(f"Making Optuna storage directory {model_config['optuna']['storage']['storage_dir']}.")
+    #     os.makedirs(model_config["optuna"]["storage"]["storage_dir"], exist_ok=True)
     
     # data_config["temp_storage_dir"] = replace_env_vars(data_config["temp_storage_dir"])
     # logging.info(f"Making temporary train/val storage directory {data_config['temp_storage_dir']}.")
@@ -109,13 +109,12 @@ if __name__ == "__main__":
                             turbine_signature=turbine_signature,
                             use_tuned_params=False)
     
-    try:
-        # Use the WORKER_RANK variable set explicitly in the Slurm script's nohup block
-        rank = int(os.environ.get('WORKER_RANK', '0'))
-    except ValueError:
-        logging.warning("Could not parse WORKER_RANK, assuming rank 0.")
-        rank = 0
-    logging.info(f"Determined worker rank from WORKER_RANK: {rank}")
+    # Use the WORKER_RANK variable set explicitly in the Slurm script's nohup block
+    rank = int(os.environ.get('WORKER_RANK', '0'))
+    if "WORKER_RANK" in os.environ:
+        logging.info(f"Determined worker rank from WORKER_RANK: {rank}")
+    else:
+        logging.info(f"Couldn't find WORKER_RANK env var, setting rank to {rank}.")
     
     # %% PREPARING DATA FOR TUNING 
 # if args.initialize:
@@ -163,7 +162,6 @@ if __name__ == "__main__":
     # if not args.initialize: 
     # %% TUNING MODEL
     logging.info("Running tune_hyperparameters_multi")
-    # TODO HIGH this won't work without restart, something to do with worker id etc
     #{"type": "hyperband", "min_resource": 2, "max_resource": 5, "reduction_factor": 3, "percentile": 25}
     forecaster.tune_hyperparameters_single(storage=optuna_storage,
                                         n_trials_per_worker=model_config["optuna"]["n_trials_per_worker"], 

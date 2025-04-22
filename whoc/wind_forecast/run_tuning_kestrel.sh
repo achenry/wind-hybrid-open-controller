@@ -3,10 +3,10 @@
 #SBATCH --account=ssc
 #SBATCH --output=model_tuning_%j.out
 ##SBATCH --nodes=4
-##SBATCH --time=24:00:00
+#SBATCH --time=24:00:00
 #SBATCH --nodes=1
-#SBATCH --time=01:00:00
-#SBATCH --partition=debug
+##SBATCH --time=01:00:00
+##SBATCH --partition=debug
 ##SBATCH --partition=nvme
 #SBATCH --ntasks-per-node=104
 ##SBATCH --cpus-per-task=1
@@ -15,9 +15,9 @@
 # salloc --account=ssc --job-name=model_tuning  --ntasks=104 --cpus-per-task=1 --time=01:00:00 --partition=debug
 # python tuning.py --config $HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel.yaml --study_name "svr_tuning" --model "svr"
 
-export NTASKS_PER_TUNER=13
+export NTASKS_PER_TUNER=104
 export MODEL=$1
-NTUNERS=$((SLURM_NTASKS / NTASKS_PER_TUNER))
+NTUNERS=$((SLURM_NTASKS / NTASKS_PER_TUNER)) # TODO force to int
 
 # Print environment info
 echo "SLURM_JOB_ID=${SLURM_JOB_ID}"
@@ -37,14 +37,16 @@ module list
 # Used to track process IDs for all workers
 declare -a WORKER_PIDS=()
 
-export MODEL_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel_awaken.yaml"
+export MODEL_CONFIG_PATH=$2
+# export MODEL_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel_awaken.yaml"
 #export MODEL_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel_flasc.yaml"
-export DATA_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_awaken_new.yaml"
+export DATA_CONFIG_PATH="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_awaken_new.yaml"
 #export DATA_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_flasc.yaml"
+#export RESTART_FLAG=""
 
 echo "MODEL=${MODEL}"
-echo "MODEL_CONFIG=${MODEL_CONFIG}"
-echo "DATA_CONFIG=${DATA_CONFIG}"
+echo "MODEL_CONFIG_PATH=${MODEL_CONFIG_PATH}"
+echo "DATA_CONFIG_PATH=${DATA_CONFIG_PATH}"
 echo "TMPDIR=${TMPDIR}"
 
 # prepare training data first
@@ -56,8 +58,11 @@ mamba activate wind_forecasting
 echo "=== STARTING TUNING ==="
 date +"%Y-%m-%d %H:%M:%S"
 
+export WORKER_RANK=0
+srun -np ${SLURM_NTASKS} python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --multiprocessor cf --seed ${WORKER_SEED} ${RESTART_FLAG}
+
 # for m in $(seq 0 $((${NUM_MODELS}-1))); do
-for i in $(seq 0 $((${NTUNERS}-1))); do
+for i in $(seq 1 $((${NTUNERS}))); do
 #    for j in $(seq 0 $((${NUM_WORKERS_PER_CPU}-1))); do
         # The restart flag should only be set for the very first worker (i=0, j=0)
         if [ $i -eq 0 ]; then #&& [ $j -eq 0 ]; then
@@ -75,13 +80,15 @@ for i in $(seq 0 $((${NTUNERS}-1))); do
         echo "Starting worker ${WORKER_RANK} on CPU ${i} with seed ${WORKER_SEED}"
         
         # Launch worker with environment settings
-	nohup bash -c "
-        module purge
-        module load mamba
-        module load PrgEnv-intel
-        mamba activate wind_forecasting
+        srun -np ${NTASKS_PER_TUNER} python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --multiprocessor cf --seed ${WORKER_SEED} ${RESTART_FLAG} &
 
-        python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG} --data_config ${DATA_CONFIG} --multiprocessor cf --seed ${WORKER_SEED} ${RESTART_FLAG}" &
+	# nohup bash -c "
+        # module purge
+        # module load mamba
+        # module load PrgEnv-intel
+        # mamba activate wind_forecasting
+
+        # python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --multiprocessor cf --seed ${WORKER_SEED} ${RESTART_FLAG}" &
 
         # Store the process ID
         WORKER_PIDS+=($!)

@@ -3,7 +3,7 @@
 #SBATCH --account=ssc
 #SBATCH --output=baseline_wf_%j.out
 #SBATCH --nodes=1
-#SBATCH --time=24:00:00
+#SBATCH --time=01:00:00
 #SBATCH --partition=debug
 #SBATCH --ntasks-per-node=104
 
@@ -23,8 +23,8 @@ echo "=== ENVIRONMENT ==="
 module list
 
 export MODELS="kf persistence sf"
-export MODEL_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel_awaken.yaml"
-export DATA_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_awaken_new.yaml"
+export MODEL_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken.yaml"
+export DATA_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/preprocessing/preprocessing_inputs_kestrel_awaken_new.yaml"
 
 echo "MODEL=${MODEL}"
 echo "MODEL_CONFIG=${MODEL_CONFIG}"
@@ -37,7 +37,4 @@ module purge
 module load mamba
 mamba activate wind_forecasting
 
-python WindForecast.py --model ${MODELS} --model_config ${MODEL_CONFIG} --data_config ${DATA_CONFIG} \\
-                       --simulation_timestep 1 --prediction_interval 60 300 \\
-                       --multiprocessor cf --max_splits 10 --prediction_type distribution \\
-                       --use_tuned_params --use_trained_models
+python WindForecast.py --model ${MODELS} --model_config ${MODEL_CONFIG} --data_config ${DATA_CONFIG} --simulation_timestep 1 --prediction_interval 60 300 --multiprocessor cf --max_splits 10 --prediction_type distribution --use_tuned_params --use_trained_models
