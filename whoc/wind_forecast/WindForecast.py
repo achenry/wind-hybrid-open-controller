@@ -2194,7 +2194,9 @@ def generate_forecaster_results(forecaster, data_module, evaluator, test_data, p
         mae = (tdf.select(data_module.target_cols) - fdf.select(cs.starts_with(mean_vars)))\
             .select(pl.all().abs().mean()).with_columns(metric=pl.lit("MAE"), test_idx=pl.lit(test_idx))
         mae = unpivot_df(mae, forecaster.turbine_signature)
-            
+        
+        # TODO check if mse and mae are equal
+        
         agg_metrics += [mse, mae]
     
     fdf = forecast_df = pl.concat(forecast_df, how="vertical")
@@ -2245,46 +2247,47 @@ def generate_forecaster_results(forecaster, data_module, evaluator, test_data, p
 def plot_score_vs_prediction_dt(agg_df, metrics, ax_indices):
     
     n_axes = len(ax_indices)
-    left_metrics = [met for i, met in zip(ax_indices, metrics) if i == 0]
-    right_metrics = [met for i, met in zip(ax_indices, metrics) if i == 1]
+    # left_metrics = [met for i, met in zip(ax_indices, metrics) if i == 0]
+    # right_metrics = [met for i, met in zip(ax_indices, metrics) if i == 1]
     
     # fig, ax1 = plt.subplots(1, 1)
-    fig = plt.figure()
-    if left_metrics and right_metrics:
-        # TODO will have same color for different metrics over pos/neg
-        ax1 = sns.scatterplot(agg_df.filter(pl.col("metric").is_in(left_metrics)).to_pandas(),
-                        y="score", x="prediction_timedelta", style="forecaster", hue="metric", s=100)
-        ax2 = ax1.twinx()
+    sns.set_style("whitegrid")
+    fig = plt.figure(figsize=(12.8, 9.6))
+    # if left_metrics and right_metrics:
+    #     # TODO will have same color for different metrics over pos/neg
+    #     ax1 = sns.scatterplot(agg_df.filter(pl.col("metric").is_in(left_metrics)).to_pandas(),
+    #                     y="score", x="prediction_timedelta", style="metric", hue="forecaster", s=200)
+    #     ax2 = ax1.twinx()
     
-        sns.scatterplot(agg_df.filter(pl.col("metric").is_in(right_metrics)).to_pandas(),
-                        y="score", x="prediction_timedelta", style="forecaster", hue="metric", ax=ax2, s=100)
-        ax = ax2
+    #     sns.scatterplot(agg_df.filter(pl.col("metric").is_in(right_metrics)).to_pandas(),
+    #                     y="score", x="prediction_timedelta", style="metric", hue="forecaster", ax=ax2, s=200)
+    #     ax = ax2
         
-    elif left_metrics or right_metrics:
-        mets = left_metrics or right_metrics
-        ax1 = sns.scatterplot(agg_df.filter(pl.col("metric").is_in(mets)).to_pandas(),
-                        y="score", x="prediction_timedelta", style="forecaster", hue="metric", s=100)
-        ax = ax1
+    # elif left_metrics or right_metrics:
+    ax = sns.scatterplot(agg_df.filter(pl.col("metric").is_in(metrics)).to_pandas(),
+                    y="score", x="prediction_timedelta", style="metric", hue="forecaster", s=200)
+    # ax = ax1
         
-    if left_metrics:
-        ax1.set_ylabel(f"Score for {', '.join(left_metrics)} (-)")
-        h1, l1 = ax1.get_legend_handles_labels()
+    # if left_metrics:
+    # ax.set_ylabel(f"Score for {', '.join(left_metrics)} (-)")
+    ax.set_ylabel("Score")
+    h1, l1 = ax.get_legend_handles_labels()
         
-    if right_metrics:
-        ax2.set_ylabel(f"Score for {', '.join(right_metrics)} (-)")
-        h2, l2 = ax2.get_legend_handles_labels()
+    # if right_metrics:
+    #     ax2.set_ylabel(f"Score for {', '.join(right_metrics)} (-)")
+    #     h2, l2 = ax2.get_legend_handles_labels()
         
     ax.set_xlabel("Prediction Length (s)")
     
-    if left_metrics and right_metrics:
-        l = l1[:l1.index("metric")] + l1[l1.index("metric"):] + l2[l2.index("metric")+1:]
-        h = h1[:l1.index("metric")] + h1[l1.index("metric"):] + h2[l2.index("metric")+1:]
-    elif left_metrics:
-        l = l1
-        h = h1
-    else:
-        l = l2
-        h = h2
+    # if left_metrics and right_metrics:
+    #     l = l1[:l1.index("metric")] + l1[l1.index("metric"):] + l2[l2.index("metric")+1:]
+    #     h = h1[:l1.index("metric")] + h1[l1.index("metric"):] + h2[l2.index("metric")+1:]
+    # elif left_metrics:
+    l = l1
+    h = h1
+    # else:
+    #     l = l2
+    #     h = h2
     
     new_labels = [" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", label).group())) 
                   if "Forecast" in label else (label.capitalize() if not label[0].isupper() else label).replace("_", " ") for label in l]
@@ -2300,58 +2303,60 @@ def plot_score_vs_prediction_dt(agg_df, metrics, ax_indices):
 def plot_score_vs_forecaster(agg_df, metrics, ax_indices):
     
     n_axes = len(ax_indices)
-    left_metrics = [met for i, met in zip(ax_indices, metrics) if i == 0]
-    right_metrics = [met for i, met in zip(ax_indices, metrics) if i == 1]
+    # left_metrics = [met for i, met in zip(ax_indices, metrics) if i == 0]
+    # right_metrics = [met for i, met in zip(ax_indices, metrics) if i == 1]
     
     # fig, ax = plt.subplots(1, 1)
-    if left_metrics and right_metrics:
-        # TODO will have same color for different metrics over pos/neg
-        ax1 = sns.catplot(agg_df.loc[agg_df["metric"].isin(left_metrics), :],
-                    kind="bar",
-                    hue="metric", x="forecaster", y="score")
-        sub_ax1 = ax1.ax
-        
-        sub_ax2 = sub_ax1.twinx()
-        ax2 = sns.catplot(agg_df.loc[agg_df["metric"].isin(right_metrics), :],
-                    kind="bar",
-                    hue="metric", x="forecaster", y="score", ax=sub_ax2)
-        ax = ax2
-    elif left_metrics:
-        ax1 = sns.catplot(agg_df.loc[agg_df["metric"].isin(left_metrics), :],
-                    kind="bar",
-                    hue="metric", x="forecaster", y="score")
-        ax = ax1
-    elif right_metrics:
-        ax2 = sns.catplot(agg_df.loc[agg_df["metric"].isin(right_metrics), :],
-                    kind="bar",
-                    hue="metric", x="forecaster", y="score")
-        ax = ax2
-        
-    if left_metrics:
-        ax1.ax.set_ylabel(f"Score for {', '.join(left_metrics)} (-)")
-        h1, l1 = ax1.ax.get_legend_handles_labels()
-        
-    if right_metrics:
-        ax2.ax.set_ylabel(f"Score for {', '.join(right_metrics)} (-)")
-        h2, l2 = ax2.ax.get_legend_handles_labels()
+    # if left_metrics and right_metrics:
+    # TODO will have same color for different metrics over pos/neg
+    sns.set_style("whitegrid")
+    ax1 = sns.catplot(agg_df.filter(pl.col("metric").is_in(metrics)),
+                kind="bar",
+                hue="metric", x="forecaster", y="score")
+    # sub_ax1 = ax1.ax
     
-    if left_metrics and right_metrics:
-        l = l1[:l1.index("metric")] + l1[l1.index("metric"):] + l2[l2.index("metric")+1:]
-        h = h1[:l1.index("metric")] + h1[l1.index("metric"):] + h2[l2.index("metric")+1:]
-    elif left_metrics:
-        l = l1
-        h = h1
-    else:
-        l = l2
-        h = h2
+    # sub_ax2 = sub_ax1.twinx()
+    # ax2 = sns.catplot(agg_df.filter(pl.col("metric").is_in(right_metrics)),
+    #             kind="bar",
+    #             hue="metric", x="forecaster", y="score", ax=sub_ax2)
+    # ax = ax2
+    # elif left_metrics:
+    #     ax1 = sns.catplot(agg_df.filter(pl.col("metric").is_in(left_metrics)),
+    #                 kind="bar",
+    #                 hue="metric", x="forecaster", y="score")
+    #     ax = ax1
+    # elif right_metrics:
+    #     ax2 = sns.catplot(agg_df.filter(pl.col("metric").is_in(right_metrics)),
+    #                 kind="bar",
+    #                 hue="metric", x="forecaster", y="score")
+    #     ax = ax2
+        
+    # if left_metrics:
+    # ax1.ax.set_ylabel(f"Score for {', '.join(metrics)} (-)")
+    ax1.ax.set_ylabel(f"Score")
+    h1, l1 = ax1.ax.get_legend_handles_labels()
+        
+    # if right_metrics:
+    #     ax2.ax.set_ylabel(f"Score for {', '.join(right_metrics)} (-)")
+    #     h2, l2 = ax2.ax.get_legend_handles_labels()
     
-    ax.ax.set_xlabel("Forecaster")
+    # if left_metrics and right_metrics:
+    # l = l1[:l1.index("metric")] + l1[l1.index("metric"):] + l2[l2.index("metric")+1:]
+    # h = h1[:l1.index("metric")] + h1[l1.index("metric"):] + h2[l2.index("metric")+1:]
+    # elif left_metrics:
+    l = l1
+    h = h1
+    # else:
+    #     l = l2
+    #     h = h2
     
-    ax.legend.set_visible(False)
+    ax1.ax.set_xlabel("Forecaster")
+    
+    ax1.legend.set_visible(False)
     # new_labels = [(re.search("\\w+(?=Forecast)", label).group() if "Forecast" in label else (label.capitalize() if not label[0].isupper() else label).replace("_", " ")) for label in l]
-    ax.ax.set_xticklabels([" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", label._text).group())) for label in ax.ax.get_xticklabels()], rotation=45)
+    ax1.ax.set_xticklabels([" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", label._text).group())) for label in ax1.ax.get_xticklabels()], rotation=35)
     new_labels = [(label.capitalize() if not label[0].isupper() else label).replace("_", " ") for label in l]
-    ax.ax.legend(h, new_labels, frameon=False, bbox_to_anchor=(1.01, 1), loc="upper left")
+    ax1.ax.legend(h, new_labels, frameon=False, bbox_to_anchor=(1.01, 1), loc="upper left")
     plt.tight_layout()
     return plt.gcf()
 
@@ -2720,7 +2725,7 @@ if __name__ == "__main__":
     
     all_metrics = results[0]["agg_metrics"].select(pl.col("metric").unique()).to_numpy().flatten()
     # get the metrics we care about, there is also "MSE", "MAE", "abs_error", "QuantileLoss", 
-    metrics = [metric for metric in all_metrics if any(m in metric for m in ["MAE", "RMSE", "PICP", "PINAW", "CWC", "CRPS"])]
+    metrics = [metric for metric in all_metrics if any(m in metric for m in ["MAE", "RMSE", "PINAW", "CWC", "CRPS", "PICP"])]
     
     agg_df = pl.concat([
         res["agg_metrics"].with_columns(forecaster=pl.lit(res["forecaster_name"]), 
@@ -2728,19 +2733,26 @@ if __name__ == "__main__":
         for res in results], how="vertical")
     
     plotting_metrics_dirs = [(met, direc) for met, direc in 
-                        zip(["MAE", "RMSE", "PICP", "PINAW", "CWC", "CRPS"], [0, 0, 1, 1, 1, 1]) 
+                        zip(["MAE", "RMSE", "PINAW", "CWC", "CRPS", "PICP"], [0, 0, 1, 1, 1, 1]) 
                         if met in pd.unique(agg_df["metric"])]
     plotting_metrics = [v[0] for v in plotting_metrics_dirs]
     ax_indices = [v[1] for v in plotting_metrics_dirs]
+    plt.close()
+    
+    totals_agg_df = agg_df.filter((pl.col("test_idx")==-1) & (pl.col("turbine_id") == "all"))\
+                          .group_by(["forecaster", "metric", "prediction_timedelta"]).agg(pl.col("score").mean())
     # generate scatterplot of metric vs prediction time for different models (different colors) and different metrics (different_styles) (crps, picp, pinaw, cwc, mse, mae)
-    plot_score_vs_prediction_dt(agg_df, 
+    plot_score_vs_prediction_dt(totals_agg_df, 
                                 metrics=plotting_metrics,
                                 ax_indices=ax_indices)
 
     # best_prediction_dt = agg_df.groupby(["metric", "prediction_timedelta"])["score"].mean().idxmax()
     # generate grouped barcharpt of metrics (crps, picp, pinaw, cwc, mse, mae) grouped together vs model on x axis for best prediction time
-    best_prediction_dt = agg_df.group_by("prediction_timedelta")["score"].mean().idxmax()
-    plot_score_vs_forecaster(agg_df.loc[agg_df["prediction_timedelta"] == best_prediction_dt, :], 
+    totals_agg_df.filter(pl.col("metric").is_in(["RMSE", "MAE", "CWC", "CRPS", "PINAW"])).group_by(["forecaster", "metric"]).agg(pl.all().sort_by("score").last())
+    totals_agg_df.filter(pl.col("metric").is_in(["PICP"])).group_by(["forecaster", "metric"]).agg(pl.all().sort_by("score").last())
+    
+    best_prediction_dt = totals_agg_df.filter(pl.col("metric").is_in(["RMSE", "MAE", "CWC", "CRPS", "PINAW"])).group_by("prediction_timedelta").agg(pl.col("score").mean()).select(pl.col("prediction_timedelta").sort_by("score").first()).item()
+    plot_score_vs_forecaster(totals_agg_df.filter(pl.col("prediction_timedelta") == best_prediction_dt), 
                              metrics=plotting_metrics,
                                 ax_indices=ax_indices)
     
