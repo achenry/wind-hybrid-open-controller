@@ -61,15 +61,15 @@ case_studies = {
     "baseline_controllers_forecasters_test_awaken": {
                                     # "target_turbine_indices": {"group": 1, "vals": ["74,73", "4,"]},
                                     # "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
-                                    "target_turbine_indices": {"group": 1, "vals": ["74,73", "4,"]},
-                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
+                                    "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
+                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
                                     "controller_dt": {"group": 0, "vals": [5]},
                                     "use_filtered_wind_dir": {"group": 0, "vals": [True]},
                                     "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
                                     "simulation_dt": {"group": 0, "vals": [1]},
                                     "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
                                     "uncertain": {"group": 2, "vals": [True]},
-                                    "wind_forecast_class": {"group": 3, "vals": ["PerfectForecast"]}, # "MLForecast"
+                                    "wind_forecast_class": {"group": 3, "vals": ["KalmanFilterForecast"]}, # "MLForecast"
                                     # "model_key": {"group": 3, "vals": ["informer"]},
                                     # "wind_forecast_class": {"group": 3, "vals": ["MLForecast"]},
                                     "prediction_timedelta": {"group": 4, "vals": [300]},
