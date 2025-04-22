@@ -331,7 +331,7 @@ def plot_simulations(time_series_df, plotting_cases, save_dir, include_power=Tru
             if (case_family, case_name) not in plotting_cases:
                 continue
             case_name_df = case_family_df.loc[case_family_df.index.get_level_values("CaseName") == case_name, :].reset_index(drop=True)
-            input_fn = [fn for fn in os.listdir(os.path.join(save_dir, case_family)) if "input_config" in fn and case_name in fn][0]
+            input_fn = [fn for fn in os.listdir(os.path.join(save_dir, case_family)) if "input_config" in fn and str(case_name) in fn][0]
             
             with open(os.path.join(save_dir, case_family, input_fn), 'rb') as fp:
                 input_config =  pickle.load(fp)
@@ -970,7 +970,7 @@ def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, 
     results_dir = os.path.dirname(save_path)
     # figManager = plt.get_current_fig_manager()
     # figManager.full_screen_toggle()
-    fig.suptitle("_".join([os.path.basename(results_dir), case_label.replace('/', '_'), "yaw_power_ts"]))
+    fig.suptitle("_".join([os.path.basename(results_dir), str(case_label), "yaw_power_ts"]))
     # plt.get_current_fig_manager().full_screen_toggle()
     plt.tight_layout()
     fig.savefig(save_path)
