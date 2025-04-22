@@ -1927,13 +1927,14 @@ class ARIMAForecast(WindForecast):
         
         for turbine_id in turbine_ids:
             logging.info(f"Training ARIMA model for {turbine_id}.")
-            turbine_df = historic_measurements.select(pl.col("time"), pl.col(f"ws_horz_{turbine_id}")).sort("time").unique(subset=["time"])
 
-            ts_horz = turbine_df.to_pandas().set_index("time")[f"ws_horz_{turbine_id}"]
-            model_horz = sm.tsa.ARIMA(ts_horz, order=(1, 0, 0)).fit()
-
-            # vertical wind speed
+            # prepare vertical and horizontal wind speed 
+            turbine_df_horz = historic_measurements.select(pl.col("time"), pl.col(f"ws_horz_{turbine_id}")).sort("time").unique(subset=["time"])
             turbine_df_vert = historic_measurements.select(pl.col("time"), pl.col(f"ws_vert_{turbine_id}")).sort("time").unique(subset=["time"])
+
+            # ARIMA prediction for both horizontal and vertical
+            ts_horz = turbine_df_horz.to_pandas().set_index("time")[f"ws_horz_{turbine_id}"]
+            model_horz = sm.tsa.ARIMA(ts_horz, order=(1, 0, 0)).fit()
             ts_vert = turbine_df_vert.to_pandas().set_index("time")[f"ws_vert_{turbine_id}"]
             model_vert = sm.tsa.ARIMA(ts_vert, order=(1, 0, 0)).fit()
             
@@ -1962,11 +1963,11 @@ class ARIMAForecast(WindForecast):
 
         for turbine_id in self.model_items():
             # horizontal wind speed
-            model_horz = self.models[turbine_id]
-            forecast = model_horz.forecast(steps=horizon)
+            model_horz = self.models[turbine_id]["ws_horz"]
+            forecast_horz = model_horz.forecast(steps=horizon)
             turbine_forecast_horz = pl.DataFrame({
                     "time": forecast_times,
-                    f"ws_horz_{turbine_id}": forecast
+                    f"ws_horz_{turbine_id}": forecast_horz
                 })
             # vertical wind speed
             model_vert = self.models[turbine_id]["ws_vert"]
