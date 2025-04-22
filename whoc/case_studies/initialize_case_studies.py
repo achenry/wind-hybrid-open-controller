@@ -585,7 +585,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                                  prediction_length=model_config["dataset"]["prediction_length"], context_length=model_config["dataset"]["context_length"],
                                  target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                                  freq=f"{simulation_dt}s", target_suffixes=model_config["dataset"]["target_turbine_ids"],
-                                 per_turbine_target=model_config["dataset"]["per_turbine_target"], as_lazyframe=False, dtype=pl.Float32)
+                                 per_turbine_target=False, as_lazyframe=False, dtype=pl.Float32)
     
         if not os.path.exists(data_module.train_ready_data_path):
             data_module.generate_datasets()

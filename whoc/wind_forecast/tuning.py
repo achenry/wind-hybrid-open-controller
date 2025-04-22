@@ -73,7 +73,7 @@ if __name__ == "__main__":
                                 prediction_length=model_config["dataset"]["prediction_length"], context_length=model_config["dataset"]["context_length"],
                                 target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                                 freq=model_config["dataset"]["resample_freq"], target_suffixes=model_config["dataset"]["target_turbine_ids"],
-                                    per_turbine_target=model_config["dataset"]["per_turbine_target"], as_lazyframe=False, dtype=pl.Float32)
+                                    per_turbine_target=False, as_lazyframe=False, dtype=pl.Float32)
         
     # %% SETUP SEED
     logging.info(f"Setting random seed to {args.seed}")

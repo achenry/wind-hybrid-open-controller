@@ -2447,7 +2447,7 @@ if __name__ == "__main__":
                              target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                              freq=f"{int(measurements_timedelta.total_seconds())}s", 
                              target_suffixes=model_config["dataset"]["target_turbine_ids"],
-                             per_turbine_target=model_config["dataset"]["per_turbine_target"], as_lazyframe=False, dtype=pl.Float32)
+                             per_turbine_target=False, as_lazyframe=False, dtype=pl.Float32)
     
     if not os.path.exists(data_module.train_ready_data_path):
         data_module.generate_datasets()
