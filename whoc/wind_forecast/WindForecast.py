@@ -1850,6 +1850,7 @@ class MLForecast(WindForecast):
 @dataclass
 class ARIMAForecast(WindForecast):
     """Wind speed forecasting using ARIMA model"""
+    is_probabilistic = False
 
     def __post_init__(self):
         super().__post_init__()
@@ -1858,13 +1859,20 @@ class ARIMAForecast(WindForecast):
 
     def train(self, historic_measurements: pl.DataFrame, turbine_ids=None):
         if turbine_ids is None:
-            turbine_ids = self.tid2idx_mapping.keys()
+            turbine_ids = [
+                col.split("_")[-1]
+                for col in historic_measurements.columns
+                if col.startswith("ws_horz_")
+            ]
         
         for turbine_id in turbine_ids:
             logging.info(f"Training ARIMA model for {turbine_id}.")
-            turbine_df = historic_measurements.filter(pl.col("turbine_id") == turbine_id).select(pl.col("time"),  pl.col(f"ws_horz_{turbine_id}")).sort("time").unique(subset=["time"])
-            ts = turbine_df.to_pandas().set_index("time")[f"ws_horz_{turbine_id}"]           
-            # fit ARIMA model
+            turbine_df = historic_measurements.select(
+                pl.col("time"),
+                pl.col(f"ws_horz_{turbine_id}")
+            ).sort("time").unique(subset=["time"])
+
+            ts = turbine_df.to_pandas().set_index("time")[f"ws_horz_{turbine_id}"]
             model = sm.tsa.ARIMA(ts, order=(1, 0, 0)).fit()
             
             self.models[turbine_id] = model
@@ -1874,24 +1882,35 @@ class ARIMAForecast(WindForecast):
             """Returns the list of turbine IDs for which models are trained."""
             return self.models.keys()
        
-    def predict_point(self, historic_measurements):
+    def predict_point(self, historic_measurements, current_time=None):
         if not self.fitted:
             raise ValueError("ARIMA model not fitted. Call train() method first.")
         
         horizon = self.n_prediction
         prediction_freq = pd.Timedelta(self.measurements_timedelta)
-        current_time = historic_measurements.select(pl.col("time").max()).item()
-        forecast_frames = []
 
-        for target_col in self.model_items():
-            model = self.models[target_col]
+        if current_time is None:
+            current_time = historic_measurements.select(pl.col("time").max()).item()
+            
+        forecast_times = pd.date_range(start=current_time + prediction_freq, periods=horizon, freq=prediction_freq)
+        forecast_df = pl.DataFrame({"time": forecast_times})
+
+        for turbine_id in self.model_items():
+            model = self.models[turbine_id]
             forecast = model.forecast(steps=horizon)
-
-            forecast_times = pd.date_range(start=current_time + prediction_freq, periods=horizon, freq=prediction_freq)
-            forecast_df = pd.DataFrame({"time": forecast_times, target_col: forecast})
-            forecast_frames.append(pl.from_pandas(forecast_df))
+            turbine_forecast = pl.DataFrame({
+                    "time": forecast_times,
+                    f"ws_horz_{turbine_id}": forecast
+                })
+            forecast_df = forecast_df.join(turbine_forecast, on="time", how="left")
         
-        return pl.concat(forecast_frames, how="diagonal")
+        return forecast_df.sort("time")
+
+
+           #forecast_df = pd.DataFrame({"time": forecast_times, target_col: forecast})
+           #forecast_frames.append(pl.from_pandas(forecast_df))
+        
+       #return pl.concat(forecast_frames, how="diagonal")
 
 def plot_wind_ts(data_df, save_path, turbine_ids="all", include_filtered_wind_dir=True, controller_timedelta=None, legend_loc="best", single_plot=False, fig=None, ax=None, case_label=None):
     #TODO only plot some turbines, not ones with overlapping yaw offsets, eg single column on farm
@@ -1984,6 +2003,8 @@ def make_predictions(forecaster, test_data, prediction_type):
             
             if current_time - start >= forecaster.context_timedelta:
                 logging.info(f"Predicting future wind field using {forecaster.__class__.__name__} at time {current_time}/{end} of split {d}/{n_splits}.")
+                if not forecaster.fitted:
+                    forecaster.train(ds.filter(pl.col("time") <= current_time))
                 if prediction_type == "distribution" and forecaster.is_probabilistic:
                     pred = forecaster.predict_distr(
                         ds.filter(pl.col("time") <= current_time), current_time)
@@ -2022,8 +2043,13 @@ def make_predictions(forecaster, test_data, prediction_type):
     true = test_data
     test_idx = 0
     for f in range(len(forecasts)):
-        for ff in range(len(forecasts[f])):
-            forecasts[f][ff] = forecasts[f][ff].with_columns(test_idx=pl.lit(test_idx))
+        if isinstance(forecasts[f], list):
+            for ff in range(len(forecasts[f])):
+                forecasts[f][ff] = forecasts[f][ff].with_columns(pl.lit(test_idx).alias('test_idx'))
+                test_idx += 1
+
+            forecasts[f] = pl.concat(forecasts[f], how="vertical")
+
             # time_cond = pl.col("time").is_between(
             #                 forecasts[f][ff].select(pl.col("time").first()).item(), forecasts[f][ff].select(pl.col("time").last()).item(), 
             #                 closed="both")
@@ -2036,9 +2062,9 @@ def make_predictions(forecaster, test_data, prediction_type):
             #         .then(pl.lit(f))\
             #         .otherwise(pl.col("continuity_group"))\
             #         .alias("continuity_group")])
-            test_idx += 1
-        forecasts[f] = pl.concat(forecasts[f], how="vertical_relaxed")
-    forecasts = pl.concat(forecasts, how="vertical_relaxed").with_columns(pl.col("time").cast(pl.Datetime(time_unit="ns")))
+   #forecasts[f] = pl.concat(forecasts[f], how="vertical") # how="vertical_relaxed")
+    
+    forecasts = pl.concat(forecasts, how="vertical").with_columns(pl.col("time").cast(pl.Datetime(time_unit="ns")))
     forecasts = forecasts.filter(pl.col("time").is_in(true.select(pl.col("time"))))
     true = true.filter(pl.col("time").is_in(forecasts.select(pl.col("time"))))
     
