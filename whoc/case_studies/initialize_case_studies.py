@@ -146,33 +146,10 @@ case_studies = {
         # "wind_forecast_class": {"group": 1, "vals": ["PerfectForecast", "PerfectForecast"]},
         "prediction_timedelta": {"group": 2, "vals": [60, 120, 180]} #240, 300, 360, 420, 480, 540, 600, 660, 720, 780, 840, 900, 960, 1020, 1080]},
         },
-    "baseline_controllers_forecasters_awaken": {"controller_dt": {"group": 0, "vals": [5]},
-                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController", 
-                                                                              "LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController",
-                                                                              "GreedyController", "GreedyController"]},
-                                    "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73", 
-                                                                                    "74,73", "74,73",
-                                                                                    "4,",  "4,"]},
-                                    "uncertain": {"group": 1, "vals": [True, False, 
-                                                                       True, False, 
-                                                                       False, False]},
-                                    "wind_forecast_class": {"group": 1, "vals": ["MLForecast", "MLForecast",
-                                                                                 "KalmanFilterForecast", "KalmanFilterForecast",
-                                                                                 "MLForecast", "KalmanFilterForecast"]},
-                                    "model_key": {"group": 1, "vals": ["informer", "informer",
-                                                                        None, None,
-                                                                        "informer", None]},
-                                    
-                                    "prediction_timedelta": {"group": 2, "vals": [100]},
-                                    # "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
-                                    # "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
-                                    # "uncertain": {"group": 1, "vals": [True]}, 
+    "baseline_controllers_prob_forecasters_awaken": {
+                                    "controller_dt": {"group": 0, "vals": [5]},
                                     "use_filtered_wind_dir": {"group": 0, "vals": [True]},
                                     "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
-                                    # "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
-                                    # "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
-                                    # "use_filtered_wind_dir": {"group": 1, "vals": [True]},
-                                    # "use_lut_filtered_wind_dir": {"group": 1, "vals": [True]},
                                     "simulation_dt": {"group": 0, "vals": [1]},
                                     "floris_input_file": {"group": 0, "vals": [
                                         "../../examples/inputs/gch_KP_v4.yaml"
@@ -180,7 +157,33 @@ case_studies = {
                                     "lut_path": {"group": 0, "vals": [
                                         "../../examples/inputs/gch_KP_v4_lut.csv",
                                                                     ]},
-                                    "yaw_limits": {"group": 0, "vals": ["-15,15"]}
+                                    "yaw_limits": {"group": 0, "vals": ["-15,15"]},
+                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController", "GreedyController"]},
+                                    "prediction_timedelta": {"group": 1, "vals": [300, 300, 60]},
+                                    "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73", "4,"]},
+                                    "uncertain": {"group": 1, "vals": [True, False, False]},
+                                    "wind_forecast_class": {"group": 2, "vals": ["MLForecast", "KalmanFilterForecast"]},
+                                    "model_key": {"group": 1, "vals": ["informer", None]},
+                                    
+                                    
+                                    },
+    "baseline_controllers_det_forecasters_awaken": {
+                                    "controller_dt": {"group": 0, "vals": [5]},
+                                    "use_filtered_wind_dir": {"group": 0, "vals": [True]},
+                                    "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
+                                    "simulation_dt": {"group": 0, "vals": [1]},
+                                    "floris_input_file": {"group": 0, "vals": [
+                                        "../../examples/inputs/gch_KP_v4.yaml"
+                                                                            ]},
+                                    "lut_path": {"group": 0, "vals": [
+                                        "../../examples/inputs/gch_KP_v4_lut.csv",
+                                                                    ]},
+                                    "yaw_limits": {"group": 0, "vals": ["-15,15"]},
+                                    "uncertain": {"group": 0, "vals": [False]},
+                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
+                                    "prediction_timedelta": {"group": 1, "vals": [300, 60]},
+                                    "target_turbine_indices": {"group": 1, "vals": ["74,73", "4,"]},
+                                    "wind_forecast_class": {"group": 2, "vals": ["SVRForecast", "SpatialFilterForecast", "PersistentForecast"]},
                                     },
     "baseline_controllers": { "controller_dt": {"group": 1, "vals": [5, 5]},
                                 "case_names": {"group": 1, "vals": ["LUT", "Greedy"]},
@@ -928,6 +931,6 @@ case_families = ["baseline_controllers", "solver_type", # 0, 1
                     "gradient_type", "n_wind_preview_samples", # 9, 10
                     "generate_sample_figures", "baseline_controllers_3", # 11, 12
                     "cost_func_tuning_small", "sr_solve", # 13, 14
-                    "baseline_controllers_forecasters_flasc", "baseline_controllers_forecasters_awaken", # 15, 16
+                    "baseline_controllers_det_forecasters_awaken", "baseline_controllers_prob_forecasters_awaken", # 15, 16
                     "baseline_controllers_perfect_forecaster_flasc", "baseline_controllers_perfect_forecaster_awaken", # 17, 18
                     "baseline_controllers_forecasters_test_flasc", "baseline_controllers_forecasters_test_awaken"] # 19, 20
