@@ -404,6 +404,8 @@ if __name__ == "__main__":
                 controllers = pd.unique(perfect_agg_df["controller_class"])
                 controller_labels = {"GreedyController": "Greedy", "LookupBasedWakeSteeringController": "LUT"}
                 
+                
+                
                 # PLOT 1) Farm power of perfect forecaster vs prediction timedela for different controllers
                 import seaborn as sns
                 import matplotlib.pyplot as plt
@@ -412,6 +414,25 @@ if __name__ == "__main__":
                 plot_df["prediction_timedelta"] = plot_df["prediction_timedelta"].dt.total_seconds()
                 plot_df[("FarmPowerMean", "mean")] = plot_df[("FarmPowerMean", "mean")] / 1e6
                 
+                # get gain of LUT compared to greedy wo preview
+                compute_df = plot_df.copy()
+                case_name = compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), :].index.get_level_values("CaseName")[0]
+                input_fn = f"input_config_case_{case_name}.pkl"
+                with open(os.path.join(args.save_dir, case_family, input_fn), mode='rb') as fp:
+                    lut_input_config = pickle.load(fp)
+                n_lut_turbines = len(lut_input_config["controller"]["target_turbine_indices"])
+                
+                case_name = compute_df.loc[(compute_df["controller_class"] == "GreedyController"), :].index.get_level_values("CaseName")[0]
+                input_fn = f"input_config_case_{case_name}.pkl"
+                with open(os.path.join(args.save_dir, case_family, input_fn), mode='rb') as fp:
+                    greedy_input_config = pickle.load(fp)
+                n_greedy_turbines = len(greedy_input_config["controller"]["target_turbine_indices"])
+                        
+                compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] = compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] / n_lut_turbines
+                compute_df.loc[(compute_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")] = compute_df.loc[(compute_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")] / n_greedy_turbines
+                compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] = 100 * (compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] - compute_df.loc[(compute_df["prediction_timedelta"] == 0) & (compute_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")].iloc[0]) / compute_df.loc[(compute_df["prediction_timedelta"] == 0) & (compute_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")].iloc[0]
+                compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), [("prediction_timedelta", ""), ("FarmPowerMean", "mean")]].reset_index(drop=True)
+
                 plot_df.loc[(plot_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")] = 100 * (plot_df.loc[(plot_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")] - plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")].iloc[0]) / plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")].iloc[0]
                 plot_df.loc[(plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] = 100 * (plot_df.loc[(plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] - plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")].iloc[0]) / plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")].iloc[0]
 

@@ -77,19 +77,8 @@ if __name__ == "__main__":
         
     # %% SETUP SEED
     logging.info(f"Setting random seed to {args.seed}")
-    # torch.manual_seed(args.seed)
     random.seed(args.seed)
     np.random.seed(args.seed)
-    
-    # %% PREPARING DIRECTORIES
-    # if model_config["optuna"]["storage"].get("storage_dir", None) and model_config["optuna"]["storage"]["backend"] in ["sqlite", "journal"]:
-    #     model_config["optuna"]["storage"]["storage_dir"] = replace_env_vars(model_config["optuna"]["storage"]["storage_dir"])
-    #     logging.info(f"Making Optuna storage directory {model_config['optuna']['storage']['storage_dir']}.")
-    #     os.makedirs(model_config["optuna"]["storage"]["storage_dir"], exist_ok=True)
-    
-    # data_config["temp_storage_dir"] = replace_env_vars(data_config["temp_storage_dir"])
-    # logging.info(f"Making temporary train/val storage directory {data_config['temp_storage_dir']}.")
-    # os.makedirs(data_config["temp_storage_dir"], exist_ok=True)
     
     # %% INSTANTIATING MODEL
     logging.info("Instantiating model.")  
@@ -116,9 +105,7 @@ if __name__ == "__main__":
     else:
         logging.info(f"Couldn't find WORKER_RANK env var, setting rank to {rank}.")
     
-    # %% PREPARING DATA FOR TUNING 
-# if args.initialize:
-    # %% READING WIND FIELD TRAINING DATA
+    # %% PREPARING DATA FOR TUNING
     if rank == 0:
         logging.info("Preparing data for tuning")
         if not os.path.exists(data_module.train_ready_data_path):
@@ -127,7 +114,11 @@ if __name__ == "__main__":
         else:
             reload = False
         
-        true_wind_field = data_module.generate_splits(save=True, reload=reload, splits=["train", "val"])._df.collect()
+        data_module.generate_splits(save=True, reload=reload, splits=["train", "val"])._df.collect()
+        
+        # get max_splits longest datasets
+        data_module.train_dataset = sorted(data_module.train_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
+        data_module.val_dataset = sorted(data_module.val_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
         if args.max_splits:
             train_dataset = data_module.train_dataset[:args.max_splits]
             val_dataset = data_module.val_dataset[:args.max_splits]
@@ -146,35 +137,34 @@ if __name__ == "__main__":
         
         forecaster.prepare_data(dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, scale=False)
     
-    scaler_params = data_module.compute_scaler_params()
-        
-    logging.info("Initializing storage")
-    db_setup_params = generate_df_setup_params(args.model, model_config)
-            
-    # comm = MPI.COMM_WORLD
-    # rank = comm.Get_rank()
-    optuna_storage = setup_optuna_storage(
-        db_setup_params=db_setup_params,
-        restart_tuning=args.restart_tuning,
-        rank=rank
-    )
     
     # if not args.initialize: 
     # %% TUNING MODEL
-    logging.info("Running tune_hyperparameters_multi")
-    #{"type": "hyperband", "min_resource": 2, "max_resource": 5, "reduction_factor": 3, "percentile": 25}
-    forecaster.tune_hyperparameters_single(storage=optuna_storage,
-                                        n_trials_per_worker=model_config["optuna"]["n_trials_per_worker"], 
-                                        seed=args.seed,
-                                        config=model_config)
-                                    #  trial_protection_callback=handle_trial_with_oom_protection)
+    if rank > 0:
+        scaler_params = data_module.compute_scaler_params()
+        
+        logging.info("Initializing storage")
+        db_setup_params = generate_df_setup_params(args.model, model_config)
+        optuna_storage = setup_optuna_storage(
+            db_setup_params=db_setup_params,
+            restart_tuning=args.restart_tuning,
+            rank=rank
+        )
+        
+        logging.info("Running tune_hyperparameters_multi")
+        #{"type": "hyperband", "min_resource": 2, "max_resource": 5, "reduction_factor": 3, "percentile": 25}
+        forecaster.tune_hyperparameters_single(storage=optuna_storage,
+                                            n_trials_per_worker=model_config["optuna"]["n_trials_per_worker"], 
+                                            seed=args.seed,
+                                            config=model_config)
+                                        #  trial_protection_callback=handle_trial_with_oom_protection)
 
-    # %% TRAINING MODEL
-    logging.info("Training model using best hyperparameters.")
-    forecaster.set_tuned_params(storage=optuna_storage, study_name=forecaster.study_name)
-    forecaster.train_all_outputs(train_dataset, scale=False, multiprocessor=args.multiprocessor, 
-                                    retrain_models=True,
-                                    scaler_params=scaler_params)
-    
-    # %% After training completes
-    logging.info("Optuna hyperparameter tuning completed.")
+        # %% TRAINING MODEL
+        logging.info("Training model using best hyperparameters.")
+        forecaster.set_tuned_params(storage=optuna_storage, study_name=forecaster.study_name)
+        forecaster.train_all_outputs(train_dataset, scale=False, multiprocessor=args.multiprocessor, 
+                                        retrain_models=True,
+                                        scaler_params=scaler_params)
+        
+        # %% After training completes
+        logging.info("Optuna hyperparameter tuning completed.")

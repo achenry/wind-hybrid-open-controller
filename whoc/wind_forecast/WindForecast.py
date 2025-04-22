@@ -196,7 +196,7 @@ class WindForecast:
         #     # logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
         # else:
         # max_workers = mp.cpu_count()
-        max_workers = os.environ.get("NTASKS_PER_TUNER", mp.cpu_count())
+        max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
         executor = ProcessPoolExecutor(max_workers=max_workers,
                                         mp_context=mp.get_context("spawn"))
         logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
@@ -218,7 +218,7 @@ class WindForecast:
         Returns:
             None
         """
-        logging.info(f"Reloading {dataset_splits} data.")
+        logging.info(f"Reloading data.")
         for ds_type, ds_list in dataset_splits.items():
             for ds in ds_list:
                 if ds.shape[0] < self.n_context + self.n_prediction:
@@ -1207,7 +1207,7 @@ class SVRForecast(WindForecast):
                 comm_size = MPI.COMM_WORLD.Get_size()
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
             elif multiprocessor == "cf":
-                max_workers = os.environ.get("NTASKS_PER_TUNER", mp.cpu_count())
+                max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
                 executor = ProcessPoolExecutor(max_workers=max_workers,
                                                 mp_context=mp.get_context("spawn"))
             with executor as ex:
@@ -2107,6 +2107,9 @@ def make_predictions(forecaster, test_data, prediction_type):
             #     # fetch predictions from label part
             #     forecasts[-1].append(pred)
         
+        if not len(forecasts[-1]):
+            raise Exception(f"{d}th dataset in data does not have sufficient data points, with {ds.select(pl.len()).item()}, to collect predictions after context_timedelta {forecaster.context_timedelta}")
+        
         # if save_last_pred:
         #     forecasts[-1] = [wf.filter(pl.col("time") < (
         #         pl.col("time").first() + max(forecaster.controller_timedelta, forecaster.prediction_timedelta))) 
@@ -2395,45 +2398,48 @@ def plot_score_vs_prediction_dt(agg_df, metrics, ax_indices):
     plt.tight_layout()
     return fig
 
-def plot_score_vs_forecaster(agg_df, metrics, good_directions):
+def plot_score_vs_forecaster(agg_df, metrics, ax_indices):
     
-    n_axes = len(np.unique(np.sign(good_directions)))
-    pos_metrics = [met for sign, met in zip(good_directions, metrics) if sign > 0]
-    neg_metrics = [met for sign, met in zip(good_directions, metrics) if sign < 0]
+    n_axes = len(ax_indices)
+    left_metrics = [met for i, met in zip(ax_indices, metrics) if i == 0]
+    right_metrics = [met for i, met in zip(ax_indices, metrics) if i == 1]
     
     # fig, ax = plt.subplots(1, 1)
-    if pos_metrics and neg_metrics:
+    if left_metrics and right_metrics:
         # TODO will have same color for different metrics over pos/neg
-        ax1 = sns.catplot(data=agg_df.filter(pl.col("metric").is_in(pos_metrics)).to_pandas(), kind="bar", hue="metric", x="forecaster", y="score")
+        ax1 = sns.catplot(agg_df.loc[agg_df["metric"].isin(left_metrics), :],
+                    kind="bar",
+                    hue="metric", x="forecaster", y="score")
         sub_ax1 = ax1.ax
         
         sub_ax2 = sub_ax1.twinx()
-        ax2 = sns.catplot(data=agg_df.filter(pl.col("metric").is_in(neg_metrics)).to_pandas(), kind="bar", hue="metric", x="forecaster", y="score", ax=sub_ax2)
+        ax2 = sns.catplot(agg_df.loc[agg_df["metric"].isin(right_metrics), :],
+                    kind="bar",
+                    hue="metric", x="forecaster", y="score", ax=sub_ax2)
         ax = ax2
-
-    elif pos_metrics:
-        ax1 = sns.catplot(agg_df.loc[agg_df["metric"].isin(pos_metrics), :],
+    elif left_metrics:
+        ax1 = sns.catplot(agg_df.loc[agg_df["metric"].isin(left_metrics), :],
                     kind="bar",
                     hue="metric", x="forecaster", y="score")
         ax = ax1
-    elif neg_metrics:
-        ax2 = sns.catplot(agg_df.loc[agg_df["metric"].isin(neg_metrics), :],
+    elif right_metrics:
+        ax2 = sns.catplot(agg_df.loc[agg_df["metric"].isin(right_metrics), :],
                     kind="bar",
                     hue="metric", x="forecaster", y="score")
         ax = ax2
         
-    if pos_metrics:
-        ax1.ax.set_ylabel(f"Score for {', '.join(pos_metrics)} (-)")
+    if left_metrics:
+        ax1.ax.set_ylabel(f"Score for {', '.join(left_metrics)} (-)")
         h1, l1 = ax1.ax.get_legend_handles_labels()
         
-    if neg_metrics:
-        ax2.ax.set_ylabel(f"Score for {', '.join(neg_metrics)} (-)")
+    if right_metrics:
+        ax2.ax.set_ylabel(f"Score for {', '.join(right_metrics)} (-)")
         h2, l2 = ax2.ax.get_legend_handles_labels()
     
-    if pos_metrics and neg_metrics:
+    if left_metrics and right_metrics:
         l = l1[:l1.index("metric")] + l1[l1.index("metric"):] + l2[l2.index("metric")+1:]
         h = h1[:l1.index("metric")] + h1[l1.index("metric"):] + h2[l2.index("metric")+1:]
-    elif pos_metrics:
+    elif left_metrics:
         l = l1
         h = h1
     else:
@@ -2551,6 +2557,7 @@ if __name__ == "__main__":
     
     if not os.path.exists(data_module.train_ready_data_path):
         data_module.generate_datasets()
+        data_module.generate_splits(save=True, reload=True, splits=["test"])
     
     # true_wind_field = data_module.generate_splits(save=True, reload=False, splits=["test"])._df.collect()
     data_module.generate_splits(save=True, reload=False, splits=["test"])
@@ -2649,8 +2656,7 @@ if __name__ == "__main__":
                                                 n_neighboring_turbines=3, max_n_samples=None, 
                                                 study_name=f"svr_{model_config['experiment']['run_name']}",
                                                 use_trained_models=args.use_trained_models,
-                                                optuna_storage=optuna_storage,
-                                                model_save_dir=data_config["model_save_dir"]),
+                                                optuna_storage=optuna_storage),
                                     tid2idx_mapping=tid2idx_mapping,
                                     turbine_signature=turbine_signature,
                                     use_tuned_params=args.use_tuned_params,
@@ -2851,12 +2857,19 @@ if __name__ == "__main__":
 
     # best_prediction_dt = agg_df.groupby(["metric", "prediction_timedelta"])["score"].mean().idxmax()
     # generate grouped barcharpt of metrics (crps, picp, pinaw, cwc, mse, mae) grouped together vs model on x axis for best prediction time
+<<<<<<< HEAD
     # best_prediction_dt = agg_df.groupby("prediction_timedelta")["score"].mean().idxmax()
     best_prediction_dt = (agg_df.group_by("prediction_timedelta").agg(pl.col("score").mean().alias("mean_score")).sort("mean_score", descending=True).select("prediction_timedelta").row(0)[0])
     plot_score_vs_forecaster(agg_df.filter(pl.col("prediction_timedelta") == best_prediction_dt),
         metrics=plotting_metrics,
         good_directions=[-1, 1, -1, -1, -1]
     )
+=======
+    best_prediction_dt = agg_df.group_by("prediction_timedelta")["score"].mean().idxmax()
+    plot_score_vs_forecaster(agg_df.loc[agg_df["prediction_timedelta"] == best_prediction_dt, :], 
+                             metrics=plotting_metrics,
+                                ax_indices=ax_indices)
+>>>>>>> e0838536fe01116cd4607ba35203860c54af72a9
     
     print("here")
 

@@ -167,7 +167,7 @@ class LookupBasedWakeSteeringController(ControllerBase):
             # for uncertain case, add extra dimension for standard deviation of wind dir
             if uncertain:
                 # wd_stddevs_lut = np.arange(1.0, 10.0, 2.0)
-                wd_stddevs_lut = np.arange(1.0, 10.0, 2.0)
+                wd_stddevs_lut = np.arange(0.0, 10.0, 2.0)
                  
                 fi_lut = UncertainFlorisModel(floris_config_path,
                                                 wd_resolution=0.5,
@@ -175,7 +175,7 @@ class LookupBasedWakeSteeringController(ControllerBase):
                                                 ti_resolution=0.01,
                                                 yaw_resolution=0.5,
                                                 power_setpoint_resolution=100,
-                                                wd_std=wd_stddevs_lut[0])
+                                                wd_std=3)
                 # wd_grid, ws_grid, wds_grid = np.meshgrid(wind_directions_lut, wind_speeds_lut, wd_stddevs_lut, indexing="ij")
                 
             else:
@@ -243,13 +243,12 @@ class LookupBasedWakeSteeringController(ControllerBase):
             # df_plot = df_lut.drop(columns=["yaw_angles_opt", "farm_power_opt", "farm_power_baseline"])
             # df_plot = pd.concat([df_plot.assign(YawOffset=yaw_angles_opt[:, i], Turbine=i) for i in range(yaw_angles_opt.shape[1])], axis=0)
                 
-            # df_plot = df_plot.groupby(["wind_speed", "wd_stddev"]).agg("mean")
             # ax = sns.lineplot(df_plot, x="wind_direction", y="YawOffset", hue="wd_stddev", style="Turbine")
             # ax.legend(bbox_to_anchor=(1, 1.01), loc="upper left")
-            # ax.set_xlabel("Wind Direction ($^\circ$)")
-            # ax.set_ylabel("Yaw Offset ($^\circ$)")
+            # ax.set_xlabel("Wind Direction ($^\\circ$)")
+            # ax.set_ylabel("Yaw Offset ($^\\circ$)")
             # h, l = ax.get_legend_handles_labels()
-            # l[0] = "Wind Direction Standard Deviation ($^\circ$)"
+            # l[0] = "Wind Direction Standard Deviation ($^\\circ$)"
             # l = [ll[:-2] if ".0" in ll else ll for ll in l]
             # l[-2] = "Downstream"
             # l[-1] = "Upstream"
@@ -257,6 +256,7 @@ class LookupBasedWakeSteeringController(ControllerBase):
             # ax.set_xlim((0, 360))
             # plt.tight_layout()
             # plt.savefig(os.path.join(os.path.dirname(lut_path), "uncertain_lut.png"))
+            # df_plot = df_plot.groupby(["wind_speed", "wd_stddev"]).agg("mean")
             # end LUT inspection code
             
             os.makedirs(os.path.dirname(lut_path), exist_ok=True)

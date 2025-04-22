@@ -54,6 +54,7 @@ date +"%Y-%m-%d %H:%M:%S"
 module purge
 module load mamba
 mamba activate wind_forecasting
+module load PrgEnv-intel
 
 echo "=== STARTING TUNING ==="
 date +"%Y-%m-%d %H:%M:%S"
