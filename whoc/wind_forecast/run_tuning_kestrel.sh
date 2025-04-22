@@ -37,18 +37,17 @@ module list
 # Used to track process IDs for all workers
 declare -a WORKER_PIDS=()
 
-export MODEL_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken.yaml"
+export MODEL_CONFIG_PATH=$2
+# export MODEL_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel_awaken.yaml"
 #export MODEL_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel_flasc.yaml"
-export DATA_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/preprocessing/preprocessing_inputs_kestrel_awaken_new.yaml"
+export DATA_CONFIG_PATH="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_awaken_new.yaml"
 #export DATA_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_flasc.yaml"
 #export RESTART_FLAG=""
 
 echo "MODEL=${MODEL}"
-echo "MODEL_CONFIG=${MODEL_CONFIG}"
-echo "DATA_CONFIG=${DATA_CONFIG}"
+echo "MODEL_CONFIG_PATH=${MODEL_CONFIG_PATH}"
+echo "DATA_CONFIG_PATH=${DATA_CONFIG_PATH}"
 echo "TMPDIR=${TMPDIR}"
-
-
 
 # prepare training data first
 date +"%Y-%m-%d %H:%M:%S"
@@ -84,7 +83,7 @@ for i in $(seq 0 $((${NTUNERS}-1))); do
         module load PrgEnv-intel
         mamba activate wind_forecasting
 
-        python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG} --data_config ${DATA_CONFIG} --multiprocessor cf --seed ${WORKER_SEED} ${RESTART_FLAG}" &
+        python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --multiprocessor cf --seed ${WORKER_SEED} ${RESTART_FLAG}" &
 
         # Store the process ID
         WORKER_PIDS+=($!)
