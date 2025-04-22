@@ -128,6 +128,10 @@ if __name__ == "__main__":
             reload = False
         
         true_wind_field = data_module.generate_splits(save=True, reload=reload, splits=["train", "val"])._df.collect()
+        
+        # get max_splits longest datasets
+        data_module.train_dataset = sorted(data_module.train_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
+        data_module.val_dataset = sorted(data_module.val_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
         if args.max_splits:
             train_dataset = data_module.train_dataset[:args.max_splits]
             val_dataset = data_module.val_dataset[:args.max_splits]
