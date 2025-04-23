@@ -236,8 +236,11 @@ class WindForecast:
                 if multiprocessor == "mpi":
                     ex.max_workers = comm_size
                     
+                for ds in ds_list:
+                    dataset_splits[ds_type] = [ds for ds in ds_list if ds.shape[0] >= self.n_context + self.n_prediction]
+                    
                 futures = [ex.submit(self._get_output_data, 
-                                        measurements=[ds for ds in ds_list if ds.shape[0] >= self.n_context + self.n_prediction], 
+                                        measurements=ds_list, 
                                         output=output, 
                                         split=split, 
                                         reload=reload, 
@@ -2305,19 +2308,19 @@ def plot_score_vs_prediction_dt(agg_df, metrics, ax_indices):
     # else:
     #     l = l2
     #     h = h2
-    
+    ax.set_xticks(agg_df.select(pl.col("prediction_timedelta").unique()).to_numpy().flatten())
     new_labels = [" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", label).group())) 
                   if "Forecast" in label else (label.capitalize() if not label[0].isupper() else label).replace("_", " ") for label in l]
     
     l1, l2 = new_labels[:new_labels.index("Metric")], new_labels[new_labels.index("Metric"):]
     h1, h2 = h[:new_labels.index("Metric")], h[new_labels.index("Metric"):]
-    leg1 = ax.legend(h1, l1, loc='upper right', bbox_to_anchor=(0.48, 1), frameon=False)
-    leg2 = plt.legend(h2, l2, loc='upper left', bbox_to_anchor=(0.51, 1), frameon=False)
+    leg1 = ax.legend(h1, l1, loc='upper left', bbox_to_anchor=(1.01, 1), frameon=False)
+    leg2 = plt.legend(h2, l2, loc='upper left', bbox_to_anchor=(1.01, 0.8), frameon=False)
     ax.add_artist(leg1)
     plt.tight_layout()
     return fig
 
-def plot_score_vs_forecaster(agg_df, metrics, ax_indices):
+def plot_score_vs_forecaster(agg_df, metrics, ax_indices, prediction_intervals):
     
     n_axes = len(ax_indices)
     # left_metrics = [met for i, met in zip(ax_indices, metrics) if i == 0]
@@ -2327,55 +2330,58 @@ def plot_score_vs_forecaster(agg_df, metrics, ax_indices):
     # if left_metrics and right_metrics:
     # TODO will have same color for different metrics over pos/neg
     sns.set_style("whitegrid")
-    ax1 = sns.catplot(agg_df.filter(pl.col("metric").is_in(metrics)),
-                kind="bar",
-                hue="metric", x="forecaster", y="score")
-    # sub_ax1 = ax1.ax
-    
-    # sub_ax2 = sub_ax1.twinx()
-    # ax2 = sns.catplot(agg_df.filter(pl.col("metric").is_in(right_metrics)),
-    #             kind="bar",
-    #             hue="metric", x="forecaster", y="score", ax=sub_ax2)
-    # ax = ax2
-    # elif left_metrics:
-    #     ax1 = sns.catplot(agg_df.filter(pl.col("metric").is_in(left_metrics)),
-    #                 kind="bar",
-    #                 hue="metric", x="forecaster", y="score")
-    #     ax = ax1
-    # elif right_metrics:
-    #     ax2 = sns.catplot(agg_df.filter(pl.col("metric").is_in(right_metrics)),
-    #                 kind="bar",
-    #                 hue="metric", x="forecaster", y="score")
-    #     ax = ax2
+    figs = []
+    for pred_int in prediction_intervals:
+        ax1 = sns.catplot(agg_df.filter(pl.col("metric").is_in(metrics)),
+                    kind="bar",
+                    hue="metric", x="forecaster", y="score")
+        # sub_ax1 = ax1.ax
         
-    # if left_metrics:
-    # ax1.ax.set_ylabel(f"Score for {', '.join(metrics)} (-)")
-    ax1.ax.set_ylabel(f"Score")
-    h1, l1 = ax1.ax.get_legend_handles_labels()
+        # sub_ax2 = sub_ax1.twinx()
+        # ax2 = sns.catplot(agg_df.filter(pl.col("metric").is_in(right_metrics)),
+        #             kind="bar",
+        #             hue="metric", x="forecaster", y="score", ax=sub_ax2)
+        # ax = ax2
+        # elif left_metrics:
+        #     ax1 = sns.catplot(agg_df.filter(pl.col("metric").is_in(left_metrics)),
+        #                 kind="bar",
+        #                 hue="metric", x="forecaster", y="score")
+        #     ax = ax1
+        # elif right_metrics:
+        #     ax2 = sns.catplot(agg_df.filter(pl.col("metric").is_in(right_metrics)),
+        #                 kind="bar",
+        #                 hue="metric", x="forecaster", y="score")
+        #     ax = ax2
+            
+        # if left_metrics:
+        # ax1.ax.set_ylabel(f"Score for {', '.join(metrics)} (-)")
+        ax1.ax.set_ylabel(f"Score")
+        h1, l1 = ax1.ax.get_legend_handles_labels()
+            
+        # if right_metrics:
+        #     ax2.ax.set_ylabel(f"Score for {', '.join(right_metrics)} (-)")
+        #     h2, l2 = ax2.ax.get_legend_handles_labels()
         
-    # if right_metrics:
-    #     ax2.ax.set_ylabel(f"Score for {', '.join(right_metrics)} (-)")
-    #     h2, l2 = ax2.ax.get_legend_handles_labels()
-    
-    # if left_metrics and right_metrics:
-    # l = l1[:l1.index("metric")] + l1[l1.index("metric"):] + l2[l2.index("metric")+1:]
-    # h = h1[:l1.index("metric")] + h1[l1.index("metric"):] + h2[l2.index("metric")+1:]
-    # elif left_metrics:
-    l = l1
-    h = h1
-    # else:
-    #     l = l2
-    #     h = h2
-    
-    ax1.ax.set_xlabel("Forecaster")
-    
-    ax1.legend.set_visible(False)
-    # new_labels = [(re.search("\\w+(?=Forecast)", label).group() if "Forecast" in label else (label.capitalize() if not label[0].isupper() else label).replace("_", " ")) for label in l]
-    ax1.ax.set_xticklabels([" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", label._text).group())) for label in ax1.ax.get_xticklabels()], rotation=35)
-    new_labels = [(label.capitalize() if not label[0].isupper() else label).replace("_", " ") for label in l]
-    ax1.ax.legend(h, new_labels, frameon=False, bbox_to_anchor=(1.01, 1), loc="upper left")
-    plt.tight_layout()
-    return plt.gcf()
+        # if left_metrics and right_metrics:
+        # l = l1[:l1.index("metric")] + l1[l1.index("metric"):] + l2[l2.index("metric")+1:]
+        # h = h1[:l1.index("metric")] + h1[l1.index("metric"):] + h2[l2.index("metric")+1:]
+        # elif left_metrics:
+        l = l1
+        h = h1
+        # else:
+        #     l = l2
+        #     h = h2
+        
+        ax1.ax.set_xlabel("Forecaster")
+        
+        ax1.legend.set_visible(False)
+        # new_labels = [(re.search("\\w+(?=Forecast)", label).group() if "Forecast" in label else (label.capitalize() if not label[0].isupper() else label).replace("_", " ")) for label in l]
+        ax1.ax.set_xticklabels([" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", label._text).group())) for label in ax1.ax.get_xticklabels()], rotation=35)
+        new_labels = [(label.capitalize() if not label[0].isupper() else label).replace("_", " ") for label in l]
+        ax1.ax.legend(h, new_labels, frameon=False, bbox_to_anchor=(1.01, 1), loc="upper left")
+        plt.tight_layout()
+        figs.append(plt.gcf())
+    return figs
 
 if __name__ == "__main__":
     
