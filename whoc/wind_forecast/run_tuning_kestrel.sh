@@ -53,7 +53,7 @@ echo "TMPDIR=${TMPDIR}"
 date +"%Y-%m-%d %H:%M:%S"
 module purge
 module load mamba
-mamba activate wind_forecasting
+mamba activate wind_forecasting_env
 module load PrgEnv-intel
 
 echo "=== STARTING TUNING ==="
@@ -87,7 +87,7 @@ for i in $(seq 1 $((${NTUNERS}))); do
         # module purge
         # module load mamba
         # module load PrgEnv-intel
-        # mamba activate wind_forecasting
+        # mamba activate wind_forecasting_env
 
         # python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --multiprocessor cf --seed ${WORKER_SEED} ${RESTART_FLAG}" &
 
