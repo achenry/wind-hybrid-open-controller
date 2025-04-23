@@ -11,7 +11,7 @@
 # salloc --account=ssc --time=02:00:00 --nodes=1 --ntasks-per-node=104
 module purge
 module load mamba
-mamba activate wind_forecasting
+mamba activate wind_forecasting_env
 
 module load PrgEnv-intel
 
