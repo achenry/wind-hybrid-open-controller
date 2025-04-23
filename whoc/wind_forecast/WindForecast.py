@@ -19,6 +19,7 @@ import gc
 from memory_profiler import profile
 import pickle
 import glob
+from functools import partial
 
 # from joblib import parallel_backend
 
@@ -172,7 +173,7 @@ class WindForecast:
         model.fit(X_train, y_train)
         return (-mean_squared_error(y_true=y_val, y_pred=model.predict(X_val)))
     
-    def _tuning_objective(self, trial):
+    def _tuning_objective(self, trial, multiprocessor):
         """
         Objective function to be minimized in Optuna
         """
@@ -188,10 +189,14 @@ class WindForecast:
         # else:
         # max_workers = mp.cpu_count()
         max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
-        executor = ProcessPoolExecutor(max_workers=max_workers,
-                                        mp_context=mp.get_context("spawn"))
-        logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
-            
+        if multiprocessor == "mpi":
+            comm_size = MPI.COMM_WORLD.Get_size()
+            executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+        elif multiprocessor == "cf":
+            max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
+            executor = ProcessPoolExecutor(max_workers=max_workers,
+                                            mp_context=mp.get_context("spawn"))
+        
         with executor as ex:
             futures = [ex.submit(self._compute_output_score, output=output, params=params) for output in self.outputs]
             scores = [fut.result() for fut in futures]
@@ -236,7 +241,7 @@ class WindForecast:
                                         reload=reload, 
                                         scale=scale) for split, ds_list in dataset_splits.items() for output in self.outputs]
                 
-                [fut.result() for fut in futures]
+                _ = [fut.result() for fut in futures]
         else: 
             for split, ds_list in dataset_splits.items(): 
                 measurements = [ds for ds in ds_list if ds.shape[0] >= self.n_context + self.n_prediction]
@@ -246,121 +251,124 @@ class WindForecast:
     # def tune_hyperparameters_single(self, historic_measurements, scaler, feat_type, tid, study_name, seed, restart_tuning, backend, storage_dir, n_trials=1):
     def tune_hyperparameters_single(self, seed, storage, 
                                     config,
-                                    n_trials_per_worker=1):
-        # for case when argument is list of multiple continuous time series AND to only get the training inputs/outputs relevant to this model
-        # Log safely without credentials if they were included (they aren't for socket trust)
-        if hasattr(storage, "url"):
-            log_storage_url = storage.url.split('@')[0] + '@...' if '@' in storage.url else storage.url
-            logging.info(f"Using Optuna storage URL: {log_storage_url}")
-
-        # Configure pruner based on settings
-        if "pruning" in config["optuna"] and config["optuna"]["pruning"].get("enabled", False):
-            pruning_type = config["optuna"]["pruning"].get("type", "hyperband").lower()
-            
-            min_resource = config["optuna"]["pruning"]["min_resource"]
-            max_resource = config["optuna"]["pruning"]["max_resource"]
-                
-            logging.info(f"Configuring pruner: type={pruning_type}, min_resource={config["optuna"]["pruning"]['min_resource']}")
-
-            if pruning_type == "hyperband":
-                reduction_factor = config["optuna"]["pruning"]["reduction_factor"]
-                
-                pruner = HyperbandPruner(
-                    min_resource=min_resource,
-                    max_resource=max_resource,
-                    reduction_factor=reduction_factor
-                )
-                logging.info(f"Created HyperbandPruner with min_resource={min_resource}, max_resource={max_resource}, reduction_factor={reduction_factor}")
-            elif pruning_type == "median":
-                pruner = MedianPruner(n_startup_trials=5, n_warmup_steps=min_resource)
-                logging.info(f"Created MedianPruner with n_startup_trials=5, n_warmup_steps={min_resource}")
-            elif pruning_type == "percentile":
-                percentile = config["optuna"][percentile]
-                pruner = PercentilePruner(percentile=percentile, n_startup_trials=5, n_warmup_steps=min_resource)
-                logging.info(f"Created PercentilePruner with percentile={percentile}, n_startup_trials=5, n_warmup_steps={min_resource}")
-            else:
-                logging.warning(f"Unknown pruner type: {pruning_type}, using no pruning")
-                pruner = NopPruner()
-        else:
-            logging.info("Pruning is disabled, using NopPruner")
-            pruner = NopPruner()
+                                    n_trials_per_worker=1,
+                                    rank=0):
         
-        # Get worker ID for study creation/loading logic
-        # Use WORKER_RANK consistent with run_model.py. Default to '0' if not set.
-        
-        worker_id = os.environ.get('WORKER_RANK', '0')
-
-        # Create study on rank 0, load on other ranks
-        study = None # Initialize study variable
-        
-        logging.info("line 275")
-        try:
-            if worker_id == '0':
-                logging.info(f"Rank 0: Creating/loading Optuna study '{self.study_name}' with pruner: {type(pruner).__name__}")
-                study = create_study(study_name=self.study_name,
-                                        storage=storage,
-                                        direction="maximize",
-                                        load_if_exists=True,
-                                        sampler=TPESampler(seed=seed),
-                                        pruner=pruner) # maximize negative mse ie minimize mse
-                logging.info(f"Rank 0: Study '{self.study_name}' created or loaded successfully.")
-                
-                # --- Launch Dashboard (Rank 0 only) ---
-                if hasattr(storage, "url"):
-                    launch_optuna_dashboard(config, storage.url) # Call imported function
-                # --------------------------------------
-            else:
-                # Non-rank-0 workers MUST load the study created by rank 0
-                logging.info(f"Rank {worker_id}: Attempting to load existing Optuna study '{self.study_name}'")
-                # Add a small delay and retry mechanism for loading, in case rank 0 is slightly delayed
-                max_retries = 6 # Increased retries slightly
-                retry_delay = 10 # Increased delay slightly
-                for attempt in range(max_retries):
-                    try:
-                        study = load_study(
-                            study_name=self.study_name,
-                            storage=storage,
-                            sampler=TPESampler(seed=seed), # Sampler might be needed for load_study too
-                            pruner=pruner
-                        )
-                        logging.info(f"Rank {worker_id}: Study '{self.study_name}' loaded successfully on attempt {attempt+1}.")
-                        break # Exit loop on success
-                    except KeyError as e: # Optuna <3.0 raises KeyError if study doesn't exist yet
-                        if attempt < max_retries - 1:
-                            logging.warning(f"Rank {worker_id}: Study '{self.study_name}' not found yet (attempt {attempt+1}/{max_retries}). Retrying in {retry_delay}s... Error: {e}")
-                            time.sleep(retry_delay)
-                        else:
-                            logging.error(f"Rank {worker_id}: Failed to load study '{self.study_name}' after {max_retries} attempts (KeyError). Aborting.")
-                            raise
-                    except Exception as e: # Catch other potential loading errors (e.g., DB connection issues)
-                        logging.error(f"Rank {worker_id}: An unexpected error occurred while loading study '{self.study_name}' on attempt {attempt+1}: {e}", exc_info=True)
-                        # Decide whether to retry on other errors or raise immediately
-                        if attempt < max_retries - 1:
-                            logging.warning(f"Retrying in {retry_delay}s...")
-                            time.sleep(retry_delay)
-                        else:
-                            logging.error(f"Rank {worker_id}: Failed to load study '{self.study_name}' after {max_retries} attempts due to persistent errors. Aborting.")
-                            raise # Re-raise other errors after retries
-                
-                # Check if study was successfully loaded after the loop
-                if study is None:
-                    # This condition should ideally be caught by the error handling within the loop, but added for safety.
-                    raise RuntimeError(f"Rank {worker_id}: Could not load study '{self.study_name}' after multiple retries.")
-   
-        except Exception as e:
-            # Log error with rank information
-            logging.error(f"Rank {worker_id}: Error creating/loading study '{self.study_name}': {str(e)}", exc_info=True)
-            # Log storage URL safely
+        if rank == 0:
+            # for case when argument is list of multiple continuous time series AND to only get the training inputs/outputs relevant to this model
+            # Log safely without credentials if they were included (they aren't for socket trust)
             if hasattr(storage, "url"):
-                log_storage_url_safe = str(storage.url).split('@')[0] + '@...' if '@' in str(storage.url) else str(storage.url)
-                logging.error(f"Error details - Type: {type(e).__name__}, Storage: {log_storage_url_safe}")
+                log_storage_url = storage.url.split('@')[0] + '@...' if '@' in storage.url else storage.url
+                logging.info(f"Using Optuna storage URL: {log_storage_url}")
+
+            # Configure pruner based on settings
+            if "pruning" in config["optuna"] and config["optuna"]["pruning"].get("enabled", False):
+                pruning_type = config["optuna"]["pruning"].get("type", "hyperband").lower()
+                
+                min_resource = config["optuna"]["pruning"]["min_resource"]
+                max_resource = config["optuna"]["pruning"]["max_resource"]
+                    
+                logging.info(f"Configuring pruner: type={pruning_type}, min_resource={config["optuna"]["pruning"]['min_resource']}")
+
+                if pruning_type == "hyperband":
+                    reduction_factor = config["optuna"]["pruning"]["reduction_factor"]
+                    
+                    pruner = HyperbandPruner(
+                        min_resource=min_resource,
+                        max_resource=max_resource,
+                        reduction_factor=reduction_factor
+                    )
+                    logging.info(f"Created HyperbandPruner with min_resource={min_resource}, max_resource={max_resource}, reduction_factor={reduction_factor}")
+                elif pruning_type == "median":
+                    pruner = MedianPruner(n_startup_trials=5, n_warmup_steps=min_resource)
+                    logging.info(f"Created MedianPruner with n_startup_trials=5, n_warmup_steps={min_resource}")
+                elif pruning_type == "percentile":
+                    percentile = config["optuna"][percentile]
+                    pruner = PercentilePruner(percentile=percentile, n_startup_trials=5, n_warmup_steps=min_resource)
+                    logging.info(f"Created PercentilePruner with percentile={percentile}, n_startup_trials=5, n_warmup_steps={min_resource}")
+                else:
+                    logging.warning(f"Unknown pruner type: {pruning_type}, using no pruning")
+                    pruner = NopPruner()
             else:
-                logging.error(f"Error details - Type: {type(e).__name__}, Storage: Journal")
-            raise
-        
-        max_workers = mp.cpu_count()
-        logging.info(f"Worker {worker_id}: Participating in Optuna study {self.study_name} with {max_workers} workers")
-        objective_fn = self._tuning_objective
+                logging.info("Pruning is disabled, using NopPruner")
+                pruner = NopPruner()
+            
+            # Get worker ID for study creation/loading logic
+            # Use WORKER_RANK consistent with run_model.py. Default to '0' if not set.
+            
+            worker_id = os.environ.get('WORKER_RANK', '0')
+
+            # Create study on rank 0, load on other ranks
+            study = None # Initialize study variable
+            
+            logging.info("line 275")
+            try:
+                if worker_id == '0':
+                    logging.info(f"Rank 0: Creating/loading Optuna study '{self.study_name}' with pruner: {type(pruner).__name__}")
+                    study = create_study(study_name=self.study_name,
+                                            storage=storage,
+                                            direction="maximize",
+                                            load_if_exists=True,
+                                            sampler=TPESampler(seed=seed),
+                                            pruner=pruner) # maximize negative mse ie minimize mse
+                    logging.info(f"Rank 0: Study '{self.study_name}' created or loaded successfully.")
+                    
+                    # --- Launch Dashboard (Rank 0 only) ---
+                    if hasattr(storage, "url"):
+                        launch_optuna_dashboard(config, storage.url) # Call imported function
+                    # --------------------------------------
+                else:
+                    # Non-rank-0 workers MUST load the study created by rank 0
+                    logging.info(f"Rank {worker_id}: Attempting to load existing Optuna study '{self.study_name}'")
+                    # Add a small delay and retry mechanism for loading, in case rank 0 is slightly delayed
+                    max_retries = 6 # Increased retries slightly
+                    retry_delay = 10 # Increased delay slightly
+                    for attempt in range(max_retries):
+                        try:
+                            study = load_study(
+                                study_name=self.study_name,
+                                storage=storage,
+                                sampler=TPESampler(seed=seed), # Sampler might be needed for load_study too
+                                pruner=pruner
+                            )
+                            logging.info(f"Rank {worker_id}: Study '{self.study_name}' loaded successfully on attempt {attempt+1}.")
+                            break # Exit loop on success
+                        except KeyError as e: # Optuna <3.0 raises KeyError if study doesn't exist yet
+                            if attempt < max_retries - 1:
+                                logging.warning(f"Rank {worker_id}: Study '{self.study_name}' not found yet (attempt {attempt+1}/{max_retries}). Retrying in {retry_delay}s... Error: {e}")
+                                time.sleep(retry_delay)
+                            else:
+                                logging.error(f"Rank {worker_id}: Failed to load study '{self.study_name}' after {max_retries} attempts (KeyError). Aborting.")
+                                raise
+                        except Exception as e: # Catch other potential loading errors (e.g., DB connection issues)
+                            logging.error(f"Rank {worker_id}: An unexpected error occurred while loading study '{self.study_name}' on attempt {attempt+1}: {e}", exc_info=True)
+                            # Decide whether to retry on other errors or raise immediately
+                            if attempt < max_retries - 1:
+                                logging.warning(f"Retrying in {retry_delay}s...")
+                                time.sleep(retry_delay)
+                            else:
+                                logging.error(f"Rank {worker_id}: Failed to load study '{self.study_name}' after {max_retries} attempts due to persistent errors. Aborting.")
+                                raise # Re-raise other errors after retries
+                    
+                    # Check if study was successfully loaded after the loop
+                    if study is None:
+                        # This condition should ideally be caught by the error handling within the loop, but added for safety.
+                        raise RuntimeError(f"Rank {worker_id}: Could not load study '{self.study_name}' after multiple retries.")
+    
+            except Exception as e:
+                # Log error with rank information
+                logging.error(f"Rank {worker_id}: Error creating/loading study '{self.study_name}': {str(e)}", exc_info=True)
+                # Log storage URL safely
+                if hasattr(storage, "url"):
+                    log_storage_url_safe = str(storage.url).split('@')[0] + '@...' if '@' in str(storage.url) else str(storage.url)
+                    logging.error(f"Error details - Type: {type(e).__name__}, Storage: {log_storage_url_safe}")
+                else:
+                    logging.error(f"Error details - Type: {type(e).__name__}, Storage: Journal")
+                raise
+            
+            max_workers = mp.cpu_count()
+            logging.info(f"Worker {worker_id}: Participating in Optuna study {self.study_name} with {max_workers} workers")
+            objective_fn = partial(self._tuning_objective, multiprocessor=multiprocessor)
         
         try:
             study.optimize(objective_fn,
@@ -370,59 +378,60 @@ class WindForecast:
             logging.error(f"Worker {worker_id}: Failed during study optimization: {str(e)}", exc_info=True)
             raise
         
-        logging.info("line 351")
-        if worker_id == '0' and study:
-            # logging.info("Rank 0: Starting W&B summary run creation.")
+        if rank == 0:
+            logging.info("line 351")
+            if worker_id == '0' and study:
+                # logging.info("Rank 0: Starting W&B summary run creation.")
 
-            # Wait for all expected trials to complete
-            num_workers = int(os.environ.get('WORLD_SIZE', 1))
-            expected_total_trials = num_workers * n_trials_per_worker
-            logging.info(f"Rank 0: Expecting a total of {expected_total_trials} trials ({num_workers} workers * {n_trials_per_worker} trials/worker).")
+                # Wait for all expected trials to complete
+                num_workers = int(os.environ.get('WORLD_SIZE', 1))
+                expected_total_trials = num_workers * n_trials_per_worker
+                logging.info(f"Rank 0: Expecting a total of {expected_total_trials} trials ({num_workers} workers * {n_trials_per_worker} trials/worker).")
 
-            logging.info("Rank 0: Waiting for all expected Optuna trials to reach a terminal state...")
-            wait_interval_seconds = 30
-            while True:
-                # Refresh trials from storage
-                all_trials_current = study.get_trials(deepcopy=False)
-                finished_trials = [t for t in all_trials_current if t.state in (TrialState.COMPLETE, TrialState.PRUNED, TrialState.FAIL)]
-                num_finished = len(finished_trials)
-                num_total_in_db = len(all_trials_current) # Current count in DB
+                logging.info("Rank 0: Waiting for all expected Optuna trials to reach a terminal state...")
+                wait_interval_seconds = 30
+                while True:
+                    # Refresh trials from storage
+                    all_trials_current = study.get_trials(deepcopy=False)
+                    finished_trials = [t for t in all_trials_current if t.state in (TrialState.COMPLETE, TrialState.PRUNED, TrialState.FAIL)]
+                    num_finished = len(finished_trials)
+                    num_total_in_db = len(all_trials_current) # Current count in DB
 
-                logging.info(f"Rank 0: Trial status check: {num_finished} finished / {num_total_in_db} in DB (expected total: {expected_total_trials}).")
+                    logging.info(f"Rank 0: Trial status check: {num_finished} finished / {num_total_in_db} in DB (expected total: {expected_total_trials}).")
 
-                if num_finished >= expected_total_trials:
-                    logging.info(f"Rank 0: All {expected_total_trials} expected trials have reached a terminal state.")
-                    break
-                elif num_total_in_db > expected_total_trials and num_finished >= expected_total_trials:
-                    logging.warning(f"Rank 0: Found {num_total_in_db} trials in DB (expected {expected_total_trials}), but {num_finished} finished trials meet the expectation.")
-                    break
+                    if num_finished >= expected_total_trials:
+                        logging.info(f"Rank 0: All {expected_total_trials} expected trials have reached a terminal state.")
+                        break
+                    elif num_total_in_db > expected_total_trials and num_finished >= expected_total_trials:
+                        logging.warning(f"Rank 0: Found {num_total_in_db} trials in DB (expected {expected_total_trials}), but {num_finished} finished trials meet the expectation.")
+                        break
 
-                logging.info(f"Rank 0: Still waiting for trials to finish ({num_finished}/{expected_total_trials}). Sleeping for {wait_interval_seconds} seconds...")
-                time.sleep(wait_interval_seconds)
+                    logging.info(f"Rank 0: Still waiting for trials to finish ({num_finished}/{expected_total_trials}). Sleeping for {wait_interval_seconds} seconds...")
+                    time.sleep(wait_interval_seconds)
 
-            # Fetch best trial *before* initializing summary run
-            best_trial = None
-            try:
-                best_trial = study.best_trial
-                logging.info(f"Rank 0: Fetched best trial: Number={best_trial.number}, Value={best_trial.value}")
-            except ValueError:
-                logging.warning("Rank 0: Could not retrieve best trial (likely no trials completed successfully).")
-            except Exception as e_best_trial:
-                logging.error(f"Rank 0: Error fetching best trial: {e_best_trial}", exc_info=True)
-                
-        # Log best trial details (only rank 0)
-        logging.info("line 393")
-        if worker_id == '0' and study: # Check if study object exists
-            if len(study.trials) > 0:
-                logging.info("Number of finished trials: {}".format(len(study.trials)))
-                logging.info("Best trial:")
-                trial = study.best_trial
-                logging.info("  Value: {}".format(trial.value))
-                logging.info("  Params: ")
-                for key, value in trial.params.items():
-                    logging.info("    {}: {}".format(key, value))
-            else:
-                logging.warning("No trials were completed")
+                # Fetch best trial *before* initializing summary run
+                best_trial = None
+                try:
+                    best_trial = study.best_trial
+                    logging.info(f"Rank 0: Fetched best trial: Number={best_trial.number}, Value={best_trial.value}")
+                except ValueError:
+                    logging.warning("Rank 0: Could not retrieve best trial (likely no trials completed successfully).")
+                except Exception as e_best_trial:
+                    logging.error(f"Rank 0: Error fetching best trial: {e_best_trial}", exc_info=True)
+                    
+            # Log best trial details (only rank 0)
+            logging.info("line 393")
+            if worker_id == '0' and study: # Check if study object exists
+                if len(study.trials) > 0:
+                    logging.info("Number of finished trials: {}".format(len(study.trials)))
+                    logging.info("Best trial:")
+                    trial = study.best_trial
+                    logging.info("  Value: {}".format(trial.value))
+                    logging.info("  Params: ")
+                    for key, value in trial.params.items():
+                        logging.info("    {}: {}".format(key, value))
+                else:
+                    logging.warning("No trials were completed")
         
         # for output in self.outputs:
         #     os.remove(os.path.join(self.temp_save_dir, f"Xy_train_{output}.dat"))
@@ -2196,33 +2205,24 @@ def generate_forecaster_results(forecaster, data_module, evaluator, test_data, p
     #             num_series=data_module.num_target_vars,
     #             include_metrics=[])
     
-    # TODO test with sample forecast and distribution
     agg_metrics = []
-    for fdf in forecast_df:
-        test_idx = fdf.select(pl.col("test_idx").first()).item()
-        mean_vars = [c for c in target_vars if "ws_" in c]
-        
-        tdf = test_data.filter(pl.col("time").is_in(fdf.select(pl.col("time"))))\
-                       .select("time", cs.starts_with("ws_horz"), cs.starts_with("ws_vert"))
-        
-        fdf = fdf.select(pl.col("time"), *[cs.starts_with(tgt) for tgt in target_vars])
-        
-        
-        mse = (tdf.select(data_module.target_cols) - fdf.select(cs.starts_with(mean_vars)))\
-            .select(pl.all().pow(2).mean().sqrt()).with_columns(metric=pl.lit("RMSE"), test_idx=pl.lit(test_idx))
-        mse = unpivot_df(mse, forecaster.turbine_signature)
-            
-        mae = (tdf.select(data_module.target_cols) - fdf.select(cs.starts_with(mean_vars)))\
-            .select(pl.all().abs().mean()).with_columns(metric=pl.lit("MAE"), test_idx=pl.lit(test_idx))
-        mae = unpivot_df(mae, forecaster.turbine_signature)
-        
-        # TODO check if mse and mae are equal
-        
-        agg_metrics += [mse, mae]
+    mean_vars = [c for c in target_vars if "ws_" in c]
     
     fdf = forecast_df = pl.concat(forecast_df, how="vertical")
     tdf = test_data.filter(pl.col("time").is_in(forecast_df.select(pl.col("time"))))\
                        .select("time", cs.starts_with("ws_horz"), cs.starts_with("ws_vert"))
+    # TODO TEST
+    mse = (tdf.select(data_module.target_cols) - fdf.select(cs.starts_with(mean_vars)))\
+        .select(pl.all().pow(2).mean().sqrt()).with_columns(metric=pl.lit("RMSE"), test_idx=pl.lit(-1))
+    mse = unpivot_df(mse, forecaster.turbine_signature)
+        
+    mae = (tdf.select(data_module.target_cols) - fdf.select(cs.starts_with(mean_vars)))\
+        .select(pl.all().abs().mean()).with_columns(metric=pl.lit("MAE"), test_idx=pl.lit(-1))
+    mae = unpivot_df(mae, forecaster.turbine_signature)
+    
+    agg_metrics += [mse, mae]
+    
+    
     if prediction_type == "distribution" and forecaster.is_probabilistic:
         
         picp = pl.DataFrame(
