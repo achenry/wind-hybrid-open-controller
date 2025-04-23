@@ -60,8 +60,10 @@ date +"%Y-%m-%d %H:%M:%S"
 
 PYTHONPATH=$(which python)
 #srun -n ${SLURM_NTASKS} --export=ALL,WORKER_RANK=0 
+
+# TODO NOTE process gets stuck after writing these .dat files, so run this python first, then the loop
 export WORKER_RANK=0
-srun -n ${SLURM_NTASKS} $PYTHONPATH tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --multiprocessor mpi --seed 0 --restart_tuning
+python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --seed 0 --restart_tuning
 
 echo "=== STARTING TUNING ==="
 date +"%Y-%m-%d %H:%M:%S"
@@ -84,7 +86,7 @@ for i in $(seq 1 $((${NTUNERS}))); do
         echo "Starting worker ${WORKER_RANK} on CPU ${i} with seed ${WORKER_SEED}"
         
         # Launch worker with environment settings
-        srun -n ${NTASKS_PER_TUNER} $PYTHONPATH tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --multiprocessor mpi --seed ${WORKER_SEED}&
+        mpirun -np ${NTASKS_PER_TUNER} python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --multiprocessor mpi --seed ${WORKER_SEED} &
 
 	# nohup bash -c "
         # module purge
