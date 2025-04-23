@@ -228,14 +228,16 @@ class WindForecast:
             if multiprocessor == "mpi":
                 comm_size = MPI.COMM_WORLD.Get_size()
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+                max_workers = comm_size
             elif multiprocessor == "cf":
                 max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
                 executor = ProcessPoolExecutor(max_workers=max_workers,
                                                 mp_context=mp.get_context("spawn"))
             with executor as ex:
-                if multiprocessor == "mpi":
-                    ex.max_workers = comm_size
-                    
+                # if multiprocessor == "mpi":
+                #     ex.max_workers = comm_size
+                
+                logging.info(f"Running _get_output_data in parallel with {ex} max_wokers={max_workers}.")
                 for ds in ds_list:
                     dataset_splits[ds_type] = [ds for ds in ds_list if ds.shape[0] >= self.n_context + self.n_prediction]
                 
@@ -251,12 +253,12 @@ class WindForecast:
                 
                 
                 for f, fut in enumerate(futures):
-                    logging.info(f"Calling result on {f}th future object in prepare_data.")
+                    # logging.info(f"Calling result on {f}th future object in prepare_data.")
                     fut.result()
                     
                 # logging.info("Calling result on future objects in prepare_data.")
                 # [fut.result() for fut in futures]
-                logging.info("Finished calling result on future objects in prepare_data.")
+                # logging.info("Finished calling result on future objects in prepare_data.")
         else: 
             for split, ds_list in dataset_splits.items(): 
                 measurements = [ds for ds in ds_list if ds.shape[0] >= self.n_context + self.n_prediction]
@@ -512,13 +514,13 @@ class WindForecast:
         del fp
         
         if return_data:
-            logging.info(f"Returning data from _get_output_data for Xy_path {Xy_path}")
+            # logging.info(f"Returning data from _get_output_data for Xy_path {Xy_path}")
             if return_scaler:
                 return X_all, y_all, self.scaler[output]
             else:
                 return X_all, y_all
         else:
-            logging.info(f"Returning None from _get_output_data for Xy_path {Xy_path}")
+            # logging.info(f"Returning None from _get_output_data for Xy_path {Xy_path}")
             return None
     
     def set_tuned_params(self, storage, study_name):

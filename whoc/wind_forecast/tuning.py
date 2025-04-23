@@ -36,7 +36,7 @@ if __name__ == "__main__":
     parser.add_argument("-md", "--model", type=str, choices=["svr", "kf", "preview", "informer", "autoformer", "spacetimeformer"], required=True)
     parser.add_argument("-mcnf", "--model_config", type=str)
     parser.add_argument("-dcnf", "--data_config", type=str)
-    parser.add_argument("-m", "--multiprocessor", choices=["mpi", "cf"], default="cf")
+    parser.add_argument("-m", "--multiprocessor", choices=["mpi", "cf", None], default=None)
     parser.add_argument("-msp", "--max_splits", type=int, required=False, default=None,
                         help="Number of test splits to use.")
     parser.add_argument("-mst", "--max_steps", type=int, required=False, default=None,
@@ -108,8 +108,8 @@ if __name__ == "__main__":
                             tid2idx_mapping=tid2idx_mapping,
                             turbine_signature=turbine_signature,
                             use_tuned_params=False)
-        original_save_dir = forecaster.model_save_dir
-        forecaster.model_save_dir = os.environ["TMPDIR"]
+        # original_save_dir = forecaster.model_save_dir
+        # forecaster.model_save_dir = os.environ["TMPDIR"]
     # Use the WORKER_RANK variable set explicitly in the Slurm script's nohup block
     worker_id = int(os.environ.get('WORKER_RANK', 0))
     if RUN_ONCE:
@@ -154,10 +154,10 @@ if __name__ == "__main__":
                                 scale=False, multiprocessor=args.multiprocessor)
 
         if RUN_ONCE:
-            logging.info(f"Moving prepared data from {forecaster.model_save_dir} to {original_save_dir}.")
-            filenames = os.listdir(forecaster.model_save_dir)
-            for fn in filenames:
-                shutil.move(os.path.join(forecaster.model_save_dir, fn), original_save_dir)
+            # logging.info(f"Moving prepared data from {forecaster.model_save_dir} to {original_save_dir}.")
+            # filenames = os.listdir(forecaster.model_save_dir)
+            # for fn in filenames:
+            #     shutil.move(os.path.join(forecaster.model_save_dir, fn), original_save_dir)
             logging.info("Finished preparing data for tuning.")
 
     # %% TUNING MODEL
