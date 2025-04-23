@@ -20,6 +20,7 @@ from memory_profiler import profile
 import pickle
 import glob
 from functools import partial
+from itertools import chain
 
 # from joblib import parallel_backend
 
@@ -160,7 +161,6 @@ class WindForecast:
         
         # get training data for this output
         # logging.info(f"Getting training data for output {output}.")
-        # TODO this is v inefficient, better to load all at once...
         X_train, y_train = self._get_output_data(output=output, split="train", reload=False)
         X_val, y_val = self._get_output_data(output=output, split="val", reload=False)
         
@@ -252,7 +252,9 @@ class WindForecast:
                 measurements = [ds for ds in ds_list if ds.shape[0] >= self.n_context + self.n_prediction]
                 for output in self.outputs:
                     self._get_output_data(measurements=measurements, output=output, split=split, reload=reload, scale=scale)
-     
+
+        return
+    
     # def tune_hyperparameters_single(self, historic_measurements, scaler, feat_type, tid, study_name, seed, restart_tuning, backend, storage_dir, n_trials=1):
     def tune_hyperparameters_single(self, seed, storage, 
                                     config,
@@ -481,6 +483,9 @@ class WindForecast:
             fp[:, -1] = y_all
             fp.flush()
             logging.info(f"Saved {split} data to {Xy_path}")
+            del fp
+            return
+        
         else:
             # assert os.path.exists(Xy_path), "Must run prepare_training_data before tuning"
             # logging.info(f"Loading existing {split} data from {Xy_path}")
@@ -490,11 +495,11 @@ class WindForecast:
             X_all = fp[:, :-1]
             y_all = fp[:, -1]
                
-        del fp
-        if return_scaler:
-            return X_all, y_all, self.scaler[output]
-        else:
-            return X_all, y_all
+            del fp
+            if return_scaler:
+                return X_all, y_all, self.scaler[output]
+            else:
+                return X_all, y_all
     
     def set_tuned_params(self, storage, study_name):
         """_summary_
@@ -604,7 +609,7 @@ class WindForecast:
             fig, axs = plt.subplots(1, len(feature_types), sharex=True)
             axs = axs[np.newaxis, :]
         else:
-            fig, axs = plt.subplots(len(turbine_ids), len(feature_types), sharex=True)
+            fig, axs = plt.subplots(len(turbine_ids), len(feature_types), sharex=True, figsize=(15.12, 8.8))
                 
         if continuity_groups is not None and "continuity_group" in true_wf.collect_schema().names():
             true_wf = true_wf.filter(pl.col("continuity_group").is_in(continuity_groups))
@@ -2010,7 +2015,7 @@ def make_predictions(forecaster, test_data, prediction_type):
             current_time = current_row["time"]
             
             if current_time - start >= forecaster.context_timedelta:
-                logging.info(f"Predicting future wind field using {forecaster.__class__.__name__} at time {current_time}/{end} of split {d}/{n_splits}.")
+                logging.info(f"Predicting future wind field using {forecaster.__class__.__name__} at time {current_time}/{end} of split {d}/{n_splits-1}.")
                 if prediction_type == "distribution" and forecaster.is_probabilistic:
                     pred = forecaster.predict_distr(
                         ds.filter(pl.col("time") <= current_time), current_time)
@@ -2028,48 +2033,18 @@ def make_predictions(forecaster, test_data, prediction_type):
             
                 forecasts[-1].append(pred)
             
-            # if current_time >= label[FieldName.START].to_timestamp():
-            #     # fetch predictions from label part
-            #     forecasts[-1].append(pred)
         
         if not len(forecasts[-1]):
             raise Exception(f"{d}th dataset in data does not have sufficient data points, with {ds.select(pl.len()).item()}, to collect predictions after context_timedelta {forecaster.context_timedelta}")
         
-        # if save_last_pred:
-        #     forecasts[-1] = [wf.filter(pl.col("time") < (
-        #         pl.col("time").first() + max(forecaster.controller_timedelta, forecaster.prediction_timedelta))) 
-        #                                     for wf in forecasts[-1]] 
-        #     forecasts[-1] = pl.concat(forecasts[-1], how="vertical_relaxed").group_by("time", maintain_order=True).agg(pl.all().last())
-    
-    # if save_last_pred:
-    #     true = [test_data.filter(pl.col("time").is_between(
-    #                 wf.select(pl.col("time").first()).item(), wf.select(pl.col("time").last()).item(), closed="both"))
-    #             .with_columns(data_type=pl.lit("True"), continuity_group=pl.lit(split_idx))
-    #             for split_idx, wf in enumerate(forecasts)]
-    #     forecasts = [wf.with_columns(data_type=pl.lit("Forecast"), continuity_group=pl.lit(split_idx)) for split_idx, wf in enumerate(forecasts)]
-    # else:
-    # forecasts = np.concatenate(forecasts)
-    true = test_data
     test_idx = 0
     for f in range(len(forecasts)):
         for ff in range(len(forecasts[f])):
             forecasts[f][ff] = forecasts[f][ff].with_columns(test_idx=pl.lit(test_idx))
-            # time_cond = pl.col("time").is_between(
-            #                 forecasts[f][ff].select(pl.col("time").first()).item(), forecasts[f][ff].select(pl.col("time").last()).item(), 
-            #                 closed="both")
-            # true = true.with_columns([
-            #     pl.when(time_cond)\
-            #         .then(pl.lit(test_idx))\
-            #         .otherwise(pl.col("test_idx"))\
-            #         .alias("test_idx"), 
-            #     pl.when(time_cond)\
-            #         .then(pl.lit(f))\
-            #         .otherwise(pl.col("continuity_group"))\
-            #         .alias("continuity_group")])
             test_idx += 1
         forecasts[f] = pl.concat(forecasts[f], how="vertical_relaxed")
     forecasts = pl.concat(forecasts, how="vertical_relaxed").with_columns(pl.col("time").cast(pl.Datetime(time_unit="ns")))
-    forecasts = forecasts.filter(pl.col("time").is_in(true.select(pl.col("time"))))
+    forecasts = forecasts.filter(pl.col("time").is_in(test_data.select(pl.col("time"))))
     # true = true.filter(pl.col("time").is_in(forecasts.select(pl.col("time"))))
     
     # true = true.filter(pl.col("time").is_between(
@@ -2204,21 +2179,26 @@ def generate_forecaster_results(forecaster, data_module, evaluator, test_data, p
     agg_metrics = []
     mean_vars = [c for c in target_vars if c.startswith("ws_") or c.startswith("loc_ws_")]
     
-    fdf = forecast_df = pl.concat(forecast_df, how="vertical")
+    fdf = forecast_df = pl.concat(forecast_df, how="vertical").select(["time", "continuity_group"] + [cs.ends_with(tgt) for tgt in data_module.target_cols])
     tdf = test_data.filter(pl.col("time").is_in(forecast_df.select(pl.col("time"))))\
-                       .select("time", cs.starts_with("ws_horz"), cs.starts_with("ws_vert"))
+                       .select(["time", "continuity_group"] + data_module.target_cols)
+    combined_df = fdf.join(tdf, on=["time", "continuity_group"], suffix="_true", coalesce=False)
+    true_cols = [f"{c}_true" for c in data_module.target_cols]
+    pred_cols = [f"loc_{c}" if forecaster.is_probabilistic else c for c in data_module.target_cols]
     
-    mse = (tdf.select(data_module.target_cols) 
+    combined_df.select([(pl.col(true_col) - pl.col(pred_col)).alias(pred_col) for true_col, pred_col in zip(true_cols, pred_cols)])
+    
+    rmse = (tdf.select(data_module.target_cols) 
            - fdf.select(cs.starts_with(mean_vars).name.map(lambda tgt: tgt if tgt.startswith("ws_") else re.search("(?<=loc_)(\\w+)$", tgt).group())))\
         .select(pl.all().pow(2).mean().sqrt()).with_columns(metric=pl.lit("RMSE"), test_idx=pl.lit(-1))
-    mse = unpivot_df(mse, forecaster.turbine_signature)
+    rmse = unpivot_df(rmse, forecaster.turbine_signature)
         
     mae = (tdf.select(data_module.target_cols) 
            - fdf.select(cs.starts_with(mean_vars).name.map(lambda tgt: tgt if tgt.startswith("ws_") else re.search("(?<=loc_)(\\w+)$", tgt).group())))\
         .select(pl.all().abs().mean()).with_columns(metric=pl.lit("MAE"), test_idx=pl.lit(-1))
     mae = unpivot_df(mae, forecaster.turbine_signature)
     
-    agg_metrics += [mse, mae]
+    agg_metrics += [rmse, mae]
     
     
     if prediction_type == "distribution" and forecaster.is_probabilistic:
@@ -2263,7 +2243,7 @@ def generate_forecaster_results(forecaster, data_module, evaluator, test_data, p
     ])
     return forecast_df, agg_metrics
 
-def plot_score_vs_prediction_dt(agg_df, metrics, ax_indices):
+def plot_score_vs_prediction_dt(agg_df, metrics, ax_indices, fig_dir):
     
     n_axes = len(ax_indices)
     # left_metrics = [met for i, met in zip(ax_indices, metrics) if i == 0]
@@ -2284,7 +2264,7 @@ def plot_score_vs_prediction_dt(agg_df, metrics, ax_indices):
         
     # elif left_metrics or right_metrics:
     ax = sns.scatterplot(agg_df.filter(pl.col("metric").is_in(metrics)).to_pandas(),
-                    y="score", x="prediction_timedelta", style="metric", hue="forecaster", s=200)
+                    y="score", x="prediction_timedelta", style="metric", hue="forecaster", s=200, log_scale=True)
     # ax = ax1
         
     # if left_metrics:
@@ -2317,9 +2297,10 @@ def plot_score_vs_prediction_dt(agg_df, metrics, ax_indices):
     leg2 = plt.legend(h2, l2, loc='upper left', bbox_to_anchor=(1.01, 0.8), frameon=False)
     ax.add_artist(leg1)
     plt.tight_layout()
+    fig.savefig(os.path.join(fig_dir, "score_vs_pred.png"))
     return fig
 
-def plot_score_vs_forecaster(agg_df, metrics, ax_indices, prediction_intervals):
+def plot_score_vs_forecaster(agg_df, metrics, ax_indices, prediction_intervals, fig_dir):
     
     n_axes = len(ax_indices)
     # left_metrics = [met for i, met in zip(ax_indices, metrics) if i == 0]
@@ -2331,9 +2312,9 @@ def plot_score_vs_forecaster(agg_df, metrics, ax_indices, prediction_intervals):
     sns.set_style("whitegrid")
     figs = []
     for pred_int in prediction_intervals:
-        ax1 = sns.catplot(agg_df.filter(pl.col("metric").is_in(metrics)),
+        ax1 = sns.catplot(agg_df.filter((pl.col("metric").is_in(metrics)) & (pl.col("prediction_timedelta") == pred_int)),
                     kind="bar",
-                    hue="metric", x="forecaster", y="score")
+                    hue="metric", x="forecaster", y="score", log_scale=True)
         # sub_ax1 = ax1.ax
         
         # sub_ax2 = sub_ax1.twinx()
@@ -2380,6 +2361,8 @@ def plot_score_vs_forecaster(agg_df, metrics, ax_indices, prediction_intervals):
         ax1.ax.legend(h, new_labels, frameon=False, bbox_to_anchor=(1.01, 1), loc="upper left")
         plt.tight_layout()
         figs.append(plt.gcf())
+        figs[-1].savefig(os.path.join(fig_dir, f"score_vs_forecaster_pred{int(pred_int)}.png"))
+        
     return figs
 
 if __name__ == "__main__":
@@ -2660,57 +2643,66 @@ if __name__ == "__main__":
                                     )
         forecasters.append(forecaster)
         
-    # if args.multiprocessor is not None:
-    #     if args.multiprocessor == "mpi":
-    #         comm_size = MPI.COMM_WORLD.Get_size()
-    #         executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
-    #     elif args.multiprocessor == "cf":
-    #         executor = ProcessPoolExecutor()
-    #     with executor as ex:
-    #         if args.multiprocessor == "mpi":
-    #             ex.max_workers = comm_size
+    if args.multiprocessor is not None:
+        if args.multiprocessor == "mpi":
+            comm_size = MPI.COMM_WORLD.Get_size()
+            executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+        elif args.multiprocessor == "cf":
+            executor = ProcessPoolExecutor()
+        with executor as ex:
+            if args.multiprocessor == "mpi":
+                ex.max_workers = comm_size
             
-    #         test_futures = [ex.submit(generate_forecaster_results, forecaster=forecaster, 
-    #                                 data_module=data_module, evaluator=evaluator, 
-    #                                 test_data=test_data, 
-    #                                 prediction_type=args.prediction_type) 
-    #                    for forecaster in forecasters]
+            test_futures = [ex.submit(generate_forecaster_results, forecaster=forecaster, 
+                                    data_module=data_module, evaluator=evaluator, 
+                                    test_data=test_data, 
+                                    prediction_type=args.prediction_type) 
+                       for forecaster in forecasters]
             
-    #         results = [dict([(k, v) for k, v in chain(
-    #             zip(["true_df", "forecast_df", "agg_metrics"], fut.result()), 
-    #             zip(["forecaster_name", "prediction_timedelta"], [forecaster.__class__.__name__, forecaster.prediction_timedelta.total_seconds()]))]) 
-    #                    for forecaster, fut in zip(forecasters, test_futures)] # agg_metrics, ts_metrics, forecast_fig
-    # else:
-    results = []
-    for forecaster in forecasters:
-        save_dir = os.path.join(os.path.dirname(model_config["dataset"]["data_path"]), "validation_results", 
-                                forecaster.__class__.__name__,
-                                str(forecaster.prediction_timedelta.total_seconds()))
-        os.makedirs(save_dir, exist_ok=True)
-        forecast_path = os.path.join(save_dir, "forecast.parquet")
-        agg_metric_path = os.path.join(save_dir, "agg_metrics.parquet")
-        if args.rerun_validation or not os.path.exists(forecast_path) or not os.path.exists(agg_metric_path):
-            forecast_df, agg_metrics = generate_forecaster_results(
-                forecaster=forecaster, data_module=data_module, 
-                evaluator=evaluator, test_data=test_data,
-                prediction_type=args.prediction_type)
-            results.append({
-                "forecaster_name": forecaster.__class__.__name__,
-                "forecast_df": forecast_df,
-                "agg_metrics": agg_metrics, 
-                "prediction_timedelta": forecaster.prediction_timedelta.total_seconds()
-                })
-            
-            results[-1]["forecast_df"].write_parquet(forecast_path)
-            results[-1]["agg_metrics"].write_parquet(agg_metric_path)
-        else:
-            results.append({
-                "forecaster_name": forecaster.__class__.__name__,
-                "forecast_df": pl.read_parquet(forecast_path),
-                "agg_metrics": pl.read_parquet(agg_metric_path), 
-                "prediction_timedelta": forecaster.prediction_timedelta.total_seconds()
-                })
+            results = [dict([(k, v) for k, v in chain(
+                zip(["forecast_df", "agg_metrics"], fut.result()), 
+                zip(["forecaster_name", "prediction_timedelta"], [forecaster.__class__.__name__, forecaster.prediction_timedelta.total_seconds()]))]) 
+                       for forecaster, fut in zip(forecasters, test_futures)] # agg_metrics, ts_metrics, forecast_fig
+    else:
+        results = []
+        for forecaster in forecasters:
+            save_dir = os.path.join(os.path.dirname(model_config["dataset"]["data_path"]), "validation_results", 
+                                    forecaster.__class__.__name__,
+                                    str(forecaster.prediction_timedelta.total_seconds()))
+            os.makedirs(save_dir, exist_ok=True)
+            forecast_path = os.path.join(save_dir, "forecast.parquet")
+            agg_metric_path = os.path.join(save_dir, "agg_metrics.parquet")
+            if args.rerun_validation or not os.path.exists(forecast_path) or not os.path.exists(agg_metric_path):
+                forecast_df, agg_metrics = generate_forecaster_results(
+                    forecaster=forecaster, data_module=data_module, 
+                    evaluator=evaluator, test_data=test_data,
+                    prediction_type=args.prediction_type)
+                results.append({
+                    "forecaster_name": forecaster.__class__.__name__,
+                    "forecast_df": forecast_df,
+                    "agg_metrics": agg_metrics, 
+                    "prediction_timedelta": forecaster.prediction_timedelta.total_seconds()
+                    })
+                
+                results[-1]["forecast_df"].write_parquet(forecast_path)
+                results[-1]["agg_metrics"].write_parquet(agg_metric_path)
+            else:
+                results.append({
+                    "forecaster_name": forecaster.__class__.__name__,
+                    "forecast_df": pl.read_parquet(forecast_path),
+                    "agg_metrics": pl.read_parquet(agg_metric_path), 
+                    "prediction_timedelta": forecaster.prediction_timedelta.total_seconds()
+                    })
     # results[0]["agg_metrics"].group_by(["test_idx", "feature_type"], maintain_order=True).agg(pl.col("score").mean()).with_columns(turbine_id=pl.lit("all"))
+    
+    all_metrics = results[0]["agg_metrics"].select(pl.col("metric").unique()).to_numpy().flatten()
+    # get the metrics we care about, there is also "MSE", "MAE", "abs_error", "QuantileLoss", 
+    metrics = [metric for metric in all_metrics if any(m in metric for m in ["MAE", "RMSE", "PINAW", "CWC", "CRPS", "PICP"])]
+    
+    agg_df = pl.concat([
+        res["agg_metrics"].with_columns(forecaster=pl.lit(res["forecaster_name"]), 
+                                        prediction_timedelta=pl.lit(res["prediction_timedelta"]))
+        for res in results], how="vertical")
     
     for f, forecaster in enumerate(forecasters):
         save_dir = os.path.join(os.path.dirname(model_config["dataset"]["data_path"]), "validation_results", 
@@ -2739,20 +2731,12 @@ if __name__ == "__main__":
                                                     variable_name="feature", value_name="value")\
                                             .with_columns(data_type=pl.lit("True"))
         
+        # TODO only plot continuity group with best score
         forecast_fig = WindForecast.plot_forecast(forecasts_long, true_long, 
                                                   continuity_groups=[0], turbine_ids=["5", "74", "75"], 
                                                   label=f"_{forecaster.__class__.__name__}_{data_config['config_label']}", 
                                                   fig_dir=save_dir, include_turbine_legend=True) 
     
-    
-    all_metrics = results[0]["agg_metrics"].select(pl.col("metric").unique()).to_numpy().flatten()
-    # get the metrics we care about, there is also "MSE", "MAE", "abs_error", "QuantileLoss", 
-    metrics = [metric for metric in all_metrics if any(m in metric for m in ["MAE", "RMSE", "PINAW", "CWC", "CRPS", "PICP"])]
-    
-    agg_df = pl.concat([
-        res["agg_metrics"].with_columns(forecaster=pl.lit(res["forecaster_name"]), 
-                                        prediction_timedelta=pl.lit(res["prediction_timedelta"]))
-        for res in results], how="vertical")
     
     plotting_metrics_dirs = [(met, direc) for met, direc in 
                         zip(["MAE", "RMSE", "PINAW", "CWC", "CRPS", "PICP"], [0, 0, 1, 1, 1, 1]) 
@@ -2763,19 +2747,26 @@ if __name__ == "__main__":
     
     totals_agg_df = agg_df.filter((pl.col("test_idx")==-1) & (pl.col("turbine_id") == "all"))\
                           .group_by(["forecaster", "metric", "prediction_timedelta"]).agg(pl.col("score").mean())
+                          
+    save_dir = os.path.join(os.path.dirname(model_config["dataset"]["data_path"]), "validation_results")
+                            
     # generate scatterplot of metric vs prediction time for different models (different colors) and different metrics (different_styles) (crps, picp, pinaw, cwc, mse, mae)
     plot_score_vs_prediction_dt(totals_agg_df, 
                                 metrics=plotting_metrics,
-                                ax_indices=ax_indices)
+                                ax_indices=ax_indices,
+                                fig_dir=save_dir)
 
     # best_prediction_dt = agg_df.groupby(["metric", "prediction_timedelta"])["score"].mean().idxmax()
     # generate grouped barcharpt of metrics (crps, picp, pinaw, cwc, mse, mae) grouped together vs model on x axis for best prediction time
     totals_agg_df.filter(pl.col("metric").is_in(["RMSE", "MAE", "CWC", "CRPS", "PINAW"])).group_by(["forecaster", "metric"]).agg(pl.all().sort_by("score").last())
     totals_agg_df.filter(pl.col("metric").is_in(["PICP"])).group_by(["forecaster", "metric"]).agg(pl.all().sort_by("score").last())
     
-    best_prediction_dt = totals_agg_df.filter(pl.col("metric").is_in(["RMSE", "MAE", "CWC", "CRPS", "PINAW"])).group_by("prediction_timedelta").agg(pl.col("score").mean()).select(pl.col("prediction_timedelta").sort_by("score").first()).item()
-    plot_score_vs_forecaster(totals_agg_df.filter(pl.col("prediction_timedelta") == best_prediction_dt),
+    # best_prediction_dt = totals_agg_df.filter(pl.col("metric").is_in(["RMSE", "MAE", "CWC", "CRPS", "PINAW"])).group_by("prediction_timedelta").agg(pl.col("score").mean()).select(pl.col("prediction_timedelta").sort_by("score").first()).item()
+    # totals_agg_df.filter(pl.col("prediction_timedelta") == best_prediction_dt),
+    plot_score_vs_forecaster(totals_agg_df,
                              metrics=plotting_metrics,
-                             ax_indices=ax_indices)
+                             ax_indices=ax_indices,
+                             prediction_intervals=totals_agg_df.select(pl.col("prediction_timedelta").unique()).to_numpy().flatten(),
+                             fig_dir=save_dir)
     
     print("here")
