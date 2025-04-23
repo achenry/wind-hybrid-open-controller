@@ -199,7 +199,7 @@ class WindForecast:
         logging.info(f"Completed trial {trial.number}.")
         return sum(scores)
     
-    def prepare_data(self, dataset_splits, scale=True, reload=True):
+    def prepare_data(self, dataset_splits, scale=True, reload=True, multiprocessor=None):
         """
         Prepares the training/val data for tuning for each output based on the historic measurements.
         
@@ -216,11 +216,32 @@ class WindForecast:
                     logging.warning(f"{ds_type} dataset with continuity groups {list(ds["continuity_group"].unique())} have insufficient length!")
                     continue
                     
-        # For each output, prepare the training data
-        for output in self.outputs:
-            for split, ds_list in dataset_splits.items():
+        # For each output, prepare the training data TODO parallelize
+        if multiprocessor is not None:
+            if multiprocessor == "mpi":
+                comm_size = MPI.COMM_WORLD.Get_size()
+                executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+            elif multiprocessor == "cf":
+                max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
+                executor = ProcessPoolExecutor(max_workers=max_workers,
+                                                mp_context=mp.get_context("spawn"))
+            with executor as ex:
+                if multiprocessor == "mpi":
+                    ex.max_workers = comm_size
+                    
+                futures = [ex.submit(self._get_output_data, 
+                                        measurements=[ds for ds in ds_list if ds.shape[0] >= self.n_context + self.n_prediction], 
+                                        output=output, 
+                                        split=split, 
+                                        reload=reload, 
+                                        scale=scale) for split, ds_list in dataset_splits.items() for output in self.outputs]
+                
+                [fut.result() for fut in futures]
+        else: 
+            for split, ds_list in dataset_splits.items(): 
                 measurements = [ds for ds in ds_list if ds.shape[0] >= self.n_context + self.n_prediction]
-                self._get_output_data(measurements=measurements, output=output, split=split, reload=reload, scale=scale)
+                for output in self.outputs:
+                    self._get_output_data(measurements=measurements, output=output, split=split, reload=reload, scale=scale)
      
     # def tune_hyperparameters_single(self, historic_measurements, scaler, feat_type, tid, study_name, seed, restart_tuning, backend, storage_dir, n_trials=1):
     def tune_hyperparameters_single(self, seed, storage, 
