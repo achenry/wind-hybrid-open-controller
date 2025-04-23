@@ -2200,17 +2200,19 @@ def generate_forecaster_results(forecaster, data_module, evaluator, test_data, p
     #             include_metrics=[])
     
     agg_metrics = []
-    mean_vars = [c for c in target_vars if "ws_" in c]
+    mean_vars = [c for c in target_vars if c.startswith("ws_") or c.startswith("loc_ws_")]
     
     fdf = forecast_df = pl.concat(forecast_df, how="vertical")
     tdf = test_data.filter(pl.col("time").is_in(forecast_df.select(pl.col("time"))))\
                        .select("time", cs.starts_with("ws_horz"), cs.starts_with("ws_vert"))
     
-    mse = (tdf.select(data_module.target_cols) - fdf.select(cs.starts_with(mean_vars)))\
+    mse = (tdf.select(data_module.target_cols) 
+           - fdf.select(cs.starts_with(mean_vars).name.map(lambda tgt: tgt if tgt.startswith("ws_") else re.search("(?<=loc_)(\\w+)$", tgt).group())))\
         .select(pl.all().pow(2).mean().sqrt()).with_columns(metric=pl.lit("RMSE"), test_idx=pl.lit(-1))
     mse = unpivot_df(mse, forecaster.turbine_signature)
         
-    mae = (tdf.select(data_module.target_cols) - fdf.select(cs.starts_with(mean_vars)))\
+    mae = (tdf.select(data_module.target_cols) 
+           - fdf.select(cs.starts_with(mean_vars).name.map(lambda tgt: tgt if tgt.startswith("ws_") else re.search("(?<=loc_)(\\w+)$", tgt).group())))\
         .select(pl.all().abs().mean()).with_columns(metric=pl.lit("MAE"), test_idx=pl.lit(-1))
     mae = unpivot_df(mae, forecaster.turbine_signature)
     
@@ -2767,8 +2769,8 @@ if __name__ == "__main__":
     totals_agg_df.filter(pl.col("metric").is_in(["PICP"])).group_by(["forecaster", "metric"]).agg(pl.all().sort_by("score").last())
     
     best_prediction_dt = totals_agg_df.filter(pl.col("metric").is_in(["RMSE", "MAE", "CWC", "CRPS", "PINAW"])).group_by("prediction_timedelta").agg(pl.col("score").mean()).select(pl.col("prediction_timedelta").sort_by("score").first()).item()
-    plot_score_vs_forecaster(totals_agg_df.filter(pl.col("prediction_timedelta") == best_prediction_dt), 
+    plot_score_vs_forecaster(totals_agg_df.filter(pl.col("prediction_timedelta") == best_prediction_dt),
                              metrics=plotting_metrics,
-                                ax_indices=ax_indices)
+                             ax_indices=ax_indices)
     
     print("here")
