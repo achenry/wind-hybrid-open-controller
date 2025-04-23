@@ -252,7 +252,8 @@ class WindForecast:
     def tune_hyperparameters_single(self, seed, storage, 
                                     config,
                                     n_trials_per_worker=1,
-                                    rank=0):
+                                    rank=0,
+                                    multiprocessor=None):
         
         if rank == 0:
             # for case when argument is list of multiple continuous time series AND to only get the training inputs/outputs relevant to this model
