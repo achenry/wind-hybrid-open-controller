@@ -52,7 +52,7 @@ date +"%Y-%m-%d %H:%M:%S"
 module purge
 module load miniforge
 # conda init
-conda activate wind_forecasting
+conda activate wind_forecasting_env
 python tuning.py \
             --model_config $MODEL_CONFIG \
             --data_config $DATA_CONFIG \
@@ -90,7 +90,7 @@ for i in $(seq 0 $((${NTUNERS}-1))); do
 	nohup bash -c "
 	module purge
 	module load intel mpi
-        conda activate wind_forecasting
+        conda activate wind_forecasting_env
        	python tuning.py \
             --model_config $MODEL_CONFIG \
             --data_config $DATA_CONFIG \

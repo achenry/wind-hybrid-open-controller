@@ -90,7 +90,7 @@ for i in $(seq 1 $((${NTUNERS}))); do
         # module purge
         # module load mamba
         # module load PrgEnv-intel
-        # mamba activate wind_forecasting
+        # mamba activate wind_forecasting_env
 
         # python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --multiprocessor cf --seed ${WORKER_SEED} ${RESTART_FLAG}" &
 

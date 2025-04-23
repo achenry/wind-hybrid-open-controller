@@ -8,7 +8,7 @@
 
 module purge
 module load mamba
-mamba activate wind_forecasting
+mamba activate wind_forecasting_env
 module load intel
 export LD_LIBRARY_PATH=/projects/ssc/ahenry/conda/envs/wind_forecasting/lib
 echo $SLURM_NTASKS

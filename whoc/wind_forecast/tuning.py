@@ -135,7 +135,8 @@ if __name__ == "__main__":
         delattr(data_module, "train_dataset")
         delattr(data_module, "val_dataset")
         
-        forecaster.prepare_data(dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, scale=False)
+        forecaster.prepare_data(dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, 
+                                scale=False, multiprocessor=args.multiprocessor)
     
     
     # if not args.initialize: 
