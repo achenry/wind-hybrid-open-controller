@@ -3,10 +3,10 @@
 #SBATCH --account=ssc
 #SBATCH --output=model_tuning_%j.out
 ##SBATCH --nodes=4
-##SBATCH --time=24:00:00
+#SBATCH --time=24:00:00
 #SBATCH --nodes=1
-#SBATCH --time=01:00:00
-#SBATCH --partition=debug
+##SBATCH --time=01:00:00
+##SBATCH --partition=debug
 ##SBATCH --partition=nvme
 #SBATCH --ntasks-per-node=104
 ##SBATCH --cpus-per-task=1
@@ -38,9 +38,9 @@ module list
 declare -a WORKER_PIDS=()
 
 export MODEL_CONFIG_PATH=$2
-# export MODEL_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel_awaken.yaml"
+# export MODEL_CONFIG=/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred60.yaml
 #export MODEL_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel_flasc.yaml"
-export DATA_CONFIG_PATH="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/preprocessing/preprocessing_inputs_kestrel_awaken_new.yaml"
+export DATA_CONFIG_PATH="/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/config/preprocessing/preprocessing_inputs_kestrel_awaken_new.yaml"
 #export DATA_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_flasc.yaml"
 #export RESTART_FLAG=""
 
@@ -52,15 +52,16 @@ echo "TMPDIR=${TMPDIR}"
 # prepare training data first
 module purge
 module load mamba
-mamba activate wind_forecasting
+mamba activate wind_forecasting_env
 module load PrgEnv-intel
 
 echo "=== STARTING DATA PREPARATION ==="
 date +"%Y-%m-%d %H:%M:%S"
 
+PYTHONPATH=$(which python)
+#srun -n ${SLURM_NTASKS} --export=ALL,WORKER_RANK=0 
 export WORKER_RANK=0
-export WORKER_SEED=0
-srun -n ${SLURM_NTASKS} python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --multiprocessor cf --seed ${WORKER_SEED} --restart_tuning
+$PYTHONPATH tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --multiprocessor cf --seed 0 --restart_tuning
 
 echo "=== STARTING TUNING ==="
 date +"%Y-%m-%d %H:%M:%S"
@@ -78,12 +79,12 @@ for i in $(seq 1 $((${NTUNERS}))); do
 	export WORKER_SEED=$((42 + i*10)) #+ j))
 
         # Calculate worker index for logging
-	export WORKER_RANK=i #$((i*NUM_WORKERS_PER_CPU + j))
+	export WORKER_RANK=${i} #$((i*NUM_WORKERS_PER_CPU + j))
 
         echo "Starting worker ${WORKER_RANK} on CPU ${i} with seed ${WORKER_SEED}"
         
         # Launch worker with environment settings
-        srun -n ${NTASKS_PER_TUNER} --export=WORKER_RANK=i python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --multiprocessor cf --seed ${WORKER_SEED}&
+        srun -n ${NTASKS_PER_TUNER} $PYTHONPATH tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --multiprocessor cf --seed ${WORKER_SEED}&
 
 	# nohup bash -c "
         # module purge
