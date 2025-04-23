@@ -3,9 +3,9 @@
 #SBATCH --account=ssc
 #SBATCH --output=model_tuning_%j.out
 ##SBATCH --nodes=4
-#SBATCH --time=24:00:00
+##SBATCH --time=24:00:00
 #SBATCH --nodes=1
-##SBATCH --time=01:00:00
+#SBATCH --time=01:00:00
 ##SBATCH --partition=debug
 ##SBATCH --partition=nvme
 #SBATCH --ntasks-per-node=104
@@ -61,7 +61,7 @@ date +"%Y-%m-%d %H:%M:%S"
 PYTHONPATH=$(which python)
 #srun -n ${SLURM_NTASKS} --export=ALL,WORKER_RANK=0 
 export WORKER_RANK=0
-$PYTHONPATH tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --multiprocessor cf --seed 0 --restart_tuning
+srun -n ${SLURM_NTASKS} $PYTHONPATH tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --multiprocessor mpi --seed 0 --restart_tuning
 
 echo "=== STARTING TUNING ==="
 date +"%Y-%m-%d %H:%M:%S"
@@ -84,7 +84,7 @@ for i in $(seq 1 $((${NTUNERS}))); do
         echo "Starting worker ${WORKER_RANK} on CPU ${i} with seed ${WORKER_SEED}"
         
         # Launch worker with environment settings
-        srun -n ${NTASKS_PER_TUNER} $PYTHONPATH tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --multiprocessor cf --seed ${WORKER_SEED}&
+        srun -n ${NTASKS_PER_TUNER} $PYTHONPATH tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --multiprocessor mpi --seed ${WORKER_SEED}&
 
 	# nohup bash -c "
         # module purge
