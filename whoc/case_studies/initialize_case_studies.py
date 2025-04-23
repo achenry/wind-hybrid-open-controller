@@ -59,22 +59,22 @@ case_studies = {
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]}
                                     },
     "baseline_controllers_forecasters_test_awaken": {
-                                    "target_turbine_indices": {"group": 1, "vals": ["74,73", "4,"]},
-                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
-                                    # "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
-                                    # "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
                                     "controller_dt": {"group": 0, "vals": [5]},
                                     "use_filtered_wind_dir": {"group": 0, "vals": [True]},
                                     "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
                                     "simulation_dt": {"group": 0, "vals": [1]},
                                     "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
-                                    "uncertain": {"group": 3, "vals": [True, False]},
-                                    "wind_forecast_class": {"group": 3, "vals": ["KalmanFilterForecast"]}, # "MLForecast"
+                                    "yaw_limits": {"group": 0, "vals": ["-15,15"]},
+                                    "target_turbine_indices": {"group": 1, "vals": ["74,73", "4,"]},
+                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
+                                    "prediction_timedelta": {"group": 1, "vals": [300, 60]},
+                                    # "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
+                                    # "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
+                                    "uncertain": {"group": 3, "vals": [True, False, False, False]},
+                                    "wind_forecast_class": {"group": 3, "vals": ["KalmanFilterForecast", "KalmanFilterForecast", "PersistenceForecast", "SpatialFilterForecast"]}, # "MLForecast"
                                     # "model_key": {"group": 3, "vals": ["informer"]},
                                     # "wind_forecast_class": {"group": 3, "vals": ["MLForecast"]},
-                                    "prediction_timedelta": {"group": 4, "vals": [300]},
-                                    "yaw_limits": {"group": 0, "vals": ["-15,15"]}
-                                    },
+    },
     "baseline_controllers_forecasters_flasc": {"controller_dt": {"group": 0, "vals": [5]},
                                                "simulation_dt": {"group": 0, "vals": [1]},
                                                "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/smarteole_farm.yaml"]},

@@ -72,56 +72,56 @@ if __name__ == "__main__":
     # if args.run_simulations or args.generate_lut or args.generate_wind_field:
     # run simulations
     
-    if RUN_ONCE:
-        # os.path.join(os.path.dirname(whoc_file), "../examples/hercules_input_001.yaml")
-        
-        logging.info(f"Reading WHOC config file {args.whoc_config}")
-        with open(args.whoc_config, 'r') as file:
-            whoc_config  = yaml.safe_load(file)
-            
-        if args.wf_source == "scada":
-            logging.info(f"Reading model config file {args.model_config}")
-            with open(args.model_config, 'r') as file:
-                model_config  = yaml.safe_load(file)
-                
-            logging.info(f"Reading preprocessing config file {args.data_config}")
-            with open(args.data_config, 'r') as file:
-                data_config  = yaml.safe_load(file)
-            
-            # TODO make sure this is mapping to target turbine indices, we want the TurbineYawAngle/Power/OfflineStatus to contain the target_turbine_indices
-            if len(data_config["turbine_signature"]) == 1:
-                tid2idx_mapping = {str(k): i for i, k in enumerate(data_config["turbine_mapping"][0].keys())}
-            else:
-                tid2idx_mapping = {str(k): i for i, k in enumerate(data_config["turbine_mapping"][0].values())} # if more than one file type was pulled from, all turbine ids will be transformed into common type
-            
-            turbine_signature = data_config["turbine_signature"][0] if len(data_config["turbine_signature"]) == 1 else "\\d+"
-            
-            # temp_storage_dir = data_config["temp_storage_dir"]
-            # os.makedirs(temp_storage_dir, exist_ok=True)
-            # optuna_args = model_config.setdefault("optuna", None)
+    # if RUN_ONCE:
+    # os.path.join(os.path.dirname(whoc_file), "../examples/hercules_input_001.yaml")
     
-        else:
-            model_config = None
-            data_config = None
-            turbine_signature = None
-            tid2idx_mapping = None
-            # temp_storage_dir = None
-            
-        logging.info(f"running initialize_simulations for case_ids {[case_families[i] for i in args.case_ids]}")
-        case_lists, case_name_lists, input_dicts, wind_field_config, wind_field_ts \
-            = initialize_simulations(case_study_keys=[case_families[i] for i in args.case_ids], 
-                                        regenerate_wind_field=args.generate_wind_field, 
-                                        regenerate_lut=args.generate_lut, 
-                                        n_seeds=args.n_seeds, 
-                                        stoptime=args.stoptime, 
-                                        save_dir=args.save_dir, 
-                                        wf_source=args.wf_source,
-                                        multiprocessor=args.multiprocessor, 
-                                        whoc_config=whoc_config, model_config=model_config, data_config=data_config)
+    logging.info(f"Reading WHOC config file {args.whoc_config}")
+    with open(args.whoc_config, 'r') as file:
+        whoc_config  = yaml.safe_load(file)
         
-        logging.info(f"Resetting args.n_seeds to {len(wind_field_ts)}")
-        args.n_seeds = len(wind_field_ts)
-        # TODO broadcast/scatter/gather wind_field_ts to share between processes
+    if args.wf_source == "scada":
+        logging.info(f"Reading model config file {args.model_config}")
+        with open(args.model_config, 'r') as file:
+            model_config  = yaml.safe_load(file)
+            
+        logging.info(f"Reading preprocessing config file {args.data_config}")
+        with open(args.data_config, 'r') as file:
+            data_config  = yaml.safe_load(file)
+        
+        # TODO make sure this is mapping to target turbine indices, we want the TurbineYawAngle/Power/OfflineStatus to contain the target_turbine_indices
+        if len(data_config["turbine_signature"]) == 1:
+            tid2idx_mapping = {str(k): i for i, k in enumerate(data_config["turbine_mapping"][0].keys())}
+        else:
+            tid2idx_mapping = {str(k): i for i, k in enumerate(data_config["turbine_mapping"][0].values())} # if more than one file type was pulled from, all turbine ids will be transformed into common type
+        
+        turbine_signature = data_config["turbine_signature"][0] if len(data_config["turbine_signature"]) == 1 else "\\d+"
+        
+        # temp_storage_dir = data_config["temp_storage_dir"]
+        # os.makedirs(temp_storage_dir, exist_ok=True)
+        # optuna_args = model_config.setdefault("optuna", None)
+
+    else:
+        model_config = None
+        data_config = None
+        turbine_signature = None
+        tid2idx_mapping = None
+        # temp_storage_dir = None
+        
+    logging.info(f"running initialize_simulations for case_ids {[case_families[i] for i in args.case_ids]}")
+    case_lists, case_name_lists, input_dicts, wind_field_config, wind_field_ts \
+        = initialize_simulations(case_study_keys=[case_families[i] for i in args.case_ids], 
+                                    regenerate_wind_field=args.generate_wind_field, 
+                                    regenerate_lut=args.generate_lut, 
+                                    n_seeds=args.n_seeds, 
+                                    stoptime=args.stoptime, 
+                                    save_dir=args.save_dir, 
+                                    wf_source=args.wf_source,
+                                    multiprocessor=args.multiprocessor, 
+                                    whoc_config=whoc_config, model_config=model_config, data_config=data_config)
+    
+    logging.info(f"Resetting args.n_seeds to {len(wind_field_ts)}")
+    args.n_seeds = len(wind_field_ts)
+    # TODO broadcast/scatter/gather wind_field_ts to share between processes
     
     if args.run_simulations: 
         if args.multiprocessor is not None:

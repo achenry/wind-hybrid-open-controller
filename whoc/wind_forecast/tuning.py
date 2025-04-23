@@ -36,7 +36,7 @@ if __name__ == "__main__":
     parser.add_argument("-md", "--model", type=str, choices=["svr", "kf", "preview", "informer", "autoformer", "spacetimeformer"], required=True)
     parser.add_argument("-mcnf", "--model_config", type=str)
     parser.add_argument("-dcnf", "--data_config", type=str)
-    parser.add_argument("-m", "--multiprocessor", choices=["mpi", "cf"], default="cf")
+    parser.add_argument("-m", "--multiprocessor", choices=["mpi", "cf", None], default=None)
     parser.add_argument("-msp", "--max_splits", type=int, required=False, default=None,
                         help="Number of test splits to use.")
     parser.add_argument("-mst", "--max_steps", type=int, required=False, default=None,
