@@ -238,21 +238,26 @@ class WindForecast:
                     
                 for ds in ds_list:
                     dataset_splits[ds_type] = [ds for ds in ds_list if ds.shape[0] >= self.n_context + self.n_prediction]
-                    
-                futures = [ex.submit(self._get_output_data, 
+                
+                futures = []
+                for split, ds_list in dataset_splits.items():
+                    for output in self.outputs:
+                        futures.append(ex.submit(self._get_output_data, 
                                         measurements=ds_list, 
                                         output=output, 
                                         split=split, 
                                         reload=reload, 
-                                        scale=scale) for split, ds_list in dataset_splits.items() for output in self.outputs]
+                                        scale=scale, return_data=False))
                 
-                _ = [fut.result() for fut in futures]
+                [fut.result() for fut in futures]
         else: 
             for split, ds_list in dataset_splits.items(): 
                 measurements = [ds for ds in ds_list if ds.shape[0] >= self.n_context + self.n_prediction]
                 for output in self.outputs:
                     self._get_output_data(measurements=measurements, output=output, split=split, reload=reload, scale=scale)
 
+        if RUN_ONCE:
+            logging.info(f"Finished loading data.")
         return
     
     # def tune_hyperparameters_single(self, historic_measurements, scaler, feat_type, tid, study_name, seed, restart_tuning, backend, storage_dir, n_trials=1):
@@ -436,7 +441,7 @@ class WindForecast:
         
         return study.best_params
     
-    def _get_output_data(self, output, reload, split, measurements=None, scale=None, return_scaler=False):
+    def _get_output_data(self, output, reload, split, measurements=None, scale=None, return_scaler=False, return_data=True):
         assert split in ["train", "test", "val"]
         feat_type = re.search(f"\\w+(?=_{self.turbine_signature})", output).group()
         tid = re.search(self.turbine_signature, output).group()
@@ -451,7 +456,7 @@ class WindForecast:
             if isinstance(measurements, Iterable):
                 X_all = []
                 y_all = []
-                for ds in measurements:
+                for d, ds in enumerate(measurements):
                     # don't scale for single dataset, scale for all of them
                     ds = ds.gather_every(self.n_prediction_interval)
                     
@@ -460,6 +465,8 @@ class WindForecast:
                     X, y = self._prepare_arrays(training_inputs, feat_type, tid, output_idx)
                     X_all.append(X)
                     y_all.append(y)
+                    
+                    # logging.info(f"Generated {d}th {split} data.")
                 
                 X_all = np.vstack(X_all)
                 y_all = np.concatenate(y_all)
@@ -483,8 +490,6 @@ class WindForecast:
             fp[:, -1] = y_all
             fp.flush()
             logging.info(f"Saved {split} data to {Xy_path}")
-            del fp
-            return
         
         else:
             # assert os.path.exists(Xy_path), "Must run prepare_training_data before tuning"
@@ -495,11 +500,14 @@ class WindForecast:
             X_all = fp[:, :-1]
             y_all = fp[:, -1]
                
-            del fp
+        del fp
+        if return_data:
             if return_scaler:
                 return X_all, y_all, self.scaler[output]
             else:
-                return X_all, y_all
+                return X_all, y_al
+        else:
+            return None
     
     def set_tuned_params(self, storage, study_name):
         """_summary_
@@ -2186,43 +2194,43 @@ def generate_forecaster_results(forecaster, data_module, evaluator, test_data, p
     true_cols = [f"{c}_true" for c in data_module.target_cols]
     pred_cols = [f"loc_{c}" if forecaster.is_probabilistic else c for c in data_module.target_cols]
     
-    combined_df.select([(pl.col(true_col) - pl.col(pred_col)).alias(pred_col) for true_col, pred_col in zip(true_cols, pred_cols)])
+    err = combined_df.select([(pl.col(true_col) - pl.col(pred_col)).alias(pred_col) for true_col, pred_col in zip(true_cols, pred_cols)]).select(pl.all().name.map(lambda tgt: tgt if tgt.startswith("ws_") else re.search("(?<=loc_)(\\w+)$", tgt).group()))
     
-    rmse = (tdf.select(data_module.target_cols) 
-           - fdf.select(cs.starts_with(mean_vars).name.map(lambda tgt: tgt if tgt.startswith("ws_") else re.search("(?<=loc_)(\\w+)$", tgt).group())))\
-        .select(pl.all().pow(2).mean().sqrt()).with_columns(metric=pl.lit("RMSE"), test_idx=pl.lit(-1))
+    rmse = err.select(pl.all().pow(2).mean().sqrt()).with_columns(metric=pl.lit("RMSE"), test_idx=pl.lit(-1))
     rmse = unpivot_df(rmse, forecaster.turbine_signature)
         
-    mae = (tdf.select(data_module.target_cols) 
-           - fdf.select(cs.starts_with(mean_vars).name.map(lambda tgt: tgt if tgt.startswith("ws_") else re.search("(?<=loc_)(\\w+)$", tgt).group())))\
-        .select(pl.all().abs().mean()).with_columns(metric=pl.lit("MAE"), test_idx=pl.lit(-1))
+    mae = err.select(pl.all().abs().mean()).with_columns(metric=pl.lit("MAE"), test_idx=pl.lit(-1))
     mae = unpivot_df(mae, forecaster.turbine_signature)
     
     agg_metrics += [rmse, mae]
     
+    # TODO find score per continuity group
     
     if prediction_type == "distribution" and forecaster.is_probabilistic:
+        pred_mean = combined_df.select(cs.starts_with("loc_")).to_numpy()
+        true = tdf.select(data_module.target_cols).to_numpy()
+        pred_stddev = fdf.select(cs.starts_with("sd_")).to_numpy()
         
         picp = pl.DataFrame(
-            data=np.atleast_2d(pi_coverage_probability(fdf.select(cs.starts_with("loc_")).to_numpy(), tdf.select(data_module.target_cols).to_numpy(), fdf.select(cs.starts_with("sd_")).to_numpy())),
+            data=np.atleast_2d(pi_coverage_probability(pred_mean, true, pred_stddev)),
             schema=data_module.target_cols)\
                 .with_columns(metric=pl.lit("PICP"), test_idx=pl.lit(-1))
         picp = unpivot_df(picp, forecaster.turbine_signature)
         
         pinaw = pl.DataFrame(
-            data=np.atleast_2d(pi_normalized_average_width(fdf.select(cs.starts_with("loc_")).to_numpy(), tdf.select(data_module.target_cols).to_numpy(), fdf.select(cs.starts_with("sd_")).to_numpy())),
+            data=np.atleast_2d(pi_normalized_average_width(pred_mean, true, pred_stddev)),
             schema=data_module.target_cols)\
                     .with_columns(metric=pl.lit("PINAW"), test_idx=pl.lit(-1))
         pinaw = unpivot_df(pinaw, forecaster.turbine_signature)
         
         cwc = pl.DataFrame(
-            data=np.atleast_2d(coverage_width_criterion(fdf.select(cs.starts_with("loc_")).to_numpy(), tdf.select(data_module.target_cols).to_numpy(), fdf.select(cs.starts_with("sd_")).to_numpy())),
+            data=np.atleast_2d(coverage_width_criterion(pred_mean, true, pred_stddev)),
             schema=data_module.target_cols)\
                 .with_columns(metric=pl.lit("CWC"), test_idx=pl.lit(-1))
         cwc = unpivot_df(cwc, forecaster.turbine_signature)
         
         crps = pl.DataFrame(
-            data=np.atleast_2d(continuous_ranked_probability_score_gaussian(fdf.select(cs.starts_with("loc_")).to_numpy(), tdf.select(data_module.target_cols).to_numpy(), fdf.select(cs.starts_with("sd_")).to_numpy())),
+            data=np.atleast_2d(continuous_ranked_probability_score_gaussian(pred_mean, true, pred_stddev)),
             schema=data_module.target_cols)\
                 .with_columns(metric=pl.lit("CRPS"), test_idx=pl.lit(-1))
         crps = unpivot_df(crps, forecaster.turbine_signature)
