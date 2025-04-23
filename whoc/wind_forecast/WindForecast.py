@@ -249,7 +249,14 @@ class WindForecast:
                                         reload=reload, 
                                         scale=scale, return_data=False))
                 
-                [fut.result() for fut in futures]
+                
+                for f, fut in enumerate(futures):
+                    logging.info(f"Calling result on {f}th future object in prepare_data.")
+                    fut.result()
+                    
+                # logging.info("Calling result on future objects in prepare_data.")
+                # [fut.result() for fut in futures]
+                logging.info("Finished calling result on future objects in prepare_data.")
         else: 
             for split, ds_list in dataset_splits.items(): 
                 measurements = [ds for ds in ds_list if ds.shape[0] >= self.n_context + self.n_prediction]
@@ -499,14 +506,18 @@ class WindForecast:
                            mode="r", shape=data_shape)
             X_all = fp[:, :-1]
             y_all = fp[:, -1]
-               
+        
+        logging.info(f"Deleting filepointer to {Xy_path}")
         del fp
+        
         if return_data:
+            logging.info(f"Returning data from _get_output_data for Xy_path {Xy_path}")
             if return_scaler:
                 return X_all, y_all, self.scaler[output]
             else:
-                return X_all, y_al
+                return X_all, y_all
         else:
+            logging.info(f"Returning None from _get_output_data for Xy_path {Xy_path}")
             return None
     
     def set_tuned_params(self, storage, study_name):
@@ -2190,11 +2201,11 @@ def generate_forecaster_results(forecaster, data_module, evaluator, test_data, p
     fdf = forecast_df = pl.concat(forecast_df, how="vertical").select(["time"] + [cs.ends_with(tgt) for tgt in data_module.target_cols])
     tdf = test_data.filter(pl.col("time").is_in(forecast_df.select(pl.col("time"))))\
                        .select(["time", "continuity_group"] + data_module.target_cols)
-    combined_df = fdf.join(tdf, on=["time"], suffix="_true", coalesce=False)
+    combined_df = fdf.rename(lambda col: re.search("(?<=loc_)(\\w+)$", col).group() if col.startswith("loc_") else col)\
+                     .join(tdf, on=["time"], suffix="_true", coalesce=False)
     true_cols = [f"{c}_true" for c in data_module.target_cols]
-    pred_cols = [f"loc_{c}" if forecaster.is_probabilistic else c for c in data_module.target_cols]
     
-    err = combined_df.select(["time", "continuity_group"] + [(pl.col(pred_col) - pl.col(true_col)).name.map(lambda tgt: tgt if tgt.startswith("ws_") else re.search("(?<=loc_)(\\w+)$", tgt).group()) for true_col, pred_col in zip(true_cols, pred_cols)])
+    err = combined_df.select(["time", "continuity_group"] + [(pl.col(pred_col) - pl.col(true_col)) for true_col, pred_col in zip(true_cols, data_module.target_cols)])
     
     rmse = err.group_by("continuity_group").agg(cs.numeric().pow(2).mean().sqrt()).with_columns(metric=pl.lit("RMSE"), test_idx=pl.lit(-1))
     rmse = unpivot_df(rmse, forecaster.turbine_signature)
@@ -2206,49 +2217,49 @@ def generate_forecaster_results(forecaster, data_module, evaluator, test_data, p
     
     
     if prediction_type == "distribution" and forecaster.is_probabilistic:
-        pred_mean = combined_df.select(pl.col("continuity_group"), cs.starts_with("loc_"))
-        true = tdf.select(pl.col("continuity_group"), data_module.target_cols)
-        pred_stddev = fdf.select(pl.col("continuity_group"), cs.starts_with("sd_"))
-        cg_vals = fdf.select(pl.col("continuity_group"))
+        pred_mean = combined_df.select(["continuity_group"] + data_module.target_cols)
+        true = combined_df.select(["continuity_group"] + true_cols)
+        pred_stddev = combined_df.select(pl.col("continuity_group"), cs.starts_with("sd_"))
+        cg_vals = combined_df.select(pl.col("continuity_group").unique()).to_numpy().flatten()
         
         picp = pl.concat([
             pl.DataFrame(
                 data=np.atleast_2d(pi_coverage_probability(
-                    pred_mean.filter(pl.col("continuity_group") == cg).select(cs.numeric()).to_numpy(), 
-                    true.filter(pl.col("continuity_group") == cg).select(cs.numeric()).to_numpy(), 
-                    pred_stddev.filter(pl.col("continuity_group") == cg).select(cs.numeric()).to_numpy()
+                    pred_mean.filter(pl.col("continuity_group") == cg).select(data_module.target_cols).to_numpy(), 
+                    true.filter(pl.col("continuity_group") == cg).select(true_cols).to_numpy(), 
+                    pred_stddev.filter(pl.col("continuity_group") == cg).select(cs.starts_with("sd_")).to_numpy()
                     )),
-                schema=data_module.target_cols) for cg in cg_vals], how="vertical")\
+                schema=data_module.target_cols).with_columns(continuity_group=pl.lit(cg)) for cg in cg_vals], how="vertical")\
                     .with_columns(metric=pl.lit("PICP"), test_idx=pl.lit(-1))
         picp = unpivot_df(picp, forecaster.turbine_signature)
         
         pinaw = pl.concat([pl.DataFrame(
             data=np.atleast_2d(pi_normalized_average_width(
-                pred_mean.filter(pl.col("continuity_group") == cg).select(cs.numeric()).to_numpy(), 
-                true.filter(pl.col("continuity_group") == cg).select(cs.numeric()).to_numpy(), 
-                pred_stddev.filter(pl.col("continuity_group") == cg).select(cs.numeric()).to_numpy()
+                pred_mean.filter(pl.col("continuity_group") == cg).select(data_module.target_cols).to_numpy(), 
+                true.filter(pl.col("continuity_group") == cg).select(true_cols).to_numpy(), 
+                pred_stddev.filter(pl.col("continuity_group") == cg).select(cs.starts_with("sd_")).to_numpy()
                 )),
-            schema=data_module.target_cols) for cg in cg_vals], how="vertical")\
+            schema=data_module.target_cols).with_columns(continuity_group=pl.lit(cg)) for cg in cg_vals], how="vertical")\
                     .with_columns(metric=pl.lit("PINAW"), test_idx=pl.lit(-1))
         pinaw = unpivot_df(pinaw, forecaster.turbine_signature)
         
         cwc = pl.concat([pl.DataFrame(
             data=np.atleast_2d(coverage_width_criterion(
-                pred_mean.filter(pl.col("continuity_group") == cg).select(cs.numeric()).to_numpy(), 
-                true.filter(pl.col("continuity_group") == cg).select(cs.numeric()).to_numpy(), 
-                pred_stddev.filter(pl.col("continuity_group") == cg).select(cs.numeric()).to_numpy()
+                pred_mean.filter(pl.col("continuity_group") == cg).select(data_module.target_cols).to_numpy(), 
+                true.filter(pl.col("continuity_group") == cg).select(true_cols).to_numpy(), 
+                pred_stddev.filter(pl.col("continuity_group") == cg).select(cs.starts_with("sd_")).to_numpy()
                 )),
-            schema=data_module.target_cols) for cg in cg_vals], how="vertical")\
+            schema=data_module.target_cols).with_columns(continuity_group=pl.lit(cg)) for cg in cg_vals], how="vertical")\
                 .with_columns(metric=pl.lit("CWC"), test_idx=pl.lit(-1))
         cwc = unpivot_df(cwc, forecaster.turbine_signature)
         
         crps = pl.concat([pl.DataFrame(
             data=np.atleast_2d(continuous_ranked_probability_score_gaussian(
-                pred_mean.filter(pl.col("continuity_group") == cg).select(cs.numeric()).to_numpy(), 
-                true.filter(pl.col("continuity_group") == cg).select(cs.numeric()).to_numpy(), 
-                pred_stddev.filter(pl.col("continuity_group") == cg).select(cs.numeric()).to_numpy()
+                pred_mean.filter(pl.col("continuity_group") == cg).select(data_module.target_cols).to_numpy(), 
+                true.filter(pl.col("continuity_group") == cg).select(true_cols).to_numpy(), 
+                pred_stddev.filter(pl.col("continuity_group") == cg).select(cs.starts_with("sd_")).to_numpy()
                 )),
-            schema=data_module.target_cols) for cg in cg_vals], how="vertical")\
+            schema=data_module.target_cols).with_columns(continuity_group=pl.lit(cg)) for cg in cg_vals], how="vertical")\
                 .with_columns(metric=pl.lit("CRPS"), test_idx=pl.lit(-1))
         crps = unpivot_df(crps, forecaster.turbine_signature)
         
@@ -2256,15 +2267,15 @@ def generate_forecaster_results(forecaster, data_module, evaluator, test_data, p
     
     # evaluator.get_metrics_per_ts(ts, forecast, include_metrics=include_metrics)
     # evaluator.get_aggregate_metrics(metrics_per_ts, include_metrics=include_metrics)
-    agg_metrics = pl.concat(agg_metrics, how="vertical")
+    agg_metrics = pl.concat(agg_metrics, how="vertical_relaxed")
     agg_metrics = pl.concat([
-        agg_metrics.select(["metric", "test_idx", "feature_type", "turbine_id", "score"]), 
-        agg_metrics.group_by(["metric", "test_idx", "feature_type"], maintain_order=True).agg(pl.col("score").mean()).with_columns(turbine_id=pl.lit("all")).select(["metric", "test_idx", "feature_type", "turbine_id", "score"]),
-        agg_metrics.group_by(["metric", "turbine_id", "feature_type"], maintain_order=True).agg(pl.col("score").mean()).with_columns(test_idx=pl.lit(-1)).select(["metric", "test_idx", "feature_type", "turbine_id", "score"])
-        ], how="vertical").sort(["metric", "test_idx", "feature_type"])
+        agg_metrics.select(["continuity_group", "metric", "test_idx", "feature_type", "turbine_id", "score"]), 
+        agg_metrics.group_by(["continuity_group", "metric", "test_idx", "feature_type"], maintain_order=True).agg(pl.col("score").mean()).with_columns(turbine_id=pl.lit("all")).select(["continuity_group", "metric", "test_idx", "feature_type", "turbine_id", "score"]),
+        agg_metrics.group_by(["continuity_group", "metric", "turbine_id", "feature_type"], maintain_order=True).agg(pl.col("score").mean()).with_columns(test_idx=pl.lit(-1)).select(["continuity_group", "metric", "test_idx", "feature_type", "turbine_id", "score"])
+        ], how="vertical").sort(["continuity_group", "metric", "test_idx", "feature_type"])
     agg_metrics = pl.concat([
         agg_metrics,
-        agg_metrics.group_by(["metric", "feature_type"], maintain_order=True).agg(pl.col("score").mean()).with_columns(test_idx=pl.lit(-1), turbine_id=pl.lit("all")).select(["metric", "test_idx", "feature_type", "turbine_id", "score"])
+        agg_metrics.group_by(["continuity_group", "metric", "feature_type"], maintain_order=True).agg(pl.col("score").mean()).with_columns(test_idx=pl.lit(-1), turbine_id=pl.lit("all")).select(["continuity_group", "metric", "test_idx", "feature_type", "turbine_id", "score"])
     ])
     return forecast_df, agg_metrics
 
@@ -2719,7 +2730,7 @@ if __name__ == "__main__":
                     "prediction_timedelta": forecaster.prediction_timedelta.total_seconds()
                     })
     # results[0]["agg_metrics"].group_by(["test_idx", "feature_type"], maintain_order=True).agg(pl.col("score").mean()).with_columns(turbine_id=pl.lit("all"))
-    rmse.group_by("continuity_group").agg(pl.col("score").mean()).select(pl.all().sort_by("score").first())
+    # 
     all_metrics = results[0]["agg_metrics"].select(pl.col("metric").unique()).to_numpy().flatten()
     # get the metrics we care about, there is also "MSE", "MAE", "abs_error", "QuantileLoss", 
     metrics = [metric for metric in all_metrics if any(m in metric for m in ["MAE", "RMSE", "PINAW", "CWC", "CRPS", "PICP"])]
@@ -2740,7 +2751,7 @@ if __name__ == "__main__":
             value_vars = ["nd_cos", "nd_sin", "ws_horz", "ws_vert"]
             target_vars = ["ws_horz", "ws_vert"]
     
-        id_vars = results[f]["forecast_df"].select(id_var_selector).columns  
+        id_vars = ["time"]
         forecasts_long = DataInspector.unpivot_dataframe(results[f]["forecast_df"], 
                                                     value_vars=value_vars, 
                                                     turbine_signature=forecaster.turbine_signature)\
@@ -2748,7 +2759,7 @@ if __name__ == "__main__":
                                                     variable_name="feature", value_name="value")\
                                             .with_columns(data_type=pl.lit("Forecast"))
         
-        id_vars = test_data.select(id_var_selector).columns  
+        id_vars = ["time", "continuity_group"]
         true_long = DataInspector.unpivot_dataframe(test_data, 
                                                     value_vars=["nd_cos", "nd_sin", "ws_horz", "ws_vert"], 
                                                     turbine_signature=forecaster.turbine_signature)\
@@ -2756,11 +2767,21 @@ if __name__ == "__main__":
                                                     variable_name="feature", value_name="value")\
                                             .with_columns(data_type=pl.lit("True"))
         
-        # TODO only plot continuity group with best score
+        # plot continuity group with best rmse score
+        turbine_ids = ["5", "74", "75"]
+        best_cg = agg_df.filter((pl.col("forecaster") == forecaster.__class__.__name__) 
+                                & (pl.col("prediction_timedelta")== forecaster.prediction_timedelta.total_seconds())
+                                & (pl.col("metric") == "RMSE") 
+                                & (pl.col("turbine_id").is_in(turbine_ids)))\
+              .group_by("continuity_group").agg(pl.col("score").mean()).select(pl.all().sort_by("score").first()).select("continuity_group").item()
+        plot_distr = forecaster.is_probabilistic and args.prediction_type == "distribution"
         forecast_fig = WindForecast.plot_forecast(forecasts_long, true_long, 
-                                                  continuity_groups=[0], turbine_ids=["5", "74", "75"], 
+                                                  continuity_groups=[best_cg], turbine_ids=turbine_ids, 
                                                   label=f"_{forecaster.__class__.__name__}_{data_config['config_label']}", 
-                                                  fig_dir=save_dir, include_turbine_legend=True) 
+                                                  fig_dir=save_dir, include_turbine_legend=True,
+                                                  feature_types=["ws_horz", "ws_vert"],
+                                                  feature_labels=["Horizontal Wind Speed (m/s)", "Vertical Wind Speed (m/s)"],
+                                                  prediction_type="distribution" if plot_distr else "point") 
     
     
     plotting_metrics_dirs = [(met, direc) for met, direc in 
