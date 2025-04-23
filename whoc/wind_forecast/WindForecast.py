@@ -223,7 +223,7 @@ class WindForecast:
                         logging.warning(f"{ds_type} dataset with continuity groups {list(ds["continuity_group"].unique())} have insufficient length!")
                         continue
                     
-        # For each output, prepare the training data TODO parallelize
+        # For each output, prepare the training data
         if multiprocessor is not None:
             if multiprocessor == "mpi":
                 comm_size = MPI.COMM_WORLD.Get_size()
@@ -299,7 +299,6 @@ class WindForecast:
             # Create study on rank 0, load on other ranks
             study = None # Initialize study variable
             
-            logging.info("line 275")
             try:
                 if worker_id == 0:
                     logging.info(f"Rank 0: Creating/loading Optuna study '{self.study_name}' with pruner: {type(pruner).__name__}")
@@ -1475,8 +1474,8 @@ class KalmanFilterForecast(WindForecast):
                     historic_noise=self.historic_w[len_w - j - self.n_context:len_w - j, :]) for j in range(zs.shape[0]-1, -1, -1)]
                 Rs = [self._init_covariance(
                     historic_noise=self.historic_v[len_v - j - self.n_context:len_v - j, :]) for j in range(zs.shape[0]-1, -1, -1)]
-                # for r in Rs:
-                #     np.fill_diagonal(a=r, val=np.max([np.diag(r), np.ones(r.shape[0]) * 1e-2]))
+                for r in Rs:
+                    np.fill_diagonal(a=r, val=np.max([np.diag(r), np.ones(r.shape[0]) * 1e-3]))
                 
             init_x = self.model.x.copy()
             # use batch_filter to, on each controller sampling time
@@ -2206,7 +2205,7 @@ def generate_forecaster_results(forecaster, data_module, evaluator, test_data, p
     fdf = forecast_df = pl.concat(forecast_df, how="vertical")
     tdf = test_data.filter(pl.col("time").is_in(forecast_df.select(pl.col("time"))))\
                        .select("time", cs.starts_with("ws_horz"), cs.starts_with("ws_vert"))
-    # TODO TEST
+    
     mse = (tdf.select(data_module.target_cols) - fdf.select(cs.starts_with(mean_vars)))\
         .select(pl.all().pow(2).mean().sqrt()).with_columns(metric=pl.lit("RMSE"), test_idx=pl.lit(-1))
     mse = unpivot_df(mse, forecaster.turbine_signature)
