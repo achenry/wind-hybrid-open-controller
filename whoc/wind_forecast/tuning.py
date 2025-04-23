@@ -161,7 +161,8 @@ if __name__ == "__main__":
                                                 n_trials_per_worker=model_config["optuna"]["n_trials_per_worker"], 
                                                 seed=args.seed,
                                                 config=model_config,
-                                                rank=0 if RUN_ONCE else rank)
+                                                rank=0 if RUN_ONCE else rank,
+                                                multiprocessor=args.multiprocessor)
                                         #  trial_protection_callback=handle_trial_with_oom_protection)
 
         # %% TRAINING MODEL
