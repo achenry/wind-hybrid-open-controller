@@ -43,6 +43,7 @@ if __name__ == "__main__":
                         help="Number of time steps to use.")
     parser.add_argument("-s", "--seed", type=int, help="Seed for random number generator", default=42)
     parser.add_argument("-rt", "--restart_tuning", action="store_true")
+    parser.add_argument("-rd", "--reload_data", action="store_true", help="Whether to reload the train/validation data from the source, or to use existing .dat files.")
     # pretrained_filename = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/wf_forecasting/lznjshyo/checkpoints/epoch=0-step=50.ckpt"
     args = parser.parse_args()
     
@@ -151,7 +152,7 @@ if __name__ == "__main__":
         delattr(data_module, "val_dataset")
         
         forecaster.prepare_data(dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, 
-                                scale=False, multiprocessor=args.multiprocessor)
+                                scale=False, multiprocessor=args.multiprocessor, reload=args.reload_data)
 
         if RUN_ONCE:
             # logging.info(f"Moving prepared data from {forecaster.model_save_dir} to {original_save_dir}.")
@@ -165,15 +166,18 @@ if __name__ == "__main__":
         
         scaler_params = data_module.compute_scaler_params()
         
-        logging.info("Initializing storage")
-        db_setup_params = generate_df_setup_params(args.model, model_config)
-        optuna_storage = setup_optuna_storage(
-            db_setup_params=db_setup_params,
-            restart_tuning=args.restart_tuning,
-            rank=0 if RUN_ONCE and (worker_id == 0) else worker_id
-        )
+        if RUN_ONCE:
+            logging.info("Initializing storage")
+            
+            db_setup_params = generate_df_setup_params(args.model, model_config)
+            optuna_storage = setup_optuna_storage(
+                db_setup_params=db_setup_params,
+                restart_tuning=args.restart_tuning,
+                rank=0 if RUN_ONCE and (worker_id == 0) else worker_id
+            )
         
-        logging.info("Running tune_hyperparameters_multi")
+        if RUN_ONCE:
+            logging.info("Running tune_hyperparameters_single")
         #{"type": "hyperband", "min_resource": 2, "max_resource": 5, "reduction_factor": 3, "percentile": 25}
         
         forecaster.tune_hyperparameters_single(storage=optuna_storage,
