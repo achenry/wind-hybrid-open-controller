@@ -99,64 +99,73 @@ if __name__ == "__main__":
                             use_tuned_params=False)
     
     # Use the WORKER_RANK variable set explicitly in the Slurm script's nohup block
-    rank = int(os.environ.get('WORKER_RANK', '0'))
+    worker_id = int(os.environ.get('WORKER_RANK', 0))
     if "WORKER_RANK" in os.environ:
-        logging.info(f"Determined worker rank from WORKER_RANK: {rank}")
+        logging.info(f"Determined worker rank from WORKER_RANK: {worker_id}")
     else:
-        logging.info(f"Couldn't find WORKER_RANK env var, setting rank to {rank}.")
+        logging.info(f"Couldn't find WORKER_RANK env var, setting rank to {worker_id}.")
+    
+    RUN_ONCE = (args.multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
     
     # %% PREPARING DATA FOR TUNING
-    if rank == 0:
-        logging.info("Preparing data for tuning")
-        if not os.path.exists(data_module.train_ready_data_path):
-            data_module.generate_datasets()
-            reload = True
-        else:
-            reload = False
-        
-        data_module.generate_splits(save=True, reload=reload, splits=["train", "val"])._df.collect()
-        
-        # get max_splits longest datasets
-        data_module.train_dataset = sorted(data_module.train_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
-        data_module.val_dataset = sorted(data_module.val_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
-        if args.max_splits:
-            train_dataset = data_module.train_dataset[:args.max_splits]
-            val_dataset = data_module.val_dataset[:args.max_splits]
-        else:
-            train_dataset = data_module.train_dataset
-            val_dataset = data_module.val_dataset
-        
-        if args.max_steps:
-            train_dataset = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in train_dataset]
-            val_dataset = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in val_dataset]
+    if worker_id == 0:
+        if RUN_ONCE:
+            logging.info("Preparing data for tuning")
+            if not os.path.exists(data_module.train_ready_data_path):
+                data_module.generate_datasets()
+                reload = True
+            else:
+                reload = False
             
-        train_dataset = generate_wind_field_df(datasets=train_dataset, target_cols=data_module.target_cols, feat_dynamic_real_cols=data_module.feat_dynamic_real_cols)
-        val_dataset = generate_wind_field_df(datasets=val_dataset, target_cols=data_module.target_cols, feat_dynamic_real_cols=data_module.feat_dynamic_real_cols)
-        delattr(data_module, "train_dataset")
-        delattr(data_module, "val_dataset")
+            data_module.generate_splits(save=True, reload=reload, splits=["train", "val"])._df.collect()
+            
+            # get max_splits longest datasets
+            data_module.train_dataset = sorted(data_module.train_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
+            data_module.val_dataset = sorted(data_module.val_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
+            if args.max_splits:
+                train_dataset = data_module.train_dataset[:args.max_splits]
+                val_dataset = data_module.val_dataset[:args.max_splits]
+            else:
+                train_dataset = data_module.train_dataset
+                val_dataset = data_module.val_dataset
+            
+            if args.max_steps:
+                train_dataset = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in train_dataset]
+                val_dataset = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in val_dataset]
+                
+            train_dataset = generate_wind_field_df(datasets=train_dataset, target_cols=data_module.target_cols, feat_dynamic_real_cols=data_module.feat_dynamic_real_cols)
+            val_dataset = generate_wind_field_df(datasets=val_dataset, target_cols=data_module.target_cols, feat_dynamic_real_cols=data_module.feat_dynamic_real_cols)
+            delattr(data_module, "train_dataset")
+            delattr(data_module, "val_dataset")
         
-        forecaster.prepare_data(dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, scale=False)
+        forecaster.prepare_data(dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, 
+                                scale=False, multiprocessor=args.multiprocessor)
     
     
     # if not args.initialize: 
     # %% TUNING MODEL
-    if rank > 0:
-        scaler_params = data_module.compute_scaler_params()
+    if worker_id > 0:
         
-        logging.info("Initializing storage")
-        db_setup_params = generate_df_setup_params(args.model, model_config)
-        optuna_storage = setup_optuna_storage(
-            db_setup_params=db_setup_params,
-            restart_tuning=args.restart_tuning,
-            rank=rank
-        )
-        
-        logging.info("Running tune_hyperparameters_multi")
+        if RUN_ONCE:
+            scaler_params = data_module.compute_scaler_params()
+            
+            logging.info("Initializing storage")
+            db_setup_params = generate_df_setup_params(args.model, model_config)
+            optuna_storage = setup_optuna_storage(
+                db_setup_params=db_setup_params,
+                restart_tuning=args.restart_tuning,
+                rank=0 if RUN_ONCE and (worker_id == 0) else worker_id
+            )
+            
+            logging.info("Running tune_hyperparameters_multi")
         #{"type": "hyperband", "min_resource": 2, "max_resource": 5, "reduction_factor": 3, "percentile": 25}
+        
         forecaster.tune_hyperparameters_single(storage=optuna_storage,
-                                            n_trials_per_worker=model_config["optuna"]["n_trials_per_worker"], 
-                                            seed=args.seed,
-                                            config=model_config)
+                                                n_trials_per_worker=model_config["optuna"]["n_trials_per_worker"], 
+                                                seed=args.seed,
+                                                config=model_config,
+                                                worker_id=0 if RUN_ONCE and (worker_id == 0) else worker_id,
+                                                multiprocessor=args.multiprocessor)
                                         #  trial_protection_callback=handle_trial_with_oom_protection)
 
         # %% TRAINING MODEL

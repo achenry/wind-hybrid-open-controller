@@ -19,6 +19,7 @@ import gc
 from memory_profiler import profile
 import pickle
 import glob
+from functools import partial
 
 # from joblib import parallel_backend
 
@@ -181,7 +182,7 @@ class WindForecast:
         model.fit(X_train, y_train)
         return (-mean_squared_error(y_true=y_val, y_pred=model.predict(X_val)))
     
-    def _tuning_objective(self, trial):
+    def _tuning_objective(self, trial, multiprocessor):
         """
         Objective function to be minimized in Optuna
         """
@@ -197,10 +198,14 @@ class WindForecast:
         # else:
         # max_workers = mp.cpu_count()
         max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
-        executor = ProcessPoolExecutor(max_workers=max_workers,
-                                        mp_context=mp.get_context("spawn"))
-        logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
-            
+        if multiprocessor == "mpi":
+            comm_size = MPI.COMM_WORLD.Get_size()
+            executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+        elif multiprocessor == "cf":
+            max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
+            executor = ProcessPoolExecutor(max_workers=max_workers,
+                                            mp_context=mp.get_context("spawn"))
+        
         with executor as ex:
             futures = [ex.submit(self._compute_output_score, output=output, params=params) for output in self.outputs]
             scores = [fut.result() for fut in futures]
@@ -208,7 +213,7 @@ class WindForecast:
         logging.info(f"Completed trial {trial.number}.")
         return sum(scores)
     
-    def prepare_data(self, dataset_splits, scale=True, reload=True):
+    def prepare_data(self, dataset_splits, scale=True, reload=True, multiprocessor=None):
         """
         Prepares the training/val data for tuning for each output based on the historic measurements.
         
@@ -218,137 +223,168 @@ class WindForecast:
         Returns:
             None
         """
+<<<<<<< HEAD
         logging.info(f"Reloading data.")
         for ds_type, ds_list in dataset_splits.items():
             for ds in ds_list:
                 if ds.shape[0] < self.n_context + self.n_prediction:
                     logging.warning(f"{ds_type} dataset with continuity groups {list(ds['continuity_group'].unique())} have insufficient length!")
                     continue
+=======
+        
+        if RUN_ONCE := ((multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (multiprocessor != "mpi") or (multiprocessor is None)):
+            logging.info(f"Reloading data.")
+            for ds_type, ds_list in dataset_splits.items():
+                for ds in ds_list:
+                    if ds.shape[0] < self.n_context + self.n_prediction:
+                        logging.warning(f"{ds_type} dataset with continuity groups {list(ds["continuity_group"].unique())} have insufficient length!")
+                        continue
+>>>>>>> 6d527f952edb15e0241efba65b60ec6cb9b30d45
                     
-        # For each output, prepare the training data
-        for output in self.outputs:
-            for split, ds_list in dataset_splits.items():
+        # For each output, prepare the training data TODO parallelize
+        if multiprocessor is not None:
+            if multiprocessor == "mpi":
+                comm_size = MPI.COMM_WORLD.Get_size()
+                executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+            elif multiprocessor == "cf":
+                max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
+                executor = ProcessPoolExecutor(max_workers=max_workers,
+                                                mp_context=mp.get_context("spawn"))
+            with executor as ex:
+                if multiprocessor == "mpi":
+                    ex.max_workers = comm_size
+                    
+                futures = [ex.submit(self._get_output_data, 
+                                        measurements=[ds for ds in ds_list if ds.shape[0] >= self.n_context + self.n_prediction], 
+                                        output=output, 
+                                        split=split, 
+                                        reload=reload, 
+                                        scale=scale) for split, ds_list in dataset_splits.items() for output in self.outputs]
+                
+                _ = [fut.result() for fut in futures]
+        else: 
+            for split, ds_list in dataset_splits.items(): 
                 measurements = [ds for ds in ds_list if ds.shape[0] >= self.n_context + self.n_prediction]
-                self._get_output_data(measurements=measurements, output=output, split=split, reload=reload, scale=scale)
+                for output in self.outputs:
+                    self._get_output_data(measurements=measurements, output=output, split=split, reload=reload, scale=scale)
      
     # def tune_hyperparameters_single(self, historic_measurements, scaler, feat_type, tid, study_name, seed, restart_tuning, backend, storage_dir, n_trials=1):
     def tune_hyperparameters_single(self, seed, storage, 
                                     config,
-                                    n_trials_per_worker=1):
-        # for case when argument is list of multiple continuous time series AND to only get the training inputs/outputs relevant to this model
-        # Log safely without credentials if they were included (they aren't for socket trust)
-        if hasattr(storage, "url"):
-            log_storage_url = storage.url.split('@')[0] + '@...' if '@' in storage.url else storage.url
-            logging.info(f"Using Optuna storage URL: {log_storage_url}")
-
-        # Configure pruner based on settings
-        if "pruning" in config["optuna"] and config["optuna"]["pruning"].get("enabled", False):
-            pruning_type = config["optuna"]["pruning"].get("type", "hyperband").lower()
-            
-            min_resource = config["optuna"]["pruning"]["min_resource"]
-            max_resource = config["optuna"]["pruning"]["max_resource"]
-                
-            logging.info(f"Configuring pruner: type={pruning_type}, min_resource={config["optuna"]["pruning"]['min_resource']}")
-
-            if pruning_type == "hyperband":
-                reduction_factor = config["optuna"]["pruning"]["reduction_factor"]
-                
-                pruner = HyperbandPruner(
-                    min_resource=min_resource,
-                    max_resource=max_resource,
-                    reduction_factor=reduction_factor
-                )
-                logging.info(f"Created HyperbandPruner with min_resource={min_resource}, max_resource={max_resource}, reduction_factor={reduction_factor}")
-            elif pruning_type == "median":
-                pruner = MedianPruner(n_startup_trials=5, n_warmup_steps=min_resource)
-                logging.info(f"Created MedianPruner with n_startup_trials=5, n_warmup_steps={min_resource}")
-            elif pruning_type == "percentile":
-                percentile = config["optuna"][percentile]
-                pruner = PercentilePruner(percentile=percentile, n_startup_trials=5, n_warmup_steps=min_resource)
-                logging.info(f"Created PercentilePruner with percentile={percentile}, n_startup_trials=5, n_warmup_steps={min_resource}")
-            else:
-                logging.warning(f"Unknown pruner type: {pruning_type}, using no pruning")
-                pruner = NopPruner()
-        else:
-            logging.info("Pruning is disabled, using NopPruner")
-            pruner = NopPruner()
+                                    n_trials_per_worker=1,
+                                    worker_id=0,
+                                    multiprocessor=None):
         
-        # Get worker ID for study creation/loading logic
-        # Use WORKER_RANK consistent with run_model.py. Default to '0' if not set.
-        
-        worker_id = os.environ.get('WORKER_RANK', '0')
-
-        # Create study on rank 0, load on other ranks
-        study = None # Initialize study variable
-        
-        logging.info("line 275")
-        try:
-            if worker_id == '0':
-                logging.info(f"Rank 0: Creating/loading Optuna study '{self.study_name}' with pruner: {type(pruner).__name__}")
-                study = create_study(study_name=self.study_name,
-                                        storage=storage,
-                                        direction="maximize",
-                                        load_if_exists=True,
-                                        sampler=TPESampler(seed=seed),
-                                        pruner=pruner) # maximize negative mse ie minimize mse
-                logging.info(f"Rank 0: Study '{self.study_name}' created or loaded successfully.")
-                
-                # --- Launch Dashboard (Rank 0 only) ---
-                if hasattr(storage, "url"):
-                    launch_optuna_dashboard(config, storage.url) # Call imported function
-                # --------------------------------------
-            else:
-                # Non-rank-0 workers MUST load the study created by rank 0
-                logging.info(f"Rank {worker_id}: Attempting to load existing Optuna study '{self.study_name}'")
-                # Add a small delay and retry mechanism for loading, in case rank 0 is slightly delayed
-                max_retries = 6 # Increased retries slightly
-                retry_delay = 10 # Increased delay slightly
-                for attempt in range(max_retries):
-                    try:
-                        study = load_study(
-                            study_name=self.study_name,
-                            storage=storage,
-                            sampler=TPESampler(seed=seed), # Sampler might be needed for load_study too
-                            pruner=pruner
-                        )
-                        logging.info(f"Rank {worker_id}: Study '{self.study_name}' loaded successfully on attempt {attempt+1}.")
-                        break # Exit loop on success
-                    except KeyError as e: # Optuna <3.0 raises KeyError if study doesn't exist yet
-                        if attempt < max_retries - 1:
-                            logging.warning(f"Rank {worker_id}: Study '{self.study_name}' not found yet (attempt {attempt+1}/{max_retries}). Retrying in {retry_delay}s... Error: {e}")
-                            time.sleep(retry_delay)
-                        else:
-                            logging.error(f"Rank {worker_id}: Failed to load study '{self.study_name}' after {max_retries} attempts (KeyError). Aborting.")
-                            raise
-                    except Exception as e: # Catch other potential loading errors (e.g., DB connection issues)
-                        logging.error(f"Rank {worker_id}: An unexpected error occurred while loading study '{self.study_name}' on attempt {attempt+1}: {e}", exc_info=True)
-                        # Decide whether to retry on other errors or raise immediately
-                        if attempt < max_retries - 1:
-                            logging.warning(f"Retrying in {retry_delay}s...")
-                            time.sleep(retry_delay)
-                        else:
-                            logging.error(f"Rank {worker_id}: Failed to load study '{self.study_name}' after {max_retries} attempts due to persistent errors. Aborting.")
-                            raise # Re-raise other errors after retries
-                
-                # Check if study was successfully loaded after the loop
-                if study is None:
-                    # This condition should ideally be caught by the error handling within the loop, but added for safety.
-                    raise RuntimeError(f"Rank {worker_id}: Could not load study '{self.study_name}' after multiple retries.")
-   
-        except Exception as e:
-            # Log error with rank information
-            logging.error(f"Rank {worker_id}: Error creating/loading study '{self.study_name}': {str(e)}", exc_info=True)
-            # Log storage URL safely
+        if worker_id == 0:
+            # for case when argument is list of multiple continuous time series AND to only get the training inputs/outputs relevant to this model
+            # Log safely without credentials if they were included (they aren't for socket trust)
             if hasattr(storage, "url"):
-                log_storage_url_safe = str(storage.url).split('@')[0] + '@...' if '@' in str(storage.url) else str(storage.url)
-                logging.error(f"Error details - Type: {type(e).__name__}, Storage: {log_storage_url_safe}")
+                log_storage_url = storage.url.split('@')[0] + '@...' if '@' in storage.url else storage.url
+                logging.info(f"Using Optuna storage URL: {log_storage_url}")
+
+            # Configure pruner based on settings
+            if "pruning" in config["optuna"] and config["optuna"]["pruning"].get("enabled", False):
+                pruning_type = config["optuna"]["pruning"].get("type", "hyperband").lower()
+                
+                min_resource = config["optuna"]["pruning"]["min_resource"]
+                max_resource = config["optuna"]["pruning"]["max_resource"]
+                    
+                logging.info(f"Configuring pruner: type={pruning_type}, min_resource={config["optuna"]["pruning"]['min_resource']}")
+
+                if pruning_type == "hyperband":
+                    reduction_factor = config["optuna"]["pruning"]["reduction_factor"]
+                    
+                    pruner = HyperbandPruner(
+                        min_resource=min_resource,
+                        max_resource=max_resource,
+                        reduction_factor=reduction_factor
+                    )
+                    logging.info(f"Created HyperbandPruner with min_resource={min_resource}, max_resource={max_resource}, reduction_factor={reduction_factor}")
+                elif pruning_type == "median":
+                    pruner = MedianPruner(n_startup_trials=5, n_warmup_steps=min_resource)
+                    logging.info(f"Created MedianPruner with n_startup_trials=5, n_warmup_steps={min_resource}")
+                elif pruning_type == "percentile":
+                    percentile = config["optuna"][percentile]
+                    pruner = PercentilePruner(percentile=percentile, n_startup_trials=5, n_warmup_steps=min_resource)
+                    logging.info(f"Created PercentilePruner with percentile={percentile}, n_startup_trials=5, n_warmup_steps={min_resource}")
+                else:
+                    logging.warning(f"Unknown pruner type: {pruning_type}, using no pruning")
+                    pruner = NopPruner()
             else:
-                logging.error(f"Error details - Type: {type(e).__name__}, Storage: Journal")
-            raise
-        
-        max_workers = mp.cpu_count()
-        logging.info(f"Worker {worker_id}: Participating in Optuna study {self.study_name} with {max_workers} workers")
-        objective_fn = self._tuning_objective
+                logging.info("Pruning is disabled, using NopPruner")
+                pruner = NopPruner()
+                
+            # Create study on rank 0, load on other ranks
+            study = None # Initialize study variable
+            
+            logging.info("line 275")
+            try:
+                if worker_id == 0:
+                    logging.info(f"Rank 0: Creating/loading Optuna study '{self.study_name}' with pruner: {type(pruner).__name__}")
+                    study = create_study(study_name=self.study_name,
+                                            storage=storage,
+                                            direction="maximize",
+                                            load_if_exists=True,
+                                            sampler=TPESampler(seed=seed),
+                                            pruner=pruner) # maximize negative mse ie minimize mse
+                    logging.info(f"Rank 0: Study '{self.study_name}' created or loaded successfully.")
+                    
+                    # --- Launch Dashboard (Rank 0 only) ---
+                    if hasattr(storage, "url"):
+                        launch_optuna_dashboard(config, storage.url) # Call imported function
+                    # --------------------------------------
+                else:
+                    # Non-rank-0 workers MUST load the study created by rank 0
+                    logging.info(f"Rank {worker_id}: Attempting to load existing Optuna study '{self.study_name}'")
+                    # Add a small delay and retry mechanism for loading, in case rank 0 is slightly delayed
+                    max_retries = 6 # Increased retries slightly
+                    retry_delay = 10 # Increased delay slightly
+                    for attempt in range(max_retries):
+                        try:
+                            study = load_study(
+                                study_name=self.study_name,
+                                storage=storage,
+                                sampler=TPESampler(seed=seed), # Sampler might be needed for load_study too
+                                pruner=pruner
+                            )
+                            logging.info(f"Rank {worker_id}: Study '{self.study_name}' loaded successfully on attempt {attempt+1}.")
+                            break # Exit loop on success
+                        except KeyError as e: # Optuna <3.0 raises KeyError if study doesn't exist yet
+                            if attempt < max_retries - 1:
+                                logging.warning(f"Rank {worker_id}: Study '{self.study_name}' not found yet (attempt {attempt+1}/{max_retries}). Retrying in {retry_delay}s... Error: {e}")
+                                time.sleep(retry_delay)
+                            else:
+                                logging.error(f"Rank {worker_id}: Failed to load study '{self.study_name}' after {max_retries} attempts (KeyError). Aborting.")
+                                raise
+                        except Exception as e: # Catch other potential loading errors (e.g., DB connection issues)
+                            logging.error(f"Rank {worker_id}: An unexpected error occurred while loading study '{self.study_name}' on attempt {attempt+1}: {e}", exc_info=True)
+                            # Decide whether to retry on other errors or raise immediately
+                            if attempt < max_retries - 1:
+                                logging.warning(f"Retrying in {retry_delay}s...")
+                                time.sleep(retry_delay)
+                            else:
+                                logging.error(f"Rank {worker_id}: Failed to load study '{self.study_name}' after {max_retries} attempts due to persistent errors. Aborting.")
+                                raise # Re-raise other errors after retries
+                    
+                    # Check if study was successfully loaded after the loop
+                    if study is None:
+                        # This condition should ideally be caught by the error handling within the loop, but added for safety.
+                        raise RuntimeError(f"Rank {worker_id}: Could not load study '{self.study_name}' after multiple retries.")
+    
+            except Exception as e:
+                # Log error with rank information
+                logging.error(f"Rank {worker_id}: Error creating/loading study '{self.study_name}': {str(e)}", exc_info=True)
+                # Log storage URL safely
+                if hasattr(storage, "url"):
+                    log_storage_url_safe = str(storage.url).split('@')[0] + '@...' if '@' in str(storage.url) else str(storage.url)
+                    logging.error(f"Error details - Type: {type(e).__name__}, Storage: {log_storage_url_safe}")
+                else:
+                    logging.error(f"Error details - Type: {type(e).__name__}, Storage: Journal")
+                raise
+            
+            max_workers = mp.cpu_count()
+            logging.info(f"Worker {worker_id}: Participating in Optuna study {self.study_name} with {max_workers} workers")
+            objective_fn = partial(self._tuning_objective, multiprocessor=multiprocessor)
         
         try:
             study.optimize(objective_fn,
@@ -358,8 +394,7 @@ class WindForecast:
             logging.error(f"Worker {worker_id}: Failed during study optimization: {str(e)}", exc_info=True)
             raise
         
-        logging.info("line 351")
-        if worker_id == '0' and study:
+        if worker_id == 0 and study:
             # logging.info("Rank 0: Starting W&B summary run creation.")
 
             # Wait for all expected trials to complete
@@ -397,20 +432,19 @@ class WindForecast:
                 logging.warning("Rank 0: Could not retrieve best trial (likely no trials completed successfully).")
             except Exception as e_best_trial:
                 logging.error(f"Rank 0: Error fetching best trial: {e_best_trial}", exc_info=True)
-                
-        # Log best trial details (only rank 0)
-        logging.info("line 393")
-        if worker_id == '0' and study: # Check if study object exists
-            if len(study.trials) > 0:
-                logging.info("Number of finished trials: {}".format(len(study.trials)))
-                logging.info("Best trial:")
-                trial = study.best_trial
-                logging.info("  Value: {}".format(trial.value))
-                logging.info("  Params: ")
-                for key, value in trial.params.items():
-                    logging.info("    {}: {}".format(key, value))
-            else:
-                logging.warning("No trials were completed")
+                    
+            # Log best trial details (only rank 0)
+            if worker_id == '0' and study: # Check if study object exists
+                if len(study.trials) > 0:
+                    logging.info("Number of finished trials: {}".format(len(study.trials)))
+                    logging.info("Best trial:")
+                    trial = study.best_trial
+                    logging.info("  Value: {}".format(trial.value))
+                    logging.info("  Params: ")
+                    for key, value in trial.params.items():
+                        logging.info("    {}: {}".format(key, value))
+                else:
+                    logging.warning("No trials were completed")
         
         # for output in self.outputs:
         #     os.remove(os.path.join(self.temp_save_dir, f"Xy_train_{output}.dat"))
@@ -2276,31 +2310,24 @@ def generate_forecaster_results(forecaster, data_module, evaluator, test_data, p
     #             num_series=data_module.num_target_vars,
     #             include_metrics=[])
     
-    # TODO test with sample forecast and distribution
     agg_metrics = []
-    for fdf in forecast_df:
-        test_idx = fdf.select(pl.col("test_idx").first()).item()
-        mean_vars = [c for c in target_vars if "ws_" in c]
-        
-        tdf = test_data.filter(pl.col("time").is_in(fdf.select(pl.col("time"))))\
-                       .select("time", cs.starts_with("ws_horz"), cs.starts_with("ws_vert"))
-        
-        fdf = fdf.select(pl.col("time"), *[cs.starts_with(tgt) for tgt in target_vars])
-        
-        
-        mse = (tdf.select(data_module.target_cols) - fdf.select(cs.starts_with(mean_vars)))\
-            .select(pl.all().pow(2).mean().sqrt()).with_columns(metric=pl.lit("RMSE"), test_idx=pl.lit(test_idx))
-        mse = unpivot_df(mse, forecaster.turbine_signature)
-            
-        mae = (tdf.select(data_module.target_cols) - fdf.select(cs.starts_with(mean_vars)))\
-            .select(pl.all().abs().mean()).with_columns(metric=pl.lit("MAE"), test_idx=pl.lit(test_idx))
-        mae = unpivot_df(mae, forecaster.turbine_signature)
-            
-        agg_metrics += [mse, mae]
+    mean_vars = [c for c in target_vars if "ws_" in c]
     
     fdf = forecast_df = pl.concat(forecast_df, how="vertical")
     tdf = test_data.filter(pl.col("time").is_in(forecast_df.select(pl.col("time"))))\
                        .select("time", cs.starts_with("ws_horz"), cs.starts_with("ws_vert"))
+    # TODO TEST
+    mse = (tdf.select(data_module.target_cols) - fdf.select(cs.starts_with(mean_vars)))\
+        .select(pl.all().pow(2).mean().sqrt()).with_columns(metric=pl.lit("RMSE"), test_idx=pl.lit(-1))
+    mse = unpivot_df(mse, forecaster.turbine_signature)
+        
+    mae = (tdf.select(data_module.target_cols) - fdf.select(cs.starts_with(mean_vars)))\
+        .select(pl.all().abs().mean()).with_columns(metric=pl.lit("MAE"), test_idx=pl.lit(-1))
+    mae = unpivot_df(mae, forecaster.turbine_signature)
+    
+    agg_metrics += [mse, mae]
+    
+    
     if prediction_type == "distribution" and forecaster.is_probabilistic:
         
         picp = pl.DataFrame(
@@ -2346,46 +2373,47 @@ def generate_forecaster_results(forecaster, data_module, evaluator, test_data, p
 def plot_score_vs_prediction_dt(agg_df, metrics, ax_indices):
     
     n_axes = len(ax_indices)
-    left_metrics = [met for i, met in zip(ax_indices, metrics) if i == 0]
-    right_metrics = [met for i, met in zip(ax_indices, metrics) if i == 1]
+    # left_metrics = [met for i, met in zip(ax_indices, metrics) if i == 0]
+    # right_metrics = [met for i, met in zip(ax_indices, metrics) if i == 1]
     
     # fig, ax1 = plt.subplots(1, 1)
-    fig = plt.figure()
-    if left_metrics and right_metrics:
-        # TODO will have same color for different metrics over pos/neg
-        ax1 = sns.scatterplot(agg_df.filter(pl.col("metric").is_in(left_metrics)).to_pandas(),
-                        y="score", x="prediction_timedelta", style="forecaster", hue="metric", s=100)
-        ax2 = ax1.twinx()
+    sns.set_style("whitegrid")
+    fig = plt.figure(figsize=(12.8, 9.6))
+    # if left_metrics and right_metrics:
+    #     # TODO will have same color for different metrics over pos/neg
+    #     ax1 = sns.scatterplot(agg_df.filter(pl.col("metric").is_in(left_metrics)).to_pandas(),
+    #                     y="score", x="prediction_timedelta", style="metric", hue="forecaster", s=200)
+    #     ax2 = ax1.twinx()
     
-        sns.scatterplot(agg_df.filter(pl.col("metric").is_in(right_metrics)).to_pandas(),
-                        y="score", x="prediction_timedelta", style="forecaster", hue="metric", ax=ax2, s=100)
-        ax = ax2
+    #     sns.scatterplot(agg_df.filter(pl.col("metric").is_in(right_metrics)).to_pandas(),
+    #                     y="score", x="prediction_timedelta", style="metric", hue="forecaster", ax=ax2, s=200)
+    #     ax = ax2
         
-    elif left_metrics or right_metrics:
-        mets = left_metrics or right_metrics
-        ax1 = sns.scatterplot(agg_df.filter(pl.col("metric").is_in(mets)).to_pandas(),
-                        y="score", x="prediction_timedelta", style="forecaster", hue="metric", s=100)
-        ax = ax1
+    # elif left_metrics or right_metrics:
+    ax = sns.scatterplot(agg_df.filter(pl.col("metric").is_in(metrics)).to_pandas(),
+                    y="score", x="prediction_timedelta", style="metric", hue="forecaster", s=200)
+    # ax = ax1
         
-    if left_metrics:
-        ax1.set_ylabel(f"Score for {', '.join(left_metrics)} (-)")
-        h1, l1 = ax1.get_legend_handles_labels()
+    # if left_metrics:
+    # ax.set_ylabel(f"Score for {', '.join(left_metrics)} (-)")
+    ax.set_ylabel("Score")
+    h1, l1 = ax.get_legend_handles_labels()
         
-    if right_metrics:
-        ax2.set_ylabel(f"Score for {', '.join(right_metrics)} (-)")
-        h2, l2 = ax2.get_legend_handles_labels()
+    # if right_metrics:
+    #     ax2.set_ylabel(f"Score for {', '.join(right_metrics)} (-)")
+    #     h2, l2 = ax2.get_legend_handles_labels()
         
     ax.set_xlabel("Prediction Length (s)")
     
-    if left_metrics and right_metrics:
-        l = l1[:l1.index("metric")] + l1[l1.index("metric"):] + l2[l2.index("metric")+1:]
-        h = h1[:l1.index("metric")] + h1[l1.index("metric"):] + h2[l2.index("metric")+1:]
-    elif left_metrics:
-        l = l1
-        h = h1
-    else:
-        l = l2
-        h = h2
+    # if left_metrics and right_metrics:
+    #     l = l1[:l1.index("metric")] + l1[l1.index("metric"):] + l2[l2.index("metric")+1:]
+    #     h = h1[:l1.index("metric")] + h1[l1.index("metric"):] + h2[l2.index("metric")+1:]
+    # elif left_metrics:
+    l = l1
+    h = h1
+    # else:
+    #     l = l2
+    #     h = h2
     
     new_labels = [" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", label).group())) 
                   if "Forecast" in label else (label.capitalize() if not label[0].isupper() else label).replace("_", " ") for label in l]
@@ -2401,58 +2429,60 @@ def plot_score_vs_prediction_dt(agg_df, metrics, ax_indices):
 def plot_score_vs_forecaster(agg_df, metrics, ax_indices):
     
     n_axes = len(ax_indices)
-    left_metrics = [met for i, met in zip(ax_indices, metrics) if i == 0]
-    right_metrics = [met for i, met in zip(ax_indices, metrics) if i == 1]
+    # left_metrics = [met for i, met in zip(ax_indices, metrics) if i == 0]
+    # right_metrics = [met for i, met in zip(ax_indices, metrics) if i == 1]
     
     # fig, ax = plt.subplots(1, 1)
-    if left_metrics and right_metrics:
-        # TODO will have same color for different metrics over pos/neg
-        ax1 = sns.catplot(agg_df.loc[agg_df["metric"].isin(left_metrics), :],
-                    kind="bar",
-                    hue="metric", x="forecaster", y="score")
-        sub_ax1 = ax1.ax
-        
-        sub_ax2 = sub_ax1.twinx()
-        ax2 = sns.catplot(agg_df.loc[agg_df["metric"].isin(right_metrics), :],
-                    kind="bar",
-                    hue="metric", x="forecaster", y="score", ax=sub_ax2)
-        ax = ax2
-    elif left_metrics:
-        ax1 = sns.catplot(agg_df.loc[agg_df["metric"].isin(left_metrics), :],
-                    kind="bar",
-                    hue="metric", x="forecaster", y="score")
-        ax = ax1
-    elif right_metrics:
-        ax2 = sns.catplot(agg_df.loc[agg_df["metric"].isin(right_metrics), :],
-                    kind="bar",
-                    hue="metric", x="forecaster", y="score")
-        ax = ax2
-        
-    if left_metrics:
-        ax1.ax.set_ylabel(f"Score for {', '.join(left_metrics)} (-)")
-        h1, l1 = ax1.ax.get_legend_handles_labels()
-        
-    if right_metrics:
-        ax2.ax.set_ylabel(f"Score for {', '.join(right_metrics)} (-)")
-        h2, l2 = ax2.ax.get_legend_handles_labels()
+    # if left_metrics and right_metrics:
+    # TODO will have same color for different metrics over pos/neg
+    sns.set_style("whitegrid")
+    ax1 = sns.catplot(agg_df.filter(pl.col("metric").is_in(metrics)),
+                kind="bar",
+                hue="metric", x="forecaster", y="score")
+    # sub_ax1 = ax1.ax
     
-    if left_metrics and right_metrics:
-        l = l1[:l1.index("metric")] + l1[l1.index("metric"):] + l2[l2.index("metric")+1:]
-        h = h1[:l1.index("metric")] + h1[l1.index("metric"):] + h2[l2.index("metric")+1:]
-    elif left_metrics:
-        l = l1
-        h = h1
-    else:
-        l = l2
-        h = h2
+    # sub_ax2 = sub_ax1.twinx()
+    # ax2 = sns.catplot(agg_df.filter(pl.col("metric").is_in(right_metrics)),
+    #             kind="bar",
+    #             hue="metric", x="forecaster", y="score", ax=sub_ax2)
+    # ax = ax2
+    # elif left_metrics:
+    #     ax1 = sns.catplot(agg_df.filter(pl.col("metric").is_in(left_metrics)),
+    #                 kind="bar",
+    #                 hue="metric", x="forecaster", y="score")
+    #     ax = ax1
+    # elif right_metrics:
+    #     ax2 = sns.catplot(agg_df.filter(pl.col("metric").is_in(right_metrics)),
+    #                 kind="bar",
+    #                 hue="metric", x="forecaster", y="score")
+    #     ax = ax2
+        
+    # if left_metrics:
+    # ax1.ax.set_ylabel(f"Score for {', '.join(metrics)} (-)")
+    ax1.ax.set_ylabel(f"Score")
+    h1, l1 = ax1.ax.get_legend_handles_labels()
+        
+    # if right_metrics:
+    #     ax2.ax.set_ylabel(f"Score for {', '.join(right_metrics)} (-)")
+    #     h2, l2 = ax2.ax.get_legend_handles_labels()
     
-    ax.ax.set_xlabel("Forecaster")
+    # if left_metrics and right_metrics:
+    # l = l1[:l1.index("metric")] + l1[l1.index("metric"):] + l2[l2.index("metric")+1:]
+    # h = h1[:l1.index("metric")] + h1[l1.index("metric"):] + h2[l2.index("metric")+1:]
+    # elif left_metrics:
+    l = l1
+    h = h1
+    # else:
+    #     l = l2
+    #     h = h2
     
-    ax.legend.set_visible(False)
+    ax1.ax.set_xlabel("Forecaster")
+    
+    ax1.legend.set_visible(False)
     # new_labels = [(re.search("\\w+(?=Forecast)", label).group() if "Forecast" in label else (label.capitalize() if not label[0].isupper() else label).replace("_", " ")) for label in l]
-    ax.ax.set_xticklabels([" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", label._text).group())) for label in ax.ax.get_xticklabels()], rotation=45)
+    ax1.ax.set_xticklabels([" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", label._text).group())) for label in ax1.ax.get_xticklabels()], rotation=35)
     new_labels = [(label.capitalize() if not label[0].isupper() else label).replace("_", " ") for label in l]
-    ax.ax.legend(h, new_labels, frameon=False, bbox_to_anchor=(1.01, 1), loc="upper left")
+    ax1.ax.legend(h, new_labels, frameon=False, bbox_to_anchor=(1.01, 1), loc="upper left")
     plt.tight_layout()
     return plt.gcf()
 
@@ -2838,7 +2868,7 @@ if __name__ == "__main__":
     
     all_metrics = results[0]["agg_metrics"].select(pl.col("metric").unique()).to_numpy().flatten()
     # get the metrics we care about, there is also "MSE", "MAE", "abs_error", "QuantileLoss", 
-    metrics = [metric for metric in all_metrics if any(m in metric for m in ["MAE", "RMSE", "PICP", "PINAW", "CWC", "CRPS"])]
+    metrics = [metric for metric in all_metrics if any(m in metric for m in ["MAE", "RMSE", "PINAW", "CWC", "CRPS", "PICP"])]
     
     agg_df = pl.concat([
         res["agg_metrics"].with_columns(forecaster=pl.lit(res["forecaster_name"]), 
@@ -2846,25 +2876,27 @@ if __name__ == "__main__":
         for res in results], how="vertical")
     
     plotting_metrics_dirs = [(met, direc) for met, direc in 
-                        zip(["MAE", "RMSE", "PICP", "PINAW", "CWC", "CRPS"], [0, 0, 1, 1, 1, 1]) 
+                        zip(["MAE", "RMSE", "PINAW", "CWC", "CRPS", "PICP"], [0, 0, 1, 1, 1, 1]) 
                         if met in pd.unique(agg_df["metric"])]
     plotting_metrics = [v[0] for v in plotting_metrics_dirs]
     ax_indices = [v[1] for v in plotting_metrics_dirs]
+    plt.close()
+    
+    totals_agg_df = agg_df.filter((pl.col("test_idx")==-1) & (pl.col("turbine_id") == "all"))\
+                          .group_by(["forecaster", "metric", "prediction_timedelta"]).agg(pl.col("score").mean())
     # generate scatterplot of metric vs prediction time for different models (different colors) and different metrics (different_styles) (crps, picp, pinaw, cwc, mse, mae)
-    plot_score_vs_prediction_dt(agg_df, 
+    plot_score_vs_prediction_dt(totals_agg_df, 
                                 metrics=plotting_metrics,
                                 ax_indices=ax_indices)
 
     # best_prediction_dt = agg_df.groupby(["metric", "prediction_timedelta"])["score"].mean().idxmax()
     # generate grouped barcharpt of metrics (crps, picp, pinaw, cwc, mse, mae) grouped together vs model on x axis for best prediction time
-    # best_prediction_dt = agg_df.groupby("prediction_timedelta")["score"].mean().idxmax()
-    best_prediction_dt = (agg_df.group_by("prediction_timedelta").agg(pl.col("score").mean().alias("mean_score")).sort("mean_score", descending=True).select("prediction_timedelta").row(0)[0])
-    plot_score_vs_forecaster(
-        agg_df.filter(pl.col("prediction_timedelta") == best_prediction_dt).to_pandas(),
-        metrics=plotting_metrics,
-        ax_indices=ax_indices
-    )
-
+    totals_agg_df.filter(pl.col("metric").is_in(["RMSE", "MAE", "CWC", "CRPS", "PINAW"])).group_by(["forecaster", "metric"]).agg(pl.all().sort_by("score").last())
+    totals_agg_df.filter(pl.col("metric").is_in(["PICP"])).group_by(["forecaster", "metric"]).agg(pl.all().sort_by("score").last())
+    
+    best_prediction_dt = totals_agg_df.filter(pl.col("metric").is_in(["RMSE", "MAE", "CWC", "CRPS", "PINAW"])).group_by("prediction_timedelta").agg(pl.col("score").mean()).select(pl.col("prediction_timedelta").sort_by("score").first()).item()
+    plot_score_vs_forecaster(totals_agg_df.filter(pl.col("prediction_timedelta") == best_prediction_dt), 
+                             metrics=plotting_metrics,
+                                ax_indices=ax_indices)
+    
     print("here")
-
-
