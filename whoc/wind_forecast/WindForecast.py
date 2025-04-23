@@ -1217,11 +1217,11 @@ class SVRForecast(WindForecast):
                 pickle.dump(self.scaler[output], fp, protocol=5)
         return self.model[output], self.scaler[output]
     
-    def train_all_outputs(self, historic_measurements, scale, multiprocessor, retrain_models=True,
+    def train_all_outputs(self, outputs, scale, multiprocessor, retrain_models=True,
                           scaler_params=None):
         # training_measurements = historic_measurements.gather_every(self.n_prediction_interval)
         # scale = (training_measurements.select(pl.len()).item() > 1) and scale
-        outputs = self._get_ws_cols(historic_measurements)
+        # outputs = self._get_ws_cols(historic_measurements)
         
         # if training_measurements.select(pl.len()).item() >= self.n_context + self.n_prediction:
         #     if self.max_n_samples:
@@ -2139,7 +2139,7 @@ def generate_wind_field_df(datasets, target_cols, feat_dynamic_real_cols):
     return pl.from_pandas(wf)
 
 def unpivot_df(df, turbine_signature):
-    return df.unpivot(index=["metric", "test_idx"], variable_name="feature", value_name="score")\
+    return df.unpivot(index=["metric", "continuity_group", "test_idx"], variable_name="feature", value_name="score")\
             .with_columns(turbine_id=pl.col("feature").str.extract(f"({turbine_signature})$"),
                           feature_type=pl.col("feature").str.extract(f"(.*)_{turbine_signature}$"))\
             .drop("feature")
@@ -2187,51 +2187,68 @@ def generate_forecaster_results(forecaster, data_module, evaluator, test_data, p
     agg_metrics = []
     mean_vars = [c for c in target_vars if c.startswith("ws_") or c.startswith("loc_ws_")]
     
-    fdf = forecast_df = pl.concat(forecast_df, how="vertical").select(["time", "continuity_group"] + [cs.ends_with(tgt) for tgt in data_module.target_cols])
+    fdf = forecast_df = pl.concat(forecast_df, how="vertical").select(["time"] + [cs.ends_with(tgt) for tgt in data_module.target_cols])
     tdf = test_data.filter(pl.col("time").is_in(forecast_df.select(pl.col("time"))))\
                        .select(["time", "continuity_group"] + data_module.target_cols)
-    combined_df = fdf.join(tdf, on=["time", "continuity_group"], suffix="_true", coalesce=False)
+    combined_df = fdf.join(tdf, on=["time"], suffix="_true", coalesce=False)
     true_cols = [f"{c}_true" for c in data_module.target_cols]
     pred_cols = [f"loc_{c}" if forecaster.is_probabilistic else c for c in data_module.target_cols]
     
-    err = combined_df.select([(pl.col(true_col) - pl.col(pred_col)).alias(pred_col) for true_col, pred_col in zip(true_cols, pred_cols)]).select(pl.all().name.map(lambda tgt: tgt if tgt.startswith("ws_") else re.search("(?<=loc_)(\\w+)$", tgt).group()))
+    err = combined_df.select(["time", "continuity_group"] + [(pl.col(pred_col) - pl.col(true_col)).name.map(lambda tgt: tgt if tgt.startswith("ws_") else re.search("(?<=loc_)(\\w+)$", tgt).group()) for true_col, pred_col in zip(true_cols, pred_cols)])
     
-    rmse = err.select(pl.all().pow(2).mean().sqrt()).with_columns(metric=pl.lit("RMSE"), test_idx=pl.lit(-1))
+    rmse = err.group_by("continuity_group").agg(cs.numeric().pow(2).mean().sqrt()).with_columns(metric=pl.lit("RMSE"), test_idx=pl.lit(-1))
     rmse = unpivot_df(rmse, forecaster.turbine_signature)
         
-    mae = err.select(pl.all().abs().mean()).with_columns(metric=pl.lit("MAE"), test_idx=pl.lit(-1))
+    mae = err.group_by("continuity_group").agg(cs.numeric().abs().mean()).with_columns(metric=pl.lit("MAE"), test_idx=pl.lit(-1))
     mae = unpivot_df(mae, forecaster.turbine_signature)
     
     agg_metrics += [rmse, mae]
     
-    # TODO find score per continuity group
     
     if prediction_type == "distribution" and forecaster.is_probabilistic:
-        pred_mean = combined_df.select(cs.starts_with("loc_")).to_numpy()
-        true = tdf.select(data_module.target_cols).to_numpy()
-        pred_stddev = fdf.select(cs.starts_with("sd_")).to_numpy()
+        pred_mean = combined_df.select(pl.col("continuity_group"), cs.starts_with("loc_"))
+        true = tdf.select(pl.col("continuity_group"), data_module.target_cols)
+        pred_stddev = fdf.select(pl.col("continuity_group"), cs.starts_with("sd_"))
+        cg_vals = fdf.select(pl.col("continuity_group"))
         
-        picp = pl.DataFrame(
-            data=np.atleast_2d(pi_coverage_probability(pred_mean, true, pred_stddev)),
-            schema=data_module.target_cols)\
-                .with_columns(metric=pl.lit("PICP"), test_idx=pl.lit(-1))
+        picp = pl.concat([
+            pl.DataFrame(
+                data=np.atleast_2d(pi_coverage_probability(
+                    pred_mean.filter(pl.col("continuity_group") == cg).select(cs.numeric()).to_numpy(), 
+                    true.filter(pl.col("continuity_group") == cg).select(cs.numeric()).to_numpy(), 
+                    pred_stddev.filter(pl.col("continuity_group") == cg).select(cs.numeric()).to_numpy()
+                    )),
+                schema=data_module.target_cols) for cg in cg_vals], how="vertical")\
+                    .with_columns(metric=pl.lit("PICP"), test_idx=pl.lit(-1))
         picp = unpivot_df(picp, forecaster.turbine_signature)
         
-        pinaw = pl.DataFrame(
-            data=np.atleast_2d(pi_normalized_average_width(pred_mean, true, pred_stddev)),
-            schema=data_module.target_cols)\
+        pinaw = pl.concat([pl.DataFrame(
+            data=np.atleast_2d(pi_normalized_average_width(
+                pred_mean.filter(pl.col("continuity_group") == cg).select(cs.numeric()).to_numpy(), 
+                true.filter(pl.col("continuity_group") == cg).select(cs.numeric()).to_numpy(), 
+                pred_stddev.filter(pl.col("continuity_group") == cg).select(cs.numeric()).to_numpy()
+                )),
+            schema=data_module.target_cols) for cg in cg_vals], how="vertical")\
                     .with_columns(metric=pl.lit("PINAW"), test_idx=pl.lit(-1))
         pinaw = unpivot_df(pinaw, forecaster.turbine_signature)
         
-        cwc = pl.DataFrame(
-            data=np.atleast_2d(coverage_width_criterion(pred_mean, true, pred_stddev)),
-            schema=data_module.target_cols)\
+        cwc = pl.concat([pl.DataFrame(
+            data=np.atleast_2d(coverage_width_criterion(
+                pred_mean.filter(pl.col("continuity_group") == cg).select(cs.numeric()).to_numpy(), 
+                true.filter(pl.col("continuity_group") == cg).select(cs.numeric()).to_numpy(), 
+                pred_stddev.filter(pl.col("continuity_group") == cg).select(cs.numeric()).to_numpy()
+                )),
+            schema=data_module.target_cols) for cg in cg_vals], how="vertical")\
                 .with_columns(metric=pl.lit("CWC"), test_idx=pl.lit(-1))
         cwc = unpivot_df(cwc, forecaster.turbine_signature)
         
-        crps = pl.DataFrame(
-            data=np.atleast_2d(continuous_ranked_probability_score_gaussian(pred_mean, true, pred_stddev)),
-            schema=data_module.target_cols)\
+        crps = pl.concat([pl.DataFrame(
+            data=np.atleast_2d(continuous_ranked_probability_score_gaussian(
+                pred_mean.filter(pl.col("continuity_group") == cg).select(cs.numeric()).to_numpy(), 
+                true.filter(pl.col("continuity_group") == cg).select(cs.numeric()).to_numpy(), 
+                pred_stddev.filter(pl.col("continuity_group") == cg).select(cs.numeric()).to_numpy()
+                )),
+            schema=data_module.target_cols) for cg in cg_vals], how="vertical")\
                 .with_columns(metric=pl.lit("CRPS"), test_idx=pl.lit(-1))
         crps = unpivot_df(crps, forecaster.turbine_signature)
         
@@ -2702,7 +2719,7 @@ if __name__ == "__main__":
                     "prediction_timedelta": forecaster.prediction_timedelta.total_seconds()
                     })
     # results[0]["agg_metrics"].group_by(["test_idx", "feature_type"], maintain_order=True).agg(pl.col("score").mean()).with_columns(turbine_id=pl.lit("all"))
-    
+    rmse.group_by("continuity_group").agg(pl.col("score").mean()).select(pl.all().sort_by("score").first())
     all_metrics = results[0]["agg_metrics"].select(pl.col("metric").unique()).to_numpy().flatten()
     # get the metrics we care about, there is also "MSE", "MAE", "abs_error", "QuantileLoss", 
     metrics = [metric for metric in all_metrics if any(m in metric for m in ["MAE", "RMSE", "PINAW", "CWC", "CRPS", "PICP"])]
