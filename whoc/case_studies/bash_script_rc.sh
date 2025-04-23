@@ -11,7 +11,7 @@
 # load modules
 module purge
 module load miniforge 
-mamba activate wind_forecasting
+mamba activate wind_forecasting_env
 #module load gcc/10.3 openmpi
 # module load openmpi/4.1.4
 module load intel/2022.1.2 impi/2021.5.0
