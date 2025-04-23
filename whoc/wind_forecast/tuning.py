@@ -31,7 +31,7 @@ def replace_env_vars(dirpath):
 
 if __name__ == "__main__":
     
-    logging.info("Parsing arguments and configuration yaml.")
+    
     parser = argparse.ArgumentParser(prog="WindFarmForecasting")
     parser.add_argument("-md", "--model", type=str, choices=["svr", "kf", "preview", "informer", "autoformer", "spacetimeformer"], required=True)
     parser.add_argument("-mcnf", "--model_config", type=str)
@@ -45,6 +45,11 @@ if __name__ == "__main__":
     parser.add_argument("-rt", "--restart_tuning", action="store_true")
     # pretrained_filename = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/wf_forecasting/lznjshyo/checkpoints/epoch=0-step=50.ckpt"
     args = parser.parse_args()
+    
+    RUN_ONCE = (args.multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
+    
+    if RUN_ONCE:
+        logging.info("Parsing arguments and configuration yaml.")
     
     with open(args.model_config, 'r') as file:
         model_config  = yaml.safe_load(file)
@@ -63,7 +68,9 @@ if __name__ == "__main__":
      
     fmodel = FlorisModel(data_config["farm_input_path"])
     
-    logging.info("Creating datasets")
+    if RUN_ONCE:
+        logging.info("Creating datasets")
+        
     data_module = DataModule(data_path=model_config["dataset"]["data_path"], 
                             normalization_consts_path=model_config["dataset"]["normalization_consts_path"],
                             normalized=True, 
@@ -76,12 +83,16 @@ if __name__ == "__main__":
                                     per_turbine_target=False, as_lazyframe=False, dtype=pl.Float32)
         
     # %% SETUP SEED
-    logging.info(f"Setting random seed to {args.seed}")
+    if RUN_ONCE:
+        logging.info(f"Setting random seed to {args.seed}")
+        
     random.seed(args.seed)
     np.random.seed(args.seed)
     
     # %% INSTANTIATING MODEL
-    logging.info("Instantiating model.")  
+    if RUN_ONCE:
+        logging.info("Instantiating model.")
+          
     if args.model == "svr": 
         # NOTE: n_neighboring_turbines must be the same as in herculesinput_001.yaml
         forecaster = SVRForecast(measurements_timedelta=pd.Timedelta(model_config["dataset"]["resample_freq"]),
@@ -100,12 +111,11 @@ if __name__ == "__main__":
     
     # Use the WORKER_RANK variable set explicitly in the Slurm script's nohup block
     worker_id = int(os.environ.get('WORKER_RANK', 0))
-    if "WORKER_RANK" in os.environ:
-        logging.info(f"Determined worker rank from WORKER_RANK: {worker_id}")
-    else:
-        logging.info(f"Couldn't find WORKER_RANK env var, setting rank to {worker_id}.")
-    
-    RUN_ONCE = (args.multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
+    if RUN_ONCE:
+        if "WORKER_RANK" in os.environ:
+            logging.info(f"Determined worker rank from WORKER_RANK: {worker_id}")
+        else:
+            logging.info(f"Couldn't find WORKER_RANK env var, setting rank to {worker_id}.")
     
     # %% PREPARING DATA FOR TUNING
     if worker_id == 0:
