@@ -142,22 +142,26 @@ if __name__ == "__main__":
     # if not args.initialize: 
     # %% TUNING MODEL
     if rank > 0:
-        scaler_params = data_module.compute_scaler_params()
-        
-        logging.info("Initializing storage")
-        db_setup_params = generate_df_setup_params(args.model, model_config)
-        optuna_storage = setup_optuna_storage(
-            db_setup_params=db_setup_params,
-            restart_tuning=args.restart_tuning,
-            rank=rank
-        )
-        
-        logging.info("Running tune_hyperparameters_multi")
+        RUN_ONCE = (args.multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
+        if RUN_ONCE:
+            scaler_params = data_module.compute_scaler_params()
+            
+            logging.info("Initializing storage")
+            db_setup_params = generate_df_setup_params(args.model, model_config)
+            optuna_storage = setup_optuna_storage(
+                db_setup_params=db_setup_params,
+                restart_tuning=args.restart_tuning,
+                rank=rank
+            )
+            
+            logging.info("Running tune_hyperparameters_multi")
         #{"type": "hyperband", "min_resource": 2, "max_resource": 5, "reduction_factor": 3, "percentile": 25}
+        
         forecaster.tune_hyperparameters_single(storage=optuna_storage,
-                                            n_trials_per_worker=model_config["optuna"]["n_trials_per_worker"], 
-                                            seed=args.seed,
-                                            config=model_config)
+                                                n_trials_per_worker=model_config["optuna"]["n_trials_per_worker"], 
+                                                seed=args.seed,
+                                                config=model_config,
+                                                rank=0 if RUN_ONCE else rank)
                                         #  trial_protection_callback=handle_trial_with_oom_protection)
 
         # %% TRAINING MODEL
