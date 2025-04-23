@@ -223,14 +223,6 @@ class WindForecast:
         Returns:
             None
         """
-<<<<<<< HEAD
-        logging.info(f"Reloading data.")
-        for ds_type, ds_list in dataset_splits.items():
-            for ds in ds_list:
-                if ds.shape[0] < self.n_context + self.n_prediction:
-                    logging.warning(f"{ds_type} dataset with continuity groups {list(ds['continuity_group'].unique())} have insufficient length!")
-                    continue
-=======
         
         if RUN_ONCE := ((multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (multiprocessor != "mpi") or (multiprocessor is None)):
             logging.info(f"Reloading data.")
@@ -239,7 +231,6 @@ class WindForecast:
                     if ds.shape[0] < self.n_context + self.n_prediction:
                         logging.warning(f"{ds_type} dataset with continuity groups {list(ds["continuity_group"].unique())} have insufficient length!")
                         continue
->>>>>>> 6d527f952edb15e0241efba65b60ec6cb9b30d45
                     
         # For each output, prepare the training data TODO parallelize
         if multiprocessor is not None:
