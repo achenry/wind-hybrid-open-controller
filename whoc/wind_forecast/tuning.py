@@ -108,8 +108,8 @@ if __name__ == "__main__":
                             tid2idx_mapping=tid2idx_mapping,
                             turbine_signature=turbine_signature,
                             use_tuned_params=False)
-        original_save_dir = forecaster.model_save_dir
-        forecaster.model_save_dir = os.environ["TMPDIR"]
+        # original_save_dir = forecaster.model_save_dir
+        # forecaster.model_save_dir = os.environ["TMPDIR"]
     # Use the WORKER_RANK variable set explicitly in the Slurm script's nohup block
     worker_id = int(os.environ.get('WORKER_RANK', 0))
     if RUN_ONCE:
@@ -154,10 +154,10 @@ if __name__ == "__main__":
                                 scale=False, multiprocessor=args.multiprocessor)
 
         if RUN_ONCE:
-            logging.info(f"Moving prepared data from {forecaster.model_save_dir} to {original_save_dir}.")
-            filenames = os.listdir(forecaster.model_save_dir)
-            for fn in filenames:
-                shutil.move(os.path.join(forecaster.model_save_dir, fn), original_save_dir)
+            # logging.info(f"Moving prepared data from {forecaster.model_save_dir} to {original_save_dir}.")
+            # filenames = os.listdir(forecaster.model_save_dir)
+            # for fn in filenames:
+            #     shutil.move(os.path.join(forecaster.model_save_dir, fn), original_save_dir)
             logging.info("Finished preparing data for tuning.")
 
     # %% TUNING MODEL
