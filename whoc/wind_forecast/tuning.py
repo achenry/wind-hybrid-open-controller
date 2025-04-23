@@ -105,35 +105,38 @@ if __name__ == "__main__":
     else:
         logging.info(f"Couldn't find WORKER_RANK env var, setting rank to {worker_id}.")
     
+    RUN_ONCE = (args.multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
+    
     # %% PREPARING DATA FOR TUNING
     if worker_id == 0:
-        logging.info("Preparing data for tuning")
-        if not os.path.exists(data_module.train_ready_data_path):
-            data_module.generate_datasets()
-            reload = True
-        else:
-            reload = False
-        
-        data_module.generate_splits(save=True, reload=reload, splits=["train", "val"])._df.collect()
-        
-        # get max_splits longest datasets
-        data_module.train_dataset = sorted(data_module.train_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
-        data_module.val_dataset = sorted(data_module.val_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
-        if args.max_splits:
-            train_dataset = data_module.train_dataset[:args.max_splits]
-            val_dataset = data_module.val_dataset[:args.max_splits]
-        else:
-            train_dataset = data_module.train_dataset
-            val_dataset = data_module.val_dataset
-        
-        if args.max_steps:
-            train_dataset = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in train_dataset]
-            val_dataset = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in val_dataset]
+        if RUN_ONCE:
+            logging.info("Preparing data for tuning")
+            if not os.path.exists(data_module.train_ready_data_path):
+                data_module.generate_datasets()
+                reload = True
+            else:
+                reload = False
             
-        train_dataset = generate_wind_field_df(datasets=train_dataset, target_cols=data_module.target_cols, feat_dynamic_real_cols=data_module.feat_dynamic_real_cols)
-        val_dataset = generate_wind_field_df(datasets=val_dataset, target_cols=data_module.target_cols, feat_dynamic_real_cols=data_module.feat_dynamic_real_cols)
-        delattr(data_module, "train_dataset")
-        delattr(data_module, "val_dataset")
+            data_module.generate_splits(save=True, reload=reload, splits=["train", "val"])._df.collect()
+            
+            # get max_splits longest datasets
+            data_module.train_dataset = sorted(data_module.train_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
+            data_module.val_dataset = sorted(data_module.val_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
+            if args.max_splits:
+                train_dataset = data_module.train_dataset[:args.max_splits]
+                val_dataset = data_module.val_dataset[:args.max_splits]
+            else:
+                train_dataset = data_module.train_dataset
+                val_dataset = data_module.val_dataset
+            
+            if args.max_steps:
+                train_dataset = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in train_dataset]
+                val_dataset = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in val_dataset]
+                
+            train_dataset = generate_wind_field_df(datasets=train_dataset, target_cols=data_module.target_cols, feat_dynamic_real_cols=data_module.feat_dynamic_real_cols)
+            val_dataset = generate_wind_field_df(datasets=val_dataset, target_cols=data_module.target_cols, feat_dynamic_real_cols=data_module.feat_dynamic_real_cols)
+            delattr(data_module, "train_dataset")
+            delattr(data_module, "val_dataset")
         
         forecaster.prepare_data(dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, 
                                 scale=False, multiprocessor=args.multiprocessor)
@@ -142,7 +145,7 @@ if __name__ == "__main__":
     # if not args.initialize: 
     # %% TUNING MODEL
     if worker_id > 0:
-        RUN_ONCE = (args.multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
+        
         if RUN_ONCE:
             scaler_params = data_module.compute_scaler_params()
             
