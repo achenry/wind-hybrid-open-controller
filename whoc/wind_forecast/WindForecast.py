@@ -507,7 +507,7 @@ class WindForecast:
             X_all = fp[:, :-1]
             y_all = fp[:, -1]
         
-        logging.info(f"Deleting filepointer to {Xy_path}")
+        # logging.info(f"Deleting filepointer to {Xy_path}")
         del fp
         
         if return_data:
@@ -1496,13 +1496,16 @@ class KalmanFilterForecast(WindForecast):
                 # update Qt and Rt based on previous value s of process and measurement noise
                 len_w = self.historic_w.shape[0]
                 len_v = self.historic_v.shape[0]
-                Qs = [self._init_covariance(
-                    historic_noise=self.historic_w[len_w - j - self.n_context:len_w - j, :]) for j in range(zs.shape[0]-1, -1, -1)]
-                Rs = [self._init_covariance(
-                    historic_noise=self.historic_v[len_v - j - self.n_context:len_v - j, :]) for j in range(zs.shape[0]-1, -1, -1)]
-                for r in Rs:
-                    np.fill_diagonal(a=r, val=np.max([np.diag(r), np.ones(r.shape[0]) * 1e-3]))
-                
+                # Qs = [self._init_covariance(
+                #     historic_noise=self.historic_w[len_w - j - self.n_context:len_w - j, :]) for j in range(zs.shape[0]-1, -1, -1)]
+                # Rs = [self._init_covariance(
+                #     historic_noise=self.historic_v[len_v - j - self.n_context:len_v - j, :]) for j in range(zs.shape[0]-1, -1, -1)]
+                # for r in Rs:
+                #     np.fill_diagonal(a=r, val=np.max([np.diag(r), np.ones(r.shape[0]) * 1e-2]))
+            
+            Qs = [np.eye(self.model.dim_x)*1e-1 for j in range(zs.shape[0])]
+            Rs = [np.eye(self.model.dim_z)*1e-3 for j in range(zs.shape[0])]
+            
             init_x = self.model.x.copy()
             # use batch_filter to, on each controller sampling time
             # mean estimates from Kalman Filter
@@ -2044,14 +2047,12 @@ def make_predictions(forecaster, test_data, prediction_type):
                 elif prediction_type == "sample":
                     raise NotImplementedError()
                 
+                forecasts[-1].append(pred)
                 # for kf testing
                 # means_p.append(forecaster.means_p)
                 # means.append(forecaster.means)
                 # covariances_p.append(forecaster.covariances_p)
                 # covariances.append(forecaster.covariances)
-            
-                forecasts[-1].append(pred)
-            
         
         if not len(forecasts[-1]):
             raise Exception(f"{d}th dataset in data does not have sufficient data points, with {ds.select(pl.len()).item()}, to collect predictions after context_timedelta {forecaster.context_timedelta}")
