@@ -155,9 +155,6 @@ if __name__ == "__main__":
         if RUN_ONCE:
             logging.info("Finished preparing data for tuning.")
 
-        return
-    
-    # if not args.initialize: 
     # %% TUNING MODEL
     if worker_id > 0:
         
@@ -185,11 +182,10 @@ if __name__ == "__main__":
         # %% TRAINING MODEL
         logging.info("Training model using best hyperparameters.")
         forecaster.set_tuned_params(storage=optuna_storage, study_name=forecaster.study_name)
-        forecaster.train_all_outputs(train_dataset, scale=False, multiprocessor=args.multiprocessor, 
-                                        retrain_models=True,
-                                        scaler_params=scaler_params)
+        forecaster.train_all_outputs(outputs=data_module.target_cols, scale=False, 
+                                     multiprocessor=args.multiprocessor, 
+                                     retrain_models=True,
+                                     scaler_params=scaler_params)
         
         # %% After training completes
         logging.info("Optuna hyperparameter tuning completed.")
-        
-        return
