@@ -252,10 +252,10 @@ class WindForecast:
     def tune_hyperparameters_single(self, seed, storage, 
                                     config,
                                     n_trials_per_worker=1,
-                                    rank=0,
+                                    worker_id=0,
                                     multiprocessor=None):
         
-        if rank == 0:
+        if worker_id == 0:
             # for case when argument is list of multiple continuous time series AND to only get the training inputs/outputs relevant to this model
             # Log safely without credentials if they were included (they aren't for socket trust)
             if hasattr(storage, "url"):
@@ -293,18 +293,13 @@ class WindForecast:
             else:
                 logging.info("Pruning is disabled, using NopPruner")
                 pruner = NopPruner()
-            
-            # Get worker ID for study creation/loading logic
-            # Use WORKER_RANK consistent with run_model.py. Default to '0' if not set.
-            
-            worker_id = os.environ.get('WORKER_RANK', '0')
-
+                
             # Create study on rank 0, load on other ranks
             study = None # Initialize study variable
             
             logging.info("line 275")
             try:
-                if worker_id == '0':
+                if worker_id == 0:
                     logging.info(f"Rank 0: Creating/loading Optuna study '{self.study_name}' with pruner: {type(pruner).__name__}")
                     study = create_study(study_name=self.study_name,
                                             storage=storage,
@@ -379,49 +374,46 @@ class WindForecast:
             logging.error(f"Worker {worker_id}: Failed during study optimization: {str(e)}", exc_info=True)
             raise
         
-        if rank == 0:
-            logging.info("line 351")
-            if worker_id == '0' and study:
-                # logging.info("Rank 0: Starting W&B summary run creation.")
+        if worker_id == 0 and study:
+            # logging.info("Rank 0: Starting W&B summary run creation.")
 
-                # Wait for all expected trials to complete
-                num_workers = int(os.environ.get('WORLD_SIZE', 1))
-                expected_total_trials = num_workers * n_trials_per_worker
-                logging.info(f"Rank 0: Expecting a total of {expected_total_trials} trials ({num_workers} workers * {n_trials_per_worker} trials/worker).")
+            # Wait for all expected trials to complete
+            num_workers = int(os.environ.get('WORLD_SIZE', 1))
+            expected_total_trials = num_workers * n_trials_per_worker
+            logging.info(f"Rank 0: Expecting a total of {expected_total_trials} trials ({num_workers} workers * {n_trials_per_worker} trials/worker).")
 
-                logging.info("Rank 0: Waiting for all expected Optuna trials to reach a terminal state...")
-                wait_interval_seconds = 30
-                while True:
-                    # Refresh trials from storage
-                    all_trials_current = study.get_trials(deepcopy=False)
-                    finished_trials = [t for t in all_trials_current if t.state in (TrialState.COMPLETE, TrialState.PRUNED, TrialState.FAIL)]
-                    num_finished = len(finished_trials)
-                    num_total_in_db = len(all_trials_current) # Current count in DB
+            logging.info("Rank 0: Waiting for all expected Optuna trials to reach a terminal state...")
+            wait_interval_seconds = 30
+            while True:
+                # Refresh trials from storage
+                all_trials_current = study.get_trials(deepcopy=False)
+                finished_trials = [t for t in all_trials_current if t.state in (TrialState.COMPLETE, TrialState.PRUNED, TrialState.FAIL)]
+                num_finished = len(finished_trials)
+                num_total_in_db = len(all_trials_current) # Current count in DB
 
-                    logging.info(f"Rank 0: Trial status check: {num_finished} finished / {num_total_in_db} in DB (expected total: {expected_total_trials}).")
+                logging.info(f"Rank 0: Trial status check: {num_finished} finished / {num_total_in_db} in DB (expected total: {expected_total_trials}).")
 
-                    if num_finished >= expected_total_trials:
-                        logging.info(f"Rank 0: All {expected_total_trials} expected trials have reached a terminal state.")
-                        break
-                    elif num_total_in_db > expected_total_trials and num_finished >= expected_total_trials:
-                        logging.warning(f"Rank 0: Found {num_total_in_db} trials in DB (expected {expected_total_trials}), but {num_finished} finished trials meet the expectation.")
-                        break
+                if num_finished >= expected_total_trials:
+                    logging.info(f"Rank 0: All {expected_total_trials} expected trials have reached a terminal state.")
+                    break
+                elif num_total_in_db > expected_total_trials and num_finished >= expected_total_trials:
+                    logging.warning(f"Rank 0: Found {num_total_in_db} trials in DB (expected {expected_total_trials}), but {num_finished} finished trials meet the expectation.")
+                    break
 
-                    logging.info(f"Rank 0: Still waiting for trials to finish ({num_finished}/{expected_total_trials}). Sleeping for {wait_interval_seconds} seconds...")
-                    time.sleep(wait_interval_seconds)
+                logging.info(f"Rank 0: Still waiting for trials to finish ({num_finished}/{expected_total_trials}). Sleeping for {wait_interval_seconds} seconds...")
+                time.sleep(wait_interval_seconds)
 
-                # Fetch best trial *before* initializing summary run
-                best_trial = None
-                try:
-                    best_trial = study.best_trial
-                    logging.info(f"Rank 0: Fetched best trial: Number={best_trial.number}, Value={best_trial.value}")
-                except ValueError:
-                    logging.warning("Rank 0: Could not retrieve best trial (likely no trials completed successfully).")
-                except Exception as e_best_trial:
-                    logging.error(f"Rank 0: Error fetching best trial: {e_best_trial}", exc_info=True)
+            # Fetch best trial *before* initializing summary run
+            best_trial = None
+            try:
+                best_trial = study.best_trial
+                logging.info(f"Rank 0: Fetched best trial: Number={best_trial.number}, Value={best_trial.value}")
+            except ValueError:
+                logging.warning("Rank 0: Could not retrieve best trial (likely no trials completed successfully).")
+            except Exception as e_best_trial:
+                logging.error(f"Rank 0: Error fetching best trial: {e_best_trial}", exc_info=True)
                     
             # Log best trial details (only rank 0)
-            logging.info("line 393")
             if worker_id == '0' and study: # Check if study object exists
                 if len(study.trials) > 0:
                     logging.info("Number of finished trials: {}".format(len(study.trials)))
