@@ -151,7 +151,11 @@ if __name__ == "__main__":
         
         forecaster.prepare_data(dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, 
                                 scale=False, multiprocessor=args.multiprocessor)
-    
+
+        if RUN_ONCE:
+            logging.info("Finished preparing data for tuning.")
+
+        return
     
     # if not args.initialize: 
     # %% TUNING MODEL
@@ -187,3 +191,5 @@ if __name__ == "__main__":
         
         # %% After training completes
         logging.info("Optuna hyperparameter tuning completed.")
+        
+        return
