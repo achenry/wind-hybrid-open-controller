@@ -157,18 +157,17 @@ if __name__ == "__main__":
     # %% TUNING MODEL
     if worker_id > 0:
         
-        if RUN_ONCE:
-            scaler_params = data_module.compute_scaler_params()
-            
-            logging.info("Initializing storage")
-            db_setup_params = generate_df_setup_params(args.model, model_config)
-            optuna_storage = setup_optuna_storage(
-                db_setup_params=db_setup_params,
-                restart_tuning=args.restart_tuning,
-                rank=0 if RUN_ONCE and (worker_id == 0) else worker_id
-            )
-            
-            logging.info("Running tune_hyperparameters_multi")
+        scaler_params = data_module.compute_scaler_params()
+        
+        logging.info("Initializing storage")
+        db_setup_params = generate_df_setup_params(args.model, model_config)
+        optuna_storage = setup_optuna_storage(
+            db_setup_params=db_setup_params,
+            restart_tuning=args.restart_tuning,
+            rank=0 if RUN_ONCE and (worker_id == 0) else worker_id
+        )
+        
+        logging.info("Running tune_hyperparameters_multi")
         #{"type": "hyperband", "min_resource": 2, "max_resource": 5, "reduction_factor": 3, "percentile": 25}
         
         forecaster.tune_hyperparameters_single(storage=optuna_storage,
