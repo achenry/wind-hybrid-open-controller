@@ -1547,24 +1547,7 @@ def plot_yaw_angles_and_power(data_df, save_dir):
 
     plt.show()
 
-def arima_plot(historic_df, turbine_id: str, save_dir: str, component_type: str = "ws_horz"):
-    """
-    Plot ARIMA DATA
-    """
 
-    component_col = f"{component_type}_{turbine_id}"
-
-    ts_df = (historic_df.select(["Time", component_col])).sort("Time").to_pandas()
-
-    fig, ax = plt.subplots(figsize=(12, 6))
-    sns.lineplot(data=ts_df, x="Time", y=component_col, ax=ax)
-
-    ax.set_title(f"ARIMA Data for Turbine {turbine_id} - {component_type}")
-    ax.set_xlabel("Time")
-    ax.set_ylabel(f"{component_col} (m/s)")
-    ax.grid(True)
-
-    plt.show()
 
     
 

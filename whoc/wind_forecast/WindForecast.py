@@ -86,6 +86,9 @@ from filterpy.kalman import KalmanFilter
 from floris import FlorisModel
 from scipy.signal import lfilter
 from scipy.stats import multivariate_normal as mvn
+from scipy.stats import boxcox
+from scipy.special import inv_boxcox
+
 
 import logging 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -597,7 +600,7 @@ class WindForecast:
         
     @staticmethod
     def plot_forecast(forecast_wf, true_wf, continuity_groups=None, feature_types=None, feature_labels=None, prediction_type="point", per_turbine_target=False, turbine_ids="all", label="", fig_dir="./",
-                      include_turbine_legend=False):
+                      include_turbine_legend=False, include_forecast=False, boxcox_transform=False, boxcox_features=["ws_horz", "ws_vert"]):
         if isinstance(forecast_wf, pd.DataFrame):
             forecast_wf = pl.DataFrame(forecast_wf)
             
@@ -629,12 +632,33 @@ class WindForecast:
         assert forecast_wf.select(pl.col("time")).unique().select(pl.len()).item() > 1, "Need more than one data point to plot a time series, try adding more values to continuity_groups or setting it to None"
         
         for f, feat in enumerate(feature_types):
+            # Apply Box-Cox transformation if enabled
+            if boxcox_transform and (boxcox_features is None or feat in boxcox_features):
+                # Filter only relevant feature
+                feat_df = true_wf.filter(pl.col("feature") == feat).to_pandas()
+
+                # Shift values if necessary (Box-Cox requires all > 0)
+                min_val = feat_df["value"].min()
+                shift_val = 0
+                if min_val <= 0:
+                    shift_val = abs(min_val) + 1
+                    feat_df["value"] += shift_val
+
+                # Apply Box-Cox
+                feat_df["value"], fitted_lambda = boxcox(feat_df["value"])
+                print(f"Box-Cox applied to feature '{feat}' with λ={fitted_lambda:.3f} and shift={shift_val}")
+
+                # Convert back to Polars and replace values in true_wf
+                transformed = pl.DataFrame(feat_df)
+                true_wf = true_wf.filter(pl.col("feature") != feat).vstack(transformed)
+
             if turbine_ids == "all":
                 sns.lineplot(data=true_wf.filter(
                                 (pl.col("feature") == feat) & (pl.col("time").is_between(forecast_wf.select(pl.col("time").min()).item(), forecast_wf.select(pl.col("time").max()).item(), closed="both"))), 
                                     x="time", y="value", ax=axs[0, f], style="data_type", hue="turbine_id")
             else:
                 for t, tid in enumerate(turbine_ids):
+                    print(true_wf.filter(pl.col("feature") == feat).select("value").max())
                     sns.lineplot(data=true_wf.filter(
                                     (pl.col("feature") == feat) & (pl.col("turbine_id") == tid) & (pl.col("time").is_between(forecast_wf.select(pl.col("time").min()).item(), forecast_wf.select(pl.col("time").max()).item(), closed="both"))), 
                                         x="time", y="value", ax=axs[t, f], style="data_type")
@@ -1942,11 +1966,32 @@ class ARIMAForecast(WindForecast):
     is_probabilistic = False
 
     def __post_init__(self):
+        print("ARIMAForecast initialized")
         super().__post_init__()
         self.models = {}
         self.fitted = False
+        self.boxcox_params = {}
+
+    def boxcox_transform(self, ts, feature_key):
+        """Apply Box-Cox transformation to the data."""
+        shift_val = 0
+        if ts.min() <= 0:
+            shift_val = abs(ts.min()) + 1
+            ts = ts + shift_val
+        ts_transformed, lmbda = boxcox(ts)
+        self.boxcox_params[feature_key] = {"lambda": lmbda, "shift": shift_val}
+        return ts_transformed
+    
+    def inverse_boxcox(self, ts_transformed, feature_key):
+        """Apply inverse Box-Cox transformation to the data."""
+        params = self.boxcox_params[feature_key]
+        shift_val = params["shift"]
+        lmbda = params["lambda"]
+        ts_original = inv_boxcox(ts_transformed, lmbda) - shift_val
+        return ts_original
 
     def train(self, historic_measurements: pl.DataFrame, turbine_ids=None):
+        print(">>> ARIMAForecast.train() called")
         if turbine_ids is None:
             turbine_ids = [
                 col.split("_")[-1]
@@ -1963,9 +2008,12 @@ class ARIMAForecast(WindForecast):
 
             # ARIMA prediction for both horizontal and vertical
             ts_horz = turbine_df_horz.to_pandas().set_index("time")[f"ws_horz_{turbine_id}"]
-            model_horz = sm.tsa.ARIMA(ts_horz, order=(1, 0, 0)).fit()
+            ts_horz = self.boxcox_transform(ts_horz, f"ws_horz_{turbine_id}")
+            model_horz = sm.tsa.ARIMA(ts_horz, order=(1, 2, 3)).fit()
+
             ts_vert = turbine_df_vert.to_pandas().set_index("time")[f"ws_vert_{turbine_id}"]
-            model_vert = sm.tsa.ARIMA(ts_vert, order=(1, 0, 0)).fit()
+            ts_vert = self.boxcox_transform(ts_vert, f"ws_vert_{turbine_id}")
+            model_vert = sm.tsa.ARIMA(ts_vert, order=(1, 2, 3)).fit()
             
             self.models[turbine_id] = {"ws_horz": model_horz, "ws_vert": model_vert}
             self.fitted = True
@@ -1978,6 +2026,7 @@ class ARIMAForecast(WindForecast):
         pass
        
     def predict_point(self, historic_measurements, current_time=None):
+        print(">>> ARIMAForecast.predict_point() called")
         if not self.fitted:
             raise ValueError("ARIMA model not fitted. Call train() method first.")
         
@@ -2001,9 +2050,12 @@ class ARIMAForecast(WindForecast):
             # vertical wind speed
             model_vert = self.models[turbine_id]["ws_vert"]
             forecast_vert = model_vert.forecast(steps=horizon)
+            
+            # inverse Box-Cox to the original scale
+            forecast_vert_original = self.inverse_boxcox(forecast_vert, f"ws_vert_{turbine_id}")
             turbine_forecast_vert = pl.DataFrame({
                     "time": forecast_times,
-                    f"ws_vert_{turbine_id}": forecast_vert
+                    f"ws_vert_{turbine_id}": forecast_vert_original
                 })
         
         forecast_df = forecast_df.join(turbine_forecast_horz, on="time", how="left")
@@ -2078,7 +2130,7 @@ def transform_wind(inp_df, added_wm=None, added_wd=None):
     return inp_df.select(original_cols)
 
 def make_predictions(forecaster, test_data, prediction_type):
-    
+    print("make_predictions was called")
     forecasts = []
     controller_times = test_data.gather_every(forecaster.n_controller).select(pl.col("time"))
     n_splits = test_data.select(pl.col("continuity_group").n_unique()).item()
@@ -2262,7 +2314,8 @@ def unpivot_df(df, turbine_signature):
             .drop("feature")
 
 def generate_forecaster_results(forecaster, data_module, evaluator, test_data, prediction_type):
-    
+    print("generate_forecaster_results was called")
+
     forecast_df = make_predictions(forecaster=forecaster, test_data=test_data, 
                                             prediction_type=prediction_type)
     
@@ -2526,6 +2579,7 @@ if __name__ == "__main__":
     RUN_ONCE = (args.multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
     
     TRANSFORM_WIND = {"added_wm": args.added_wind_mag, "added_wd": args.added_wind_dir}
+    
     # args.fig_dir = os.path.join(os.path.dirname(whoc_file), "..", "examples", "wind_forecasting")
     
     os.makedirs(args.fig_dir, exist_ok=True)
