@@ -156,26 +156,28 @@ class WindForecast:
         elif isinstance(historic_measurements, pd.DataFrame):
             return [col for col in historic_measurements.columns if (col.startswith("ws_horz") or col.startswith("ws_vert"))]
     
-    def _compute_output_score(self, output, params):
+    def _compute_output_score(self, output, params, limit_train=None):
         # logging.info(f"Defining model for output {output}.")
         # model = self.create_model(**{re.search(f"\\w+(?=_{output})", k).group(0): v for k, v in params.items() if k.endswith(f"_{output}")})
         model = self.create_model(**params)
         
         # get training data for this output
         # logging.info(f"Getting training data for output {output}.")
+        # randomly sample from training data
         X_train, y_train = self._get_output_data(output=output, split="train", reload=False)
+        
+        if limit_train:
+            random_indices = np.random.choice(np.arange(X_train.shape[0]), size=int(limit_train * X_train.shape[0]))
+            X_train, y_train = X_train[random_indices, :], y_train[random_indices]
+        
         X_val, y_val = self._get_output_data(output=output, split="val", reload=False)
         
         # evaluate with cross-validation
-        logging.info(f"Computing score for output {output}.")
-        # train_split = np.random.choice(X_train.shape[0], replace=False, size=int(X_train.shape[0] * 0.75))
-        # train_split = np.isin(range(X_train.shape[0]), train_split)
-        # test_split = ~train_split
-        
+        logging.info(f"Computing score for output {output} with {X_train.shape[0]} training data points and {X_val.shape[0]} validation data points.")
         model.fit(X_train, y_train)
         return (-mean_squared_error(y_true=y_val, y_pred=model.predict(X_val)))
     
-    def _tuning_objective(self, trial, multiprocessor):
+    def _tuning_objective(self, trial, multiprocessor, limit_train):
         """
         Objective function to be minimized in Optuna
         """
@@ -196,17 +198,18 @@ class WindForecast:
                 comm_size = MPI.COMM_WORLD.Get_size()
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
             elif multiprocessor == "cf":
-                max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
+                # max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
+                max_workers = mp.cpu_count()
                 executor = ProcessPoolExecutor(max_workers=max_workers)
                                                 # mp_context=mp.get_context("spawn"))
             
             with executor as ex:
-                futures = [ex.submit(self._compute_output_score, output=output, params=params) for output in self.outputs]
+                futures = [ex.submit(self._compute_output_score, output=output, params=params, limit_train=limit_train) for output in self.outputs]
                 scores = [fut.result() for fut in futures]
         else:
             scores = []
             for output in self.outputs:
-                scores.append(self._compute_output_score(output=output, params=params))
+                scores.append(self._compute_output_score(output=output, params=params, limit_train=limit_train))
         
         logging.info(f"Completed trial {trial.number}.")
         return sum(scores)
@@ -282,7 +285,8 @@ class WindForecast:
                                     config,
                                     n_trials_per_worker=1,
                                     worker_id=0,
-                                    multiprocessor=None):
+                                    multiprocessor=None,
+                                    limit_train=None):
         
         comm = MPI.COMM_WORLD
         RUN_ONCE = (multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (multiprocessor != "mpi") or (multiprocessor is None)
@@ -399,7 +403,7 @@ class WindForecast:
             # max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
             max_workers = mp.cpu_count()
             logging.info(f"Worker {worker_id}: Participating in Optuna study {self.study_name} with {max_workers} workers")
-            objective_fn = partial(self._tuning_objective, multiprocessor=multiprocessor)
+            objective_fn = partial(self._tuning_objective, multiprocessor=multiprocessor, limit_train=limit_train)
         
         if multiprocessor == "mpi":
             study = comm.bcast(study, root=0)
@@ -494,7 +498,7 @@ class WindForecast:
                     X_all.append(X)
                     y_all.append(y)
                     
-                    # logging.info(f"Generated {d}th {split} data.")
+                    logging.info(f"Generated {d}th {split} data.")
                 
                 X_all = np.vstack(X_all)
                 y_all = np.concatenate(y_all)
@@ -521,7 +525,7 @@ class WindForecast:
         
         else:
             # assert os.path.exists(Xy_path), "Must run prepare_training_data before tuning"
-            # logging.info(f"Loading existing {split} data from {Xy_path}")
+            logging.info(f"Loading existing {split} data from {Xy_path}")
             data_shape = tuple(np.load(Xy_path.replace(".dat", "_shape.npy")))
             fp = np.memmap(Xy_path, dtype="float32", 
                            mode="r", shape=data_shape)
