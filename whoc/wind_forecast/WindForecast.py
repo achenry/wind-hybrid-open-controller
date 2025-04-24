@@ -164,13 +164,16 @@ class WindForecast:
         # get training data for this output
         # logging.info(f"Getting training data for output {output}.")
         # randomly sample from training data
+        
         X_train, y_train = self._get_output_data(output=output, split="train", reload=False)
+        X_val, y_val = self._get_output_data(output=output, split="val", reload=False)
         
         if limit_train:
             random_indices = np.random.choice(np.arange(X_train.shape[0]), size=int(limit_train * X_train.shape[0]))
             X_train, y_train = X_train[random_indices, :], y_train[random_indices]
-        
-        X_val, y_val = self._get_output_data(output=output, split="val", reload=False)
+            
+            random_indices = np.random.choice(np.arange(X_val.shape[0]), size=int(limit_train * X_val.shape[0]))
+            X_val, y_val = X_valf[random_indices, :], y_val[random_indices]
         
         # evaluate with cross-validation
         logging.info(f"Computing score for output {output} with {X_train.shape[0]} training data points and {X_val.shape[0]} validation data points.")
