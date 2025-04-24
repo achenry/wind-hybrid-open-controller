@@ -197,6 +197,23 @@ if __name__ == "__main__":
             logging.info("Finished preparing data for tuning.")
 
     # %% TUNING MODEL
+    
+    optuna_storage = None
+    if RUN_ONCE:
+        logging.info("Initializing storage")
+        
+        db_setup_params = generate_df_setup_params(args.model, model_config)
+        optuna_storage = setup_optuna_storage(
+            db_setup_params=db_setup_params,
+            restart_tuning=False,
+            rank=0 if (worker_id == 0) else worker_id
+        )
+    
+        logging.info("Running tune_hyperparameters_single")
+    
+    if args.multiprocessor == "mpi":
+        optuna_storage = comm.bcast(optuna_storage, root=0)
+        
     if worker_id > 0:
         
         # Parse the core argument (e.g., "0-9" or "10,11,12")
@@ -216,21 +233,6 @@ if __name__ == "__main__":
         # logging.info(f"Process {os.getpid()}: Attempting to use cores: {core_ids}")
         
         scaler_params = data_module.compute_scaler_params()
-        optuna_storage = None
-        if RUN_ONCE:
-            logging.info("Initializing storage")
-            
-            db_setup_params = generate_df_setup_params(args.model, model_config)
-            optuna_storage = setup_optuna_storage(
-                db_setup_params=db_setup_params,
-                restart_tuning=args.restart_tuning,
-                rank=0 if RUN_ONCE and (worker_id == 0) else worker_id
-            )
-        
-            logging.info("Running tune_hyperparameters_single")
-        
-        if args.multiprocessor == "mpi":
-            optuna_storage = comm.bcast(optuna_storage, root=0)
         #{"type": "hyperband", "min_resource": 2, "max_resource": 5, "reduction_factor": 3, "percentile": 25}
         
         forecaster.tune_hyperparameters_single(storage=optuna_storage,
