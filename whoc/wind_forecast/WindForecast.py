@@ -21,6 +21,7 @@ from memory_profiler import profile
 import pickle
 import glob
 from functools import partial
+from functools import reduce
 from itertools import chain
 import torch
 
@@ -654,7 +655,8 @@ class WindForecast:
             fig, axs = plt.subplots(1, len(feature_types), sharex=True)
             axs = axs[np.newaxis, :]
         else:
-            fig, axs = plt.subplots(len(turbine_ids), len(feature_types), sharex=True, figsize=(15.12, 8.8))
+            fig, axs = plt.subplots(len(turbine_ids), len(feature_types), sharex=True, figsize=(15.12, 8.8))        
+        axs = np.array(axs)
                 
         if continuity_groups is not None and "continuity_group" in true_wf.collect_schema().names():
             true_wf = true_wf.filter(pl.col("continuity_group").is_in(continuity_groups))
@@ -2155,29 +2157,40 @@ class ARIMAForecast(WindForecast):
             
         forecast_times = pd.date_range(start=current_time + prediction_freq, periods=horizon, freq=prediction_freq)
         forecast_df = pl.DataFrame({"time": forecast_times})
+        turbine_forecasts = []
+
 
         for turbine_id in self.model_items():
             # horizontal wind speed
             model_horz = self.models[turbine_id]["ws_horz"]
             forecast_horz = model_horz.forecast(steps=horizon)
-            turbine_forecast_horz = pl.DataFrame({
-                    "time": forecast_times,
-                    f"ws_horz_{turbine_id}": forecast_horz
-                })
+            # inverse Box-Cox to the original scale
+            forecast_horz_original = self.inverse_boxcox(forecast_horz, f"ws_horz_{turbine_id}")
+            #turbine_forecast_horz = pl.DataFrame({
+            #        "time": forecast_times,
+            #        f"ws_horz_{turbine_id}": foreceast_horz_original
+            #    })
             # vertical wind speed
             model_vert = self.models[turbine_id]["ws_vert"]
             forecast_vert = model_vert.forecast(steps=horizon)
             
             # inverse Box-Cox to the original scale
             forecast_vert_original = self.inverse_boxcox(forecast_vert, f"ws_vert_{turbine_id}")
-            turbine_forecast_vert = pl.DataFrame({
-                    "time": forecast_times,
-                    f"ws_vert_{turbine_id}": forecast_vert_original
-                })
-        
-        forecast_df = forecast_df.join(turbine_forecast_horz, on="time", how="left")
-        forecast_df = forecast_df.join(turbine_forecast_vert, on="time", how="left")        
+            #turbine_forecast_vert = pl.DataFrame({
+            #        "time": forecast_times,
+            #        f"ws_vert_{turbine_id}": forecast_vert_original
+            #    })
 
+            turbine_df = pl.DataFrame({
+            "time": forecast_times,
+            f"ws_horz_{turbine_id}": forecast_horz_original,
+            f"ws_vert_{turbine_id}": forecast_vert_original
+            })
+        
+            turbine_forecasts.append(turbine_df)
+        
+        forecast_df = reduce(lambda df1, df2: df1.join(df2, on="time", how="left"), turbine_forecasts, forecast_df)
+      
         return forecast_df.sort("time")
 
 
@@ -2442,26 +2455,25 @@ def generate_forecaster_results(forecaster, data_module, evaluator, test_data, p
     agg_metrics = []
     mean_vars = [c for c in target_vars if c.startswith("ws_") or c.startswith("loc_ws_")]
     
-    fdf = pl.concat(forecast_df, how="vertical").select(["time", "ws_horz_7", "ws_vert_7"])
-    #fdf = forecast_df = pl.concat(forecast_df, how="vertical").select(["time"] + [cs.ends_with(tgt) for tgt in data_module.target_cols])
-    target_columns_specified = ["ws_horz_7", "ws_vert_7"]
+    #fdf = pl.concat(forecast_df, how="vertical").select(["time", "ws_horz_7", "ws_vert_7"])
+    fdf = forecast_df = pl.concat(forecast_df, how="vertical").select(["time"] + [cs.ends_with(tgt) for tgt in data_module.target_cols])
+    #target_columns_specified = ["ws_horz_7", "ws_vert_7"]
+    #tdf = test_data.filter(pl.col("time").is_in(forecast_df.select(pl.col("time"))))\
+    #                   .select(["time", "continuity_group"] + target_columns_specified)
     tdf = test_data.filter(pl.col("time").is_in(forecast_df.select(pl.col("time"))))\
-                       .select(["time", "continuity_group"] + target_columns_specified)
-    #tdf = test_data.filter(pl.col("time").is_in(forecast_df.select(pl.col("time"))))\.select(["time", "continuity_group"] + data_module.target_cols)
-    #combined_df = fdf.rename(lambda col: re.search("(?<=loc_)(\\w+)$", col).group() if col.startswith("loc_") else col)\.join(tdf, on=["time"], suffix="_true", coalesce=False)
+                       .select(["time", "continuity_group"] + data_module.target_cols)
+    combined_df = fdf.rename(lambda col: re.search("(?<=loc_)(\\w+)$", col).group() if col.startswith("loc_") else col)\
+                     .join(tdf, on=["time"], suffix="_true", coalesce=False)
     #combined_df = fdf.rename(lambda col: re.search("(?<=loc_)(\\w+)$", col).group() if col.startswith("loc_") else col)
-    combined_df = fdf.join(tdf, on="time", suffix="_true", coalesce=False)
+    # combined_df = fdf.join(tdf, on="time", suffix="_true", coalesce=False)
 
     #true_cols = [f"{c}_true" for c in data_module.target_cols]
-    true_cols = [f"{c}_true" for c in target_columns_specified]
+    #true_cols = [f"{c}_true" for c in target_columns_specified]
+    true_cols = [f"{c}_true" for c in data_module.target_cols]
 
     
-    #err = combined_df.select(["time", "continuity_group"] + [(pl.col(pred_col) - pl.col(true_col)) for true_col, pred_col in zip(true_cols, data_module.target_cols)])
-    err = combined_df.select(
-    ["time", "continuity_group"] +
-    [(pl.col(pred_col) - pl.col(true_col)).alias(f"{pred_col}_err")
-     for true_col, pred_col in zip(true_cols, target_columns_specified)]
-    )
+    err = combined_df.select(["time", "continuity_group"] + [(pl.col(pred_col) - pl.col(true_col)) for true_col, pred_col in zip(true_cols, data_module.target_cols)])
+    #err = combined_df.select(["time", "continuity_group"] + [(pl.col(pred_col) - pl.col(true_col)).alias(f"{pred_col}_err") for true_col, pred_col in zip(true_cols, target_columns_specified)])
 
     rmse = err.group_by("continuity_group").agg(cs.numeric().pow(2).mean().sqrt()).with_columns(metric=pl.lit("RMSE"), test_idx=pl.lit(-1))
     rmse = unpivot_df(rmse, forecaster.turbine_signature)
