@@ -77,7 +77,7 @@ if __name__ == "__main__":
     parser.add_argument("-s", "--seed", type=int, help="Seed for random number generator", default=42)
     parser.add_argument("-rt", "--restart_tuning", action="store_true")
     parser.add_argument("-rd", "--reload_data", action="store_true", help="Whether to reload the train/validation data from the source, or to use existing .dat files.")
-    parser.add_argument('--cores', required=False, default=None, help='Comma-separated list or range of core IDs (e.g., "0-9" or "10,11,12")')
+    # parser.add_argument('--cores', required=False, default=None, help='Comma-separated list or range of core IDs (e.g., "0-9" or "10,11,12")')
     # pretrained_filename = "/Users/ahenry/Documents/toolboxes/wind_forecasting/logging/wf_forecasting/lznjshyo/checkpoints/epoch=0-step=50.ckpt"
     args = parser.parse_args()
     
@@ -240,7 +240,8 @@ if __name__ == "__main__":
                                                 seed=args.seed,
                                                 config=model_config,
                                                 worker_id=0 if RUN_ONCE and (worker_id == 0) else worker_id,
-                                                multiprocessor=args.multiprocessor)
+                                                multiprocessor=args.multiprocessor,
+                                                limit_train=0.2)
                                         #  trial_protection_callback=handle_trial_with_oom_protection)
 
         # %% TRAINING MODEL
