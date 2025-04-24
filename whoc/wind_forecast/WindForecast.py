@@ -196,8 +196,8 @@ class WindForecast:
             executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
         elif multiprocessor == "cf":
             max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
-            executor = ProcessPoolExecutor(max_workers=max_workers,
-                                            mp_context=mp.get_context("spawn"))
+            executor = ProcessPoolExecutor(max_workers=max_workers)
+                                            # mp_context=mp.get_context("spawn"))
         
         with executor as ex:
             futures = [ex.submit(self._compute_output_score, output=output, params=params) for output in self.outputs]
@@ -233,8 +233,8 @@ class WindForecast:
                 max_workers = comm_size
             elif multiprocessor == "cf":
                 max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
-                executor = ProcessPoolExecutor(max_workers=max_workers,
-                                                mp_context=mp.get_context("spawn"))
+                executor = ProcessPoolExecutor(max_workers=max_workers)
+                                                # mp_context=mp.get_context("spawn"))
             with executor as ex:
                 # if multiprocessor == "mpi":
                 #     ex.max_workers = comm_size
@@ -321,15 +321,15 @@ class WindForecast:
         study = None # Initialize study variable
             
         try:
-            if worker_id == 0:
-                logging.info(f"Rank 0: Creating/loading Optuna study '{self.study_name}' with pruner: {type(pruner).__name__}")
+            if worker_id == 1:
+                logging.info(f"Rank 1: Creating/loading Optuna study '{self.study_name}' with pruner: {type(pruner).__name__}")
                 study = create_study(study_name=self.study_name,
                                         storage=storage,
                                         direction="maximize",
                                         load_if_exists=True,
                                         sampler=TPESampler(seed=seed),
                                         pruner=pruner) # maximize negative mse ie minimize mse
-                logging.info(f"Rank 0: Study '{self.study_name}' created or loaded successfully.")
+                logging.info(f"Rank 1: Study '{self.study_name}' created or loaded successfully.")
                 
                 # --- Launch Dashboard (Rank 0 only) ---
                 if hasattr(storage, "url"):
@@ -396,15 +396,15 @@ class WindForecast:
             logging.error(f"Worker {worker_id}: Failed during study optimization: {str(e)}", exc_info=True)
             raise
         
-        if worker_id == 0 and study:
+        if worker_id == 1 and study:
             # logging.info("Rank 0: Starting W&B summary run creation.")
 
             # Wait for all expected trials to complete
             num_workers = int(os.environ.get('WORLD_SIZE', 1))
             expected_total_trials = num_workers * n_trials_per_worker
-            logging.info(f"Rank 0: Expecting a total of {expected_total_trials} trials ({num_workers} workers * {n_trials_per_worker} trials/worker).")
+            logging.info(f"Rank 1: Expecting a total of {expected_total_trials} trials ({num_workers} workers * {n_trials_per_worker} trials/worker).")
 
-            logging.info("Rank 0: Waiting for all expected Optuna trials to reach a terminal state...")
+            logging.info("Rank 1: Waiting for all expected Optuna trials to reach a terminal state...")
             wait_interval_seconds = 30
             while True:
                 # Refresh trials from storage
@@ -413,30 +413,30 @@ class WindForecast:
                 num_finished = len(finished_trials)
                 num_total_in_db = len(all_trials_current) # Current count in DB
 
-                logging.info(f"Rank 0: Trial status check: {num_finished} finished / {num_total_in_db} in DB (expected total: {expected_total_trials}).")
+                logging.info(f"Rank 1: Trial status check: {num_finished} finished / {num_total_in_db} in DB (expected total: {expected_total_trials}).")
 
                 if num_finished >= expected_total_trials:
-                    logging.info(f"Rank 0: All {expected_total_trials} expected trials have reached a terminal state.")
+                    logging.info(f"Rank 1: All {expected_total_trials} expected trials have reached a terminal state.")
                     break
                 elif num_total_in_db > expected_total_trials and num_finished >= expected_total_trials:
-                    logging.warning(f"Rank 0: Found {num_total_in_db} trials in DB (expected {expected_total_trials}), but {num_finished} finished trials meet the expectation.")
+                    logging.warning(f"Rank 1: Found {num_total_in_db} trials in DB (expected {expected_total_trials}), but {num_finished} finished trials meet the expectation.")
                     break
 
-                logging.info(f"Rank 0: Still waiting for trials to finish ({num_finished}/{expected_total_trials}). Sleeping for {wait_interval_seconds} seconds...")
+                logging.info(f"Rank 1: Still waiting for trials to finish ({num_finished}/{expected_total_trials}). Sleeping for {wait_interval_seconds} seconds...")
                 time.sleep(wait_interval_seconds)
 
             # Fetch best trial *before* initializing summary run
             best_trial = None
             try:
                 best_trial = study.best_trial
-                logging.info(f"Rank 0: Fetched best trial: Number={best_trial.number}, Value={best_trial.value}")
+                logging.info(f"Rank 1: Fetched best trial: Number={best_trial.number}, Value={best_trial.value}")
             except ValueError:
-                logging.warning("Rank 0: Could not retrieve best trial (likely no trials completed successfully).")
+                logging.warning("Rank 1: Could not retrieve best trial (likely no trials completed successfully).")
             except Exception as e_best_trial:
-                logging.error(f"Rank 0: Error fetching best trial: {e_best_trial}", exc_info=True)
+                logging.error(f"Rank 1: Error fetching best trial: {e_best_trial}", exc_info=True)
                     
             # Log best trial details (only rank 0)
-            if worker_id == 0 and study: # Check if study object exists
+            if worker_id == 1 and study: # Check if study object exists
                 if len(study.trials) > 0:
                     logging.info("Number of finished trials: {}".format(len(study.trials)))
                     logging.info("Best trial:")
@@ -1250,8 +1250,8 @@ class SVRForecast(WindForecast):
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
             elif multiprocessor == "cf":
                 max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
-                executor = ProcessPoolExecutor(max_workers=max_workers,
-                                                mp_context=mp.get_context("spawn"))
+                executor = ProcessPoolExecutor(max_workers=max_workers)
+                                                # mp_context=mp.get_context("spawn"))
             with executor as ex:
                 if multiprocessor == "mpi":
                     ex.max_workers = comm_size
