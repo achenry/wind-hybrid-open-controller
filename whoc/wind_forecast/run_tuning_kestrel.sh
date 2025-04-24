@@ -3,10 +3,10 @@
 #SBATCH --account=ssc
 #SBATCH --output=model_tuning_%j.out
 ##SBATCH --nodes=4
-##SBATCH --time=24:00:00
+#SBATCH --time=24:00:00
 #SBATCH --nodes=1
-#SBATCH --time=01:00:00
-##SBATCH --partition=debug
+##SBATCH --time=00:20:00
+#ESBATCH --partition=debug
 ##SBATCH --partition=nvme
 #SBATCH --ntasks-per-node=104
 ##SBATCH --cpus-per-task=1
@@ -15,7 +15,7 @@
 # salloc --account=ssc --job-name=model_tuning  --ntasks=104 --cpus-per-task=1 --time=01:00:00 --partition=debug
 # python tuning.py --config $HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel.yaml --study_name "svr_tuning" --model "svr"
 
-export NTASKS_PER_TUNER=104
+export NTASKS_PER_TUNER=13
 export MODEL=$1
 NTUNERS=$((SLURM_NTASKS / NTASKS_PER_TUNER)) # cast to int
 
@@ -38,7 +38,7 @@ module list
 declare -a WORKER_PIDS=()
 
 export MODEL_CONFIG_PATH=$2
-# export MODEL_CONFIG=/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred60.yaml
+# export MODEL_CONFIG_PATH=/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred60.yaml
 #export MODEL_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel_flasc.yaml"
 export DATA_CONFIG_PATH="/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/config/preprocessing/preprocessing_inputs_kestrel_awaken_new.yaml"
 #export DATA_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_flasc.yaml"
@@ -63,7 +63,7 @@ PYTHONPATH=$(which python)
 
 # TODO NOTE process gets stuck after writing these .dat files, so run this python first, then the loop
 export WORKER_RANK=0
-python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --seed 0 --restart_tuning
+python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --seed 0 --restart_tuning --reload_data
 
 echo "=== STARTING TUNING ==="
 date +"%Y-%m-%d %H:%M:%S"
@@ -84,17 +84,20 @@ for i in $(seq 1 $((${NTUNERS}))); do
 	export WORKER_RANK=${i} #$((i*NUM_WORKERS_PER_CPU + j))
 
         echo "Starting worker ${WORKER_RANK} on CPU ${i} with seed ${WORKER_SEED}"
-        
+	
+	# Calculate start and end cores (assuming i is 1-based)
+	start_core=$(( ($i - 1) * $NTASKS_PER_TUNER ))
+	end_core=$(( $i * $NTASKS_PER_TUNER - 1 ))
+
+	# Create the range string
+	CORES="${start_core}-${end_core}"
+	echo "Using cores ${CORES}"	
+
         # Launch worker with environment settings
-        mpirun -np ${NTASKS_PER_TUNER} python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --multiprocessor mpi --seed ${WORKER_SEED} &
+        #srun -n ${NTASKS_PER_TUNER}
+	taskset -c $start_core-$end_core python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} \
+		--multiprocessor cf --seed ${WORKER_SEED} --limit_train_val 0.1 &
 
-	# nohup bash -c "
-        # module purge
-        # module load mamba
-        # module load PrgEnv-intel
-        # mamba activate wind_forecasting_env
-
-        # python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --multiprocessor cf --seed ${WORKER_SEED} ${RESTART_FLAG}" &
 
         # Store the process ID
         WORKER_PIDS+=($!)
