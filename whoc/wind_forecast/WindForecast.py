@@ -323,6 +323,7 @@ class WindForecast:
             
         # Create study on rank 0, load on other ranks
         study = None # Initialize study variable
+        objective_fn = None
         
         if RUN_ONCE:  
             try:
