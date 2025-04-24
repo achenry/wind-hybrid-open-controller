@@ -44,7 +44,7 @@ if __name__ == "__main__":
     parser.add_argument("-s", "--seed", type=int, help="Seed for random number generator", default=42)
     parser.add_argument("-rt", "--restart_tuning", action="store_true")
     parser.add_argument("-rd", "--reload_data", action="store_true", help="Whether to reload the train/validation data from the source, or to use existing .dat files.")
-    # pretrained_filename = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/wf_forecasting/lznjshyo/checkpoints/epoch=0-step=50.ckpt"
+    # pretrained_filename = "/Users/ahenry/Documents/toolboxes/wind_forecasting/logging/wf_forecasting/lznjshyo/checkpoints/epoch=0-step=50.ckpt"
     args = parser.parse_args()
     
     RUN_ONCE = (args.multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
@@ -166,15 +166,14 @@ if __name__ == "__main__":
         
         scaler_params = data_module.compute_scaler_params()
         
-        if RUN_ONCE:
-            logging.info("Initializing storage")
-            
-            db_setup_params = generate_df_setup_params(args.model, model_config)
-            optuna_storage = setup_optuna_storage(
-                db_setup_params=db_setup_params,
-                restart_tuning=args.restart_tuning,
-                rank=0 if RUN_ONCE and (worker_id == 0) else worker_id
-            )
+        logging.info("Initializing storage")
+        
+        db_setup_params = generate_df_setup_params(args.model, model_config)
+        optuna_storage = setup_optuna_storage(
+            db_setup_params=db_setup_params,
+            restart_tuning=args.restart_tuning,
+            rank=0 if RUN_ONCE and (worker_id == 0) else worker_id
+        )
         
         if RUN_ONCE:
             logging.info("Running tune_hyperparameters_single")
