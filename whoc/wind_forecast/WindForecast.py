@@ -235,7 +235,7 @@ class WindForecast:
                     if ds.shape[0] < self.n_context + self.n_prediction:
                         logging.warning(f"{ds_type} dataset with continuity groups {list(ds["continuity_group"].unique())} have insufficient length!")
                         continue
-                    
+                        
         # For each output, prepare the training data
         if multiprocessor is not None:
             if multiprocessor == "mpi":
