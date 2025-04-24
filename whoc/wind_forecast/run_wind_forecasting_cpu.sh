@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name=baseline_wf
+#SBATCH --job-name=baseline_wf_cpu
 #SBATCH --account=ssc
-#SBATCH --output=baseline_wf_%j.out
+#SBATCH --output=%j_%x.out
 #SBATCH --nodes=1
 #SBATCH --time=01:00:00
 #SBATCH --partition=debug
@@ -21,7 +21,7 @@ echo "=== ENVIRONMENT ==="
 module list
 
 export MODELS="kf persistence sf"
-export MODEL_CONFIG_PATH="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred60.yaml"
+export MODEL_CONFIG_PATH="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred60.yaml $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred300.yaml"
 export DATA_CONFIG_PATH="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/preprocessing/preprocessing_inputs_kestrel_awaken_new.yaml"
 
 echo "MODELS=${MODELS}"
@@ -36,5 +36,5 @@ module load mamba
 module load PrgEnv-intel
 mamba activate wind_forecasting_env
 
-python WindForecast.py --model ${MODELS} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --simulation_timestep 1 --prediction_interval 60 300 \
+python WindForecast.py --model ${MODELS} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --simulation_timestep 1 \
 	               --multiprocessor cf --max_splits 10 --prediction_type distribution --use_tuned_params --use_trained_models --rerun_validation

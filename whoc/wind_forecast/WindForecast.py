@@ -2111,15 +2111,21 @@ def transform_wind(inp_df, added_wm=None, added_wd=None):
     
     return inp_df.select(original_cols)
 
-def make_predictions(forecaster, test_data, prediction_type):
+def make_predictions(forecaster, test_data, prediction_type, single_cg):
     
     forecasts = []
     
     logging.info("Getting timestamps at which controller will call forecaster.")
     controller_times = test_data.gather_every(forecaster.n_controller).select(pl.col("time"))
     
-    logging.info("Getting number of continuity groups in data.")
-    n_splits = test_data.select(pl.col("continuity_group").n_unique()).item()
+    if single_cg:
+        splits = [test_data.select(pl.col("continuity_group").first()).item()]
+        test_data_partition = [test_data]
+    else:
+        logging.info("Getting number of continuity groups in data.")
+        splits = test_data.select(pl.col("continuity_group").unique()).to_numpy().flatten()
+        test_data_partition = test_data.partition_by("continuity_group")
+    n_splits = len(splits)
     
     # for kf testing
     # means_p = []
@@ -2128,7 +2134,7 @@ def make_predictions(forecaster, test_data, prediction_type):
     # covariances = []
     
     # for i, (inp, label) in enumerate(iter(test_data)):
-    for d, ds in enumerate(test_data.partition_by("continuity_group")):
+    for d, ds in enumerate(test_data_partition):
         # start = inp[FieldName.START].to_timestamp()
          # end = (label[FieldName.START] + label['target'].shape[1]).to_timestamp()
          
@@ -2136,10 +2142,10 @@ def make_predictions(forecaster, test_data, prediction_type):
         # end = (ds[FieldName.START] + ds['target'].shape[1]).to_timestamp()
         start = ds.select(pl.col("time").first()).item()
         end = ds.select(pl.col("time").last()).item()
-        logging.info(f"Getting predictions for {d}th split starting at {start} and ending at {end} using {forecaster.__class__.__name__} with prediction_timedelta {forecaster.prediction_timedelta}.")
+        logging.info(f"Getting predictions for {splits[d]}th split starting at {start} and ending at {end} using {forecaster.__class__.__name__} with prediction_timedelta {forecaster.prediction_timedelta}.")
         forecasts.append([])
         # split_true_wf = true_wind_field.filter(pl.col("time").is_between(start, end, closed="both"))
-        logging.info(f"Getting controller times for {d}th split.")
+        logging.info(f"Getting controller times for {splits[d]}th split.")
         split_controller_times = controller_times.filter(pl.col("time").is_between(start, end, closed="both"))\
                                                  .filter((pl.col("time") - start) >= forecaster.context_timedelta)
                                                  
@@ -2151,7 +2157,7 @@ def make_predictions(forecaster, test_data, prediction_type):
             current_time = current_row["time"]
             
             # if current_time - start >= forecaster.context_timedelta:
-            logging.info(f"Predicting future wind field using {forecaster.__class__.__name__} at time {current_time}/{end} of split {d}/{n_splits-1}.")
+            logging.info(f"Predicting future wind field using {forecaster.__class__.__name__} at time {current_time}/{end} of split {splits[d]}/{n_splits-1}.")
             if prediction_type == "distribution" and forecaster.is_probabilistic:
                 pred = forecaster.predict_distr(
                     ds.filter(pl.col("time") <= current_time), current_time)
@@ -2172,7 +2178,9 @@ def make_predictions(forecaster, test_data, prediction_type):
             raise Exception(f"{d}th dataset in data does not have sufficient data points, with {ds.select(pl.len()).item()}, to collect predictions after context_timedelta {forecaster.context_timedelta}")
         
     test_idx = 0
+    # loop through continuity groups
     for f in range(len(forecasts)):
+        # loop through test splits, ie prediction made for each controller sampling time for which there was sufficient context length
         for ff in range(len(forecasts[f])):
             forecasts[f][ff] = forecasts[f][ff].with_columns(test_idx=pl.lit(test_idx))
             test_idx += 1
@@ -2270,12 +2278,13 @@ def unpivot_df(df, turbine_signature):
                           feature_type=pl.col("feature").str.extract(f"(.*)_{turbine_signature}$"))\
             .drop("feature")
 
-def generate_forecaster_results(forecaster, data_module, evaluator, test_data, prediction_type):
+def generate_forecaster_results(forecaster, data_module, evaluator, test_data, prediction_type, single_cg):
+    
     logging.info(f"Generating predictions for forecaster {forecaster.__class__.__name__} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
     forecast_df = make_predictions(forecaster=forecaster, test_data=test_data, 
-                                            prediction_type=prediction_type)
+                                    prediction_type=prediction_type, single_cg=single_cg)
     
-    logging.info(f"Partitioning forecasts by test_idx for forecaster {forecaster} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
+    logging.info(f"Partitioning forecasts by test_idx for forecaster {forecaster.__class__.__name__} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
     forecast_df = forecast_df.partition_by("test_idx")
     # if prediction_type == "distribution" and forecaster.is_probabilistic:
     #     value_vars = ["nd_cos", "nd_sin", "loc_ws_horz", "loc_ws_vert", "sd_ws_horz", "sd_ws_vert"]
@@ -2330,7 +2339,6 @@ def generate_forecaster_results(forecaster, data_module, evaluator, test_data, p
     mae = unpivot_df(mae, forecaster.turbine_signature)
     
     agg_metrics += [rmse, mae]
-    
     
     if prediction_type == "distribution" and forecaster.is_probabilistic:
         pred_mean = combined_df.select(["continuity_group"] + data_module.target_cols)
@@ -2520,8 +2528,8 @@ def plot_score_vs_forecaster(agg_df, metrics, ax_indices, prediction_intervals, 
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(prog="ModelTuning")
-    parser.add_argument("-mcnf", "--model_config", type=str, 
-                        help="Filepath to model configuration with experiment, optuna, dataset, model, callbacks, trainer keys.")
+    parser.add_argument("-mcnf", "--model_config", type=str, nargs="+",
+                        help="Filepaths to model configurations with experiment, optuna, dataset, model, callbacks, trainer keys.")
     parser.add_argument("-dcnf", "--data_config", type=str, 
                         help="Filepath to data preprocessing configuration with filters, feature_mapping, turbine_signature, nacelle_calibration_turbine_pairs, dt, raw_data_directory, processed_data_path, raw_data_file_signature, turbine_input_path, farm_input_path keys.")
     parser.add_argument("-fd", "--fig_dir", type=str, 
@@ -2536,9 +2544,9 @@ if __name__ == "__main__":
     parser.add_argument("-rrv", "--rerun_validation",
                         action="store_true",
                         help="Whether to repeat validation for results that have already been stored.")
-    parser.add_argument("-pi", "--prediction_interval", 
-                        required=False, nargs="+", default=None,
-                        help="Number of seconds to use as prediction_timedelta..")
+    # parser.add_argument("-pi", "--prediction_interval", 
+    #                     required=False, nargs="+", default=None,
+    #                     help="Number of seconds to use as prediction_timedelta..")
     parser.add_argument("-mp", "--multiprocessor", type=str, choices=["mpi", "cf"], help="which multiprocessing backend to use, omit for sequential processing", 
                         required=False, default=None)
     parser.add_argument("-msp", "--max_splits", type=int, required=False, default=None,
@@ -2569,17 +2577,16 @@ if __name__ == "__main__":
     
     os.makedirs(args.fig_dir, exist_ok=True)
      
-    with open(args.model_config, 'r') as file:
-        model_config  = yaml.safe_load(file)
+    model_configs = []
+    for mnf_path in args.model_config:
+        with open(mnf_path, 'r') as file:
+            model_configs.append(yaml.safe_load(file))
     
     
-    if args.prediction_interval is None:
-        prediction_timedelta = [pd.Timedelta(seconds=model_config["dataset"]["prediction_length"])]
-    else:
-        prediction_timedelta = [pd.Timedelta(seconds=int(i)).to_pytimedelta() for i in args.prediction_interval]
-        
-    context_timedelta = pd.Timedelta(seconds=model_config["dataset"]["context_length"])
+    prediction_timedelta = [pd.Timedelta(seconds=mncf["dataset"]["prediction_length"]) for mncf in model_configs]
+    context_timedelta = [pd.Timedelta(seconds=mncf["dataset"]["context_length"]) for mncf in model_configs]
     measurements_timedelta = pd.Timedelta(seconds=args.simulation_timestep)
+    
     # measurements_timedelta = pd.Timedelta(model_config["dataset"]["resample_freq"])
     
     controller_timedelta = max(pd.Timedelta(5, unit="s"), measurements_timedelta)
@@ -2603,16 +2610,19 @@ if __name__ == "__main__":
     fmodel = FlorisModel(data_config["farm_input_path"])
     
     logging.info("Creating datasets")
-    data_module = DataModule(data_path=model_config["dataset"]["data_path"], 
-                             normalization_consts_path=model_config["dataset"]["normalization_consts_path"],
+    
+    # NOTE the dataset parts of the configs should be the same, other than context and prediction length
+    base_model_config = model_configs[np.argsort([ctd + ptd for ctd, ptd in zip(context_timedelta, prediction_timedelta)])[-1]]
+    data_module = DataModule(data_path=base_model_config["dataset"]["data_path"], 
+                             normalization_consts_path=base_model_config["dataset"]["normalization_consts_path"],
                              normalized=False, 
                              n_splits=1, #model_config["dataset"]["n_splits"],
-                             continuity_groups=None, train_split=(1.0 - model_config["dataset"]["val_split"] - model_config["dataset"]["test_split"]),
-                             val_split=model_config["dataset"]["val_split"], test_split=model_config["dataset"]["test_split"],
-                             prediction_length=model_config["dataset"]["prediction_length"], context_length=model_config["dataset"]["context_length"],
+                             continuity_groups=None, train_split=(1.0 - base_model_config["dataset"]["val_split"] - base_model_config["dataset"]["test_split"]),
+                             val_split=base_model_config["dataset"]["val_split"], test_split=base_model_config["dataset"]["test_split"],
+                             prediction_length=base_model_config["dataset"]["prediction_length"], context_length=base_model_config["dataset"]["context_length"],
                              target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                              freq=f"{int(measurements_timedelta.total_seconds())}s", 
-                             target_suffixes=model_config["dataset"]["target_turbine_ids"],
+                             target_suffixes=base_model_config["dataset"]["target_turbine_ids"],
                              per_turbine_target=False, as_lazyframe=False, dtype=pl.Float32,
                              verbose=True)
     
@@ -2633,7 +2643,7 @@ if __name__ == "__main__":
         test_data = data_module.test_dataset
     
     if args.max_steps:
-        assert args.max_steps > int((context_timedelta + max(prediction_timedelta)) / measurements_timedelta), f"max_steps, if provided, must allow for context_timedelta + max(prediction_timedelta) = {int((context_timedelta + max(prediction_timedelta)) / measurements_timedelta)}"
+        assert args.max_steps > int((max(context_timedelta) + max(prediction_timedelta)) / measurements_timedelta), f"max_steps, if provided, must allow for context_timedelta + max(prediction_timedelta) = {int((max(context_timedelta) + max(prediction_timedelta)) / measurements_timedelta)}"
         test_data = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in test_data]
     
     logging.info("Generating dataframe.")
@@ -2669,13 +2679,13 @@ if __name__ == "__main__":
     forecasters = []
     ## GENERATE PERFECT PREVIEW \
     if "perfect" in args.model:
-        for td in prediction_timedelta:
-            logging.info(f"Instantiating PerfectForecast with prediction_timedelta = {td} seconds.")
+        for ctd, ptd in zip(context_timedelta, prediction_timedelta):
+            logging.info(f"Instantiating PerfectForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
             forecaster = PerfectForecast(
                 measurements_timedelta=measurements_timedelta,
                 controller_timedelta=controller_timedelta,
-                prediction_timedelta=td,
-                context_timedelta=context_timedelta,
+                prediction_timedelta=ptd,
+                context_timedelta=ctd,
                 true_wind_field=test_data,
                 fmodel=fmodel,
                 tid2idx_mapping=tid2idx_mapping,
@@ -2689,12 +2699,12 @@ if __name__ == "__main__":
     
     ## GENERATE PERSISTENT PREVIEW
     if "persistence" in args.model:
-        for td in prediction_timedelta:
-            logging.info(f"Instantiating PersistenceForecast with prediction_timedelta = {td} seconds.")
+        for ctd, ptd in zip(context_timedelta, prediction_timedelta):
+            logging.info(f"Instantiating PersistenceForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
             forecaster = PersistenceForecast(measurements_timedelta=measurements_timedelta,
                                                     controller_timedelta=controller_timedelta,
-                                                    prediction_timedelta=td,
-                                                    context_timedelta=context_timedelta,
+                                                    prediction_timedelta=ptd,
+                                                    context_timedelta=ctd,
                                                     fmodel=fmodel,
                                                     true_wind_field=None,
                                                     tid2idx_mapping=tid2idx_mapping,
@@ -2707,33 +2717,32 @@ if __name__ == "__main__":
         
     ## GENERATE SVR PREVIEW
     if "svr" in args.model:
-        
-        for td in prediction_timedelta:
-            # TODO DEBUG
-            logging.info(f"Loading optuna_storage for SVRForecast with prediction_timedelta = {td} seconds.")
-            model_config["dataset"].update({"prediction_length": td.total_seconds()})
-            db_setup_params = generate_df_setup_params("svr", model_config)
+        for mncf, ctd, ptd in zip(model_configs, context_timedelta, prediction_timedelta):
+            
+            logging.info(f"Instantiating Optuna Storage for SVRForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
+            db_setup_params = generate_df_setup_params("svr", mncf)
             optuna_storage = setup_optuna_storage(
                 db_setup_params=db_setup_params,
                 restart_tuning=False,
                 rank=rank
             )
-            logging.info(f"Instantiating SVRForecast with prediction_timedelta = {td} seconds.")
+            
+            logging.info(f"Instantiating SVRForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
             forecaster = SVRForecast(measurements_timedelta=measurements_timedelta,
                                     controller_timedelta=controller_timedelta,
-                                    prediction_timedelta=td,
-                                    context_timedelta=context_timedelta,
+                                    prediction_timedelta=ptd,
+                                    context_timedelta=ctd,
                                     fmodel=fmodel,
                                     true_wind_field=None,
                                     kwargs=dict(kernel="rbf", C=1.0, degree=3, gamma="auto", epsilon=0.1, cache_size=200,
                                                 n_neighboring_turbines=3, max_n_samples=None, 
-                                                study_name=f"svr_{model_config['experiment']['run_name']}",
+                                                study_name=f"svr_{mncf['experiment']['run_name']}",
                                                 use_trained_models=args.use_trained_models,
                                                 optuna_storage=optuna_storage),
                                     tid2idx_mapping=tid2idx_mapping,
                                     turbine_signature=turbine_signature,
                                     use_tuned_params=args.use_tuned_params,
-                                    model_config=model_config)
+                                    model_config=mncf)
             
             forecasters.append(forecaster)
         
@@ -2741,36 +2750,40 @@ if __name__ == "__main__":
     ## GENERATE KF PREVIEW 
     if "kf" in args.model:
         # tune this use single, longer, prediction time, since we have only identity state transition matrix, and must use final posterior only prediction
-        for td in prediction_timedelta:
-            logging.info(f"Instantiating KalmanFilterForecast with prediction_timedelta = {td} seconds.")
+        for ctd, ptd in zip(context_timedelta, prediction_timedelta):
+            
+            logging.info(f"Instantiating SVRForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
+            
             forecaster = KalmanFilterForecast(measurements_timedelta=measurements_timedelta,
                                                 controller_timedelta=controller_timedelta,
-                                                prediction_timedelta=td, 
-                                                context_timedelta=td*2,
+                                                prediction_timedelta=ptd, 
+                                                context_timedelta=ctd,
                                                 fmodel=fmodel,
                                                 true_wind_field=None,
                                                 tid2idx_mapping=tid2idx_mapping,
                                                 turbine_signature=turbine_signature,
                                                 use_tuned_params=False,
-                                                model_config=model_config,
+                                                model_config=None,
                                                 kwargs={})
             forecasters.append(forecaster)
         
     ## GENERATE KF PREVIEW 
     if "sf" in args.model:
         # tune this use single, longer, prediction time, since we have only identity state transition matrix, and must use final posterior only prediction
-        for td in prediction_timedelta:
-            logging.info(f"Instantiating SpatialFilterForecast with prediction_timedelta = {td} seconds.")
+        for ctd, ptd in zip(context_timedelta, prediction_timedelta):
+            
+            logging.info(f"Instantiating SpatialFilterForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
+            
             forecaster = SpatialFilterForecast(measurements_timedelta=measurements_timedelta,
                                                 controller_timedelta=controller_timedelta,
-                                                prediction_timedelta=td, 
-                                                context_timedelta=context_timedelta,
+                                                prediction_timedelta=ptd, 
+                                                context_timedelta=ctd,
                                                 fmodel=fmodel,
                                                 true_wind_field=None,
                                                 tid2idx_mapping=tid2idx_mapping,
                                                 turbine_signature=turbine_signature,
                                                 use_tuned_params=False,
-                                                model_config=model_config,
+                                                model_config=None,
                                                 kwargs=dict(n_neighboring_turbines=6))
             forecasters.append(forecaster)
         
@@ -2780,12 +2793,11 @@ if __name__ == "__main__":
         if isinstance(args.checkpoint, list):
             assert len(args.checkpoint) == len(ml_models)
         for m, model in enumerate(ml_models):
-            for td in prediction_timedelta:
-                
-                logging.info(f"Instantiating MLForecast {model} with prediction_timedelta = {td} seconds.")
-                # TODO be sure to pass correct model config corresponding to prediction_length
-                model_config["dataset"].update({"prediction_length": td.total_seconds()})
-                db_setup_params = generate_df_setup_params(model, model_config)
+            for mncf, ctd, ptd in zip(model_configs, context_timedelta, prediction_timedelta):
+            
+                logging.info(f"Instantiating Optuna Storage for SVRForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
+
+                db_setup_params = generate_df_setup_params(model, mncf)
                 try:
                     optuna_storage = setup_optuna_storage(
                         db_setup_params=db_setup_params,
@@ -2800,21 +2812,22 @@ if __name__ == "__main__":
                     
                 forecaster = MLForecast(measurements_timedelta=measurements_timedelta,
                                         controller_timedelta=controller_timedelta,
-                                        prediction_timedelta=pd.Timedelta(seconds=model_config["dataset"]["prediction_length"]),
-                                        context_timedelta=pd.Timedelta(seconds=model_config["dataset"]["context_length"]),
+                                        prediction_timedelta=ptd,
+                                        context_timedelta=ctd,
                                         fmodel=fmodel,
                                         true_wind_field=None,
                                         tid2idx_mapping=tid2idx_mapping,
                                         turbine_signature=turbine_signature,
                                         use_tuned_params=use_tuned_params,
-                                        model_config=model_config,
+                                        model_config=mncf,
                                         kwargs=dict(model_key=model,
                                                     model_checkpoint=args.checkpoint if isinstance(args.checkpoint, str) else args.checkpoint[m], # TODO QUESTION is the latest checkpoint not always the best?
                                                     optuna_storage=optuna_storage,
                                                     study_name=db_setup_params["study_name"])
                                         )
             forecasters.append(forecaster)
-        
+    
+    
     if args.multiprocessor:
         
         if args.multiprocessor == "mpi":
@@ -2830,22 +2843,50 @@ if __name__ == "__main__":
             if args.multiprocessor == "mpi":
                 ex.max_workers = max_workers
             
-            test_futures = [ex.submit(generate_forecaster_results, forecaster=forecaster, 
-                                    data_module=data_module, evaluator=evaluator, 
-                                    test_data=test_data, 
-                                    prediction_type=args.prediction_type) 
-                       for forecaster in forecasters]
+            continuity_groups = test_data.select(pl.col("continuity_group").unique()).to_numpy().flatten()
+            test_futures = []
+            for forecaster in forecasters:
+                for cg in continuity_groups:
+                    test_futures.append(
+                        ex.submit(generate_forecaster_results, forecaster=forecaster, 
+                                            data_module=data_module, evaluator=evaluator, 
+                                            test_data=test_data.filter(pl.col("continuity_group") == cg), 
+                                            prediction_type=args.prediction_type, single_cg=True))
+                    
             
-            results = [dict([(k, v) for k, v in chain(
-                zip(["forecast_df", "agg_metrics"], fut.result()), 
-                zip(["forecaster_name", "prediction_timedelta"], [forecaster.__class__.__name__, forecaster.prediction_timedelta.total_seconds()]))]) 
-                       for forecaster, fut in zip(forecasters, test_futures)] # agg_metrics, ts_metrics, forecast_fig
+            res_idx = 0
+            results = []
+            for forecaster in forecasters:
+                forecaster_res = []
+                for cg in continuity_groups:
+                    forecaster_res.append(dict([(k, v) for k, v in zip(["forecast_df", "agg_metrics"], 
+                                                                       test_futures[res_idx].result())]))
+                    res_idx += 1
+                    
+                forecaster_res = {
+                    "forecast_df": pl.concat([res["forecast_df"] for res in forecaster_res], how="vertical"),
+                    "agg_metrics": pl.concat([res["agg_metrics"] for res in forecaster_res], how="vertical")
+                }
+                results.append(dict([
+                            (k, v) for k, v in chain(
+                                    zip(["forecast_df", "agg_metrics"], 
+                                        [forecaster_res["forecast_df"], forecaster_res["agg_metrics"]]), 
+                                    zip(["forecaster_name", "prediction_timedelta"], 
+                                        [forecaster.__class__.__name__, forecaster.prediction_timedelta.total_seconds()]))]) )
+                    
+            # results = [dict([(k, v) for k, v in chain(
+            #     zip(["forecast_df", "agg_metrics"], fut.result()), 
+            #     zip(["forecaster_name", "prediction_timedelta"], [forecaster.__class__.__name__, forecaster.prediction_timedelta.total_seconds()]))]) 
+            #            for forecaster, fut in zip(forecasters, test_futures)] # agg_metrics, ts_metrics, forecast_fig
+            
+            
     else:
         logging.info(f"Running generate_forecaster_results with loop.")
         results = []
         for forecaster in forecasters:
             prediction_timedelta = forecaster.prediction_timedelta.total_seconds()
-            save_dir = os.path.join(os.path.dirname(model_config["dataset"]["data_path"]), "validation_results", 
+        
+            save_dir = os.path.join(os.path.dirname( base_model_config["dataset"]["data_path"]), "validation_results", 
                                     forecaster.__class__.__name__,
                                     str(prediction_timedelta))
             os.makedirs(save_dir, exist_ok=True)
@@ -2856,7 +2897,7 @@ if __name__ == "__main__":
                 forecast_df, agg_metrics = generate_forecaster_results(
                     forecaster=forecaster, data_module=data_module, 
                     evaluator=evaluator, test_data=test_data,
-                    prediction_type=args.prediction_type)
+                    prediction_type=args.prediction_type, single_cg=False)
                 results.append({
                     "forecaster_name": forecaster.__class__.__name__,
                     "forecast_df": forecast_df,
@@ -2938,7 +2979,7 @@ if __name__ == "__main__":
     totals_agg_df = agg_df.filter((pl.col("test_idx")==-1) & (pl.col("turbine_id") == "all"))\
                           .group_by(["forecaster", "metric", "prediction_timedelta"]).agg(pl.col("score").mean())
                           
-    save_dir = os.path.join(os.path.dirname(model_config["dataset"]["data_path"]), "validation_results")
+    save_dir = os.path.join(os.path.dirname(base_model_config["dataset"]["data_path"]), "validation_results")
                             
     # generate scatterplot of metric vs prediction time for different models (different colors) and different metrics (different_styles) (crps, picp, pinaw, cwc, mse, mae)
     plot_score_vs_prediction_dt(totals_agg_df, 
