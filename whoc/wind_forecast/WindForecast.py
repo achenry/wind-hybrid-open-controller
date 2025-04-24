@@ -667,7 +667,11 @@ class WindForecast:
             axs = axs[np.newaxis, :]
         else:
             fig, axs = plt.subplots(len(turbine_ids), len(feature_types), sharex=True, figsize=(15.12, 8.8))        
-        axs = np.array(axs)
+            if isinstance(axs, plt.Axes):  # Single plot
+                axs = np.array([[axs]])
+            elif axs.ndim == 1:
+                axs = axs.reshape(1, -1)
+
                 
         if continuity_groups is not None and "continuity_group" in true_wf.collect_schema().names():
             true_wf = true_wf.filter(pl.col("continuity_group").is_in(continuity_groups))
@@ -2156,7 +2160,7 @@ class ARIMAForecast(WindForecast):
     def reset(self):
         pass
        
-    def predict_point(self, historic_measurements, current_time=None):
+    def predict_point(self, historic_measurements, current_time=None, return_long_format=True):
         print(">>> ARIMAForecast.predict_point() called")
         if not self.fitted:
             raise ValueError("ARIMA model not fitted. Call train() method first.")
@@ -2170,6 +2174,7 @@ class ARIMAForecast(WindForecast):
         forecast_times = pd.date_range(start=current_time + prediction_freq, periods=horizon, freq=prediction_freq)
         forecast_df = pl.DataFrame({"time": forecast_times})
         turbine_forecasts = []
+        long_forecasts = []
 
 
         for turbine_id in self.model_items():
@@ -2201,10 +2206,31 @@ class ARIMAForecast(WindForecast):
         
             turbine_forecasts.append(turbine_df)
         
-        forecast_df = reduce(lambda df1, df2: df1.join(df2, on="time", how="left"), turbine_forecasts, forecast_df)
-      
-        return forecast_df.sort("time")
+            if return_long_format:
+                df_horz = pl.DataFrame({
+                    "turbine_id": [turbine_id] * horizon,
+                    "time": forecast_times,
+                    "feature": ["ws_horz"] * horizon,
+                    "value": forecast_horz_original,
+                    "data_type": ["Forecast"] * horizon
+                })
 
+                df_vert = pl.DataFrame({
+                    "turbine_id": [turbine_id] * horizon,
+                    "time": forecast_times,
+                    "feature": ["ws_vert"] * horizon,
+                    "value": forecast_vert_original,
+                    "data_type": ["Forecast"] * horizon
+                })
+
+                long_forecasts.extend([df_horz, df_vert])
+
+        forecast_df = reduce(lambda df1, df2: df1.join(df2, on="time", how="left"), turbine_forecasts, forecast_df)
+
+        if return_long_format:
+            return forecast_df.sort("time"), pl.concat(long_forecasts).sort(["turbine_id", "time", "feature"])
+        else:
+            return forecast_df.sort("time")
 
            #forecast_df = pd.DataFrame({"time": forecast_times, target_col: forecast})
            #forecast_frames.append(pl.from_pandas(forecast_df))
@@ -2313,6 +2339,8 @@ def make_predictions(forecaster, test_data, prediction_type):
             
             # if current_time - start >= forecaster.context_timedelta:
             logging.info(f"Predicting future wind field using {forecaster.__class__.__name__} at time {current_time}/{end} of split {splits[d]}/{n_splits-1}.")
+            if not forecaster.fitted:
+                forecaster.train(ds.filter(pl.col("time") <= current_time))
             if prediction_type == "distribution" and forecaster.is_probabilistic:
                 pred = forecaster.predict_distr(
                     ds.filter(pl.col("time") <= current_time), current_time)
@@ -2568,7 +2596,8 @@ def generate_forecaster_results(forecaster, data_module, evaluator, test_data, p
     return forecast_df, agg_metrics
 
 def plot_score_vs_prediction_dt(agg_df, metrics, ax_indices, fig_dir):
-    
+    filtered_df = agg_df.filter(pl.col("metric").is_in(metrics))
+
     n_axes = len(ax_indices)
     # left_metrics = [met for i, met in zip(ax_indices, metrics) if i == 0]
     # right_metrics = [met for i, met in zip(ax_indices, metrics) if i == 1]
@@ -2587,14 +2616,24 @@ def plot_score_vs_prediction_dt(agg_df, metrics, ax_indices, fig_dir):
     #     ax = ax2
         
     # elif left_metrics or right_metrics:
-    ax = sns.scatterplot(agg_df.filter(pl.col("metric").is_in(metrics)).to_pandas(),
-                    y="score", x="prediction_timedelta", style="metric", hue="forecaster", s=200, log_scale=True)
+    #ax = sns.scatterplot(agg_df.filter(pl.col("metric").is_in(metrics)).to_pandas(),
+    #                y="score", x="prediction_timedelta", style="metric", hue="forecaster", s=200, log_scale=True)
+    ax = sns.scatterplot(
+        filtered_df.to_pandas(),
+        y="score",
+        x="prediction_timedelta",
+        style="metric",
+        hue="forecaster",
+        s=200,
+        log_scale=True,
+        legend="full"  # Force Seaborn to show all legend elements
+    )
     # ax = ax1
         
     # if left_metrics:
     # ax.set_ylabel(f"Score for {', '.join(left_metrics)} (-)")
     ax.set_ylabel("Score")
-    h1, l1 = ax.get_legend_handles_labels()
+    #h1, l1 = ax.get_legend_handles_labels()
         
     # if right_metrics:
     #     ax2.set_ylabel(f"Score for {', '.join(right_metrics)} (-)")
@@ -2606,23 +2645,55 @@ def plot_score_vs_prediction_dt(agg_df, metrics, ax_indices, fig_dir):
     #     l = l1[:l1.index("metric")] + l1[l1.index("metric"):] + l2[l2.index("metric")+1:]
     #     h = h1[:l1.index("metric")] + h1[l1.index("metric"):] + h2[l2.index("metric")+1:]
     # elif left_metrics:
-    l = l1
-    h = h1
+    #l = l1
+    #h = h1
     # else:
     #     l = l2
     #     h = h2
-    ax.set_xticks(agg_df.select(pl.col("prediction_timedelta").unique()).to_numpy().flatten())
-    new_labels = [" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", label).group())) 
-                  if "Forecast" in label else (label.capitalize() if not label[0].isupper() else label).replace("_", " ") for label in l]
+    #ax.set_xticks(agg_df.select(pl.col("prediction_timedelta").unique()).to_numpy().flatten())
+    #new_labels = [" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", label).group())) 
+    #              if "Forecast" in label else (label.capitalize() if not label[0].isupper() else label).replace("_", " ") for label in l]
     
-    l1, l2 = new_labels[:new_labels.index("Metric")], new_labels[new_labels.index("Metric"):]
-    h1, h2 = h[:new_labels.index("Metric")], h[new_labels.index("Metric"):]
-    leg1 = ax.legend(h1, l1, loc='upper left', bbox_to_anchor=(1.01, 1), frameon=False)
-    leg2 = plt.legend(h2, l2, loc='upper left', bbox_to_anchor=(1.01, 0.8), frameon=False)
-    ax.add_artist(leg1)
+    #l1, l2 = new_labels[:new_labels.index("Metric")], new_labels[new_labels.index("Metric"):]
+    #h1, h2 = h[:new_labels.index("Metric")], h[new_labels.index("Metric"):]
+    #leg1 = ax.legend(h1, l1, loc='upper left', bbox_to_anchor=(1.01, 1), frameon=False)
+    #leg2 = plt.legend(h2, l2, loc='upper left', bbox_to_anchor=(1.01, 0.8), frameon=False)
+    #ax.add_artist(leg1)
+    #plt.tight_layout()
+    #fig.savefig(os.path.join(fig_dir, "score_vs_pred.png"))
+    #return fig
+
+    # Legend handling
+    handles, labels = ax.get_legend_handles_labels()
+    if not labels:
+        print("Warning: No legend labels found.")
+        plt.tight_layout()
+        fig.savefig(os.path.join(fig_dir, "score_vs_pred.png"))
+        return fig
+
+    # Clean and split legend labels
+    cleaned_labels = [
+        " ".join(re.findall("[A-Z][^A-Z]*", re.search(r"\w+(?=Forecast)", lbl).group()))
+        if "Forecast" in lbl else (lbl.capitalize() if not lbl[0].isupper() else lbl).replace("_", " ")
+        for lbl in labels
+    ]
+
+    # Attempt to split into two groups if "Metric" is present
+    if "Metric" in cleaned_labels:
+        split_idx = cleaned_labels.index("Metric")
+        h1, l1 = handles[:split_idx], cleaned_labels[:split_idx]
+        h2, l2 = handles[split_idx:], cleaned_labels[split_idx:]
+        leg1 = ax.legend(h1, l1, loc='upper left', bbox_to_anchor=(1.01, 1), frameon=False)
+        leg2 = plt.legend(h2, l2, loc='upper left', bbox_to_anchor=(1.01, 0.8), frameon=False)
+        ax.add_artist(leg1)
+    else:
+        ax.legend(handles, cleaned_labels, loc='upper left', bbox_to_anchor=(1.01, 1), frameon=False)
+
+    # Save and return
     plt.tight_layout()
     fig.savefig(os.path.join(fig_dir, "score_vs_pred.png"))
     return fig
+
 
 def plot_score_vs_forecaster(agg_df, metrics, ax_indices, prediction_intervals, fig_dir):
     
@@ -2989,7 +3060,22 @@ if __name__ == "__main__":
                                         )
             forecasters.append(forecaster)
     
-    
+        ## GENERATE ARIMA PREVIEW
+    if "arima" in args.model:
+        for td in prediction_timedelta:
+            forecaster = ARIMAForecast(measurements_timedelta=measurements_timedelta,
+                                        controller_timedelta=controller_timedelta,
+                                        prediction_timedelta=td, 
+                                        context_timedelta=context_timedelta,
+                                        fmodel=fmodel,
+                                        true_wind_field=None,
+                                        tid2idx_mapping=tid2idx_mapping,
+                                        turbine_signature=turbine_signature,
+                                        use_tuned_params=False,
+                                        model_config=model_config,
+                                        kwargs={})
+            forecasters.append(forecaster)
+
     if args.multiprocessor:
         
         if args.multiprocessor == "mpi":
