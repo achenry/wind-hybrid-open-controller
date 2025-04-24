@@ -72,6 +72,8 @@ if __name__ == "__main__":
     parser.add_argument("-m", "--multiprocessor", choices=["mpi", "cf", None], default=None)
     parser.add_argument("-msp", "--max_splits", type=int, required=False, default=None,
                         help="Number of test splits to use.")
+    parser.add_argument("-ltv", "--limit_train_val", type=float, required=False, default=1,
+                        help="Proportion of total training/validation data to randomly sample from during tuning.")
     parser.add_argument("-mst", "--max_steps", type=int, required=False, default=None,
                         help="Number of time steps to use.")
     parser.add_argument("-s", "--seed", type=int, help="Seed for random number generator", default=42)
@@ -241,7 +243,7 @@ if __name__ == "__main__":
                                                 config=model_config,
                                                 worker_id=0 if RUN_ONCE and (worker_id == 0) else worker_id,
                                                 multiprocessor=args.multiprocessor,
-                                                limit_train=0.2)
+                                                limit_train_val=args.limit_train_val)
                                         #  trial_protection_callback=handle_trial_with_oom_protection)
 
         # %% TRAINING MODEL

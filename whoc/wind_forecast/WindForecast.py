@@ -156,7 +156,7 @@ class WindForecast:
         elif isinstance(historic_measurements, pd.DataFrame):
             return [col for col in historic_measurements.columns if (col.startswith("ws_horz") or col.startswith("ws_vert"))]
     
-    def _compute_output_score(self, output, params, limit_train=None):
+    def _compute_output_score(self, output, params, limit_train_val=None):
         # logging.info(f"Defining model for output {output}.")
         # model = self.create_model(**{re.search(f"\\w+(?=_{output})", k).group(0): v for k, v in params.items() if k.endswith(f"_{output}")})
         model = self.create_model(**params)
@@ -168,11 +168,11 @@ class WindForecast:
         X_train, y_train = self._get_output_data(output=output, split="train", reload=False)
         X_val, y_val = self._get_output_data(output=output, split="val", reload=False)
         
-        if limit_train:
-            random_indices = np.random.choice(np.arange(X_train.shape[0]), size=int(limit_train * X_train.shape[0]))
+        if limit_train_val:
+            random_indices = np.random.choice(np.arange(X_train.shape[0]), size=int(limit_train_val * X_train.shape[0]))
             X_train, y_train = X_train[random_indices, :], y_train[random_indices]
             
-            random_indices = np.random.choice(np.arange(X_val.shape[0]), size=int(limit_train * X_val.shape[0]))
+            random_indices = np.random.choice(np.arange(X_val.shape[0]), size=int(limit_train_val * X_val.shape[0]))
             X_val, y_val = X_valf[random_indices, :], y_val[random_indices]
         
         # evaluate with cross-validation
@@ -180,7 +180,7 @@ class WindForecast:
         model.fit(X_train, y_train)
         return (-mean_squared_error(y_true=y_val, y_pred=model.predict(X_val)))
     
-    def _tuning_objective(self, trial, multiprocessor, limit_train):
+    def _tuning_objective(self, trial, multiprocessor, limit_train_val):
         """
         Objective function to be minimized in Optuna
         """
@@ -207,12 +207,12 @@ class WindForecast:
                                                 # mp_context=mp.get_context("spawn"))
             
             with executor as ex:
-                futures = [ex.submit(self._compute_output_score, output=output, params=params, limit_train=limit_train) for output in self.outputs]
+                futures = [ex.submit(self._compute_output_score, output=output, params=params, limit_train_val=limit_train_val) for output in self.outputs]
                 scores = [fut.result() for fut in futures]
         else:
             scores = []
             for output in self.outputs:
-                scores.append(self._compute_output_score(output=output, params=params, limit_train=limit_train))
+                scores.append(self._compute_output_score(output=output, params=params, limit_train_val=limit_train_val))
         
         logging.info(f"Completed trial {trial.number}.")
         return sum(scores)
@@ -289,7 +289,7 @@ class WindForecast:
                                     n_trials_per_worker=1,
                                     worker_id=0,
                                     multiprocessor=None,
-                                    limit_train=None):
+                                    limit_train_val=None):
         
         comm = MPI.COMM_WORLD
         RUN_ONCE = (multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (multiprocessor != "mpi") or (multiprocessor is None)
@@ -406,7 +406,7 @@ class WindForecast:
             # max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
             max_workers = mp.cpu_count()
             logging.info(f"Worker {worker_id}: Participating in Optuna study {self.study_name} with {max_workers} workers")
-            objective_fn = partial(self._tuning_objective, multiprocessor=multiprocessor, limit_train=limit_train)
+            objective_fn = partial(self._tuning_objective, multiprocessor=multiprocessor, limit_train_val=limit_train_val)
         
         if multiprocessor == "mpi":
             study = comm.bcast(study, root=0)
