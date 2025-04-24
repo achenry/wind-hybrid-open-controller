@@ -200,7 +200,7 @@ if __name__ == "__main__":
     
     optuna_storage = None
     if RUN_ONCE:
-        logging.info("Initializing storage")
+        logging.info(f"Initializing storage with restart_tuning={args.restart_tuning} on worker {worker_id}")
         
         db_setup_params = generate_df_setup_params(args.model, model_config)
         optuna_storage = setup_optuna_storage(
