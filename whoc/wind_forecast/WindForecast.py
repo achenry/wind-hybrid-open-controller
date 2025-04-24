@@ -176,9 +176,9 @@ class WindForecast:
             X_val, y_val = X_val[random_indices, :], y_val[random_indices]
         
         # evaluate with cross-validation
-        logging.info(f"Fitting model for output {output} with {X_train.shape[0]} training data points.")
+        # logging.info(f"Fitting model for output {output} with {X_train.shape[0]} training data points.")
         model.fit(X_train, y_train)
-        logging.info(f"Computing score for output {output} with {X_val.shape[0]} validation data points.")
+        # logging.info(f"Computing score for output {output} with {X_val.shape[0]} validation data points.")
         return (-mean_squared_error(y_true=y_val, y_pred=model.predict(X_val)))
     
     def _tuning_objective(self, trial, multiprocessor, limit_train_val):
@@ -187,14 +187,7 @@ class WindForecast:
         """
         # define hyperparameter search space 
         params = self.get_params(trial)
-         
-        # train svr model
-        # total_score = 0
-        # for output in self.outputs:
-        # if self.multiprocessor == "mpi" and mpi_exists:
-        #     executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
-        #     # logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
-        # else:
+        
         max_workers = mp.cpu_count()
         # max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
         if multiprocessor:
@@ -532,7 +525,7 @@ class WindForecast:
         
         else:
             # assert os.path.exists(Xy_path), "Must run prepare_training_data before tuning"
-            logging.info(f"Loading existing {split} data from {Xy_path}")
+            # logging.info(f"Loading existing {split} data from {Xy_path}")
             data_shape = tuple(np.load(Xy_path.replace(".dat", "_shape.npy")))
             fp = np.memmap(Xy_path, dtype="float32", 
                            mode="r", shape=data_shape)
