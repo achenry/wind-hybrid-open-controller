@@ -15,12 +15,14 @@ from concurrent.futures import ProcessPoolExecutor
 import multiprocessing as mp
 from torch.distributions import MultivariateNormal
 from torch import Tensor
+import inspect
 import gc
 from memory_profiler import profile
 import pickle
 import glob
 from functools import partial
 from itertools import chain
+import torch
 
 # from joblib import parallel_backend
 
@@ -1618,25 +1620,22 @@ class MLForecast(WindForecast):
         self.n_prediction_interval = 1
         self.model_key = self.kwargs["model_key"]
         
-        # assert isinstance(self.kwargs["estimator_class"], PyTorchLightningEstimator)
-        # assert isinstance(self.kwargs["distr_output"], DistributionOutput)
-        # assert isinstance(self.kwargs["lightning_module"], L.LightningModule)
-
-        if self.use_tuned_params:
-            try:
-                logging.info("Getting tuned parameters")
-                # study_name, backend, storage_dir
-                tuned_params = get_tuned_params(storage=self.kwargs["optuna_storage"],
-                                                study_name=f"tuning_{self.model_key}_{self.model_config['experiment']['run_name']}")
-                logging.info(f"Declaring estimator {self.model_key.capitalize()} with tuned parameters")
-                self.model_config["dataset"].update({k: v for k, v in tuned_params.items() if k in self.model_config["dataset"]})
-                self.model_config["model"][self.model_key].update({k: v for k, v in tuned_params.items() if k in self.model_config["model"][self.model_key]})
-                self.model_config["trainer"].update({k: v for k, v in tuned_params.items() if k in self.model_config["trainer"]})
-            except Exception as e:
-                logging.warning(e)
-                logging.info(f"Declaring estimator {self.model_key.capitalize()} with default parameters")
-        else:
-            logging.info(f"Declaring estimator {self.model_key.capitalize()} with default parameters")
+        # TODO do we need this or can we load from checkpoint
+        # if self.use_tuned_params:
+        #     try:
+        #         logging.info("Getting tuned parameters")
+        #         # study_name, backend, storage_dir
+        #         tuned_params = get_tuned_params(storage=self.kwargs["optuna_storage"],
+        #                                         study_name=f"tuning_{self.model_key}_{self.model_config['experiment']['run_name']}")
+        #         logging.info(f"Declaring estimator {self.model_key.capitalize()} with tuned parameters")
+        #         self.model_config["dataset"].update({k: v for k, v in tuned_params.items() if k in self.model_config["dataset"]})
+        #         self.model_config["model"][self.model_key].update({k: v for k, v in tuned_params.items() if k in self.model_config["model"][self.model_key]})
+        #         self.model_config["trainer"].update({k: v for k, v in tuned_params.items() if k in self.model_config["trainer"]})
+        #     except Exception as e:
+        #         logging.warning(e)
+        #         logging.info(f"Declaring estimator {self.model_key.capitalize()} with default parameters")
+        # else:
+        #     logging.info(f"Declaring estimator {self.model_key.capitalize()} with default parameters")
             
         self.model_prediction_timedelta = pd.Timedelta(seconds=self.model_config["dataset"]["prediction_length"])
             
@@ -1664,7 +1663,7 @@ class MLForecast(WindForecast):
         self.scaler_params = self.data_module.compute_scaler_params()
         
         estimator_class = globals()[f"{self.model_key.capitalize()}Estimator"]
-        lightning_module = globals()[f"{self.model_key.capitalize()}LightningModule"]
+        lightning_module_class = globals()[f"{self.model_key.capitalize()}LightningModule"]
         distr_output = globals()[self.model_config["model"]["distr_output"]["class"]]
         
         estimator = estimator_class(
@@ -1678,7 +1677,7 @@ class MLForecast(WindForecast):
             input_size=self.data_module.num_target_vars,
             scaling=False,
             batch_size=self.model_config["dataset"].setdefault("batch_size", 128),
-            num_batches_per_epoch=self.model_config["trainer"].setdefault("limit_train_batches", 50), # TODO set this to be arbitrarily high st limit train_batches dominates
+            num_batches_per_epoch=self.model_config["trainer"].setdefault("limit_train_batches", 1000), #  set this to be arbitrarily high st limit train_batches dominates
             train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=self.data_module.context_length, min_future=self.data_module.prediction_length), # TODO should be context_len + max(seq_len) to avoid padding..
             validation_sampler=ValidationSplitSampler(min_past=self.data_module.context_length, min_future=self.data_module.prediction_length),
             time_features=[second_of_minute, minute_of_hour, hour_of_day, day_of_year],
@@ -1691,15 +1690,98 @@ class MLForecast(WindForecast):
         metric = "val_loss_epoch"
         mode = "min"
         # log_dir = os.path.join(self.model_config["trainer"]["default_root_dir"], "lightning_logs")
-        # "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/informer_aoifemac_awaken/wind_forecasting/z55orlbf/checkpoints/epoch=7-step=8000.ckpt"
-        checkpoint_path = get_checkpoint(checkpoint=self.kwargs["model_checkpoint"], metric=metric, 
-                                         mode=mode, log_dir=self.model_config["experiment"]["log_dir"])
+        # "/Users/ahenry/Documents/toolboxes/wind_forecasting/logging/informer_aoifemac_awaken/wind_forecasting/z55orlbf/checkpoints/epoch=7-step=8000.ckpt"
+        checkpoint_path = get_checkpoint(
+            checkpoint=self.kwargs["model_checkpoint"], metric=metric, 
+            mode=mode, 
+            log_dir=os.path.join(self.model_config["experiment"]["log_dir"], 
+                                 f"{self.model_config['experiment']['project_name']}_{self.model_key}"))
         logging.info("Found pretrained model, loading...")
-        model = lightning_module.load_from_checkpoint(checkpoint_path)
+        # model = lightning_module_class.load_from_checkpoint(checkpoint_path)
+        checkpoint = torch.load(checkpoint_path, map_location=lambda storage, loc: storage, weights_only=False)
+        
+        # Extract hyperparameters, handling potential key variations
+        hparams = checkpoint.get('hyper_parameters', checkpoint.get('hparams'))
+        if hparams is None:
+            logging.error(f"Hyperparameters not found in checkpoint: {checkpoint_path}. Cannot re-instantiate model.")
+            raise Exception
+
+        logging.debug(f"Loaded hparams from checkpoint: {hparams}")
+
+        # Explicitly extract model_config and other necessary args for LightningModule.__init__
+        # Use .get() with default None to avoid KeyError if a param wasn't saved (though it should be)
+        model_config = hparams.get('model_config')
+        if model_config is None:
+            logging.error(f"Critical: 'model_config' dictionary not found within loaded hyperparameters in {checkpoint_path}. Check saving logic.")
+            raise Exception
+
+        module_sig = inspect.signature(lightning_module_class.__init__)
+        module_params = [param.name for param in module_sig.parameters.values()]
+        del module_params[module_params.index("self")]
+        # Extract other args expected by LightningModule.__init__ directly from hparams
+        # Provide default values from the original config if not found in hparams, logging a warning
+        init_args = {
+            'model_config': model_config,
+            **{k: hparams.get(k, self.model_config["model"][self.model_key].get(k)) for k in module_params}
+        }
+        
+        # Log if any defaults were used
+        for key, val in init_args.items():
+            if key != 'model_config' and key not in hparams:
+                logging.warning(f"Hyperparameter '{key}' not found in checkpoint, using default value: {val}")
+
+        # Check for missing essential args (should ideally not happen with defaults)
+        missing_args = [k for k, v in init_args.items() if v is None and k != 'model_config'] # model_config checked above
+        if missing_args:
+            logging.error(f"Missing required hyperparameters in checkpoint {checkpoint_path} even after checking defaults: {missing_args}")
+            raise Exception
+
+        logging.info(f"Re-instantiating LightningModule for metric retrieval with stage: {init_args.get('stage')}")
+        logging.debug(f"Using init_args: {init_args}")
+
+        # Instantiate the model using the extracted arguments
+        cls = locals()["__class__"]
+        del locals()["__class__"]
+        model = lightning_module_class(**init_args)
+        try:
+            model = lightning_module_class(**init_args)
+        except Exception as e:
+            logging.error(f"Error during LightningModule re-instantiation: {e}", exc_info=True)
+            raise Exception(e)
+
+        # Load the state dict
+        logging.info(f"Loading state_dict into re-instantiated model...")
+        try:
+            model.load_state_dict(checkpoint['state_dict'])
+            logging.info("State_dict loaded successfully.")
+        except RuntimeError as e:
+            logging.error(f"RuntimeError loading state_dict: {e}. This often indicates a mismatch between the model architecture defined by hparams and the saved weights.", exc_info=True)
+            # Log details about the mismatch if possible (though the error message usually contains this)
+            logging.error(f"Model architecture stage during load attempt: {model.stage if hasattr(model, 'stage') else 'N/A'}")
+            raise Exception(e)
+        except Exception as e:
+            logging.error(f"Unexpected error loading state_dict: {e}", exc_info=True)
+            raise Exception(e)
+        
         transformation = estimator.create_transformation(use_lazyframe=False)
         
+        # Conditionally Create Forecast Generator
+        if self.model_key == 'tactis':
+            # TACTiS uses SampleForecastGenerator internally for prediction
+            # because its foweard pass returns samples not distribution parameters
+            logging.info(f"Using SampleForecastGenerator for TACTiS model.")
+            forecast_generator = SampleForecastGenerator()
+        else:
+            # Other models use DistributionForecastGenerator based on their distr_output
+            logging.info(f"Using DistributionForecastGenerator for {self.model_key} model.")
+            # Ensure estimator has distr_output before accessing
+            if not hasattr(estimator, 'distr_output'):
+                    raise AttributeError(f"Estimator for model '{self.model_key}' is missing 'distr_output' attribute needed for DistributionForecastGenerator.")
+            forecast_generator = DistributionForecastGenerator(estimator.distr_output)
+
+        
         self.distr_predictor = estimator.create_predictor(transformation, model, 
-                                                          forecast_generator=DistributionForecastGenerator(estimator.distr_output))
+                                                          forecast_generator=forecast_generator)
         # self.sample_predictor = estimator.create_predictor(transformation, model, 
         #                                                    forecast_generator=SampleForecastGenerator())
     
@@ -1727,15 +1809,16 @@ class MLForecast(WindForecast):
                 {
                     "item_id": f"TURBINE{turbine_id}",
                     "start": pd.Period(historic_measurements.select(pl.col("time").first()).item(), freq=self.data_module.freq), 
-                    "target": historic_measurements.select(self.data_module.target_cols).to_numpy().T, 
+                    "target": historic_measurements.select([f"{pfx}_{turbine_id}" for pfx in self.data_module.target_prefixes]).to_numpy().T, 
+                    "feat_static_cat": np.array([turbine_id]),
                     "feat_dynamic_real": pl.concat([
-                        historic_measurements.select(self.data_module.feat_dynamic_real_cols),
-                        historic_measurements.select([pl.col(col).last().repeat_by(int(self.model_prediction_timedelta / self.data_module.freq)).explode() 
-                                                      for col in self.data_module.feat_dynamic_real_cols])], how="vertical")
+                        historic_measurements.select([f"{pfx}_{turbine_id}" for pfx in self.data_module.feat_dynamic_real_prefixes]),
+                        historic_measurements.select([pl.col(f"{pfx}_{turbine_id}").last().repeat_by(int(self.model_prediction_timedelta / self.data_module.freq)).explode() 
+                                                      for pfx in self.data_module.feat_dynamic_real_prefixes])], how="vertical").to_numpy().T
                 } for turbine_id in self.data_module.target_suffixes)
         else:
             test_data = [{
-                "start": pd.Period(historic_measurements.select(pl.col("time").first()).item(), freq=self.data_module.freq), 
+                    "start": pd.Period(historic_measurements.select(pl.col("time").first()).item(), freq=self.data_module.freq), 
                     "target": historic_measurements.select(self.data_module.target_cols).to_numpy().T, 
                     "feat_dynamic_real": pl.concat([
                         historic_measurements.select(self.data_module.feat_dynamic_real_cols),
@@ -1891,6 +1974,7 @@ class MLForecast(WindForecast):
             
             if self.data_module.per_turbine_target:
                 # TODO TEST
+                next(pred)
                 pred_df = pl.concat([pl.DataFrame(
                     data={
                         **{"time": pred.index.to_timestamp()},
@@ -1901,7 +1985,7 @@ class MLForecast(WindForecast):
                                 for output_type in self.data_module.target_cols}).sort_values(["time"]) for t, turbine_pred in enumerate(pred)], how="horizontal")
             else:
                 
-                pred = next(pred)
+                # pred = next(pred)
                 # pred_turbine_id = pd.Categorical([col.split("_")[-1] for col in col_names for t in range(pred.prediction_length)])
                 pred_df = pl.DataFrame(
                     data={
@@ -2433,8 +2517,8 @@ if __name__ == "__main__":
                         help="Number of test splits to use.")
     parser.add_argument("-mst", "--max_steps", type=int, required=False, default=None,
                         help="Number of time steps to use.")
-    parser.add_argument("-chk", "--checkpoint", type=str, required=False, default="latest", 
-                        help="Which checkpoint to use: can be equal to 'latest', 'best', or an existing checkpoint path.")
+    parser.add_argument("-chk", "--checkpoint", type=str, required=False, default="latest", nargs="+",
+                        help="Which checkpoint to use: can be equal to 'latest', 'best', or a list of existing checkpoint path (one for each ML model passed to models, in same order).")
     parser.add_argument("-pt", "--prediction_type", type=str, choices=["point", "sample", "distribution"], default="point",
                         help="Whether to make a point, sample, or distribution parameter prediction.")
     parser.add_argument("-awm", "--added_wind_mag", type=float, required=False, default=0.0,
@@ -2650,23 +2734,24 @@ if __name__ == "__main__":
         
     ## GENERATE ML PREVIEW
     elif any(ml_model in args.model for ml_model in ["informer", "autoformer", "spacetimeformer", "tactis"]):
-        # "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/informer_aoifemac_awaken/wind_forecasting/z55orlbf/checkpoints/epoch=3-step=4000.ckpt"
-            
-        # TODO DEBUG
-        db_setup_params = generate_df_setup_params(args.model, model_config)
-        optuna_storage = setup_optuna_storage(
-            db_setup_params=db_setup_params,
-            restart_tuning=False,
-            rank=rank
-        )
-        for model in [ml_model for ml_model in args.model if ml_model in ["informer", "autoformer", "spacetimeformer", "tactis"]]:
+        ml_models = [ml_model for ml_model in args.model if ml_model in ["informer", "autoformer", "spacetimeformer", "tactis"]]    
+        if isinstance(args.checkpoint, list):
+            assert len(args.checkpoint) == len(ml_models)
+        for m, model in enumerate(ml_models):
             # TODO DEBUG
             db_setup_params = generate_df_setup_params(model, model_config)
-            optuna_storage = setup_optuna_storage(
-                db_setup_params=db_setup_params,
-                restart_tuning=False,
-                rank=rank
-            )
+            try:
+                optuna_storage = setup_optuna_storage(
+                    db_setup_params=db_setup_params,
+                    restart_tuning=False,
+                    rank=rank
+                )
+                use_tuned_params = True
+            except Exception as e:
+                logging.error("Could not open Optuna storage, will use default hyper parameters.")
+                optuna_storage = None
+                use_tuned_params = False
+                
             forecaster = MLForecast(measurements_timedelta=measurements_timedelta,
                                     controller_timedelta=controller_timedelta,
                                     prediction_timedelta=pd.Timedelta(seconds=model_config["dataset"]["prediction_length"]),
@@ -2675,10 +2760,10 @@ if __name__ == "__main__":
                                     true_wind_field=None,
                                     tid2idx_mapping=tid2idx_mapping,
                                     turbine_signature=turbine_signature,
-                                    use_tuned_params=True,
+                                    use_tuned_params=use_tuned_params,
                                     model_config=model_config,
                                     kwargs=dict(model_key=model,
-                                                model_checkpoint=args.checkpoint,
+                                                model_checkpoint=args.checkpoint if isinstance(args.checkpoint, str) else args.checkpoint[m], # TODO QUESTION is the latest checkpoint not always the best?
                                                 optuna_storage=optuna_storage,
                                                 study_name=db_setup_params["study_name"])
                                     )
