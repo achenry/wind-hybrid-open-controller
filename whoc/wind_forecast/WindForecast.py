@@ -2790,8 +2790,7 @@ if __name__ == "__main__":
     ## GENERATE ML PREVIEW
     elif any(ml_model in args.model for ml_model in ["informer", "autoformer", "spacetimeformer", "tactis"]):
         ml_models = [ml_model for ml_model in args.model if ml_model in ["informer", "autoformer", "spacetimeformer", "tactis"]]    
-        if isinstance(args.checkpoint, list):
-            assert len(args.checkpoint) == len(ml_models)
+        
         for m, model in enumerate(ml_models):
             for mncf, ctd, ptd in zip(model_configs, context_timedelta, prediction_timedelta):
             
@@ -2821,7 +2820,7 @@ if __name__ == "__main__":
                                         use_tuned_params=use_tuned_params,
                                         model_config=mncf,
                                         kwargs=dict(model_key=model,
-                                                    model_checkpoint=args.checkpoint if isinstance(args.checkpoint, str) else args.checkpoint[m], # TODO QUESTION is the latest checkpoint not always the best?
+                                                    model_checkpoint=args.checkpoint if len(args.checkpoint) == 1 else args.checkpoint[m], # TODO QUESTION is the latest checkpoint not always the best?
                                                     optuna_storage=optuna_storage,
                                                     study_name=db_setup_params["study_name"])
                                         )
