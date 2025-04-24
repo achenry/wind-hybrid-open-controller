@@ -1976,8 +1976,10 @@ class MLForecast(WindForecast):
                         **{f"loc_{col}": turbine_pred.distribution.mean[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_prefixes)},
                         **{f"sd_{col}": turbine_pred.distribution.stddev[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_prefixes)}
                     }
-                ).rename({output_type: f"{output_type}_{self.data_module.target_suffixes[t]}" 
-                                for output_type in self.data_module.target_prefixes}).sort_values(["time"]) for t, turbine_pred in enumerate(pred)], how="horizontal")
+                ).rename({
+                    f"{param}_{col}": f"{param}_{col}_{self.data_module.target_suffixes[t]}"
+                    for param in ["loc", "sd"] for col in self.data_module.target_prefixes}
+                         ).sort(by=["time"]) for t, turbine_pred in enumerate(pred)], how="align")
             else:
                 
                 # pred = next(pred)
