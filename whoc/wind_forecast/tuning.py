@@ -188,14 +188,11 @@ if __name__ == "__main__":
         delattr(data_module, "train_dataset")
         delattr(data_module, "val_dataset")
         
-        forecaster.prepare_data(dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, 
-                                scale=False, multiprocessor=args.multiprocessor, reload=args.reload_data)
+        if args.reload_data:
+            forecaster.prepare_data(dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, 
+                                    scale=False, multiprocessor=args.multiprocessor, reload=args.reload_data)
 
         if RUN_ONCE:
-            # logging.info(f"Moving prepared data from {forecaster.model_save_dir} to {original_save_dir}.")
-            # filenames = os.listdir(forecaster.model_save_dir)
-            # for fn in filenames:
-            #     shutil.move(os.path.join(forecaster.model_save_dir, fn), original_save_dir)
             logging.info("Finished preparing data for tuning.")
 
     # %% TUNING MODEL
