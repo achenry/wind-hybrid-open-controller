@@ -213,7 +213,7 @@ if __name__ == "__main__":
         #     # Remove duplicates and sort
         #     core_ids = sorted(list(set(core_ids)))
             
-        logging.info(f"Process {os.getpid()}: Attempting to use cores: {core_ids}")
+        # logging.info(f"Process {os.getpid()}: Attempting to use cores: {core_ids}")
         
         scaler_params = data_module.compute_scaler_params()
         optuna_storage = None
