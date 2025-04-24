@@ -1111,7 +1111,7 @@ class SVRForecast(WindForecast):
             
         self.last_measurement_time = None
         # study_name=f"tuning_{self.model_key}_{self.model_config['experiment']['run_name']}"
-        self.study_name = f"svr_{self.model_config['experiment']['run_name']}"
+        self.study_name = f"tuning_svr_{self.model_config['experiment']['run_name']}"
         self.model_save_dir = os.path.join(self.model_config["experiment"]["log_dir"], self.study_name)
         os.makedirs(self.model_save_dir, exist_ok=True)
         
@@ -1697,8 +1697,8 @@ class MLForecast(WindForecast):
             log_dir=os.path.join(self.model_config["experiment"]["log_dir"], 
                                  f"{self.model_config['experiment']['project_name']}_{self.model_key}"))
         logging.info("Found pretrained model, loading...")
-        # model = lightning_module_class.load_from_checkpoint(checkpoint_path)
-        checkpoint = torch.load(checkpoint_path, map_location=lambda storage, loc: storage, weights_only=False)
+        
+        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
         
         # Extract hyperparameters, handling potential key variations
         hparams = checkpoint.get('hyper_parameters', checkpoint.get('hparams'))
@@ -1740,11 +1740,8 @@ class MLForecast(WindForecast):
         logging.debug(f"Using init_args: {init_args}")
 
         # Instantiate the model using the extracted arguments
-        cls = locals()["__class__"]
-        del locals()["__class__"]
-        model = lightning_module_class(**init_args)
         try:
-            model = lightning_module_class(**init_args)
+            model = lightning_module_class.load_from_checkpoint(checkpoint_path, **init_args)
         except Exception as e:
             logging.error(f"Error during LightningModule re-instantiation: {e}", exc_info=True)
             raise Exception(e)
@@ -1780,7 +1777,7 @@ class MLForecast(WindForecast):
             forecast_generator = DistributionForecastGenerator(estimator.distr_output)
 
         
-        self.distr_predictor = estimator.create_predictor(transformation, model, 
+        self.predictor = estimator.create_predictor(transformation, model, 
                                                           forecast_generator=forecast_generator)
         # self.sample_predictor = estimator.create_predictor(transformation, model, 
         #                                                    forecast_generator=SampleForecastGenerator())
@@ -1810,12 +1807,12 @@ class MLForecast(WindForecast):
                     "item_id": f"TURBINE{turbine_id}",
                     "start": pd.Period(historic_measurements.select(pl.col("time").first()).item(), freq=self.data_module.freq), 
                     "target": historic_measurements.select([f"{pfx}_{turbine_id}" for pfx in self.data_module.target_prefixes]).to_numpy().T, 
-                    "feat_static_cat": np.array([turbine_id]),
+                    "feat_static_cat": np.array([t]),
                     "feat_dynamic_real": pl.concat([
                         historic_measurements.select([f"{pfx}_{turbine_id}" for pfx in self.data_module.feat_dynamic_real_prefixes]),
                         historic_measurements.select([pl.col(f"{pfx}_{turbine_id}").last().repeat_by(int(self.model_prediction_timedelta / self.data_module.freq)).explode() 
                                                       for pfx in self.data_module.feat_dynamic_real_prefixes])], how="vertical").to_numpy().T
-                } for turbine_id in self.data_module.target_suffixes)
+                } for t, turbine_id in enumerate(self.data_module.target_suffixes))
         else:
             test_data = [{
                     "start": pd.Period(historic_measurements.select(pl.col("time").first()).item(), freq=self.data_module.freq), 
@@ -1902,7 +1899,7 @@ class MLForecast(WindForecast):
                                                         for feat_type in feature_types])
             test_data = self._generate_test_data(historic_measurements)
             
-            pred = self.distr_predictor.predict(test_data, num_samples=1, 
+            pred = self.predictor.predict(test_data, num_samples=1, 
                                                 output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"})
             pred = next(pred)
             # .cast(pl.Datetime(time_unit="us"))
@@ -1969,20 +1966,18 @@ class MLForecast(WindForecast):
                                                             for feat_type in feature_types])
             test_data = self._generate_test_data(historic_measurements)
                 
-            pred = self.distr_predictor.predict(test_data, num_samples=1, 
+            pred = self.predictor.predict(test_data, num_samples=1, 
                                                 output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"})
             
             if self.data_module.per_turbine_target:
-                # TODO TEST
-                next(pred)
                 pred_df = pl.concat([pl.DataFrame(
                     data={
-                        **{"time": pred.index.to_timestamp()},
-                        **{f"loc_{col}": turbine_pred.distribution.mean[:, c].flatten() for c, col in enumerate(self.data_module.target_cols)},
-                        **{f"sd_{col}": turbine_pred.distribution.stddev[:, c].flatten() for c, col in enumerate(self.data_module.target_cols)}
+                        **{"time": turbine_pred.index.to_timestamp()},
+                        **{f"loc_{col}": turbine_pred.distribution.mean[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_prefixes)},
+                        **{f"sd_{col}": turbine_pred.distribution.stddev[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_prefixes)}
                     }
-                ).rename({output_type: f"{output_type}_{self.data_module.static_features.iloc[t]['turbine_id']}" 
-                                for output_type in self.data_module.target_cols}).sort_values(["time"]) for t, turbine_pred in enumerate(pred)], how="horizontal")
+                ).rename({output_type: f"{output_type}_{self.data_module.target_suffixes[t]}" 
+                                for output_type in self.data_module.target_prefixes}).sort_values(["time"]) for t, turbine_pred in enumerate(pred)], how="horizontal")
             else:
                 
                 # pred = next(pred)
