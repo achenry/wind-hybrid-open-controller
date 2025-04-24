@@ -176,8 +176,9 @@ class WindForecast:
             X_val, y_val = X_val[random_indices, :], y_val[random_indices]
         
         # evaluate with cross-validation
-        logging.info(f"Computing score for output {output} with {X_train.shape[0]} training data points and {X_val.shape[0]} validation data points.")
+        logging.info(f"Fitting model for output {output} with {X_train.shape[0]} training data points.")
         model.fit(X_train, y_train)
+        logging.info(f"Computing score for output {output} with {X_val.shape[0]} validation data points.")
         return (-mean_squared_error(y_true=y_val, y_pred=model.predict(X_val)))
     
     def _tuning_objective(self, trial, multiprocessor, limit_train_val):
@@ -199,10 +200,12 @@ class WindForecast:
         if multiprocessor:
             if multiprocessor == "mpi":
                 comm_size = MPI.COMM_WORLD.Get_size()
+                logging.info(f"Starting MPICommExecutor in _tuning_objective with {comm_size} workers")
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
             elif multiprocessor == "cf":
                 # max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
                 max_workers = mp.cpu_count()
+                logging.info(f"Starting ProcessPoolExecutor in _tuning_objective with {max_workers} workers")
                 executor = ProcessPoolExecutor(max_workers=max_workers)
                                                 # mp_context=mp.get_context("spawn"))
             
@@ -210,6 +213,7 @@ class WindForecast:
                 futures = [ex.submit(self._compute_output_score, output=output, params=params, limit_train_val=limit_train_val) for output in self.outputs]
                 scores = [fut.result() for fut in futures]
         else:
+            logging.info(f"Starting Sequential Executor in _tuning_objective with {1} workers")
             scores = []
             for output in self.outputs:
                 scores.append(self._compute_output_score(output=output, params=params, limit_train_val=limit_train_val))

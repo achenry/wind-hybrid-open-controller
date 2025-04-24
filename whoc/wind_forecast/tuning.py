@@ -170,25 +170,26 @@ if __name__ == "__main__":
             
         # get max_splits longest datasets
         data_module.generate_splits(save=True, reload=False, splits=["train", "val"])
-        data_module.train_dataset = sorted(data_module.train_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
-        data_module.val_dataset = sorted(data_module.val_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
-        if args.max_splits:
-            train_dataset = data_module.train_dataset[:args.max_splits]
-            val_dataset = data_module.val_dataset[:args.max_splits]
-        else:
-            train_dataset = data_module.train_dataset
-            val_dataset = data_module.val_dataset
         
-        if args.max_steps:
-            train_dataset = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in train_dataset]
-            val_dataset = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in val_dataset]
+        if args.reload_data or reload:
+            data_module.train_dataset = sorted(data_module.train_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
+            data_module.val_dataset = sorted(data_module.val_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
+            if args.max_splits:
+                train_dataset = data_module.train_dataset[:args.max_splits]
+                val_dataset = data_module.val_dataset[:args.max_splits]
+            else:
+                train_dataset = data_module.train_dataset
+                val_dataset = data_module.val_dataset
             
-        train_dataset = generate_wind_field_df(datasets=train_dataset, target_cols=data_module.target_cols, feat_dynamic_real_cols=data_module.feat_dynamic_real_cols)
-        val_dataset = generate_wind_field_df(datasets=val_dataset, target_cols=data_module.target_cols, feat_dynamic_real_cols=data_module.feat_dynamic_real_cols)
-        delattr(data_module, "train_dataset")
-        delattr(data_module, "val_dataset")
-        
-        if args.reload_data:
+            if args.max_steps:
+                train_dataset = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in train_dataset]
+                val_dataset = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in val_dataset]
+                
+            train_dataset = generate_wind_field_df(datasets=train_dataset, target_cols=data_module.target_cols, feat_dynamic_real_cols=data_module.feat_dynamic_real_cols)
+            val_dataset = generate_wind_field_df(datasets=val_dataset, target_cols=data_module.target_cols, feat_dynamic_real_cols=data_module.feat_dynamic_real_cols)
+            delattr(data_module, "train_dataset")
+            delattr(data_module, "val_dataset")
+            
             forecaster.prepare_data(dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, 
                                     scale=False, multiprocessor=args.multiprocessor, reload=args.reload_data)
 
