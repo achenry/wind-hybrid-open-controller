@@ -205,7 +205,7 @@ if __name__ == "__main__":
         db_setup_params = generate_df_setup_params(args.model, model_config)
         optuna_storage = setup_optuna_storage(
             db_setup_params=db_setup_params,
-            restart_tuning=False,
+            restart_tuning=args.restart_tuning,
             rank=0 if (worker_id == 0) else worker_id
         )
     
