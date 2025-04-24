@@ -2278,6 +2278,8 @@ def make_predictions(forecaster, test_data, prediction_type):
             
             if current_time - start >= forecaster.context_timedelta:
                 logging.info(f"Predicting future wind field using {forecaster.__class__.__name__} at time {current_time}/{end} of split {d}/{n_splits-1}.")
+                if not forecaster.fitted:
+                    forecaster.train(ds.filter(pl.col("time") <= current_time))
                 if prediction_type == "distribution" and forecaster.is_probabilistic:
                     pred = forecaster.predict_distr(
                         ds.filter(pl.col("time") <= current_time), current_time)
@@ -2440,15 +2442,27 @@ def generate_forecaster_results(forecaster, data_module, evaluator, test_data, p
     agg_metrics = []
     mean_vars = [c for c in target_vars if c.startswith("ws_") or c.startswith("loc_ws_")]
     
-    fdf = forecast_df = pl.concat(forecast_df, how="vertical").select(["time"] + [cs.ends_with(tgt) for tgt in data_module.target_cols])
+    fdf = pl.concat(forecast_df, how="vertical").select(["time", "ws_horz_7", "ws_vert_7"])
+    #fdf = forecast_df = pl.concat(forecast_df, how="vertical").select(["time"] + [cs.ends_with(tgt) for tgt in data_module.target_cols])
+    target_columns_specified = ["ws_horz_7", "ws_vert_7"]
     tdf = test_data.filter(pl.col("time").is_in(forecast_df.select(pl.col("time"))))\
-                       .select(["time", "continuity_group"] + data_module.target_cols)
-    combined_df = fdf.rename(lambda col: re.search("(?<=loc_)(\\w+)$", col).group() if col.startswith("loc_") else col)\
-                     .join(tdf, on=["time"], suffix="_true", coalesce=False)
-    true_cols = [f"{c}_true" for c in data_module.target_cols]
+                       .select(["time", "continuity_group"] + target_columns_specified)
+    #tdf = test_data.filter(pl.col("time").is_in(forecast_df.select(pl.col("time"))))\.select(["time", "continuity_group"] + data_module.target_cols)
+    #combined_df = fdf.rename(lambda col: re.search("(?<=loc_)(\\w+)$", col).group() if col.startswith("loc_") else col)\.join(tdf, on=["time"], suffix="_true", coalesce=False)
+    #combined_df = fdf.rename(lambda col: re.search("(?<=loc_)(\\w+)$", col).group() if col.startswith("loc_") else col)
+    combined_df = fdf.join(tdf, on="time", suffix="_true", coalesce=False)
+
+    #true_cols = [f"{c}_true" for c in data_module.target_cols]
+    true_cols = [f"{c}_true" for c in target_columns_specified]
+
     
-    err = combined_df.select(["time", "continuity_group"] + [(pl.col(pred_col) - pl.col(true_col)) for true_col, pred_col in zip(true_cols, data_module.target_cols)])
-    
+    #err = combined_df.select(["time", "continuity_group"] + [(pl.col(pred_col) - pl.col(true_col)) for true_col, pred_col in zip(true_cols, data_module.target_cols)])
+    err = combined_df.select(
+    ["time", "continuity_group"] +
+    [(pl.col(pred_col) - pl.col(true_col)).alias(f"{pred_col}_err")
+     for true_col, pred_col in zip(true_cols, target_columns_specified)]
+    )
+
     rmse = err.group_by("continuity_group").agg(cs.numeric().pow(2).mean().sqrt()).with_columns(metric=pl.lit("RMSE"), test_idx=pl.lit(-1))
     rmse = unpivot_df(rmse, forecaster.turbine_signature)
         
@@ -2957,10 +2971,19 @@ if __name__ == "__main__":
                                     prediction_type=args.prediction_type) 
                        for forecaster in forecasters]
             
-            results = [dict([(k, v) for k, v in chain(
-                zip(["forecast_df", "agg_metrics"], fut.result()), 
-                zip(["forecaster_name", "prediction_timedelta"], [forecaster.__class__.__name__, forecaster.prediction_timedelta.total_seconds()]))]) 
-                       for forecaster, fut in zip(forecasters, test_futures)] # agg_metrics, ts_metrics, forecast_fig
+            #results = [dict([(k, v) for k, v in chain(
+            #    zip(["forecast_df", "agg_metrics"], fut.result()), 
+            #    zip(["forecaster_name", "prediction_timedelta"], [forecaster.__class__.__name__, forecaster.prediction_timedelta.total_seconds()]))]) 
+            #           for forecaster, fut in zip(forecasters, test_futures)] # agg_metrics, ts_metrics, forecast_fig
+            results = []
+            for forecaster, fut in zip(forecasters, test_futures):
+                forecast_df, agg_metrics = fut.result()  # 🪄 Unpack the result correctly
+                results.append({
+                    "forecast_df": forecast_df,
+                    "agg_metrics": agg_metrics,
+                    "forecaster_name": forecaster.__class__.__name__,
+                    "prediction_timedelta": forecaster.prediction_timedelta.total_seconds()
+                })
     else:
         results = []
         for forecaster in forecasters:
