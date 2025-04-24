@@ -391,7 +391,8 @@ class WindForecast:
                     logging.error(f"Error details - Type: {type(e).__name__}, Storage: Journal")
                 raise
                 
-            max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
+            # max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
+            max_workers = mp.cpu_count()
             logging.info(f"Worker {worker_id}: Participating in Optuna study {self.study_name} with {max_workers} workers")
             objective_fn = partial(self._tuning_objective, multiprocessor=multiprocessor)
         
@@ -1259,7 +1260,8 @@ class SVRForecast(WindForecast):
                 comm_size = MPI.COMM_WORLD.Get_size()
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
             elif multiprocessor == "cf":
-                max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
+                # max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
+                max_workers = mp.cpu_count()
                 executor = ProcessPoolExecutor(max_workers=max_workers)
                                                 # mp_context=mp.get_context("spawn"))
             with executor as ex:
