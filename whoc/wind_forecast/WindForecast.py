@@ -189,19 +189,24 @@ class WindForecast:
         #     executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
         #     # logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
         # else:
-        # max_workers = mp.cpu_count()
-        max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
-        if multiprocessor == "mpi":
-            comm_size = MPI.COMM_WORLD.Get_size()
-            executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
-        elif multiprocessor == "cf":
-            max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
-            executor = ProcessPoolExecutor(max_workers=max_workers)
-                                            # mp_context=mp.get_context("spawn"))
-        
-        with executor as ex:
-            futures = [ex.submit(self._compute_output_score, output=output, params=params) for output in self.outputs]
-            scores = [fut.result() for fut in futures]
+        max_workers = mp.cpu_count()
+        # max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
+        if multiprocessor:
+            if multiprocessor == "mpi":
+                comm_size = MPI.COMM_WORLD.Get_size()
+                executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+            elif multiprocessor == "cf":
+                max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
+                executor = ProcessPoolExecutor(max_workers=max_workers)
+                                                # mp_context=mp.get_context("spawn"))
+            
+            with executor as ex:
+                futures = [ex.submit(self._compute_output_score, output=output, params=params) for output in self.outputs]
+                scores = [fut.result() for fut in futures]
+        else:
+            scores = []
+            for output in self.outputs:
+                scores.append(self._compute_output_score(output=output, params=params))
         
         logging.info(f"Completed trial {trial.number}.")
         return sum(scores)
