@@ -2820,7 +2820,7 @@ if __name__ == "__main__":
                                         use_tuned_params=use_tuned_params,
                                         model_config=mncf,
                                         kwargs=dict(model_key=model,
-                                                    model_checkpoint=args.checkpoint if len(args.checkpoint) == 1 else args.checkpoint[m], # TODO QUESTION is the latest checkpoint not always the best?
+                                                    model_checkpoint=args.checkpoint[0] if len(args.checkpoint) == 1 else args.checkpoint[m], # TODO QUESTION is the latest checkpoint not always the best?
                                                     optuna_storage=optuna_storage,
                                                     study_name=db_setup_params["study_name"])
                                         )
