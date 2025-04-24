@@ -59,10 +59,6 @@ if __name__ == "__main__":
     parser.add_argument("-wcnf", "--whoc_config", type=str, required=True)
     parser.add_argument("-rl", "--ram_limit", type=int, required=False, default=75)
      
-    # "/projects/ssc/ahenry/whoc/floris_case_studies" on kestrel
-    # "/projects/aohe7145/whoc/floris_case_studies" on curc
-    # "/Users/ahenry/Documents/toolboxes/wind-hybrid-open-controller/examples/floris_case_studies" on mac
-    # python run_case_studies.py 0 1 2 3 4 5 6 7 -rs -p -st 480 -ns 1 -m cf -sd "/Users/ahenry/Documents/toolboxes/wind-hybrid-open-controller/examples/floris_case_studies"
     args = parser.parse_args()
     args.case_ids = [int(i) for i in args.case_ids]
 
@@ -80,6 +76,7 @@ if __name__ == "__main__":
             whoc_config  = yaml.safe_load(file)
             
         if args.wf_source == "scada":
+            # NOTE make sure this is the model config with the highest prediction length required, for splitting
             logging.info(f"Reading model config file {args.model_config}")
             with open(args.model_config, 'r') as file:
                 model_config  = yaml.safe_load(file)
@@ -117,7 +114,7 @@ if __name__ == "__main__":
                                         save_dir=args.save_dir, 
                                         wf_source=args.wf_source,
                                         multiprocessor=args.multiprocessor, 
-                                        whoc_config=whoc_config, model_config=model_config, data_config=data_config)
+                                        whoc_config=whoc_config, base_model_config=model_config)
         
         logging.info(f"Resetting args.n_seeds to {len(wind_field_ts)}")
         args.n_seeds = len(wind_field_ts)

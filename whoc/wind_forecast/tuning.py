@@ -9,7 +9,7 @@ import yaml
 import os
 import logging 
 from floris import FlorisModel
-import shutil
+import psutil
 import re
 import random
 from wind_forecasting.utils.optuna_db_utils import setup_optuna_storage
@@ -21,6 +21,39 @@ try:
     from mpi4py import MPI
 except Exception as e:
     logging.warning("Could not import MPI.")
+
+# def set_cpu_affinity(core_ids):
+#     """Sets the CPU affinity for the current process."""
+#     pid = os.getpid()
+#     p = psutil.Process(pid)
+
+#     try:
+#         current_affinity = p.cpu_affinity()
+#         logging.info(f"Process {pid}: Current CPU affinity: {current_affinity}")
+
+#         # Ensure core_ids is a list of integers
+#         cores_to_set = [int(c) for c in core_ids]
+
+#         # Check if requested cores are available (optional but good practice)
+#         available_cores = list(range(psutil.cpu_count(logical=True)))
+#         invalid_cores = [c for c in cores_to_set if c not in available_cores]
+#         if invalid_cores:
+#             logging.warning(f"Requested cores {invalid_cores} are not valid/available.")
+#             logging.info(f"Available cores: {available_cores}")
+#             # Decide how to handle: exit, use available subset, or proceed anyway?
+#             # For now, we'll proceed, but psutil might raise an error later.
+
+#         p.cpu_affinity(cores_to_set)
+#         new_affinity = p.cpu_affinity()
+#         logging.info(f"Process {pid}: Set CPU affinity to: {new_affinity}")
+#         return True
+
+#     except AttributeError:
+#         logging.error(f"Process {pid}: CPU affinity setting not supported on this platform via psutil.")
+#         return False
+#     except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError) as e:
+#         logging.error(f"Process {pid}: Failed to set CPU affinity: {e}")
+#         return False
 
 def replace_env_vars(dirpath):
     env_vars = re.findall(r"(?:^|\/)\$(\w+)(?:\/|$)", dirpath)
@@ -39,11 +72,14 @@ if __name__ == "__main__":
     parser.add_argument("-m", "--multiprocessor", choices=["mpi", "cf", None], default=None)
     parser.add_argument("-msp", "--max_splits", type=int, required=False, default=None,
                         help="Number of test splits to use.")
+    parser.add_argument("-ltv", "--limit_train_val", type=float, required=False, default=1,
+                        help="Proportion of total training/validation data to randomly sample from during tuning.")
     parser.add_argument("-mst", "--max_steps", type=int, required=False, default=None,
                         help="Number of time steps to use.")
     parser.add_argument("-s", "--seed", type=int, help="Seed for random number generator", default=42)
     parser.add_argument("-rt", "--restart_tuning", action="store_true")
     parser.add_argument("-rd", "--reload_data", action="store_true", help="Whether to reload the train/validation data from the source, or to use existing .dat files.")
+    # parser.add_argument('--cores', required=False, default=None, help='Comma-separated list or range of core IDs (e.g., "0-9" or "10,11,12")')
     # pretrained_filename = "/Users/ahenry/Documents/toolboxes/wind_forecasting/logging/wf_forecasting/lznjshyo/checkpoints/epoch=0-step=50.ckpt"
     args = parser.parse_args()
     
@@ -134,60 +170,79 @@ if __name__ == "__main__":
             
         # get max_splits longest datasets
         data_module.generate_splits(save=True, reload=False, splits=["train", "val"])
-        data_module.train_dataset = sorted(data_module.train_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
-        data_module.val_dataset = sorted(data_module.val_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
-        if args.max_splits:
-            train_dataset = data_module.train_dataset[:args.max_splits]
-            val_dataset = data_module.val_dataset[:args.max_splits]
-        else:
-            train_dataset = data_module.train_dataset
-            val_dataset = data_module.val_dataset
         
-        if args.max_steps:
-            train_dataset = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in train_dataset]
-            val_dataset = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in val_dataset]
+        if args.reload_data or reload:
+            data_module.train_dataset = sorted(data_module.train_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
+            data_module.val_dataset = sorted(data_module.val_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
+            if args.max_splits:
+                train_dataset = data_module.train_dataset[:args.max_splits]
+                val_dataset = data_module.val_dataset[:args.max_splits]
+            else:
+                train_dataset = data_module.train_dataset
+                val_dataset = data_module.val_dataset
             
-        train_dataset = generate_wind_field_df(datasets=train_dataset, target_cols=data_module.target_cols, feat_dynamic_real_cols=data_module.feat_dynamic_real_cols)
-        val_dataset = generate_wind_field_df(datasets=val_dataset, target_cols=data_module.target_cols, feat_dynamic_real_cols=data_module.feat_dynamic_real_cols)
-        delattr(data_module, "train_dataset")
-        delattr(data_module, "val_dataset")
-        
-        forecaster.prepare_data(dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, 
-                                scale=False, multiprocessor=args.multiprocessor, reload=args.reload_data)
+            if args.max_steps:
+                train_dataset = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in train_dataset]
+                val_dataset = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in val_dataset]
+                
+            train_dataset = generate_wind_field_df(datasets=train_dataset, target_cols=data_module.target_cols, feat_dynamic_real_cols=data_module.feat_dynamic_real_cols)
+            val_dataset = generate_wind_field_df(datasets=val_dataset, target_cols=data_module.target_cols, feat_dynamic_real_cols=data_module.feat_dynamic_real_cols)
+            delattr(data_module, "train_dataset")
+            delattr(data_module, "val_dataset")
+
+            forecaster.prepare_data(dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, 
+                                    scale=False, multiprocessor=args.multiprocessor, reload=args.reload_data)
 
         if RUN_ONCE:
-            # logging.info(f"Moving prepared data from {forecaster.model_save_dir} to {original_save_dir}.")
-            # filenames = os.listdir(forecaster.model_save_dir)
-            # for fn in filenames:
-            #     shutil.move(os.path.join(forecaster.model_save_dir, fn), original_save_dir)
             logging.info("Finished preparing data for tuning.")
 
     # %% TUNING MODEL
+    
+    optuna_storage = None
+    if RUN_ONCE:
+        logging.info(f"Initializing storage with restart_tuning={args.restart_tuning} on worker {worker_id}")
+        
+        db_setup_params = generate_df_setup_params(args.model, model_config)
+        optuna_storage = setup_optuna_storage(
+            db_setup_params=db_setup_params,
+            restart_tuning=args.restart_tuning,
+            rank=0 if (worker_id == 0) else worker_id
+        )
+    
+        logging.info("Running tune_hyperparameters_single")
+    
+    if args.multiprocessor == "mpi":
+        optuna_storage = comm.bcast(optuna_storage, root=0)
+        
     if worker_id > 0:
         
+        # Parse the core argument (e.g., "0-9" or "10,11,12")
+        # if args.cores:
+        #     core_ids = []
+        #     parts = args.cores.split(',')
+        #     for part in parts:
+        #         if '-' in part:
+        #             start, end = map(int, part.split('-'))
+        #             core_ids.extend(list(range(start, end + 1)))
+        #         else:
+        #             core_ids.append(int(part))
+
+        #     # Remove duplicates and sort
+        #     core_ids = sorted(list(set(core_ids)))
+            
+        # logging.info(f"Process {os.getpid()}: Attempting to use cores: {core_ids}")
+        
         scaler_params = data_module.compute_scaler_params()
-        optuna_storage = None
-        if RUN_ONCE:
-            logging.info("Initializing storage")
-            
-            db_setup_params = generate_df_setup_params(args.model, model_config)
-            optuna_storage = setup_optuna_storage(
-                db_setup_params=db_setup_params,
-                restart_tuning=args.restart_tuning,
-                rank=0 if RUN_ONCE and (worker_id == 0) else worker_id
-            )
-        
-            logging.info("Running tune_hyperparameters_single")
-            
-        optuna_storage = comm.bcast(optuna_storage, root=0)
         #{"type": "hyperband", "min_resource": 2, "max_resource": 5, "reduction_factor": 3, "percentile": 25}
-        
+        if args.multiprocessor:
+            logging.info(f"Using multiprocessor {args.multiprocessor}")
         forecaster.tune_hyperparameters_single(storage=optuna_storage,
                                                 n_trials_per_worker=model_config["optuna"]["n_trials_per_worker"], 
                                                 seed=args.seed,
                                                 config=model_config,
                                                 worker_id=0 if RUN_ONCE and (worker_id == 0) else worker_id,
-                                                multiprocessor=args.multiprocessor)
+                                                multiprocessor=args.multiprocessor,
+                                                limit_train_val=args.limit_train_val)
                                         #  trial_protection_callback=handle_trial_with_oom_protection)
 
         # %% TRAINING MODEL
