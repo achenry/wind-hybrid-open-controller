@@ -2119,7 +2119,8 @@ def make_predictions(forecaster, test_data, prediction_type):
     controller_times = test_data.gather_every(forecaster.n_controller).select(pl.col("time"))
     
     logging.info("Getting number of continuity groups in data.")
-    n_splits = test_data.select(pl.col("continuity_group").n_unique()).item()
+    splits = test_data.select(pl.col("continuity_group").unique()).to_numpy().flatten()
+    n_splits = len(splits)
     
     # for kf testing
     # means_p = []
@@ -2136,10 +2137,10 @@ def make_predictions(forecaster, test_data, prediction_type):
         # end = (ds[FieldName.START] + ds['target'].shape[1]).to_timestamp()
         start = ds.select(pl.col("time").first()).item()
         end = ds.select(pl.col("time").last()).item()
-        logging.info(f"Getting predictions for {d}th split starting at {start} and ending at {end} using {forecaster.__class__.__name__} with prediction_timedelta {forecaster.prediction_timedelta}.")
+        logging.info(f"Getting predictions for {splits[d]}th split starting at {start} and ending at {end} using {forecaster.__class__.__name__} with prediction_timedelta {forecaster.prediction_timedelta}.")
         forecasts.append([])
         # split_true_wf = true_wind_field.filter(pl.col("time").is_between(start, end, closed="both"))
-        logging.info(f"Getting controller times for {d}th split.")
+        logging.info(f"Getting controller times for {splits[d]}th split.")
         split_controller_times = controller_times.filter(pl.col("time").is_between(start, end, closed="both"))\
                                                  .filter((pl.col("time") - start) >= forecaster.context_timedelta)
                                                  
@@ -2151,7 +2152,7 @@ def make_predictions(forecaster, test_data, prediction_type):
             current_time = current_row["time"]
             
             # if current_time - start >= forecaster.context_timedelta:
-            logging.info(f"Predicting future wind field using {forecaster.__class__.__name__} at time {current_time}/{end} of split {d}/{n_splits-1}.")
+            logging.info(f"Predicting future wind field using {forecaster.__class__.__name__} at time {current_time}/{end} of split {splits[d]}/{n_splits-1}.")
             if prediction_type == "distribution" and forecaster.is_probabilistic:
                 pred = forecaster.predict_distr(
                     ds.filter(pl.col("time") <= current_time), current_time)
@@ -2271,6 +2272,7 @@ def unpivot_df(df, turbine_signature):
             .drop("feature")
 
 def generate_forecaster_results(forecaster, data_module, evaluator, test_data, prediction_type):
+    # TODO parallelize this over continuity_group
     logging.info(f"Generating predictions for forecaster {forecaster.__class__.__name__} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
     forecast_df = make_predictions(forecaster=forecaster, test_data=test_data, 
                                             prediction_type=prediction_type)
@@ -2330,7 +2332,6 @@ def generate_forecaster_results(forecaster, data_module, evaluator, test_data, p
     mae = unpivot_df(mae, forecaster.turbine_signature)
     
     agg_metrics += [rmse, mae]
-    
     
     if prediction_type == "distribution" and forecaster.is_probabilistic:
         pred_mean = combined_df.select(["continuity_group"] + data_module.target_cols)
@@ -2814,7 +2815,8 @@ if __name__ == "__main__":
                                                     study_name=db_setup_params["study_name"])
                                         )
             forecasters.append(forecaster)
-        
+    
+    
     if args.multiprocessor:
         
         if args.multiprocessor == "mpi":
@@ -2830,16 +2832,19 @@ if __name__ == "__main__":
             if args.multiprocessor == "mpi":
                 ex.max_workers = max_workers
             
+            continuity_groups = test_data.select(pl.col("continuity_group").unique()).to_numpy().flatten()
             test_futures = [ex.submit(generate_forecaster_results, forecaster=forecaster, 
                                     data_module=data_module, evaluator=evaluator, 
-                                    test_data=test_data, 
+                                    test_data=test_data.filter(pl.col("continuity_group") == cg), 
                                     prediction_type=args.prediction_type) 
-                       for forecaster in forecasters]
+                       for forecaster in forecasters for cg in continuity_groups]
             
             results = [dict([(k, v) for k, v in chain(
                 zip(["forecast_df", "agg_metrics"], fut.result()), 
                 zip(["forecaster_name", "prediction_timedelta"], [forecaster.__class__.__name__, forecaster.prediction_timedelta.total_seconds()]))]) 
                        for forecaster, fut in zip(forecasters, test_futures)] # agg_metrics, ts_metrics, forecast_fig
+            
+            print("oh")
     else:
         logging.info(f"Running generate_forecaster_results with loop.")
         results = []
