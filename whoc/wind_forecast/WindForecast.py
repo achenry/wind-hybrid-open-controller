@@ -2262,35 +2262,36 @@ def unpivot_df(df, turbine_signature):
             .drop("feature")
 
 def generate_forecaster_results(forecaster, data_module, evaluator, test_data, prediction_type):
-    
+    logging.info(f"Generating prediction for forecaster {forecaster} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
     forecast_df = make_predictions(forecaster=forecaster, test_data=test_data, 
                                             prediction_type=prediction_type)
     
+    logging.info(f"Partitioning forecasts by test_idx for forecaster {forecaster} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
     forecast_df = forecast_df.partition_by("test_idx")
-    if prediction_type == "distribution" and forecaster.is_probabilistic:
-        value_vars = ["nd_cos", "nd_sin", "loc_ws_horz", "loc_ws_vert", "sd_ws_horz", "sd_ws_vert"]
-        target_vars = ["loc_ws_horz", "loc_ws_vert", "sd_ws_horz", "sd_ws_vert"] 
-        distributions = []
-        for split_idx, wf in enumerate(forecast_df):
-            loc = Tensor(wf.select([cs.starts_with(feat_type) & cs.contains("loc") for feat_type in target_vars]).to_numpy())
-            cov = Tensor(np.apply_along_axis(
-                        np.diag, axis=-1, 
-                        arr=wf.select([cs.starts_with(feat_type) & cs.contains("sd_") for feat_type in target_vars]).to_numpy()**2))
+    # if prediction_type == "distribution" and forecaster.is_probabilistic:
+    #     value_vars = ["nd_cos", "nd_sin", "loc_ws_horz", "loc_ws_vert", "sd_ws_horz", "sd_ws_vert"]
+    #     target_vars = ["loc_ws_horz", "loc_ws_vert", "sd_ws_horz", "sd_ws_vert"] 
+    #     distributions = []
+    #     for split_idx, wf in enumerate(forecast_df):
+    #         loc = Tensor(wf.select([cs.starts_with(feat_type) & cs.contains("loc") for feat_type in target_vars]).to_numpy())
+    #         cov = Tensor(np.apply_along_axis(
+    #                     np.diag, axis=-1, 
+    #                     arr=wf.select([cs.starts_with(feat_type) & cs.contains("sd_") for feat_type in target_vars]).to_numpy()**2))
             
-            distr = DistributionForecast(
-                distribution=MultivariateNormal(loc=loc, covariance_matrix=cov), 
-                start_date=pd.Period(wf.select(pl.col("time").first()).item(), freq=data_module.freq), 
-                item_id=f"SPLIT{split_idx}")
-            distributions.append(distr)
-        forecasts = distributions
-    else:
-        value_vars = ["nd_cos", "nd_sin", "ws_horz", "ws_vert"]
-        target_vars = ["ws_horz", "ws_vert"] 
+    #         distr = DistributionForecast(
+    #             distribution=MultivariateNormal(loc=loc, covariance_matrix=cov), 
+    #             start_date=pd.Period(wf.select(pl.col("time").first()).item(), freq=data_module.freq), 
+    #             item_id=f"SPLIT{split_idx}")
+    #         distributions.append(distr)
+    #     forecasts = distributions
+    # else:
+    #     value_vars = ["nd_cos", "nd_sin", "ws_horz", "ws_vert"]
+    #     target_vars = ["ws_horz", "ws_vert"] 
         
-        forecasts = [SampleForecast(
-            samples=wf.select([cs.starts_with(feat_type) for feat_type in target_vars]).to_numpy()[np.newaxis, :, :], 
-            start_date=pd.Period(wf.select(pl.col("time").first()).item(), freq=data_module.freq), 
-            item_id=f"SPLIT{split_idx}") for split_idx, wf in enumerate(forecast_df)]
+    #     forecasts = [SampleForecast(
+    #         samples=wf.select([cs.starts_with(feat_type) for feat_type in target_vars]).to_numpy()[np.newaxis, :, :], 
+    #         start_date=pd.Period(wf.select(pl.col("time").first()).item(), freq=data_module.freq), 
+    #         item_id=f"SPLIT{split_idx}") for split_idx, wf in enumerate(forecast_df)]
     
     true_df_pd = test_data.to_pandas()
     true_df_pd = true_df_pd.set_index(pd.PeriodIndex(true_df_pd["time"].dt.to_period(freq=data_module.freq)))[data_module.target_cols]\
@@ -2302,7 +2303,7 @@ def generate_forecaster_results(forecaster, data_module, evaluator, test_data, p
     #             include_metrics=[])
     
     agg_metrics = []
-    mean_vars = [c for c in target_vars if c.startswith("ws_") or c.startswith("loc_ws_")]
+    # mean_vars = [c for c in target_vars if c.startswith("ws_") or c.startswith("loc_ws_")]
     
     fdf = forecast_df = pl.concat(forecast_df, how="vertical").select(["time"] + [cs.ends_with(tgt) for tgt in data_module.target_cols])
     tdf = test_data.filter(pl.col("time").is_in(forecast_df.select(pl.col("time"))))\
@@ -2806,14 +2807,18 @@ if __name__ == "__main__":
             forecasters.append(forecaster)
         
     if args.multiprocessor:
+        
         if args.multiprocessor == "mpi":
-            comm_size = MPI.COMM_WORLD.Get_size()
+            max_workers = MPI.COMM_WORLD.Get_size()
             executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
         elif args.multiprocessor == "cf":
+            max_workers = mp.cpu_count()
             executor = ProcessPoolExecutor()
+        
+        logging.info(f"Running generate_forecaster_results with multiprocessor {args.multiprocessor} with {max_workers} workers.")
         with executor as ex:
             if args.multiprocessor == "mpi":
-                ex.max_workers = comm_size
+                ex.max_workers = max_workers
             
             test_futures = [ex.submit(generate_forecaster_results, forecaster=forecaster, 
                                     data_module=data_module, evaluator=evaluator, 
@@ -2826,6 +2831,7 @@ if __name__ == "__main__":
                 zip(["forecaster_name", "prediction_timedelta"], [forecaster.__class__.__name__, forecaster.prediction_timedelta.total_seconds()]))]) 
                        for forecaster, fut in zip(forecasters, test_futures)] # agg_metrics, ts_metrics, forecast_fig
     else:
+        logging.info(f"Running generate_forecaster_results with loop.")
         results = []
         for forecaster in forecasters:
             prediction_timedelta = forecaster.prediction_timedelta.total_seconds()
