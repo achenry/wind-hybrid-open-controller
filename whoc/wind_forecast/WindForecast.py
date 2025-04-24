@@ -2135,29 +2135,30 @@ def make_predictions(forecaster, test_data, prediction_type):
         logging.info(f"Getting predictions for {d}th split starting at {start} and ending at {end} using {forecaster.__class__.__name__} with prediction_timedelta {forecaster.prediction_timedelta}.")
         forecasts.append([])
         # split_true_wf = true_wind_field.filter(pl.col("time").is_between(start, end, closed="both"))
-        split_controller_times = controller_times.filter(pl.col("time").is_between(start, end, closed="both"))
+        split_controller_times = controller_times.filter(pl.col("time").is_between(start, end, closed="both"))\
+                                                 .filter((pl.col("time") - start) >= forecaster.context_timedelta)
         forecaster.reset()
         for current_row in split_controller_times.iter_rows(named=True):
             
             current_time = current_row["time"]
             
-            if current_time - start >= forecaster.context_timedelta:
-                logging.info(f"Predicting future wind field using {forecaster.__class__.__name__} at time {current_time}/{end} of split {d}/{n_splits-1}.")
-                if prediction_type == "distribution" and forecaster.is_probabilistic:
-                    pred = forecaster.predict_distr(
-                        ds.filter(pl.col("time") <= current_time), current_time)
-                elif prediction_type == "point" or not forecaster.is_probabilistic:
-                    pred = forecaster.predict_point(
-                        ds.filter(pl.col("time") <= current_time), current_time)
-                elif prediction_type == "sample":
-                    raise NotImplementedError()
-                
-                forecasts[-1].append(pred)
-                # for kf testing
-                # means_p.append(forecaster.means_p)
-                # means.append(forecaster.means)
-                # covariances_p.append(forecaster.covariances_p)
-                # covariances.append(forecaster.covariances)
+            # if current_time - start >= forecaster.context_timedelta:
+            logging.info(f"Predicting future wind field using {forecaster.__class__.__name__} at time {current_time}/{end} of split {d}/{n_splits-1}.")
+            if prediction_type == "distribution" and forecaster.is_probabilistic:
+                pred = forecaster.predict_distr(
+                    ds.filter(pl.col("time") <= current_time), current_time)
+            elif prediction_type == "point" or not forecaster.is_probabilistic:
+                pred = forecaster.predict_point(
+                    ds.filter(pl.col("time") <= current_time), current_time)
+            elif prediction_type == "sample":
+                raise NotImplementedError()
+            
+            forecasts[-1].append(pred)
+            # for kf testing
+            # means_p.append(forecaster.means_p)
+            # means.append(forecaster.means)
+            # covariances_p.append(forecaster.covariances_p)
+            # covariances.append(forecaster.covariances)
         
         if not len(forecasts[-1]):
             raise Exception(f"{d}th dataset in data does not have sufficient data points, with {ds.select(pl.len()).item()}, to collect predictions after context_timedelta {forecaster.context_timedelta}")
@@ -2262,7 +2263,7 @@ def unpivot_df(df, turbine_signature):
             .drop("feature")
 
 def generate_forecaster_results(forecaster, data_module, evaluator, test_data, prediction_type):
-    logging.info(f"Generating prediction for forecaster {forecaster} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
+    logging.info(f"Generating predictions for forecaster {forecaster.__class__.__name__} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
     forecast_df = make_predictions(forecaster=forecaster, test_data=test_data, 
                                             prediction_type=prediction_type)
     
