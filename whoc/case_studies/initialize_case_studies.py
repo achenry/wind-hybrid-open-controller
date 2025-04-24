@@ -130,61 +130,76 @@ case_studies = {
         "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
         "simulation_dt": {"group": 0, "vals": [1]},
         "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/smarteole_farm.yaml"]},
-        # "lut_path": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4_lut.csv"]},
         "yaw_limits": {"group": 0, "vals": ["-15,15"]},
         "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController"]},
         "target_turbine_indices": {"group": 1, "vals": ["6,", "6,4"]},
         "uncertain": {"group": 1, "vals": [False, False]},
         "wind_forecast_class": {"group": 1, "vals": ["PerfectForecast", "PerfectForecast"]},
-        # "controller_class": {"group": 1, "vals": ["GreedyController"]},
-        # "target_turbine_indices": {"group": 1, "vals": ["4,"]},
-        # "uncertain": {"group": 1, "vals": [False]},
-        # "wind_forecast_class": {"group": 1, "vals": ["PerfectForecast"]},
-        # "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController"]},
-        # "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73"]},
-        # "uncertain": {"group": 1, "vals": [False, True]},
-        # "wind_forecast_class": {"group": 1, "vals": ["PerfectForecast", "PerfectForecast"]},
         "prediction_timedelta": {"group": 2, "vals": [60, 120, 180]} #240, 300, 360, 420, 480, 540, 600, 660, 720, 780, 840, 900, 960, 1020, 1080]},
         },
-    "baseline_controllers_prob_forecasters_awaken": {
-                                    "controller_dt": {"group": 0, "vals": [5]},
-                                    "use_filtered_wind_dir": {"group": 0, "vals": [True]},
-                                    "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
-                                    "simulation_dt": {"group": 0, "vals": [1]},
-                                    "floris_input_file": {"group": 0, "vals": [
-                                        "../../examples/inputs/gch_KP_v4.yaml"
-                                                                            ]},
-                                    "lut_path": {"group": 0, "vals": [
-                                        "../../examples/inputs/gch_KP_v4_lut.csv",
-                                                                    ]},
-                                    "yaw_limits": {"group": 0, "vals": ["-15,15"]},
-                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController", "GreedyController"]},
-                                    "prediction_timedelta": {"group": 1, "vals": [300, 300, 60]},
-                                    "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73", "4,"]},
-                                    "uncertain": {"group": 1, "vals": [True, False, False]},
-                                    "wind_forecast_class": {"group": 2, "vals": ["MLForecast", "KalmanFilterForecast"]},
-                                    "model_key": {"group": 1, "vals": ["informer", None]},
-                                    
-                                    
-                                    },
-    "baseline_controllers_det_forecasters_awaken": {
-                                    "controller_dt": {"group": 0, "vals": [5]},
-                                    "use_filtered_wind_dir": {"group": 0, "vals": [True]},
-                                    "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
-                                    "simulation_dt": {"group": 0, "vals": [1]},
-                                    "floris_input_file": {"group": 0, "vals": [
-                                        "../../examples/inputs/gch_KP_v4.yaml"
-                                                                            ]},
-                                    "lut_path": {"group": 0, "vals": [
-                                        "../../examples/inputs/gch_KP_v4_lut.csv",
-                                                                    ]},
-                                    "yaw_limits": {"group": 0, "vals": ["-15,15"]},
-                                    "uncertain": {"group": 0, "vals": [False]},
-                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
-                                    "prediction_timedelta": {"group": 1, "vals": [300, 60]},
-                                    "target_turbine_indices": {"group": 1, "vals": ["74,73", "4,"]},
-                                    "wind_forecast_class": {"group": 2, "vals": ["SVRForecast", "SpatialFilterForecast", "PersistentForecast"]},
-                                    },
+    "baseline_controllers_ml_forecasters_awaken": {
+        "controller_dt": {"group": 0, "vals": [5]},
+        "use_filtered_wind_dir": {"group": 0, "vals": [True]},
+        "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
+        "simulation_dt": {"group": 0, "vals": [1]},
+        "floris_input_file": {"group": 0, "vals": [
+            "../../examples/inputs/gch_KP_v4.yaml"
+                                                ]},
+        "lut_path": {"group": 0, "vals": [
+            "../../examples/inputs/gch_KP_v4_lut.csv",
+                                        ]},
+        "yaw_limits": {"group": 0, "vals": ["-15,15"]},
+        "wind_forecast_class": {"group": 0, "vals": ["MLForecast"]},
+        "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController", "GreedyController"]},
+        # "model_config_path": {"group": 1, "vals": [
+        #     "/Users/ahenry/Documents/toolboxes/wind_forecasting/config/training/training_inputs_kestrel_awaken_pred300.yaml", 
+        #     "/Users/ahenry/Documents/toolboxes/wind_forecasting/config/training/training_inputs_kestrel_awaken_pred300.yaml", 
+        #     "/Users/ahenry/Documents/toolboxes/wind_forecasting/config/training/training_inputs_kestrel_awaken_pred60.yaml"]},
+        "model_config_path": {"group": 1, "vals": [
+            "/Users/ahenry/Documents/toolboxes/wind_forecasting/config/training/training_inputs_aoifemac_awaken_pred300.yaml", 
+            "/Users/ahenry/Documents/toolboxes/wind_forecasting/config/training/training_inputs_aoifemac_awaken_pred300.yaml", 
+            "/Users/ahenry/Documents/toolboxes/wind_forecasting/config/training/training_inputs_aoifemac_awaken_pred60.yaml"]},
+        "prediction_timedelta": {"group": 1, "vals": [300, 300, 60]},
+        "uncertain": {"group": 1, "vals": [True, False, False]},
+        "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73", "4,"]},
+        "model_key": {"group": 2, "vals": ["informer", "autoformer", "spacetimeformer", "tactis"]}
+    },
+    "baseline_controllers_baseline_det_forecasters_awaken": {
+        "controller_dt": {"group": 0, "vals": [5]},
+        "use_filtered_wind_dir": {"group": 0, "vals": [True]},
+        "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
+        "simulation_dt": {"group": 0, "vals": [1]},
+        "floris_input_file": {"group": 0, "vals": [
+            "../../examples/inputs/gch_KP_v4.yaml"
+                                                ]},
+        "lut_path": {"group": 0, "vals": [
+            "../../examples/inputs/gch_KP_v4_lut.csv",
+                                        ]},
+        "yaw_limits": {"group": 0, "vals": ["-15,15"]},
+        "uncertain": {"group": 0, "vals": [False]},
+        "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
+        "prediction_timedelta": {"group": 1, "vals": [300, 60]},
+        "target_turbine_indices": {"group": 1, "vals": ["74,73", "4,"]},
+        "wind_forecast_class": {"group": 2, "vals": ["SVRForecast", "SpatialFilterForecast", "PersistentForecast"]},
+    },
+    "baseline_controllers_baseline_prob_forecasters_awaken": {
+        "controller_dt": {"group": 0, "vals": [5]},
+        "use_filtered_wind_dir": {"group": 0, "vals": [True]},
+        "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
+        "simulation_dt": {"group": 0, "vals": [1]},
+        "floris_input_file": {"group": 0, "vals": [
+            "../../examples/inputs/gch_KP_v4.yaml"
+                                                ]},
+        "lut_path": {"group": 0, "vals": [
+            "../../examples/inputs/gch_KP_v4_lut.csv",
+                                        ]},
+        "yaw_limits": {"group": 0, "vals": ["-15,15"]},
+        "uncertain": {"group": 0, "vals": [False]},
+        "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController", "GreedyController"]},
+        "prediction_timedelta": {"group": 1, "vals": [300, 300, 60]},
+        "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73", "4,"]},
+        "wind_forecast_class": {"group": 0, "vals": ["KalmanFilterForecast"]}
+    },
     "baseline_controllers": { "controller_dt": {"group": 1, "vals": [5, 5]},
                                 "case_names": {"group": 1, "vals": ["LUT", "Greedy"]},
                                 "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
@@ -445,7 +460,7 @@ def CaseGen_General(case_inputs, namebase=''):
 # @profile
 def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_field, 
                            n_seeds, stoptime, save_dir, wf_source, multiprocessor,
-                           whoc_config, model_config=None, data_config=None):
+                           whoc_config, base_model_config=None):
     """_summary_
 
     Args:
@@ -579,15 +594,16 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             stoptime = [stoptime] * len(wind_field_ts)
 
     elif wf_source == "scada":
-        data_module = DataModule(data_path=model_config["dataset"]["data_path"], 
-                                 normalization_consts_path=model_config["dataset"]["normalization_consts_path"],
+        # NOTE: we use the model config with the highest prediction length to instantiate the DataModule
+        data_module = DataModule(data_path=base_model_config["dataset"]["data_path"], 
+                                 normalization_consts_path=base_model_config["dataset"]["normalization_consts_path"],
                                  normalized=False, 
                                  n_splits=1, #model_config["dataset"]["n_splits"],
-                                 continuity_groups=None, train_split=(1.0 - model_config["dataset"]["val_split"] - model_config["dataset"]["test_split"]),
-                                 val_split=model_config["dataset"]["val_split"], test_split=model_config["dataset"]["test_split"],
-                                 prediction_length=model_config["dataset"]["prediction_length"], context_length=model_config["dataset"]["context_length"],
+                                 continuity_groups=None, train_split=(1.0 - base_model_config["dataset"]["val_split"] - base_model_config["dataset"]["test_split"]),
+                                 val_split=base_model_config["dataset"]["val_split"], test_split=base_model_config["dataset"]["test_split"],
+                                 prediction_length=base_model_config["dataset"]["prediction_length"], context_length=base_model_config["dataset"]["context_length"],
                                  target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
-                                 freq=f"{simulation_dt}s", target_suffixes=model_config["dataset"]["target_turbine_ids"],
+                                 freq=f"{simulation_dt}s", target_suffixes=base_model_config["dataset"]["target_turbine_ids"],
                                  per_turbine_target=False, as_lazyframe=False, dtype=pl.Float32)
     
         if not os.path.exists(data_module.train_ready_data_path):
@@ -613,7 +629,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             n_seeds = len(wind_field_ts)
         
         wind_dt = wind_field_ts[0].select(pl.col("time").diff().slice(1,1).dt.total_seconds()).item()
-        logging.info(f"Loaded and normalized SCADA wind field from {model_config['dataset']['data_path']} with dt = {wind_dt} seconds.")
+        logging.info(f"Loaded and normalized SCADA wind field from {base_model_config['dataset']['data_path']} with dt = {wind_dt} seconds.")
         
         # make sure wind_dt == simulation_dt
         
@@ -692,7 +708,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
     for case_family in case_families:
         case_studies[case_family]["wind_case_idx"] = {"group": max(d["group"] for d in case_studies[case_family].values()) + 1, "vals": [i for i in range(n_seeds)]}
 
-    input_dicts_to_write = []
+    model_configs = {}
     input_dicts = []
     case_lists = []
     case_name_lists = []
@@ -750,12 +766,19 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             
             assert all(input_dicts[start_case_idx + c]["controller"]["controller_dt"] <= t for t in stoptime)
             
-            if input_dicts[start_case_idx + c]["controller"]["wind_forecast_class"] or "wind_forecast_class" in case: 
-                assert (input_dicts[start_case_idx + c]["controller"]["wind_forecast_class"] == "PerfectForecast") or input_dicts[start_case_idx + c]["wind_forecast"]["prediction_timedelta"] <= model_config["dataset"]["prediction_length"], "Provided prediction_timedelta must be less or equal to model config prediction length."
+            if input_dicts[start_case_idx + c]["controller"]["wind_forecast_class"] or "wind_forecast_class" in case:
+                model_config_path = input_dicts[start_case_idx + c]["wind_forecast"]["model_config_path"]
+                if model_config_path not in model_configs:
+                    with open(model_config_path, 'r') as file:
+                        model_configs[model_config_path]  = yaml.safe_load(file)
+                        
+                if (input_dicts[start_case_idx + c]["controller"]["wind_forecast_class"] == "MLForecast") \
+                    and (input_dicts[start_case_idx + c]["wind_forecast"]["prediction_timedelta"] <=  model_configs[model_config_path]["dataset"]["prediction_length"]):
+                    logging.warning(f"Provided prediction_timedelta should be less or equal to model config prediction length { model_configs[model_config_path]['dataset']['prediction_length']}. Make sure you are providing the right model config file.")
                 input_dicts[start_case_idx + c]["wind_forecast"] \
                     = {**{
                         "measurements_timedelta": wind_field_ts[0].select(pl.col("time").diff().slice(1,1)).item(),
-                        "context_timedelta": pd.Timedelta(seconds=model_config["dataset"]["context_length"]), # pd.Timedelta(seconds=input_dicts[start_case_idx + c]["wind_forecast"]["context_timedelta"]),
+                        "context_timedelta": pd.Timedelta(seconds= model_configs[model_config_path]["dataset"]["context_length"]), # pd.Timedelta(seconds=input_dicts[start_case_idx + c]["wind_forecast"]["context_timedelta"]),
                         "prediction_timedelta": pd.Timedelta(seconds=input_dicts[start_case_idx + c]["wind_forecast"]["prediction_timedelta"]),
                         "controller_timedelta": pd.Timedelta(seconds=input_dicts[start_case_idx + c]["controller"]["controller_dt"])
                         }, 
@@ -765,7 +788,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                 if "model_key" in input_dicts[start_case_idx + c]["wind_forecast"]:
                     db_setup_params = generate_df_setup_params(
                         model=input_dicts[start_case_idx + c]["wind_forecast"]["model_key"], 
-                        model_config=model_config)
+                        model_config=model_configs[model_config_path])
                     optuna_storage = setup_optuna_storage(
                         db_setup_params=db_setup_params,
                         restart_tuning=False,
@@ -824,6 +847,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             #         if "case_names" not in case else case["case_names"]}.pkl'.replace("/", "_")
 
         input_df = pd.concat(input_df, ignore_index=True, axis=0)
+        os.makedirs(os.path.join(save_dir, case_study_key), exist_ok=True)
         input_df.to_csv(os.path.join(save_dir, case_study_key, "case_descriptions.csv"), index=False)
         
     # TEMP change the filenames of old simulations to new
@@ -923,14 +947,15 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
     return case_lists, case_name_lists, input_dicts, wind_field_config, wind_field_ts
 
 # 0, 1, 2, 3, 6
-case_families = ["baseline_controllers", "solver_type", # 0, 1
-                    "wind_preview_type", "warm_start", # 2, 3
-                    "horizon_length", "cost_func_tuning",  # 4, 5
-                    "yaw_offset_study", "scalability", # 6, 7
-                    "breakdown_robustness", # 8
-                    "gradient_type", "n_wind_preview_samples", # 9, 10
-                    "generate_sample_figures", "baseline_controllers_3", # 11, 12
-                    "cost_func_tuning_small", "sr_solve", # 13, 14
-                    "baseline_controllers_det_forecasters_awaken", "baseline_controllers_prob_forecasters_awaken", # 15, 16
-                    "baseline_controllers_perfect_forecaster_flasc", "baseline_controllers_perfect_forecaster_awaken", # 17, 18
-                    "baseline_controllers_forecasters_test_flasc", "baseline_controllers_forecasters_test_awaken"] # 19, 20
+case_families = [
+    "baseline_controllers", "solver_type", # 0, 1
+     "wind_preview_type", "warm_start", # 2, 3
+     "horizon_length", "cost_func_tuning",  # 4, 5
+     "yaw_offset_study", "scalability", # 6, 7
+     "breakdown_robustness", # 8
+     "gradient_type", "n_wind_preview_samples", # 9, 10
+     "generate_sample_figures", "baseline_controllers_3", # 11, 12
+     "cost_func_tuning_small", "sr_solve", # 13, 14
+     "baseline_controllers_ml_forecasters_awaken", "baseline_controllers_baseline_det_forecasters_awaken", "baseline_controllers_baseline_prob_forecasters_awaken", # 15, 16, 17
+     "baseline_controllers_perfect_forecaster_flasc", "baseline_controllers_perfect_forecaster_awaken", # 18, 19
+     "baseline_controllers_forecasters_test_flasc", "baseline_controllers_forecasters_test_awaken"] # 20, 21

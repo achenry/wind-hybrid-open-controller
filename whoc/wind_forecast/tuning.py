@@ -9,7 +9,7 @@ import yaml
 import os
 import logging 
 from floris import FlorisModel
-import shutil
+import psutil
 import re
 import random
 from wind_forecasting.utils.optuna_db_utils import setup_optuna_storage
@@ -21,6 +21,39 @@ try:
     from mpi4py import MPI
 except Exception as e:
     logging.warning("Could not import MPI.")
+
+def set_cpu_affinity(core_ids):
+    """Sets the CPU affinity for the current process."""
+    pid = os.getpid()
+    p = psutil.Process(pid)
+
+    try:
+        current_affinity = p.cpu_affinity()
+        logging.info(f"Process {pid}: Current CPU affinity: {current_affinity}")
+
+        # Ensure core_ids is a list of integers
+        cores_to_set = [int(c) for c in core_ids]
+
+        # Check if requested cores are available (optional but good practice)
+        available_cores = list(range(psutil.cpu_count(logical=True)))
+        invalid_cores = [c for c in cores_to_set if c not in available_cores]
+        if invalid_cores:
+            logging.warning(f"Requested cores {invalid_cores} are not valid/available.", file=sys.stderr)
+            logging.info(f"Available cores: {available_cores}", file=sys.stderr)
+            # Decide how to handle: exit, use available subset, or proceed anyway?
+            # For now, we'll proceed, but psutil might raise an error later.
+
+        p.cpu_affinity(cores_to_set)
+        new_affinity = p.cpu_affinity()
+        logging.info(f"Process {pid}: Set CPU affinity to: {new_affinity}")
+        return True
+
+    except AttributeError:
+        logging.error(f"Process {pid}: CPU affinity setting not supported on this platform via psutil.", file=sys.stderr)
+        return False
+    except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError) as e:
+        logging.error(f"Process {pid}: Failed to set CPU affinity: {e}", file=sys.stderr)
+        return False
 
 def replace_env_vars(dirpath):
     env_vars = re.findall(r"(?:^|\/)\$(\w+)(?:\/|$)", dirpath)
@@ -44,6 +77,7 @@ if __name__ == "__main__":
     parser.add_argument("-s", "--seed", type=int, help="Seed for random number generator", default=42)
     parser.add_argument("-rt", "--restart_tuning", action="store_true")
     parser.add_argument("-rd", "--reload_data", action="store_true", help="Whether to reload the train/validation data from the source, or to use existing .dat files.")
+    parser.add_argument('--cores', required=False, default=None, help='Comma-separated list or range of core IDs (e.g., "0-9" or "10,11,12")')
     # pretrained_filename = "/Users/ahenry/Documents/toolboxes/wind_forecasting/logging/wf_forecasting/lznjshyo/checkpoints/epoch=0-step=50.ckpt"
     args = parser.parse_args()
     
@@ -165,6 +199,22 @@ if __name__ == "__main__":
     # %% TUNING MODEL
     if worker_id > 0:
         
+        # Parse the core argument (e.g., "0-9" or "10,11,12")
+        if args.cores:
+            core_ids = []
+            parts = args.cores.split(',')
+            for part in parts:
+                if '-' in part:
+                    start, end = map(int, part.split('-'))
+                    core_ids.extend(list(range(start, end + 1)))
+                else:
+                    core_ids.append(int(part))
+
+            # Remove duplicates and sort
+            core_ids = sorted(list(set(core_ids)))
+            
+        logging.info(f"Process {os.getpid()}: Attempting to use cores: {core_ids}")
+        
         scaler_params = data_module.compute_scaler_params()
         optuna_storage = None
         if RUN_ONCE:
@@ -178,8 +228,9 @@ if __name__ == "__main__":
             )
         
             logging.info("Running tune_hyperparameters_single")
-            
-        optuna_storage = comm.bcast(optuna_storage, root=0)
+        
+        if args.multiprocessor == "mpi":
+            optuna_storage = comm.bcast(optuna_storage, root=0)
         #{"type": "hyperband", "min_resource": 2, "max_resource": 5, "reduction_factor": 3, "percentile": 25}
         
         forecaster.tune_hyperparameters_single(storage=optuna_storage,

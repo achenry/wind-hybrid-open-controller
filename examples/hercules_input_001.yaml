@@ -104,7 +104,8 @@ controller:
 
 wind_forecast:
   context_timedelta: 600 # seconds
-  prediction_timedelta: 300 # seconds
+  prediction_timedelta: 60 # seconds
+  model_config_path: 
   SVRForecast:
     model_key: svr
     kernel: rbf
