@@ -2608,11 +2608,14 @@ if __name__ == "__main__":
     
     if not os.path.exists(data_module.train_ready_data_path):
         data_module.generate_datasets()
+        logging.info("Reloading test datasets.")
         data_module.generate_splits(save=True, reload=True, splits=["test"])
     
     # true_wind_field = data_module.generate_splits(save=True, reload=False, splits=["test"])._df.collect()
+    logging.info("Reading saved test datasets.")
     data_module.generate_splits(save=True, reload=False, splits=["test"])
     
+    logging.info("Sorting test datasets by duration.")
     data_module.test_dataset = sorted(data_module.test_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
     if args.max_splits:
         test_data = data_module.test_dataset[:args.max_splits]
@@ -2623,11 +2626,13 @@ if __name__ == "__main__":
         assert args.max_steps > int((context_timedelta + max(prediction_timedelta)) / measurements_timedelta), f"max_steps, if provided, must allow for context_timedelta + max(prediction_timedelta) = {int((context_timedelta + max(prediction_timedelta)) / measurements_timedelta)}"
         test_data = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in test_data]
     
+    logging.info("Generating dataframe.")
     test_data = generate_wind_field_df(test_data, data_module.target_cols, data_module.feat_dynamic_real_cols)
     # window_length = model_config["dataset"]["prediction_length"] + model_config["dataset"].get("lead_time", 0)
     # window_length = int(test_data[0]["target"].shape[1] * (2/3))
     # _, test_template = split(test_data, offset=-window_length)
     # test_data = test_template.generate_instances(window_length, windows=1)
+    logging.info("Deleting uneccesary attributes.")
     delattr(data_module, "test_dataset")
     gc.collect()
     logging.info("Finished creating datasets.")
