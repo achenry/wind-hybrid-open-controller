@@ -189,7 +189,7 @@ if __name__ == "__main__":
             val_dataset = generate_wind_field_df(datasets=val_dataset, target_cols=data_module.target_cols, feat_dynamic_real_cols=data_module.feat_dynamic_real_cols)
             delattr(data_module, "train_dataset")
             delattr(data_module, "val_dataset")
-            
+
             forecaster.prepare_data(dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, 
                                     scale=False, multiprocessor=args.multiprocessor, reload=args.reload_data)
 
@@ -234,7 +234,8 @@ if __name__ == "__main__":
         
         scaler_params = data_module.compute_scaler_params()
         #{"type": "hyperband", "min_resource": 2, "max_resource": 5, "reduction_factor": 3, "percentile": 25}
-        
+        if args.multiprocessor:
+            logging.info(f"Using multiprocessor {args.multiprocessor}")
         forecaster.tune_hyperparameters_single(storage=optuna_storage,
                                                 n_trials_per_worker=model_config["optuna"]["n_trials_per_worker"], 
                                                 seed=args.seed,
