@@ -1719,7 +1719,7 @@ class MLForecast(WindForecast):
                                  f"{self.model_config['experiment']['project_name']}_{self.model_key}"))
         logging.info("Found pretrained model, loading...")
         
-        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+        checkpoint = torch.load(checkpoint_path, map_location=lambda storage, loc: storage, weights_only=False)
         
         # Extract hyperparameters, handling potential key variations
         hparams = checkpoint.get('hyper_parameters', checkpoint.get('hparams'))
