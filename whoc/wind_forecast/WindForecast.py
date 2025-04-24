@@ -173,7 +173,7 @@ class WindForecast:
             X_train, y_train = X_train[random_indices, :], y_train[random_indices]
             
             random_indices = np.random.choice(np.arange(X_val.shape[0]), size=int(limit_train_val * X_val.shape[0]))
-            X_val, y_val = X_valf[random_indices, :], y_val[random_indices]
+            X_val, y_val = X_val[random_indices, :], y_val[random_indices]
         
         # evaluate with cross-validation
         logging.info(f"Computing score for output {output} with {X_train.shape[0]} training data points and {X_val.shape[0]} validation data points.")
