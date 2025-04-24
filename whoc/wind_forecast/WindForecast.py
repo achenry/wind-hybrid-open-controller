@@ -2114,7 +2114,11 @@ def transform_wind(inp_df, added_wm=None, added_wd=None):
 def make_predictions(forecaster, test_data, prediction_type):
     
     forecasts = []
+    
+    logging.info("Getting timestamps at which controller will call forecaster.")
     controller_times = test_data.gather_every(forecaster.n_controller).select(pl.col("time"))
+    
+    logging.info("Getting number of continuity groups in data.")
     n_splits = test_data.select(pl.col("continuity_group").n_unique()).item()
     
     # for kf testing
@@ -2135,9 +2139,13 @@ def make_predictions(forecaster, test_data, prediction_type):
         logging.info(f"Getting predictions for {d}th split starting at {start} and ending at {end} using {forecaster.__class__.__name__} with prediction_timedelta {forecaster.prediction_timedelta}.")
         forecasts.append([])
         # split_true_wf = true_wind_field.filter(pl.col("time").is_between(start, end, closed="both"))
+        logging.info(f"Getting controller times for {d}th split.")
         split_controller_times = controller_times.filter(pl.col("time").is_between(start, end, closed="both"))\
                                                  .filter((pl.col("time") - start) >= forecaster.context_timedelta)
+                                                 
+        logging.info(f"Resetting forecaster state.")
         forecaster.reset()
+        
         for current_row in split_controller_times.iter_rows(named=True):
             
             current_time = current_row["time"]
