@@ -2630,21 +2630,23 @@ if __name__ == "__main__":
     # test_data = test_template.generate_instances(window_length, windows=1)
     delattr(data_module, "test_dataset")
     gc.collect()
+    logging.info("Finished creating datasets.")
     
     # assert pd.Timedelta(test_data[0]["start"].freq) == measurements_timedelta
     assert pd.Timedelta(test_data.select(pl.col("time").diff()).slice(1,1).item()) == measurements_timedelta
     # assert test_data.select(pl.col("time").slice(0, 2).diff()).slice(1,1).item() == measurements_timedelta
    
-    custom_eval_fn = {
-                "PICP": (pi_coverage_probability, "mean", "mean"),
-                "PINAW": (pi_normalized_average_width, "mean", "mean"),
-                "CWC": (coverage_width_criterion, "mean", "mean"),
-                "CRPS": (continuous_ranked_probability_score_gaussian, "mean", "mean"),
-    }
-    evaluator = MultivariateEvaluator(
-        custom_eval_fn=custom_eval_fn,
-        num_workers=mp.cpu_count() if args.multiprocessor == "cf" else None,
-    )
+    # custom_eval_fn = {
+    #             "PICP": (pi_coverage_probability, "mean", "mean"),
+    #             "PINAW": (pi_normalized_average_width, "mean", "mean"),
+    #             "CWC": (coverage_width_criterion, "mean", "mean"),
+    #             "CRPS": (continuous_ranked_probability_score_gaussian, "mean", "mean"),
+    # }
+    # evaluator = MultivariateEvaluator(
+    #     custom_eval_fn=custom_eval_fn,
+    #     num_workers=mp.cpu_count() if args.multiprocessor == "cf" else None,
+    # )
+    evaluator = None
             
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
@@ -2653,6 +2655,7 @@ if __name__ == "__main__":
     ## GENERATE PERFECT PREVIEW \
     if "perfect" in args.model:
         for td in prediction_timedelta:
+            logging.info(f"Instantiating PerfectForecast with prediction_timedelta = {td} seconds.")
             forecaster = PerfectForecast(
                 measurements_timedelta=measurements_timedelta,
                 controller_timedelta=controller_timedelta,
@@ -2672,6 +2675,7 @@ if __name__ == "__main__":
     ## GENERATE PERSISTENT PREVIEW
     if "persistence" in args.model:
         for td in prediction_timedelta:
+            logging.info(f"Instantiating PersistenceForecast with prediction_timedelta = {td} seconds.")
             forecaster = PersistenceForecast(measurements_timedelta=measurements_timedelta,
                                                     controller_timedelta=controller_timedelta,
                                                     prediction_timedelta=td,
@@ -2691,12 +2695,15 @@ if __name__ == "__main__":
         
         for td in prediction_timedelta:
             # TODO DEBUG
-            db_setup_params = generate_df_setup_params("svr", model_config.update({"prediction_timedelta": td.total_seconds()}),)
+            logging.info(f"Loading optuna_storage for SVRForecast with prediction_timedelta = {td} seconds.")
+            model_config["dataset"].update({"prediction_length": td.total_seconds()})
+            db_setup_params = generate_df_setup_params("svr", model_config)
             optuna_storage = setup_optuna_storage(
                 db_setup_params=db_setup_params,
                 restart_tuning=False,
                 rank=rank
             )
+            logging.info(f"Instantiating SVRForecast with prediction_timedelta = {td} seconds.")
             forecaster = SVRForecast(measurements_timedelta=measurements_timedelta,
                                     controller_timedelta=controller_timedelta,
                                     prediction_timedelta=td,
@@ -2720,6 +2727,7 @@ if __name__ == "__main__":
     if "kf" in args.model:
         # tune this use single, longer, prediction time, since we have only identity state transition matrix, and must use final posterior only prediction
         for td in prediction_timedelta:
+            logging.info(f"Instantiating KalmanFilterForecast with prediction_timedelta = {td} seconds.")
             forecaster = KalmanFilterForecast(measurements_timedelta=measurements_timedelta,
                                                 controller_timedelta=controller_timedelta,
                                                 prediction_timedelta=td, 
@@ -2737,6 +2745,7 @@ if __name__ == "__main__":
     if "sf" in args.model:
         # tune this use single, longer, prediction time, since we have only identity state transition matrix, and must use final posterior only prediction
         for td in prediction_timedelta:
+            logging.info(f"Instantiating SpatialFilterForecast with prediction_timedelta = {td} seconds.")
             forecaster = SpatialFilterForecast(measurements_timedelta=measurements_timedelta,
                                                 controller_timedelta=controller_timedelta,
                                                 prediction_timedelta=td, 
@@ -2756,38 +2765,42 @@ if __name__ == "__main__":
         if isinstance(args.checkpoint, list):
             assert len(args.checkpoint) == len(ml_models)
         for m, model in enumerate(ml_models):
-            # TODO DEBUG
-            db_setup_params = generate_df_setup_params(model, model_config)
-            try:
-                optuna_storage = setup_optuna_storage(
-                    db_setup_params=db_setup_params,
-                    restart_tuning=False,
-                    rank=rank
-                )
-                use_tuned_params = True
-            except Exception as e:
-                logging.error("Could not open Optuna storage, will use default hyper parameters.")
-                optuna_storage = None
-                use_tuned_params = False
+            for td in prediction_timedelta:
                 
-            forecaster = MLForecast(measurements_timedelta=measurements_timedelta,
-                                    controller_timedelta=controller_timedelta,
-                                    prediction_timedelta=pd.Timedelta(seconds=model_config["dataset"]["prediction_length"]),
-                                    context_timedelta=pd.Timedelta(seconds=model_config["dataset"]["context_length"]),
-                                    fmodel=fmodel,
-                                    true_wind_field=None,
-                                    tid2idx_mapping=tid2idx_mapping,
-                                    turbine_signature=turbine_signature,
-                                    use_tuned_params=use_tuned_params,
-                                    model_config=model_config,
-                                    kwargs=dict(model_key=model,
-                                                model_checkpoint=args.checkpoint if isinstance(args.checkpoint, str) else args.checkpoint[m], # TODO QUESTION is the latest checkpoint not always the best?
-                                                optuna_storage=optuna_storage,
-                                                study_name=db_setup_params["study_name"])
-                                    )
-        forecasters.append(forecaster)
+                logging.info(f"Instantiating MLForecast {model} with prediction_timedelta = {td} seconds.")
+                # TODO be sure to pass correct model config corresponding to prediction_length
+                model_config["dataset"].update({"prediction_length": td.total_seconds()})
+                db_setup_params = generate_df_setup_params(model, model_config)
+                try:
+                    optuna_storage = setup_optuna_storage(
+                        db_setup_params=db_setup_params,
+                        restart_tuning=False,
+                        rank=rank
+                    )
+                    use_tuned_params = True
+                except Exception as e:
+                    logging.error("Could not open Optuna storage, will use default hyper parameters.")
+                    optuna_storage = None
+                    use_tuned_params = False
+                    
+                forecaster = MLForecast(measurements_timedelta=measurements_timedelta,
+                                        controller_timedelta=controller_timedelta,
+                                        prediction_timedelta=pd.Timedelta(seconds=model_config["dataset"]["prediction_length"]),
+                                        context_timedelta=pd.Timedelta(seconds=model_config["dataset"]["context_length"]),
+                                        fmodel=fmodel,
+                                        true_wind_field=None,
+                                        tid2idx_mapping=tid2idx_mapping,
+                                        turbine_signature=turbine_signature,
+                                        use_tuned_params=use_tuned_params,
+                                        model_config=model_config,
+                                        kwargs=dict(model_key=model,
+                                                    model_checkpoint=args.checkpoint if isinstance(args.checkpoint, str) else args.checkpoint[m], # TODO QUESTION is the latest checkpoint not always the best?
+                                                    optuna_storage=optuna_storage,
+                                                    study_name=db_setup_params["study_name"])
+                                        )
+            forecasters.append(forecaster)
         
-    if args.multiprocessor is not None:
+    if args.multiprocessor:
         if args.multiprocessor == "mpi":
             comm_size = MPI.COMM_WORLD.Get_size()
             executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
@@ -2810,12 +2823,14 @@ if __name__ == "__main__":
     else:
         results = []
         for forecaster in forecasters:
+            prediction_timedelta = forecaster.prediction_timedelta.total_seconds()
             save_dir = os.path.join(os.path.dirname(model_config["dataset"]["data_path"]), "validation_results", 
                                     forecaster.__class__.__name__,
-                                    str(forecaster.prediction_timedelta.total_seconds()))
+                                    str(prediction_timedelta))
             os.makedirs(save_dir, exist_ok=True)
             forecast_path = os.path.join(save_dir, "forecast.parquet")
             agg_metric_path = os.path.join(save_dir, "agg_metrics.parquet")
+            
             if args.rerun_validation or not os.path.exists(forecast_path) or not os.path.exists(agg_metric_path):
                 forecast_df, agg_metrics = generate_forecaster_results(
                     forecaster=forecaster, data_module=data_module, 
@@ -2825,7 +2840,7 @@ if __name__ == "__main__":
                     "forecaster_name": forecaster.__class__.__name__,
                     "forecast_df": forecast_df,
                     "agg_metrics": agg_metrics, 
-                    "prediction_timedelta": forecaster.prediction_timedelta.total_seconds()
+                    "prediction_timedelta": prediction_timedelta
                     })
                 
                 results[-1]["forecast_df"].write_parquet(forecast_path)
@@ -2835,7 +2850,7 @@ if __name__ == "__main__":
                     "forecaster_name": forecaster.__class__.__name__,
                     "forecast_df": pl.read_parquet(forecast_path),
                     "agg_metrics": pl.read_parquet(agg_metric_path), 
-                    "prediction_timedelta": forecaster.prediction_timedelta.total_seconds()
+                    "prediction_timedelta": prediction_timedelta
                     })
     # results[0]["agg_metrics"].group_by(["test_idx", "feature_type"], maintain_order=True).agg(pl.col("score").mean()).with_columns(turbine_id=pl.lit("all"))
     # 
