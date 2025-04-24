@@ -22,38 +22,38 @@ try:
 except Exception as e:
     logging.warning("Could not import MPI.")
 
-def set_cpu_affinity(core_ids):
-    """Sets the CPU affinity for the current process."""
-    pid = os.getpid()
-    p = psutil.Process(pid)
+# def set_cpu_affinity(core_ids):
+#     """Sets the CPU affinity for the current process."""
+#     pid = os.getpid()
+#     p = psutil.Process(pid)
 
-    try:
-        current_affinity = p.cpu_affinity()
-        logging.info(f"Process {pid}: Current CPU affinity: {current_affinity}")
+#     try:
+#         current_affinity = p.cpu_affinity()
+#         logging.info(f"Process {pid}: Current CPU affinity: {current_affinity}")
 
-        # Ensure core_ids is a list of integers
-        cores_to_set = [int(c) for c in core_ids]
+#         # Ensure core_ids is a list of integers
+#         cores_to_set = [int(c) for c in core_ids]
 
-        # Check if requested cores are available (optional but good practice)
-        available_cores = list(range(psutil.cpu_count(logical=True)))
-        invalid_cores = [c for c in cores_to_set if c not in available_cores]
-        if invalid_cores:
-            logging.warning(f"Requested cores {invalid_cores} are not valid/available.", file=sys.stderr)
-            logging.info(f"Available cores: {available_cores}", file=sys.stderr)
-            # Decide how to handle: exit, use available subset, or proceed anyway?
-            # For now, we'll proceed, but psutil might raise an error later.
+#         # Check if requested cores are available (optional but good practice)
+#         available_cores = list(range(psutil.cpu_count(logical=True)))
+#         invalid_cores = [c for c in cores_to_set if c not in available_cores]
+#         if invalid_cores:
+#             logging.warning(f"Requested cores {invalid_cores} are not valid/available.")
+#             logging.info(f"Available cores: {available_cores}")
+#             # Decide how to handle: exit, use available subset, or proceed anyway?
+#             # For now, we'll proceed, but psutil might raise an error later.
 
-        p.cpu_affinity(cores_to_set)
-        new_affinity = p.cpu_affinity()
-        logging.info(f"Process {pid}: Set CPU affinity to: {new_affinity}")
-        return True
+#         p.cpu_affinity(cores_to_set)
+#         new_affinity = p.cpu_affinity()
+#         logging.info(f"Process {pid}: Set CPU affinity to: {new_affinity}")
+#         return True
 
-    except AttributeError:
-        logging.error(f"Process {pid}: CPU affinity setting not supported on this platform via psutil.", file=sys.stderr)
-        return False
-    except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError) as e:
-        logging.error(f"Process {pid}: Failed to set CPU affinity: {e}", file=sys.stderr)
-        return False
+#     except AttributeError:
+#         logging.error(f"Process {pid}: CPU affinity setting not supported on this platform via psutil.")
+#         return False
+#     except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError) as e:
+#         logging.error(f"Process {pid}: Failed to set CPU affinity: {e}")
+#         return False
 
 def replace_env_vars(dirpath):
     env_vars = re.findall(r"(?:^|\/)\$(\w+)(?:\/|$)", dirpath)
@@ -200,18 +200,18 @@ if __name__ == "__main__":
     if worker_id > 0:
         
         # Parse the core argument (e.g., "0-9" or "10,11,12")
-        if args.cores:
-            core_ids = []
-            parts = args.cores.split(',')
-            for part in parts:
-                if '-' in part:
-                    start, end = map(int, part.split('-'))
-                    core_ids.extend(list(range(start, end + 1)))
-                else:
-                    core_ids.append(int(part))
+        # if args.cores:
+        #     core_ids = []
+        #     parts = args.cores.split(',')
+        #     for part in parts:
+        #         if '-' in part:
+        #             start, end = map(int, part.split('-'))
+        #             core_ids.extend(list(range(start, end + 1)))
+        #         else:
+        #             core_ids.append(int(part))
 
-            # Remove duplicates and sort
-            core_ids = sorted(list(set(core_ids)))
+        #     # Remove duplicates and sort
+        #     core_ids = sorted(list(set(core_ids)))
             
         logging.info(f"Process {os.getpid()}: Attempting to use cores: {core_ids}")
         
