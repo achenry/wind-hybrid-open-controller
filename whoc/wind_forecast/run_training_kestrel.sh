@@ -15,10 +15,7 @@
 # salloc --account=ssc --job-name=model_tuning  --ntasks=104 --cpus-per-task=1 --time=01:00:00 --partition=debug
 # python tuning.py --config $HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel.yaml --study_name "svr_tuning" --model "svr"
 
-export NTASKS_PER_TUNER=13
 export MODEL=$1
-NTUNERS=$((SLURM_NTASKS / NTASKS_PER_TUNER)) # cast to int
-
 # Print environment info
 echo "SLURM_JOB_ID=${SLURM_JOB_ID}"
 echo "SLURM_JOB_NAME=${SLURM_JOB_NAME}"
@@ -57,7 +54,7 @@ export WORKER_RANK=0
 echo "=== STARTING TRAINING ==="
 date +"%Y-%m-%d %H:%M:%S"
 python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} \
-		--multiprocessor cf --seed ${WORKER_SEED} --limit_train_val 0.1 --mode train &
+		--multiprocessor cf --seed ${WORKER_SEED} --limit_train_val 0.1 --mode train
 
 date +"%Y-%m-%d %H:%M:%S"
 echo "=== TRAINING COMPLETED ==="
