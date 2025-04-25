@@ -152,9 +152,9 @@ case_studies = {
         "wind_forecast_class": {"group": 0, "vals": ["MLForecast"]},
         "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController", "GreedyController"]},
         "model_config_path": {"group": 1, "vals": [
-            "/Users/ahenry/Documents/toolboxes/wind_forecasting/config/training/training_inputs_kestrel_awaken_pred300.yaml", 
-            "/Users/ahenry/Documents/toolboxes/wind_forecasting/config/training/training_inputs_kestrel_awaken_pred300.yaml", 
-            "/Users/ahenry/Documents/toolboxes/wind_forecasting/config/training/training_inputs_kestrel_awaken_pred60.yaml"]},
+            "/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred300.yaml", 
+            "/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred300.yaml", 
+            "/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred60.yaml"]},
         # "model_config_path": {"group": 1, "vals": [
         #     "/Users/ahenry/Documents/toolboxes/wind_forecasting/config/training/training_inputs_aoifemac_awaken_pred300.yaml", 
         #     "/Users/ahenry/Documents/toolboxes/wind_forecasting/config/training/training_inputs_aoifemac_awaken_pred300.yaml", 
