@@ -140,10 +140,10 @@ if __name__ == "__main__":
                             context_timedelta=data_module.context_length*pd.Timedelta(model_config["dataset"]["resample_freq"]),
                             fmodel=fmodel,
                             true_wind_field=None,
-                            model_config=model_config,
                             kwargs=dict(kernel="rbf", C=1.0, degree=3, gamma="auto", epsilon=0.1, cache_size=200,
                                         n_neighboring_turbines=5, max_n_samples=None, 
-                                        use_trained_models=False),
+                                        use_trained_models=False,
+                                        model_config=model_config),
                             tid2idx_mapping=tid2idx_mapping,
                             turbine_signature=turbine_signature,
                             use_tuned_params=False)
@@ -254,7 +254,7 @@ if __name__ == "__main__":
         # %% TRAINING MODEL
         logging.info("Training model using best hyperparameters.")
         forecaster.set_tuned_params(storage=optuna_storage, study_name=forecaster.study_name)
-        forecaster.train_all_outputs(outputs=data_module.target_cols, scale=False, 
+        forecaster.train_all_outputs(scale=False, 
                                     multiprocessor=args.multiprocessor, 
                                     retrain_models=True,
                                     scaler_params=scaler_params)

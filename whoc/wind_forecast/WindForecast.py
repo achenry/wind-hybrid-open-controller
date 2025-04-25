@@ -1253,7 +1253,7 @@ class SVRForecast(WindForecast):
                 pickle.dump(self.scaler[output], fp, protocol=5)
         return self.model[output], self.scaler[output]
     
-    def train_all_outputs(self, outputs, scale, multiprocessor, retrain_models=True,
+    def train_all_outputs(self, scale, multiprocessor, retrain_models=True,
                           scaler_params=None):
         # training_measurements = historic_measurements.gather_every(self.n_prediction_interval)
         # scale = (training_measurements.select(pl.len()).item() > 1) and scale
@@ -1282,13 +1282,13 @@ class SVRForecast(WindForecast):
                                         output=output, 
                                         scale=scale, 
                                         scaler_params=scaler_params,
-                                        retrain_models=retrain_models) for output in outputs]
-                for output, fut in zip(outputs, futures):
+                                        retrain_models=retrain_models) for output in self.outputs]
+                for output, fut in zip(self.outputs, futures):
                     m, s = fut.result()
                     self.model[output] = m
                     self.scaler[output] = s
         else:    
-            for output in outputs:
+            for output in self.outputs:
                 self.model[output], self.scaler[output] = self.train_single_output(
                     training_measurements=None, 
                     output=output, scale=scale, 
