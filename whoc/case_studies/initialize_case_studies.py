@@ -14,6 +14,7 @@ import gc
 import re
 from wind_forecasting.utils.optuna_db_utils import setup_optuna_storage
 from wind_forecasting.run_scripts.tuning import generate_df_setup_params
+from wind_forecasting import __file__ as wind_forecasting_file
 #from line_profiler import profile
 # from datetime import timedelta
 
@@ -152,13 +153,9 @@ case_studies = {
         "wind_forecast_class": {"group": 0, "vals": ["MLForecast"]},
         "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController", "GreedyController"]},
         "model_config_path": {"group": 1, "vals": [
-            "/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred300.yaml", 
-            "/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred300.yaml", 
-            "/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred60.yaml"]},
-        # "model_config_path": {"group": 1, "vals": [
-        #     "/Users/ahenry//../config/training/training_inputs_aoifemac_awaken_pred300.yaml", 
-        #     "../../config/training/training_inputs_aoifemac_awaken_pred300.yaml", 
-        #     "../../config/training/training_inputs_aoifemac_awaken_pred60.yaml"]},
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred300.yaml"), 
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred300.yaml"), 
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred60.yaml")]},
         "prediction_timedelta": {"group": 1, "vals": [300, 300, 60]},
         "uncertain": {"group": 1, "vals": [True, False, False]},
         "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73", "4,"]},
@@ -773,21 +770,23 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                         model_configs[model_config_path]  = yaml.safe_load(file)
                         
                 if (input_dicts[start_case_idx + c]["controller"]["wind_forecast_class"] == "MLForecast") \
-                    and (input_dicts[start_case_idx + c]["wind_forecast"]["prediction_timedelta"] <= model_configs[model_config_path]["dataset"]["prediction_length"]):
+                    and (input_dicts[start_case_idx + c]["wind_forecast"]["prediction_timedelta"] > model_configs[model_config_path]["dataset"]["prediction_length"]):
                     logging.warning(f"Provided prediction_timedelta should be less or equal to model config prediction length { model_configs[model_config_path]['dataset']['prediction_length']}. Make sure you are providing the right model config file. Resetting the prediction_timedelta variable.")
                     input_dicts[start_case_idx + c]["wind_forecast"]["prediction_timedelta"] = model_configs[model_config_path]["dataset"]["prediction_length"]
-                    
+                
                 input_dicts[start_case_idx + c]["wind_forecast"] \
                     = {**{
                         "measurements_timedelta": wind_field_ts[0].select(pl.col("time").diff().slice(1,1)).item(),
                         "context_timedelta": pd.Timedelta(seconds=model_configs[model_config_path]["dataset"]["context_length"]), # pd.Timedelta(seconds=input_dicts[start_case_idx + c]["wind_forecast"]["context_timedelta"]),
                         "prediction_timedelta": pd.Timedelta(seconds=input_dicts[start_case_idx + c]["wind_forecast"]["prediction_timedelta"]),
-                        "controller_timedelta": pd.Timedelta(seconds=input_dicts[start_case_idx + c]["controller"]["controller_dt"])
+                        "controller_timedelta": pd.Timedelta(seconds=input_dicts[start_case_idx + c]["controller"]["controller_dt"]),
+                        "model_config": model_configs[model_config_path]
                         }, 
                     **input_dicts[start_case_idx + c]["wind_forecast"].setdefault(input_dicts[start_case_idx + c]["controller"]["wind_forecast_class"], {}),
                     }
                 
                 if "model_key" in input_dicts[start_case_idx + c]["wind_forecast"]:
+                    # TODO will this work if database name has run id attached... need to get folder with highest slurm id if so...
                     db_setup_params = generate_df_setup_params(
                         model=input_dicts[start_case_idx + c]["wind_forecast"]["model_key"], 
                         model_config=model_configs[model_config_path])
