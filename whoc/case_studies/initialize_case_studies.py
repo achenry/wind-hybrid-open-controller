@@ -151,14 +151,14 @@ case_studies = {
         "yaw_limits": {"group": 0, "vals": ["-15,15"]},
         "wind_forecast_class": {"group": 0, "vals": ["MLForecast"]},
         "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController", "GreedyController"]},
-        # "model_config_path": {"group": 1, "vals": [
-        #     "/Users/ahenry/Documents/toolboxes/wind_forecasting/config/training/training_inputs_kestrel_awaken_pred300.yaml", 
-        #     "/Users/ahenry/Documents/toolboxes/wind_forecasting/config/training/training_inputs_kestrel_awaken_pred300.yaml", 
-        #     "/Users/ahenry/Documents/toolboxes/wind_forecasting/config/training/training_inputs_kestrel_awaken_pred60.yaml"]},
         "model_config_path": {"group": 1, "vals": [
-            "/Users/ahenry/Documents/toolboxes/wind_forecasting/config/training/training_inputs_aoifemac_awaken_pred300.yaml", 
-            "/Users/ahenry/Documents/toolboxes/wind_forecasting/config/training/training_inputs_aoifemac_awaken_pred300.yaml", 
-            "/Users/ahenry/Documents/toolboxes/wind_forecasting/config/training/training_inputs_aoifemac_awaken_pred60.yaml"]},
+            "/Users/ahenry/Documents/toolboxes/wind_forecasting/config/training/training_inputs_kestrel_awaken_pred300.yaml", 
+            "/Users/ahenry/Documents/toolboxes/wind_forecasting/config/training/training_inputs_kestrel_awaken_pred300.yaml", 
+            "/Users/ahenry/Documents/toolboxes/wind_forecasting/config/training/training_inputs_kestrel_awaken_pred60.yaml"]},
+        # "model_config_path": {"group": 1, "vals": [
+        #     "/Users/ahenry/Documents/toolboxes/wind_forecasting/config/training/training_inputs_aoifemac_awaken_pred300.yaml", 
+        #     "/Users/ahenry/Documents/toolboxes/wind_forecasting/config/training/training_inputs_aoifemac_awaken_pred300.yaml", 
+        #     "/Users/ahenry/Documents/toolboxes/wind_forecasting/config/training/training_inputs_aoifemac_awaken_pred60.yaml"]},
         "prediction_timedelta": {"group": 1, "vals": [300, 300, 60]},
         "uncertain": {"group": 1, "vals": [True, False, False]},
         "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73", "4,"]},
