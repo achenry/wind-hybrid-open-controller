@@ -104,7 +104,6 @@ class WindForecast:
     tid2idx_mapping: dict
     turbine_signature: str
     use_tuned_params: bool
-    model_config: Optional[dict]
     kwargs: dict
     true_wind_field: Optional[Union[pd.DataFrame, pl.DataFrame]]
     # n_targets_per_turbine: int 
@@ -1104,6 +1103,7 @@ class SVRForecast(WindForecast):
         super().__post_init__()
         self.train_first = True
         self.max_n_samples = self.kwargs["max_n_samples"] 
+        self.model_config = self.kwargs["model_config"]
 
         self.n_turbines = self.fmodel.n_turbines
         self.n_outputs = self.n_turbines * 2
@@ -1640,6 +1640,7 @@ class MLForecast(WindForecast):
         super().__post_init__()
         self.n_prediction_interval = 1
         self.model_key = self.kwargs["model_key"]
+        self.model_config = self.kwargs["model_config"]
         
         # TODO do we need this or can we load from checkpoint
         # if self.use_tuned_params:
@@ -2691,7 +2692,7 @@ if __name__ == "__main__":
                 tid2idx_mapping=tid2idx_mapping,
                 turbine_signature=turbine_signature,
                 use_tuned_params=False,
-                model_config=None,
+                
                 kwargs={}
             )
                                 
@@ -2710,7 +2711,6 @@ if __name__ == "__main__":
                                                     tid2idx_mapping=tid2idx_mapping,
                                                     turbine_signature=turbine_signature,
                                                     use_tuned_params=False,
-                                                    model_config=None,
                                                     kwargs={})
 
             forecasters.append(forecaster)
@@ -2738,11 +2738,12 @@ if __name__ == "__main__":
                                                 n_neighboring_turbines=3, max_n_samples=None, 
                                                 study_name=f"svr_{mncf['experiment']['run_name']}",
                                                 use_trained_models=args.use_trained_models,
-                                                optuna_storage=optuna_storage),
+                                                optuna_storage=optuna_storage,
+                                                model_config=mncf),
                                     tid2idx_mapping=tid2idx_mapping,
                                     turbine_signature=turbine_signature,
-                                    use_tuned_params=args.use_tuned_params,
-                                    model_config=mncf)
+                                    use_tuned_params=args.use_tuned_params
+                                    )
             
             forecasters.append(forecaster)
         
@@ -2763,7 +2764,6 @@ if __name__ == "__main__":
                                                 tid2idx_mapping=tid2idx_mapping,
                                                 turbine_signature=turbine_signature,
                                                 use_tuned_params=False,
-                                                model_config=None,
                                                 kwargs={})
             forecasters.append(forecaster)
         
@@ -2783,7 +2783,6 @@ if __name__ == "__main__":
                                                 tid2idx_mapping=tid2idx_mapping,
                                                 turbine_signature=turbine_signature,
                                                 use_tuned_params=False,
-                                                model_config=None,
                                                 kwargs=dict(n_neighboring_turbines=6))
             forecasters.append(forecaster)
         
@@ -2818,11 +2817,11 @@ if __name__ == "__main__":
                                         tid2idx_mapping=tid2idx_mapping,
                                         turbine_signature=turbine_signature,
                                         use_tuned_params=use_tuned_params,
-                                        model_config=mncf,
                                         kwargs=dict(model_key=model,
                                                     model_checkpoint=args.checkpoint[0] if len(args.checkpoint) == 1 else args.checkpoint[m], # TODO QUESTION is the latest checkpoint not always the best?
                                                     optuna_storage=optuna_storage,
-                                                    study_name=db_setup_params["study_name"])
+                                                    study_name=db_setup_params["study_name"],
+                                                    model_config=mncf)
                                         )
             forecasters.append(forecaster)
     
@@ -2925,7 +2924,7 @@ if __name__ == "__main__":
         for res in results], how="vertical")
     
     for f, forecaster in enumerate(forecasters):
-        save_dir = os.path.join(os.path.dirname(model_config["dataset"]["data_path"]), "validation_results", 
+        save_dir = os.path.join(os.path.dirname(base_model_config["dataset"]["data_path"]), "validation_results", 
                                 forecaster.__class__.__name__,
                                 str(forecaster.prediction_timedelta.total_seconds()))
         if args.prediction_type == "distribution" and forecaster.is_probabilistic:

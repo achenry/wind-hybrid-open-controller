@@ -69,7 +69,7 @@ if __name__ == "__main__":
     parser.add_argument("-md", "--model", type=str, choices=["svr", "kf", "preview", "informer", "autoformer", "spacetimeformer"], required=True)
     parser.add_argument("-mcnf", "--model_config", type=str)
     parser.add_argument("-dcnf", "--data_config", type=str)
-    parser.add_argument("-m", "--multiprocessor", choices=["mpi", "cf", None], default=None)
+    parser.add_argument("-mp", "--multiprocessor", choices=["mpi", "cf", None], default=None)
     parser.add_argument("-msp", "--max_splits", type=int, required=False, default=None,
                         help="Number of test splits to use.")
     parser.add_argument("-ltv", "--limit_train_val", type=float, required=False, default=1,
@@ -78,6 +78,7 @@ if __name__ == "__main__":
                         help="Number of time steps to use.")
     parser.add_argument("-s", "--seed", type=int, help="Seed for random number generator", default=42)
     parser.add_argument("-rt", "--restart_tuning", action="store_true")
+    parser.add_argument("-m", "--mode", choices=["tune", "train"])
     parser.add_argument("-rd", "--reload_data", action="store_true", help="Whether to reload the train/validation data from the source, or to use existing .dat files.")
     # parser.add_argument('--cores', required=False, default=None, help='Comma-separated list or range of core IDs (e.g., "0-9" or "10,11,12")')
     # pretrained_filename = "/Users/ahenry/Documents/toolboxes/wind_forecasting/logging/wf_forecasting/lznjshyo/checkpoints/epoch=0-step=50.ckpt"
@@ -157,41 +158,40 @@ if __name__ == "__main__":
             logging.info(f"Couldn't find WORKER_RANK env var, setting rank to {worker_id}.")
     
     # %% PREPARING DATA FOR TUNING
-    if worker_id == 0:
-        if RUN_ONCE:
-            logging.info("Preparing data for tuning")
-            if not os.path.exists(data_module.train_ready_data_path):
-                data_module.generate_datasets()
-                reload = True
-            else:
-                reload = False
-            
-            data_module.generate_splits(save=True, reload=reload, splits=["train", "val"])
-            
-        # get max_splits longest datasets
-        data_module.generate_splits(save=True, reload=False, splits=["train", "val"])
+    if worker_id == 0 and RUN_ONCE:
+        logging.info("Preparing data for tuning")
+        if not os.path.exists(data_module.train_ready_data_path):
+            data_module.generate_datasets()
+            reload = True
+        else:
+            reload = False
         
-        if args.reload_data or reload:
-            data_module.train_dataset = sorted(data_module.train_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
-            data_module.val_dataset = sorted(data_module.val_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
-            if args.max_splits:
-                train_dataset = data_module.train_dataset[:args.max_splits]
-                val_dataset = data_module.val_dataset[:args.max_splits]
-            else:
-                train_dataset = data_module.train_dataset
-                val_dataset = data_module.val_dataset
+        data_module.generate_splits(save=True, reload=reload, splits=["train", "val"])
             
-            if args.max_steps:
-                train_dataset = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in train_dataset]
-                val_dataset = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in val_dataset]
-                
-            train_dataset = generate_wind_field_df(datasets=train_dataset, target_cols=data_module.target_cols, feat_dynamic_real_cols=data_module.feat_dynamic_real_cols)
-            val_dataset = generate_wind_field_df(datasets=val_dataset, target_cols=data_module.target_cols, feat_dynamic_real_cols=data_module.feat_dynamic_real_cols)
-            delattr(data_module, "train_dataset")
-            delattr(data_module, "val_dataset")
+    # get max_splits longest datasets
+    data_module.generate_splits(save=True, reload=False, splits=["train", "val"])
+    
+    if worker_id == 0 and (args.reload_data or reload):
+        data_module.train_dataset = sorted(data_module.train_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
+        data_module.val_dataset = sorted(data_module.val_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
+        if args.max_splits:
+            train_dataset = data_module.train_dataset[:args.max_splits]
+            val_dataset = data_module.val_dataset[:args.max_splits]
+        else:
+            train_dataset = data_module.train_dataset
+            val_dataset = data_module.val_dataset
+        
+        if args.max_steps:
+            train_dataset = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in train_dataset]
+            val_dataset = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in val_dataset]
+            
+        train_dataset = generate_wind_field_df(datasets=train_dataset, target_cols=data_module.target_cols, feat_dynamic_real_cols=data_module.feat_dynamic_real_cols)
+        val_dataset = generate_wind_field_df(datasets=val_dataset, target_cols=data_module.target_cols, feat_dynamic_real_cols=data_module.feat_dynamic_real_cols)
+        delattr(data_module, "train_dataset")
+        delattr(data_module, "val_dataset")
 
-            forecaster.prepare_data(dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, 
-                                    scale=False, multiprocessor=args.multiprocessor, reload=args.reload_data)
+        forecaster.prepare_data(dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, 
+                                scale=False, multiprocessor=args.multiprocessor, reload=args.reload_data)
 
         if RUN_ONCE:
             logging.info("Finished preparing data for tuning.")
@@ -234,24 +234,28 @@ if __name__ == "__main__":
         
         scaler_params = data_module.compute_scaler_params()
         #{"type": "hyperband", "min_resource": 2, "max_resource": 5, "reduction_factor": 3, "percentile": 25}
-        if args.multiprocessor:
-            logging.info(f"Using multiprocessor {args.multiprocessor}")
-        forecaster.tune_hyperparameters_single(storage=optuna_storage,
-                                                n_trials_per_worker=model_config["optuna"]["n_trials_per_worker"], 
-                                                seed=args.seed,
-                                                config=model_config,
-                                                worker_id=0 if RUN_ONCE and (worker_id == 0) else worker_id,
-                                                multiprocessor=args.multiprocessor,
-                                                limit_train_val=args.limit_train_val)
-                                        #  trial_protection_callback=handle_trial_with_oom_protection)
-
-        # %% TRAINING MODEL
-        logging.info("Training model using best hyperparameters.")
-        forecaster.set_tuned_params(storage=optuna_storage, study_name=forecaster.study_name)
-        forecaster.train_all_outputs(outputs=data_module.target_cols, scale=False, 
-                                     multiprocessor=args.multiprocessor, 
-                                     retrain_models=True,
-                                     scaler_params=scaler_params)
+        if args.mode == "tune":
+            if args.multiprocessor:
+                logging.info(f"Using multiprocessor {args.multiprocessor}")
+            forecaster.tune_hyperparameters_single(storage=optuna_storage,
+                                                    n_trials_per_worker=model_config["optuna"]["n_trials_per_worker"], 
+                                                    seed=args.seed,
+                                                    config=model_config,
+                                                    worker_id=0 if RUN_ONCE and (worker_id == 0) else worker_id,
+                                                    multiprocessor=args.multiprocessor,
+                                                    limit_train_val=args.limit_train_val)
+                                            #  trial_protection_callback=handle_trial_with_oom_protection)
+            # %% After tuning completes
+            logging.info("Optuna hyperparameter tuning completed.")
         
-        # %% After training completes
-        logging.info("Optuna hyperparameter tuning completed.")
+        elif args.mode == "train":
+            # %% TRAINING MODEL
+            logging.info("Training model using best hyperparameters.")
+            forecaster.set_tuned_params(storage=optuna_storage, study_name=forecaster.study_name)
+            forecaster.train_all_outputs(outputs=data_module.target_cols, scale=False, 
+                                        multiprocessor=args.multiprocessor, 
+                                        retrain_models=True,
+                                        scaler_params=scaler_params)
+            # %% After training completes
+            logging.info("Training completed.")
+        
