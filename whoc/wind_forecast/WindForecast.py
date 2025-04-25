@@ -1717,9 +1717,9 @@ class MLForecast(WindForecast):
             mode=mode, 
             log_dir=os.path.join(self.model_config["experiment"]["log_dir"], 
                                  f"{self.model_config['experiment']['project_name']}_{self.model_key}"))
-        logging.info("Found pretrained model, loading...")
         
-        checkpoint = torch.load(checkpoint_path, map_location=lambda storage, loc: storage, weights_only=False)
+        logging.info("Found pretrained model, loading...")
+        checkpoint = torch.load(checkpoint_path, map_location="gpu" if torch.cuda.is_available() else "cpu", weights_only=False)
         
         # Extract hyperparameters, handling potential key variations
         hparams = checkpoint.get('hyper_parameters', checkpoint.get('hparams'))
