@@ -2168,6 +2168,9 @@ class ARIMAForecast(WindForecast):
         horizon = self.n_prediction
         prediction_freq = pd.Timedelta(self.measurements_timedelta)
 
+        if not hasattr(self, "n_context"):
+            self.n_context = int(self.context_timedelta / self.prediction_interval)
+
         if current_time is None:
             current_time = historic_measurements.select(pl.col("time").max()).item()
             
@@ -2178,25 +2181,29 @@ class ARIMAForecast(WindForecast):
 
 
         for turbine_id in self.model_items():
-            # horizontal wind speed
-            model_horz = self.models[turbine_id]["ws_horz"]
-            forecast_horz = model_horz.forecast(steps=horizon)
-            # inverse Box-Cox to the original scale
-            forecast_horz_original = self.inverse_boxcox(forecast_horz, f"ws_horz_{turbine_id}")
-            #turbine_forecast_horz = pl.DataFrame({
-            #        "time": forecast_times,
-            #        f"ws_horz_{turbine_id}": foreceast_horz_original
-            #    })
-            # vertical wind speed
-            model_vert = self.models[turbine_id]["ws_vert"]
-            forecast_vert = model_vert.forecast(steps=horizon)
-            
-            # inverse Box-Cox to the original scale
-            forecast_vert_original = self.inverse_boxcox(forecast_vert, f"ws_vert_{turbine_id}")
-            #turbine_forecast_vert = pl.DataFrame({
-            #        "time": forecast_times,
-            #        f"ws_vert_{turbine_id}": forecast_vert_original
-            #    })
+            # historic data
+            turbine_df_horz = historic_measurements.select(pl.col("time"), pl.col(f"ws_horz_{turbine_id}")).sort("time").unique(subset=["time"])
+            turbine_df_vert = historic_measurements.select(pl.col("time"), pl.col(f"ws_vert_{turbine_id}")).sort("time").unique(subset=["time"])
+
+            sufficient_data = turbine_df_horz.height >= self.n_context and turbine_df_vert.height >= self.n_context
+
+            if not sufficient_data: #Persistence will be used
+                logging.info(f"Not enough data for turbine {turbine_id} at time {current_time}, falling back to persistence.")
+                value_horz = turbine_df_horz.select(pl.col(f"ws_horz_{turbine_id}")).last().item()
+                value_vert = turbine_df_vert.select(pl.col(f"ws_vert_{turbine_id}")).last().item()
+
+                forecast_horz_original = np.full(horizon, value_horz)
+                forecast_vert_original = np.full(horizon, value_vert)
+            else:  # ARIMA forecast will be used
+                # horizontal wind speed
+                model_horz = self.models[turbine_id]["ws_horz"]
+                forecast_horz = model_horz.forecast(steps=horizon)
+                forecast_horz_original = self.inverse_boxcox(forecast_horz, f"ws_horz_{turbine_id}")
+
+                # vertical wind speed
+                model_vert = self.models[turbine_id]["ws_vert"]
+                forecast_vert = model_vert.forecast(steps=horizon)
+                forecast_vert_original = self.inverse_boxcox(forecast_vert, f"ws_vert_{turbine_id}")
 
             turbine_df = pl.DataFrame({
             "time": forecast_times,
@@ -2844,6 +2851,9 @@ if __name__ == "__main__":
 
     with open(args.data_config, 'r') as file:
         data_config  = yaml.safe_load(file)
+    
+    with open(args.model_config[0], "r") as f:
+        model_config = yaml.safe_load(f)
         
     if len(data_config["turbine_signature"]) == 1:
         tid2idx_mapping = {str(k): i for i, k in enumerate(data_config["turbine_mapping"][0].keys())}
@@ -3089,7 +3099,7 @@ if __name__ == "__main__":
                                         tid2idx_mapping=tid2idx_mapping,
                                         turbine_signature=turbine_signature,
                                         use_tuned_params=False,
-                                        model_config=None,
+                                        model_config=model_config,
                                         kwargs={})
             forecasters.append(forecaster)
 
