@@ -156,9 +156,9 @@ case_studies = {
             "/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred300.yaml", 
             "/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred60.yaml"]},
         # "model_config_path": {"group": 1, "vals": [
-        #     "/Users/ahenry/Documents/toolboxes/wind_forecasting/config/training/training_inputs_aoifemac_awaken_pred300.yaml", 
-        #     "/Users/ahenry/Documents/toolboxes/wind_forecasting/config/training/training_inputs_aoifemac_awaken_pred300.yaml", 
-        #     "/Users/ahenry/Documents/toolboxes/wind_forecasting/config/training/training_inputs_aoifemac_awaken_pred60.yaml"]},
+        #     "/Users/ahenry//../config/training/training_inputs_aoifemac_awaken_pred300.yaml", 
+        #     "../../config/training/training_inputs_aoifemac_awaken_pred300.yaml", 
+        #     "../../config/training/training_inputs_aoifemac_awaken_pred60.yaml"]},
         "prediction_timedelta": {"group": 1, "vals": [300, 300, 60]},
         "uncertain": {"group": 1, "vals": [True, False, False]},
         "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73", "4,"]},
@@ -767,18 +767,20 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             assert all(input_dicts[start_case_idx + c]["controller"]["controller_dt"] <= t for t in stoptime)
             
             if input_dicts[start_case_idx + c]["controller"]["wind_forecast_class"] or "wind_forecast_class" in case:
-                model_config_path = input_dicts[start_case_idx + c]["wind_forecast"]["model_config_path"]
+                model_config_path = os.path.abspath(input_dicts[start_case_idx + c]["wind_forecast"]["model_config_path"])
                 if model_config_path not in model_configs:
                     with open(model_config_path, 'r') as file:
                         model_configs[model_config_path]  = yaml.safe_load(file)
                         
                 if (input_dicts[start_case_idx + c]["controller"]["wind_forecast_class"] == "MLForecast") \
-                    and (input_dicts[start_case_idx + c]["wind_forecast"]["prediction_timedelta"] <=  model_configs[model_config_path]["dataset"]["prediction_length"]):
-                    logging.warning(f"Provided prediction_timedelta should be less or equal to model config prediction length { model_configs[model_config_path]['dataset']['prediction_length']}. Make sure you are providing the right model config file.")
+                    and (input_dicts[start_case_idx + c]["wind_forecast"]["prediction_timedelta"] <= model_configs[model_config_path]["dataset"]["prediction_length"]):
+                    logging.warning(f"Provided prediction_timedelta should be less or equal to model config prediction length { model_configs[model_config_path]['dataset']['prediction_length']}. Make sure you are providing the right model config file. Resetting the prediction_timedelta variable.")
+                    input_dicts[start_case_idx + c]["wind_forecast"]["prediction_timedelta"] = model_configs[model_config_path]["dataset"]["prediction_length"]
+                    
                 input_dicts[start_case_idx + c]["wind_forecast"] \
                     = {**{
                         "measurements_timedelta": wind_field_ts[0].select(pl.col("time").diff().slice(1,1)).item(),
-                        "context_timedelta": pd.Timedelta(seconds= model_configs[model_config_path]["dataset"]["context_length"]), # pd.Timedelta(seconds=input_dicts[start_case_idx + c]["wind_forecast"]["context_timedelta"]),
+                        "context_timedelta": pd.Timedelta(seconds=model_configs[model_config_path]["dataset"]["context_length"]), # pd.Timedelta(seconds=input_dicts[start_case_idx + c]["wind_forecast"]["context_timedelta"]),
                         "prediction_timedelta": pd.Timedelta(seconds=input_dicts[start_case_idx + c]["wind_forecast"]["prediction_timedelta"]),
                         "controller_timedelta": pd.Timedelta(seconds=input_dicts[start_case_idx + c]["controller"]["controller_dt"])
                         }, 
