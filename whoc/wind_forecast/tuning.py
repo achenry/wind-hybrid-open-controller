@@ -213,8 +213,10 @@ if __name__ == "__main__":
     
     if args.multiprocessor == "mpi":
         optuna_storage = comm.bcast(optuna_storage, root=0)
-        
-    if worker_id > 0:
+    
+    scaler_params = data_module.compute_scaler_params()
+    
+    if args.mode == "tune" and worker_id > 0:
         
         # Parse the core argument (e.g., "0-9" or "10,11,12")
         # if args.cores:
@@ -232,30 +234,30 @@ if __name__ == "__main__":
             
         # logging.info(f"Process {os.getpid()}: Attempting to use cores: {core_ids}")
         
-        scaler_params = data_module.compute_scaler_params()
-        #{"type": "hyperband", "min_resource": 2, "max_resource": 5, "reduction_factor": 3, "percentile": 25}
-        if args.mode == "tune":
-            if args.multiprocessor:
-                logging.info(f"Using multiprocessor {args.multiprocessor}")
-            forecaster.tune_hyperparameters_single(storage=optuna_storage,
-                                                    n_trials_per_worker=model_config["optuna"]["n_trials_per_worker"], 
-                                                    seed=args.seed,
-                                                    config=model_config,
-                                                    worker_id=0 if RUN_ONCE and (worker_id == 0) else worker_id,
-                                                    multiprocessor=args.multiprocessor,
-                                                    limit_train_val=args.limit_train_val)
-                                            #  trial_protection_callback=handle_trial_with_oom_protection)
-            # %% After tuning completes
-            logging.info("Optuna hyperparameter tuning completed.")
         
-        elif args.mode == "train":
-            # %% TRAINING MODEL
-            logging.info("Training model using best hyperparameters.")
-            forecaster.set_tuned_params(storage=optuna_storage, study_name=forecaster.study_name)
-            forecaster.train_all_outputs(outputs=data_module.target_cols, scale=False, 
-                                        multiprocessor=args.multiprocessor, 
-                                        retrain_models=True,
-                                        scaler_params=scaler_params)
-            # %% After training completes
-            logging.info("Training completed.")
+        #{"type": "hyperband", "min_resource": 2, "max_resource": 5, "reduction_factor": 3, "percentile": 25}
+        
+        if args.multiprocessor:
+            logging.info(f"Using multiprocessor {args.multiprocessor}")
+        forecaster.tune_hyperparameters_single(storage=optuna_storage,
+                                                n_trials_per_worker=model_config["optuna"]["n_trials_per_worker"], 
+                                                seed=args.seed,
+                                                config=model_config,
+                                                worker_id=0 if RUN_ONCE and (worker_id == 0) else worker_id,
+                                                multiprocessor=args.multiprocessor,
+                                                limit_train_val=args.limit_train_val)
+                                        #  trial_protection_callback=handle_trial_with_oom_protection)
+        # %% After tuning completes
+        logging.info("Optuna hyperparameter tuning completed.")
+        
+    elif args.mode == "train":
+        # %% TRAINING MODEL
+        logging.info("Training model using best hyperparameters.")
+        forecaster.set_tuned_params(storage=optuna_storage, study_name=forecaster.study_name)
+        forecaster.train_all_outputs(outputs=data_module.target_cols, scale=False, 
+                                    multiprocessor=args.multiprocessor, 
+                                    retrain_models=True,
+                                    scaler_params=scaler_params)
+        # %% After training completes
+        logging.info("Training completed.")
         
