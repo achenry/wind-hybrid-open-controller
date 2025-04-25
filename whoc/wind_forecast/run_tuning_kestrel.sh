@@ -96,7 +96,7 @@ for i in $(seq 1 $((${NTUNERS}))); do
         # Launch worker with environment settings
         #srun -n ${NTASKS_PER_TUNER}
 	taskset -c $start_core-$end_core python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} \
-		--multiprocessor cf --seed ${WORKER_SEED} --limit_train_val 0.1 &
+		--multiprocessor cf --seed ${WORKER_SEED} --limit_train_val 0.1 --mode tune &
 
 
         # Store the process ID
