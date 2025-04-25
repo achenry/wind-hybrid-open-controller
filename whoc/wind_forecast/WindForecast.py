@@ -2144,11 +2144,11 @@ class ARIMAForecast(WindForecast):
             # ARIMA prediction for both horizontal and vertical
             ts_horz = turbine_df_horz.to_pandas().set_index("time")[f"ws_horz_{turbine_id}"]
             ts_horz = self.boxcox_transform(ts_horz, f"ws_horz_{turbine_id}")
-            model_horz = sm.tsa.ARIMA(ts_horz, order=(1, 2, 3)).fit()
+            model_horz = sm.tsa.ARIMA(ts_horz, order=(1, 1, 1)).fit()
 
             ts_vert = turbine_df_vert.to_pandas().set_index("time")[f"ws_vert_{turbine_id}"]
             ts_vert = self.boxcox_transform(ts_vert, f"ws_vert_{turbine_id}")
-            model_vert = sm.tsa.ARIMA(ts_vert, order=(1, 2, 3)).fit()
+            model_vert = sm.tsa.ARIMA(ts_vert, order=(1, 0, 0)).fit()
             
             self.models[turbine_id] = {"ws_horz": model_horz, "ws_vert": model_vert}
             self.fitted = True
