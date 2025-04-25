@@ -129,12 +129,12 @@ class WindForecast:
     #     raise NotImplementedError()
 
     def __post_init__(self):
-        assert (self.context_timedelta % self.measurements_timedelta).total_seconds() == 0, "context_timedelta must be a multiple of measurements_timedelta"
+        assert (self.context_timedelta[0] % self.measurements_timedelta).total_seconds() == 0, "context_timedelta must be a multiple of measurements_timedelta"
         assert (self.prediction_timedelta % self.measurements_timedelta).total_seconds() == 0, "prediction_timedelta must be a multiple of measurements_timedelta" 
         
         self.train_first = False
         
-        self.n_context = int(self.context_timedelta / self.measurements_timedelta) # number of simulation time steps in a context horizon
+        self.n_context = int(self.context_timedelta[0] / self.measurements_timedelta)
         self.n_prediction = int(self.prediction_timedelta / self.measurements_timedelta) # number of simulation time steps in a prediction horizon
         
         if self.controller_timedelta:
@@ -2332,8 +2332,11 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg):
         forecasts.append([])
         # split_true_wf = true_wind_field.filter(pl.col("time").is_between(start, end, closed="both"))
         logging.info(f"Getting controller times for {splits[d]}th split.")
+        context_timedelta = forecaster.context_timedelta[0] if isinstance(forecaster.context_timedelta, list) else forecaster.context_timedelta
+
         split_controller_times = controller_times.filter(pl.col("time").is_between(start, end, closed="both"))\
-                                                 .filter((pl.col("time") - start) >= forecaster.context_timedelta)
+                                                 .filter((pl.col("time") - start) >= context_timedelta)
+        
                                                  
         logging.info(f"Resetting forecaster state.")
         forecaster.reset()
@@ -2346,6 +2349,9 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg):
             logging.info(f"Predicting future wind field using {forecaster.__class__.__name__} at time {current_time}/{end} of split {splits[d]}/{n_splits-1}.")
             if not forecaster.fitted:
                 forecaster.train(ds.filter(pl.col("time") <= current_time))
+                df = ds.filter(pl.col("time").is_between(start, end, closed="both"))
+                df = df.filter((pl.col("time") - start) >= context_timedelta)
+
             if prediction_type == "distribution" and forecaster.is_probabilistic:
                 pred = forecaster.predict_distr(
                     ds.filter(pl.col("time") <= current_time), current_time)
@@ -2355,7 +2361,8 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg):
             elif prediction_type == "sample":
                 raise NotImplementedError()
             
-            forecasts[-1].append(pred)
+            df, _ = pred 
+            forecasts[-1].append(df)
             # for kf testing
             # means_p.append(forecaster.means_p)
             # means.append(forecaster.means)
@@ -2786,9 +2793,9 @@ if __name__ == "__main__":
     parser.add_argument("-rrv", "--rerun_validation",
                         action="store_true",
                         help="Whether to repeat validation for results that have already been stored.")
-    # parser.add_argument("-pi", "--prediction_interval", 
-    #                     required=False, nargs="+", default=None,
-    #                     help="Number of seconds to use as prediction_timedelta..")
+    parser.add_argument("-pi", "--prediction_interval", 
+                         required=False, nargs="+", default=None,
+                         help="Number of seconds to use as prediction_timedelta..")
     parser.add_argument("-mp", "--multiprocessor", type=str, choices=["mpi", "cf"], help="which multiprocessing backend to use, omit for sequential processing", 
                         required=False, default=None)
     parser.add_argument("-msp", "--max_splits", type=int, required=False, default=None,
@@ -3082,7 +3089,7 @@ if __name__ == "__main__":
                                         tid2idx_mapping=tid2idx_mapping,
                                         turbine_signature=turbine_signature,
                                         use_tuned_params=False,
-                                        model_config=model_config,
+                                        model_config=None,
                                         kwargs={})
             forecasters.append(forecaster)
 
