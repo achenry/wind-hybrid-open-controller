@@ -4,6 +4,7 @@
 #SBATCH --nodes=1
 #SBATCH --partition=debug
 #SBATCH --ntasks-per-node=2
+#SBATCH --ntasks=2
 #SBATCH --gres=gpu:2
 #SBATCH --mem-per-cpu=85G
 #SBATCH --account=ssc
@@ -20,7 +21,7 @@ mamba activate wind_forecasting_env
 echo $SLURM_NTASKS
 
 export CUDA_VISIBLE_DEVICES=$(seq -s, 0 $(($SLURM_NTASKS_PER_NODE-1)))
-taskset python run_case_studies.py 15 --exclude_prediction --multiprocessor cf -rs --ram_limit 75 --wf_source scada \
+python run_case_studies.py 15 --exclude_prediction --multiprocessor cf -rs --ram_limit 75 --wf_source scada \
        -st auto -ns 10 -sd /projects/ssc/ahenry/whoc/floris_case_studies/ \
        -wcnf $HOME/toolboxes/wind_forecasting_env/wind-hybrid-open-controller/examples/hercules_input_001.yaml \
        -dcnf $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/preprocessing/preprocessing_inputs_kestrel_awaken_new.yaml \
