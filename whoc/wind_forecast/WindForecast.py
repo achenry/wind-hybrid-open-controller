@@ -1234,7 +1234,7 @@ class SVRForecast(WindForecast):
             
             X_train, y_train, self.scaler[output] = self._get_output_data(measurements=training_measurements, output=output, split="train", reload=False, 
                                                                           scale=scale, return_scaler=True)
-            logging.info(f"Fitting SVR model for output {output}.")
+            logging.info(f"Fitting SVR model for output {output} with {X_train.shape[0]} data points.")
             self.model[output].fit(X_train, y_train)
             
             logging.info(f"Saving SVR model for output {output}.")
