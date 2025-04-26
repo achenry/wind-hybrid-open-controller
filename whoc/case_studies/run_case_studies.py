@@ -4,9 +4,11 @@ import warnings
 import re
 import argparse
 import csv
+from itertools import cycle
 
 from mpi4py import MPI
 from mpi4py.futures import MPICommExecutor
+import multiprocessing as mp
 import numpy as np
 import pandas as pd
 import yaml
@@ -120,17 +122,42 @@ if __name__ == "__main__":
         args.n_seeds = len(wind_field_ts)
         # TODO broadcast/scatter/gather wind_field_ts to share between processes
     
+    # TODO if GPUs are available, use one CPU and one GPU per task
+    if "CUDA_VISIBLE_DEVICES" in os.environ:
+        cuda_devices = os.environ["CUDA_VISIBLE_DEVICES"] # Note: must 'export' variable within nohup to find on Kestrel
+        logging.info(f"CUDA_VISIBLE_DEVICES is set to: '{cuda_devices}'")
+        try:
+            # Count the number of GPUs specified in CUDA_VISIBLE_DEVICES
+            visible_gpus = [idx for idx in cuda_devices.split(',') if idx.strip()]
+            num_visible_gpus = len(visible_gpus)
+            if num_visible_gpus > 0:
+                logging.info(f"Founf {num_visible_gpus} GPUs. Setting max_workers to num_visible_gpus={num_visible_gpus}.")
+                max_workers = num_visible_gpus
+            else:
+                logging.warning(f"CUDA_VISIBLE_DEVICES is set but no valid GPU indices found. Setting max_workers to mp.cpu_count()={mp.cpu_count()}.")
+                max_workers = MPI.COMM_WORLD.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
+        except Exception as e:
+            logging.warning(f"Error parsing CUDA_VISIBLE_DEVICES: {e}")
+        
+        # Create an iterator that cycles through the available GPU IDs
+        gpu_cycler = cycle(visible_gpus)
+        
+    else:
+        max_workers = MPI.COMM_WORLD.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
+        gpu_cycler = None
+        
     if args.run_simulations: 
         if args.multiprocessor is not None:
+                    
             if args.multiprocessor == "mpi":
                 comm_size = MPI.COMM_WORLD.Get_size()
-                executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+                executor = MPICommExecutor(MPI.COMM_WORLD, root=0, max_workers=max_workers)
             elif args.multiprocessor == "cf":
-                executor = ProcessPoolExecutor()
+                executor = ProcessPoolExecutor(max_workers=max_workers)
             with executor as run_simulations_exec:
-                if args.multiprocessor == "mpi":
-                    run_simulations_exec.max_workers = comm_size
-                    
+                # if args.multiprocessor == "mpi":
+                #     run_simulations_exec.max_workers = max_workers
+                
                 logging.info(f"Submitting simulate_controller calls to pool executor with {run_simulations_exec._max_workers} workers")
                 # for MPIPool executor, (waiting as if shutdown() were called with wait set to True)
                 futures = [run_simulations_exec.submit(simulate_controller, 
@@ -151,7 +178,8 @@ if __name__ == "__main__":
                                                 use_tuned_params=True, 
                                                 model_config=model_config, wind_field_config=wind_field_config, 
                                                 ram_limit=args.ram_limit,
-                                                include_prediction=not args.exclude_prediction)
+                                                include_prediction=not args.exclude_prediction,
+                                                assigned_gpu=next(gpu_cycler) if gpu_cycler else None)
 
                         for c, d in enumerate(input_dicts)]
                 
@@ -171,7 +199,8 @@ if __name__ == "__main__":
                                     wind_field_config=wind_field_config, verbose=args.verbose, save_dir=args.save_dir, rerun_simulations=args.rerun_simulations,
                                     turbine_signature=turbine_signature, tid2idx_mapping=tid2idx_mapping,
                                     use_tuned_params=True, model_config=model_config, ram_limit=args.ram_limit,
-                                    include_prediction=not args.exclude_prediction)
+                                    include_prediction=not args.exclude_prediction,
+                                    assigned_gpu=next(gpu_cycler) if gpu_cycler else None)
     
     if args.postprocess_simulations:
         # if (not os.path.exists(os.path.join(args.save_dir, f"time_series_results.csv"))) or (not os.path.exists(os.path.join(args.save_dir, f"agg_results.csv"))):
