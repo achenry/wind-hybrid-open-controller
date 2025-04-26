@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=model_tuning
+#SBATCH --job-name=model_training
 #SBATCH --account=ssc
 #SBATCH --output=model_tuning_%j.out
 ##SBATCH --nodes=4
@@ -31,9 +31,6 @@ echo "NTASKS_PER_TUNER=${NTASKS_PER_TUNER}"
 echo "=== ENVIRONMENT ==="
 module list
 
-# Used to track process IDs for all workers
-declare -a WORKER_PIDS=()
-
 export MODEL_CONFIG_PATH=$2
 export DATA_CONFIG_PATH="/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/config/preprocessing/preprocessing_inputs_kestrel_awaken_new.yaml"
 
@@ -50,7 +47,7 @@ module load PrgEnv-intel
 
 # TODO NOTE process gets stuck after writing these .dat files, so run this python first, then the loop
 export WORKER_RANK=0
-
+export WORKER_SEED=0
 echo "=== STARTING TRAINING ==="
 date +"%Y-%m-%d %H:%M:%S"
 python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} \
@@ -58,3 +55,5 @@ python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_con
 
 date +"%Y-%m-%d %H:%M:%S"
 echo "=== TRAINING COMPLETED ==="
+
+
