@@ -2317,14 +2317,14 @@ def generate_metric_per_cg(pred_mean, pred_stddev, true, metric_name, metric_fun
                 schema=target_cols).with_columns(continuity_group=pl.lit(cg)) for cg in cg_vals], how="vertical")\
                     .with_columns(metric=pl.lit(metric_name), test_idx=pl.lit(-1))
 
-def generate_forecaster_results(forecaster, data_module, evaluator, test_data, prediction_type, single_cg):
+# def generate_forecaster_ts_results(forecaster, data_module, evaluator, test_data, prediction_type, single_cg):
     
-    logging.info(f"Generating predictions for forecaster {forecaster.__class__.__name__} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
-    forecast_df = make_predictions(forecaster=forecaster, test_data=test_data, 
-                                    prediction_type=prediction_type, single_cg=single_cg)
+    # logging.info(f"Generating predictions for forecaster {forecaster.__class__.__name__} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
+    # forecast_df = make_predictions(forecaster=forecaster, test_data=test_data, 
+    #                                 prediction_type=prediction_type, single_cg=single_cg)
     
-    logging.info(f"Partitioning forecasts by test_idx for forecaster {forecaster.__class__.__name__} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
-    forecast_df = forecast_df.partition_by("test_idx")
+    # logging.info(f"Partitioning forecasts by test_idx for forecaster {forecaster.__class__.__name__} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
+    # forecast_df = forecast_df.partition_by("test_idx")
     # if prediction_type == "distribution" and forecaster.is_probabilistic:
     #     value_vars = ["nd_cos", "nd_sin", "loc_ws_horz", "loc_ws_vert", "sd_ws_horz", "sd_ws_vert"]
     #     target_vars = ["loc_ws_horz", "loc_ws_vert", "sd_ws_horz", "sd_ws_vert"] 
@@ -2349,19 +2349,25 @@ def generate_forecaster_results(forecaster, data_module, evaluator, test_data, p
     #         samples=wf.select([cs.starts_with(feat_type) for feat_type in target_vars]).to_numpy()[np.newaxis, :, :], 
     #         start_date=pd.Period(wf.select(pl.col("time").first()).item(), freq=data_module.freq), 
     #         item_id=f"SPLIT{split_idx}") for split_idx, wf in enumerate(forecast_df)]
-    logging.info(f"Preparing true data for forecaster {forecaster.__class__.__name__} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
-    true_df_pd = test_data.to_pandas()
-    true_df_pd = true_df_pd.set_index(pd.PeriodIndex(true_df_pd["time"].dt.to_period(freq=data_module.freq)))[data_module.target_cols]\
-                        .rename(columns={src: s for s, src in enumerate(data_module.target_cols)})
+
     # agg_metrics, ts_metrics = evaluator(
     #             islice(repeat(true_df_pd), len(forecast_df)),
     #             forecasts, 
     #             num_series=data_module.num_target_vars,
     #             include_metrics=[])
     
+    # return forecast_df
+
+def generate_forecaster_agg_results(forecaster, forecast_df, test_data, data_module, prediction_type):
+    logging.info(f"Preparing true data for forecaster {forecaster.__class__.__name__} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
+    true_df_pd = test_data.to_pandas()
+    true_df_pd = true_df_pd.set_index(pd.PeriodIndex(true_df_pd["time"].dt.to_period(freq=data_module.freq)))[data_module.target_cols]\
+                        .rename(columns={src: s for s, src in enumerate(data_module.target_cols)})
+    
+    
     logging.info(f"Preparing combined df for forecaster {forecaster.__class__.__name__} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
     
-    fdf = forecast_df = pl.concat(forecast_df, how="vertical").select(["time"] + [cs.ends_with(tgt) for tgt in data_module.target_cols])
+    fdf = forecast_df.select(["time"] + [cs.ends_with(tgt) for tgt in data_module.target_cols])
     tdf = test_data.filter(pl.col("time").is_in(forecast_df.select(pl.col("time"))))\
                        .select(["time", "continuity_group"] + data_module.target_cols)
     combined_df = fdf.rename(lambda col: re.search("(?<=loc_)(\\w+)$", col).group() if col.startswith("loc_") else col)\
@@ -2415,7 +2421,7 @@ def generate_forecaster_results(forecaster, data_module, evaluator, test_data, p
         agg_metrics,
         agg_metrics.group_by(["continuity_group", "metric", "feature_type"], maintain_order=True).agg(pl.col("score").mean()).with_columns(test_idx=pl.lit(-1), turbine_id=pl.lit("all")).select(["continuity_group", "metric", "test_idx", "feature_type", "turbine_id", "score"])
     ])
-    return forecast_df, agg_metrics
+    return agg_metrics
 
 def plot_score_vs_prediction_dt(agg_df, metrics, ax_indices, fig_dir):
     
@@ -2876,8 +2882,7 @@ if __name__ == "__main__":
                 if args.rerun_validation or not os.path.exists(forecast_path) or not os.path.exists(agg_metric_path):
                     for cg in continuity_groups:
                         test_futures.append(
-                            ex.submit(generate_forecaster_results, forecaster=forecaster, 
-                                                data_module=data_module, evaluator=evaluator, 
+                            ex.submit(make_predictions, forecaster=forecaster,  
                                                 test_data=test_data.filter(pl.col("continuity_group") == cg), 
                                                 prediction_type=args.prediction_type, single_cg=True))
                     
@@ -2885,29 +2890,26 @@ if __name__ == "__main__":
             res_idx = 0
             results = []
             for forecaster in forecasters:
-                forecaster_res = []
+                
                 if args.rerun_validation or not os.path.exists(forecast_path) or not os.path.exists(agg_metric_path):
+                    forecaster_res = []
                     for cg in continuity_groups:
-                        forecaster_res.append(dict([(k, v) for k, v in zip(["forecast_df", "agg_metrics"], 
-                                                                        test_futures[res_idx].result())]))
+                        forecaster_res.append(test_futures[res_idx].result())
+                        
                         res_idx += 1
                         
-                    forecaster_res = {
-                        "forecast_df": pl.concat([res["forecast_df"] for res in forecaster_res], how="vertical"),
-                        "agg_metrics": pl.concat([res["agg_metrics"] for res in forecaster_res], how="vertical")
-                    }
-                    
-                    results.append(dict([
-                                (k, v) for k, v in chain(
-                                        zip(["forecast_df", "agg_metrics"], 
-                                            [forecaster_res["forecast_df"], forecaster_res["agg_metrics"]]), 
-                                        zip(["forecaster_name", "prediction_timedelta"], 
-                                            [forecaster.__class__.__name__, forecaster.prediction_timedelta.total_seconds()]))]) )
+                    forecaster_res = pl.concat(forecaster_res, how="vertical")
+                    forecaster_res.write_parquet(forecast_path)
+                    results.append({
+                        "forecaster_name": forecaster.__class__.__name__,
+                        "prediction_timedelta": forecaster.prediction_timedelta.total_seconds(),
+                        "forecast_df": forecaster_res
+                    })
                 else:
                     results.append({
                         "forecaster_name": forecaster.__class__.__name__,
                         "forecast_df": pl.read_parquet(forecast_path),
-                        "agg_metrics": pl.read_parquet(agg_metric_path), 
+                        # "agg_metrics": pl.read_parquet(agg_metric_path), 
                         "prediction_timedelta": prediction_timedelta
                     })
             
@@ -2922,29 +2924,49 @@ if __name__ == "__main__":
                                     str(int(prediction_timedelta)))
             os.makedirs(save_dir, exist_ok=True)
             forecast_path = os.path.join(save_dir, "forecast.parquet")
-            agg_metric_path = os.path.join(save_dir, "agg_metrics.parquet")
+            # agg_metric_path = os.path.join(save_dir, "agg_metrics.parquet")
             
-            if args.rerun_validation or not os.path.exists(forecast_path) or not os.path.exists(agg_metric_path):
-                forecast_df, agg_metrics = generate_forecaster_results(
-                    forecaster=forecaster, data_module=data_module, 
-                    evaluator=evaluator, test_data=test_data,
+            if args.rerun_validation or not os.path.exists(forecast_path):
+                
+                forecast_df = make_predictions(
+                    forecaster=forecaster, test_data=test_data,
                     prediction_type=args.prediction_type, single_cg=False)
                 results.append({
                     "forecaster_name": forecaster.__class__.__name__,
                     "forecast_df": forecast_df,
-                    "agg_metrics": agg_metrics, 
+                    # "agg_metrics": agg_metrics, 
                     "prediction_timedelta": prediction_timedelta
                     })
                 
                 results[-1]["forecast_df"].write_parquet(forecast_path)
-                results[-1]["agg_metrics"].write_parquet(agg_metric_path)
+                # results[-1]["agg_metrics"].write_parquet(agg_metric_path)
             else:
                 results.append({
                     "forecaster_name": forecaster.__class__.__name__,
                     "forecast_df": pl.read_parquet(forecast_path),
-                    "agg_metrics": pl.read_parquet(agg_metric_path), 
+                    # "agg_metrics": pl.read_parquet(agg_metric_path), 
                     "prediction_timedelta": prediction_timedelta
                     })
+    
+    for f, forecaster in enumerate(forecasters):
+        prediction_timedelta = forecaster.prediction_timedelta.total_seconds()
+    
+        save_dir = os.path.join(os.path.dirname( base_model_config["dataset"]["data_path"]), "validation_results", 
+                                forecaster.__class__.__name__,
+                                str(int(prediction_timedelta)))
+        os.makedirs(save_dir, exist_ok=True)
+        forecast_path = os.path.join(save_dir, "forecast.parquet")
+        agg_metric_path = os.path.join(save_dir, "agg_metrics.parquet")       
+        
+        if args.rerun_validation or not os.path.exists(agg_metric_path):
+            forecast_df = pl.read_parquet(forecast_path)
+            agg_metrics = generate_forecaster_agg_results(forecaster, forecast_df, test_data, data_module, prediction_type)
+            agg_metrics.write_parquet(agg_metric_path)
+        else:
+            agg_metrics =  pl.read_parquet(agg_metric_path)
+            
+        results[f]["agg_metrics"] = agg_metrics
+        
     # results[0]["agg_metrics"].group_by(["test_idx", "feature_type"], maintain_order=True).agg(pl.col("score").mean()).with_columns(turbine_id=pl.lit("all"))
     # 
     if RUN_ONCE:
