@@ -2791,7 +2791,7 @@ if __name__ == "__main__":
         # tune this use single, longer, prediction time, since we have only identity state transition matrix, and must use final posterior only prediction
         for ctd, ptd in zip(context_timedelta, prediction_timedelta):
             
-            logging.info(f"Instantiating SVRForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
+            logging.info(f"Instantiating KalmanFilterForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
             
             forecaster = KalmanFilterForecast(measurements_timedelta=measurements_timedelta,
                                                 controller_timedelta=controller_timedelta,

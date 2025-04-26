@@ -191,7 +191,7 @@ case_studies = {
             "../../examples/inputs/gch_KP_v4_lut.csv",
                                         ]},
         "yaw_limits": {"group": 0, "vals": ["-15,15"]},
-        "uncertain": {"group": 0, "vals": [False]},
+        "uncertain": {"group": 0, "vals": [False, True, False]},
         "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController", "GreedyController"]},
         "prediction_timedelta": {"group": 1, "vals": [300, 300, 60]},
         "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73", "4,"]},
@@ -764,32 +764,37 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             assert all(input_dicts[start_case_idx + c]["controller"]["controller_dt"] <= t for t in stoptime)
             
             if input_dicts[start_case_idx + c]["controller"]["wind_forecast_class"] or "wind_forecast_class" in case:
-                model_config_path = os.path.abspath(input_dicts[start_case_idx + c]["wind_forecast"]["model_config_path"])
-                if model_config_path not in model_configs:
-                    with open(model_config_path, 'r') as file:
-                        model_configs[model_config_path]  = yaml.safe_load(file)
-                        
-                if (input_dicts[start_case_idx + c]["controller"]["wind_forecast_class"] == "MLForecast") \
-                    and (input_dicts[start_case_idx + c]["wind_forecast"]["prediction_timedelta"] > model_configs[model_config_path]["dataset"]["prediction_length"]):
-                    logging.warning(f"Provided prediction_timedelta should be less or equal to model config prediction length { model_configs[model_config_path]['dataset']['prediction_length']}. Make sure you are providing the right model config file. Resetting the prediction_timedelta variable.")
-                    input_dicts[start_case_idx + c]["wind_forecast"]["prediction_timedelta"] = model_configs[model_config_path]["dataset"]["prediction_length"]
+                if input_dicts[start_case_idx + c]["wind_forecast"]["model_config_path"] is None:
+                    mdl_cnf = base_model_config
+                
+                else:
+                    model_config_path = input_dicts[start_case_idx + c]["wind_forecast"]["model_config_path"]
+                    if model_config_path not in model_configs:
+                        with open(model_config_path, 'r') as file:
+                            model_configs[model_config_path]  = yaml.safe_load(file)
+                    mdl_cnf = model_configs[model_config_path]
+                
+                if (input_dicts[start_case_idx + c]["controller"]["wind_forecast_class"] in ["MLForecast", "SVRForecast"]) and \
+                    (input_dicts[start_case_idx + c]["wind_forecast"]["prediction_timedelta"] > mdl_cnf["dataset"]["prediction_length"]):
+                        logging.warning(f"Provided prediction_timedelta should be less or equal to the trained model config prediction length {mdl_cnf['dataset']['prediction_length']}. Make sure you are providing the right model config file. Resetting the prediction_timedelta variable.")
+                        input_dicts[start_case_idx + c]["wind_forecast"]["prediction_timedelta"] = mdl_cnf["dataset"]["prediction_length"]
                 
                 input_dicts[start_case_idx + c]["wind_forecast"] \
                     = {**{
                         "measurements_timedelta": wind_field_ts[0].select(pl.col("time").diff().slice(1,1)).item(),
-                        "context_timedelta": pd.Timedelta(seconds=model_configs[model_config_path]["dataset"]["context_length"]), # pd.Timedelta(seconds=input_dicts[start_case_idx + c]["wind_forecast"]["context_timedelta"]),
+                        "context_timedelta": pd.Timedelta(seconds=mdl_cnf["dataset"]["context_length"]), # pd.Timedelta(seconds=input_dicts[start_case_idx + c]["wind_forecast"]["context_timedelta"]),
                         "prediction_timedelta": pd.Timedelta(seconds=input_dicts[start_case_idx + c]["wind_forecast"]["prediction_timedelta"]),
                         "controller_timedelta": pd.Timedelta(seconds=input_dicts[start_case_idx + c]["controller"]["controller_dt"]),
-                        "model_config": model_configs[model_config_path]
+                        "model_config": mdl_cnf
                         }, 
                     **input_dicts[start_case_idx + c]["wind_forecast"].setdefault(input_dicts[start_case_idx + c]["controller"]["wind_forecast_class"], {}),
                     }
                 
                 if "model_key" in input_dicts[start_case_idx + c]["wind_forecast"]:
-                    # TODO will this work if database name has run id attached... need to get folder with highest slurm id if so...
+                    # TODO will this work if database name has run id attached... need to get folder with highest slurm id if so... OR just get hyperparams from checkpoint
                     db_setup_params = generate_df_setup_params(
                         model=input_dicts[start_case_idx + c]["wind_forecast"]["model_key"], 
-                        model_config=model_configs[model_config_path])
+                        model_config=mdl_cnf)
                     optuna_storage = setup_optuna_storage(
                         db_setup_params=db_setup_params,
                         restart_tuning=False,
