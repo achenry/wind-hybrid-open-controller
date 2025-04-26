@@ -1606,8 +1606,8 @@ class KalmanFilterForecast(WindForecast):
         
             pred = x 
             pred = {output: pred[o:o+1] for o, output in enumerate(outputs)}
-            if self.last_pred is not None and (pl.DataFrame(pred).to_numpy() == self.last_pred.select(outputs).to_numpy()).all():
-                print("oh")
+            # if self.last_pred is not None and (pl.DataFrame(pred).to_numpy() == self.last_pred.select(outputs).to_numpy()).all():
+            #     print("oh")
                 
             self.last_pred = pl.DataFrame({"time": pred_slice}).with_columns(**pred)
             
