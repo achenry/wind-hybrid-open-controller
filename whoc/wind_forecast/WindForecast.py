@@ -520,7 +520,7 @@ class WindForecast:
             fp[:, :-1] = X_all
             fp[:, -1] = y_all
             fp.flush()
-            logging.info(f"Saved {split} data to {Xy_path}")
+            logging.info(f"Saved {split} data to {Xy_path} with input shape {X_all.shape}")
         
         else:
             # assert os.path.exists(Xy_path), "Must run prepare_training_data before tuning"
@@ -530,6 +530,8 @@ class WindForecast:
                            mode="r", shape=data_shape)
             X_all = fp[:, :-1]
             y_all = fp[:, -1]
+            
+            logging.info(f"Loaded {split} data from {Xy_path} with input shape {X_all.shape}")
         
         # logging.info(f"Deleting filepointer to {Xy_path}")
         del fp
@@ -631,7 +633,10 @@ class WindForecast:
             for bars in ax.containers:
                 ax.bar_label(bars, fmt="%.3f")
             plt.tight_layout()
-            fig.savefig(os.path.join(fig_dir, f'scores{label}.png'))
+            
+            fig_path = os.path.join(fig_dir, f'scores{label}.png')
+            logging.info(f"Saving compute_score to {fig_path}.")
+            fig.savefig(fig_path)
             
         return metrics
         
@@ -775,7 +780,9 @@ class WindForecast:
             axs[0, -1].add_artist(leg1)
         # axs[-].set(xlabel="Time [s]", ylabel="Wind Speed [m/s]", xlim=(forecast_wf.select(pl.col("time").min()).item()], forecast_wf.select(pl.col("time").max()).item()))
         plt.tight_layout()
-        fig.savefig(os.path.join(fig_dir, f'forecast_ts{label}.png'))
+        fig_path = os.path.join(fig_dir, f'forecast_ts{label}.png')
+        logging.info(f"Saving plot_forecast to {fig_path}")
+        fig.savefig(fig_path)
         return fig
 
     @staticmethod
@@ -810,7 +817,9 @@ class WindForecast:
             # xlim=(time.iloc[0], 3600.0)) 
         
         plt.tight_layout()
-        fig_ts.savefig(os.path.join(fig_dir, f'wind_field_ts{label}.png'))
+        fig_path = os.path.join(fig_dir, f'wind_field_ts{label}.png')
+        logging.info(f"Saving plot_turbine_data to {fig_path}")
+        fig_ts.savefig(fig_path)
     
 
 @dataclass
@@ -1101,7 +1110,7 @@ class SVRForecast(WindForecast):
     is_probabilistic = False
     def __post_init__(self):
         super().__post_init__()
-        self.train_first = True
+        
         self.max_n_samples = self.kwargs["max_n_samples"] 
         self.model_config = self.kwargs["model_config"]
 
@@ -1145,13 +1154,18 @@ class SVRForecast(WindForecast):
         
         if self.use_trained_models and len(model_files) == 0:
             logging.error(f"No trained models found in {self.model_save_dir}. Please run tuning.py first for the correct prediction time {int(self.prediction_timedelta.total_seconds())}.")
-            raise Exception()
+            raise Exception
         
         # no need to load optuna trained hyperparams if we are loading models anyway
         if (not self.use_trained_models or len(model_files) < self.n_outputs or len(scaler_files) < self.n_outputs) and self.use_tuned_params:
             self.set_tuned_params(storage=self.kwargs["optuna_storage"], 
                                     study_name=self.study_name)
             self.use_trained_models = False
+            logging.info("No available trained models.") # TODO train here
+            # self.train_all_outputs(scale=True, 
+            #                         multiprocessor=args.multiprocessor, 
+            #                         retrain_models=True,
+            #                         scaler_params=None)
         
         # if we want to use previously trained models fetch them, otherwise models will need to be trained
         if self.use_trained_models:
@@ -1237,24 +1251,28 @@ class SVRForecast(WindForecast):
             logging.info(f"Fitting SVR model for output {output} with {X_train.shape[0]} data points.")
             self.model[output].fit(X_train, y_train)
             
-            logging.info(f"Saving SVR model for output {output}.")
-            with open(os.path.join(self.model_save_dir, f"{self.study_name}_model_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl"), "wb") as fp:
+            model_save_path = os.path.join(self.model_save_dir, f"{self.study_name}_model_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl")
+            logging.info(f"Saving SVR model for output {output} to {model_save_path}.")
+            with open(model_save_path, "wb") as fp:
                 pickle.dump(self.model[output], fp, protocol=5)
             
             if scale and scaler_params is None:
-                logging.info(f"Saving SVR scaler for output {output}.")
-                with open(os.path.join(self.model_save_dir, f"{self.study_name}_scaler_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl"), "wb") as fp:
+                scaler_save_path = os.path.join(self.model_save_dir, f"{self.study_name}_scaler_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl")
+                logging.info(f"Saving SVR scaler for output {output} to {scaler_save_path}.")
+                with open(scaler_save_path, "wb") as fp:
                     pickle.dump(self.scaler[output], fp, protocol=5)
         
         
         if scaler_params:
-            logging.info(f"Setting and saving SVR scaler for output {output} to given values.")
+            scaler_save_path = os.path.join(self.model_save_dir, f"{self.study_name}_scaler_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl")
+            logging.info(f"Setting SVR scaler for output {output} to given values.")
             input_turbine_indices = self.cluster_turbines[self.tid2idx_mapping[tid]]
             self.scaler[output].n_features_in_ = len(input_turbine_indices)
             for k, v in scaler_params.items():
                 setattr(self.scaler[output], k, np.ones_like(input_turbine_indices) * v[feat_type])
-                
-            with open(os.path.join(self.model_save_dir, f"{self.study_name}_scaler_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl"), "wb") as fp:
+            
+            logging.info(f"Saving SVR scaler for output {output} to {scaler_save_path}.")
+            with open(scaler_save_path, "wb") as fp:
                 pickle.dump(self.scaler[output], fp, protocol=5)
                 
         return self.model[output], self.scaler[output]
@@ -1328,7 +1346,7 @@ class SVRForecast(WindForecast):
                 tid = re.search(f"(?<=_){self.turbine_signature}$", output).group()
                 if not (hasattr(self.scaler[output], "min_") and hasattr(self.scaler[output], "scale_")) \
                     or (check_is_fitted(self.model[output]) is not None):
-                    raise Exception(f"scaler/model for {output} has not been trained!")
+                    raise Exception(f"scaler/model for {output} has not been trained! Try using the --use_trained_models flag.")
                 training_inputs = self._get_inputs(training_measurements, self.scaler[output], feat_type, tid, scale)
                 
                 pred[output] = self._predict(model=self.model[output], 
@@ -1927,6 +1945,7 @@ class MLForecast(WindForecast):
                                                         for feat_type in feature_types])
             test_data = self._generate_test_data(historic_measurements)
             
+            logging.info(f"Using {torch.cuda.device_count()} GPUs at {current_time} to make predictions for {self.model_key}.")
             pred = self.predictor.predict(test_data, num_samples=1, 
                                                 output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"})
             pred = next(pred)
@@ -2092,6 +2111,8 @@ def plot_wind_ts(data_df, save_path, turbine_ids="all", include_filtered_wind_di
      
     results_dir = os.path.dirname(save_path)
     plt.tight_layout()
+    
+    logging.info(f"Saving plot_wind_ts to {save_path}.")
     fig.savefig(save_path)
     return fig, ax
 
@@ -2285,6 +2306,17 @@ def unpivot_df(df, turbine_signature):
                           feature_type=pl.col("feature").str.extract(f"(.*)_{turbine_signature}$"))\
             .drop("feature")
 
+def generate_metric_per_cg(pred_mean, pred_stddev, true, metric_name, metric_func, cg_vals, target_cols, true_cols):
+    return pl.concat([
+            pl.DataFrame(
+                data=np.atleast_2d(metric_func(
+                    pred_mean.filter(pl.col("continuity_group") == cg).select(target_cols).to_numpy(), 
+                    true.filter(pl.col("continuity_group") == cg).select(true_cols).to_numpy(), 
+                    pred_stddev.filter(pl.col("continuity_group") == cg).select(cs.starts_with("sd_")).to_numpy()
+                    )),
+                schema=target_cols).with_columns(continuity_group=pl.lit(cg)) for cg in cg_vals], how="vertical")\
+                    .with_columns(metric=pl.lit(metric_name), test_idx=pl.lit(-1))
+
 def generate_forecaster_results(forecaster, data_module, evaluator, test_data, prediction_type, single_cg):
     
     logging.info(f"Generating predictions for forecaster {forecaster.__class__.__name__} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
@@ -2317,7 +2349,7 @@ def generate_forecaster_results(forecaster, data_module, evaluator, test_data, p
     #         samples=wf.select([cs.starts_with(feat_type) for feat_type in target_vars]).to_numpy()[np.newaxis, :, :], 
     #         start_date=pd.Period(wf.select(pl.col("time").first()).item(), freq=data_module.freq), 
     #         item_id=f"SPLIT{split_idx}") for split_idx, wf in enumerate(forecast_df)]
-    
+    logging.info(f"Preparing true data for forecaster {forecaster.__class__.__name__} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
     true_df_pd = test_data.to_pandas()
     true_df_pd = true_df_pd.set_index(pd.PeriodIndex(true_df_pd["time"].dt.to_period(freq=data_module.freq)))[data_module.target_cols]\
                         .rename(columns={src: s for s, src in enumerate(data_module.target_cols)})
@@ -2327,8 +2359,7 @@ def generate_forecaster_results(forecaster, data_module, evaluator, test_data, p
     #             num_series=data_module.num_target_vars,
     #             include_metrics=[])
     
-    agg_metrics = []
-    # mean_vars = [c for c in target_vars if c.startswith("ws_") or c.startswith("loc_ws_")]
+    logging.info(f"Preparing combined df for forecaster {forecaster.__class__.__name__} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
     
     fdf = forecast_df = pl.concat(forecast_df, how="vertical").select(["time"] + [cs.ends_with(tgt) for tgt in data_module.target_cols])
     tdf = test_data.filter(pl.col("time").is_in(forecast_df.select(pl.col("time"))))\
@@ -2337,6 +2368,9 @@ def generate_forecaster_results(forecaster, data_module, evaluator, test_data, p
                      .join(tdf, on=["time"], suffix="_true", coalesce=False)
     true_cols = [f"{c}_true" for c in data_module.target_cols]
     
+    logging.info(f"Preparing deterministic agg_metrics for forecaster {forecaster.__class__.__name__} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
+    
+    agg_metrics = []
     err = combined_df.select(["time", "continuity_group"] + [(pl.col(pred_col) - pl.col(true_col)) for true_col, pred_col in zip(true_cols, data_module.target_cols)])
     
     rmse = err.group_by("continuity_group").agg(cs.numeric().pow(2).mean().sqrt()).with_columns(metric=pl.lit("RMSE"), test_idx=pl.lit(-1))
@@ -2348,50 +2382,23 @@ def generate_forecaster_results(forecaster, data_module, evaluator, test_data, p
     agg_metrics += [rmse, mae]
     
     if prediction_type == "distribution" and forecaster.is_probabilistic:
+        logging.info(f"Preparing probabilistic agg_metrics for forecaster {forecaster.__class__.__name__} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
+    
         pred_mean = combined_df.select(["continuity_group"] + data_module.target_cols)
         true = combined_df.select(["continuity_group"] + true_cols)
         pred_stddev = combined_df.select(pl.col("continuity_group"), cs.starts_with("sd_"))
         cg_vals = combined_df.select(pl.col("continuity_group").unique()).to_numpy().flatten()
         
-        picp = pl.concat([
-            pl.DataFrame(
-                data=np.atleast_2d(pi_coverage_probability(
-                    pred_mean.filter(pl.col("continuity_group") == cg).select(data_module.target_cols).to_numpy(), 
-                    true.filter(pl.col("continuity_group") == cg).select(true_cols).to_numpy(), 
-                    pred_stddev.filter(pl.col("continuity_group") == cg).select(cs.starts_with("sd_")).to_numpy()
-                    )),
-                schema=data_module.target_cols).with_columns(continuity_group=pl.lit(cg)) for cg in cg_vals], how="vertical")\
-                    .with_columns(metric=pl.lit("PICP"), test_idx=pl.lit(-1))
+        picp = generate_metric_per_cg(pred_mean, pred_stddev, true, "PICP", pi_coverage_probability, cg_vals, data_module.target_cols, true_cols)
         picp = unpivot_df(picp, forecaster.turbine_signature)
         
-        pinaw = pl.concat([pl.DataFrame(
-            data=np.atleast_2d(pi_normalized_average_width(
-                pred_mean.filter(pl.col("continuity_group") == cg).select(data_module.target_cols).to_numpy(), 
-                true.filter(pl.col("continuity_group") == cg).select(true_cols).to_numpy(), 
-                pred_stddev.filter(pl.col("continuity_group") == cg).select(cs.starts_with("sd_")).to_numpy()
-                )),
-            schema=data_module.target_cols).with_columns(continuity_group=pl.lit(cg)) for cg in cg_vals], how="vertical")\
-                    .with_columns(metric=pl.lit("PINAW"), test_idx=pl.lit(-1))
+        pinaw = generate_metric_per_cg(pred_mean, pred_stddev, true, "PINAW", pi_normalized_average_width, cg_vals, data_module.target_cols, true_cols)
         pinaw = unpivot_df(pinaw, forecaster.turbine_signature)
         
-        cwc = pl.concat([pl.DataFrame(
-            data=np.atleast_2d(coverage_width_criterion(
-                pred_mean.filter(pl.col("continuity_group") == cg).select(data_module.target_cols).to_numpy(), 
-                true.filter(pl.col("continuity_group") == cg).select(true_cols).to_numpy(), 
-                pred_stddev.filter(pl.col("continuity_group") == cg).select(cs.starts_with("sd_")).to_numpy()
-                )),
-            schema=data_module.target_cols).with_columns(continuity_group=pl.lit(cg)) for cg in cg_vals], how="vertical")\
-                .with_columns(metric=pl.lit("CWC"), test_idx=pl.lit(-1))
+        cwc = generate_metric_per_cg(pred_mean, pred_stddev, true, "CWC", coverage_width_criterion, cg_vals, data_module.target_cols, true_cols)
         cwc = unpivot_df(cwc, forecaster.turbine_signature)
         
-        crps = pl.concat([pl.DataFrame(
-            data=np.atleast_2d(continuous_ranked_probability_score_gaussian(
-                pred_mean.filter(pl.col("continuity_group") == cg).select(data_module.target_cols).to_numpy(), 
-                true.filter(pl.col("continuity_group") == cg).select(true_cols).to_numpy(), 
-                pred_stddev.filter(pl.col("continuity_group") == cg).select(cs.starts_with("sd_")).to_numpy()
-                )),
-            schema=data_module.target_cols).with_columns(continuity_group=pl.lit(cg)) for cg in cg_vals], how="vertical")\
-                .with_columns(metric=pl.lit("CRPS"), test_idx=pl.lit(-1))
+        crps = generate_metric_per_cg(pred_mean, pred_stddev, true, "CRPS", continuous_ranked_probability_score_gaussian, cg_vals, data_module.target_cols, true_cols)
         crps = unpivot_df(crps, forecaster.turbine_signature)
         
         agg_metrics += [picp, pinaw, cwc, crps]
@@ -2464,7 +2471,10 @@ def plot_score_vs_prediction_dt(agg_df, metrics, ax_indices, fig_dir):
     leg2 = plt.legend(h2, l2, loc='upper left', bbox_to_anchor=(1.01, 0.8), frameon=False)
     ax.add_artist(leg1)
     plt.tight_layout()
-    fig.savefig(os.path.join(fig_dir, "score_vs_pred.png"))
+    
+    fig_path = os.path.join(fig_dir, "score_vs_pred.png")
+    logging.info(f"Saving plot_score_vs_prediction_dt to {fig_path}")
+    fig.savefig(fig_path)
     return fig
 
 def plot_score_vs_forecaster(agg_df, metrics, ax_indices, prediction_intervals, fig_dir):
@@ -2528,7 +2538,10 @@ def plot_score_vs_forecaster(agg_df, metrics, ax_indices, prediction_intervals, 
         ax1.ax.legend(h, new_labels, frameon=False, bbox_to_anchor=(1.01, 1), loc="upper left")
         plt.tight_layout()
         figs.append(plt.gcf())
-        figs[-1].savefig(os.path.join(fig_dir, f"score_vs_forecaster_pred{int(pred_int)}.png"))
+        
+        fig_path = os.path.join(fig_dir, f"score_vs_forecaster_pred{int(pred_int)}.png")
+        logging.info(f"Saving plot_score_vs_forecaster to {fig_path}")
+        figs[-1].savefig(fig_path)
         
     return figs
 
@@ -2725,6 +2738,7 @@ if __name__ == "__main__":
     if "svr" in args.model:
         for mncf, ctd, ptd in zip(model_configs, context_timedelta, prediction_timedelta):
             
+            # TODO don't need this if using trained models...
             logging.info(f"Instantiating Optuna Storage for SVRForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
             db_setup_params = generate_df_setup_params("svr", mncf)
             optuna_storage = setup_optuna_storage(
@@ -2741,7 +2755,7 @@ if __name__ == "__main__":
                                     fmodel=fmodel,
                                     true_wind_field=None,
                                     kwargs=dict(kernel="rbf", C=1.0, degree=3, gamma="auto", epsilon=0.1, cache_size=200,
-                                                n_neighboring_turbines=3, max_n_samples=None, 
+                                                n_neighboring_turbines=5, max_n_samples=None,  # TODO move n_neighboring_turbines to cnofig
                                                 study_name=f"svr_{mncf['experiment']['run_name']}",
                                                 use_trained_models=args.use_trained_models,
                                                 optuna_storage=optuna_storage,
@@ -2892,7 +2906,7 @@ if __name__ == "__main__":
         
             save_dir = os.path.join(os.path.dirname( base_model_config["dataset"]["data_path"]), "validation_results", 
                                     forecaster.__class__.__name__,
-                                    str(prediction_timedelta))
+                                    str(int(prediction_timedelta)))
             os.makedirs(save_dir, exist_ok=True)
             forecast_path = os.path.join(save_dir, "forecast.parquet")
             agg_metric_path = os.path.join(save_dir, "agg_metrics.parquet")
@@ -2932,7 +2946,7 @@ if __name__ == "__main__":
     for f, forecaster in enumerate(forecasters):
         save_dir = os.path.join(os.path.dirname(base_model_config["dataset"]["data_path"]), "validation_results", 
                                 forecaster.__class__.__name__,
-                                str(forecaster.prediction_timedelta.total_seconds()))
+                                str(int(forecaster.prediction_timedelta.total_seconds())))
         if args.prediction_type == "distribution" and forecaster.is_probabilistic:
             value_vars = ["nd_cos", "nd_sin", "loc_ws_horz", "loc_ws_vert", "sd_ws_horz", "sd_ws_vert"]
             target_vars = ["loc_ws_horz", "loc_ws_vert", "sd_ws_horz", "sd_ws_vert"]
