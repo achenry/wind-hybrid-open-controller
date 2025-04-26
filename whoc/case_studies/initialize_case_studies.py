@@ -790,17 +790,16 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                     **input_dicts[start_case_idx + c]["wind_forecast"].setdefault(input_dicts[start_case_idx + c]["controller"]["wind_forecast_class"], {}),
                     }
                 
-                if "model_key" in input_dicts[start_case_idx + c]["wind_forecast"]:
-                    # TODO will this work if database name has run id attached... need to get folder with highest slurm id if so... OR just get hyperparams from checkpoint
-                    db_setup_params = generate_df_setup_params(
-                        model=input_dicts[start_case_idx + c]["wind_forecast"]["model_key"], 
-                        model_config=mdl_cnf)
-                    optuna_storage = setup_optuna_storage(
-                        db_setup_params=db_setup_params,
-                        restart_tuning=False,
-                        rank=0
-                    )
-                    input_dicts[start_case_idx + c]["wind_forecast"]["optuna_storage"] = optuna_storage
+                # if "model_key" in input_dicts[start_case_idx + c]["wind_forecast"]:
+                #     db_setup_params = generate_df_setup_params(
+                #         model=input_dicts[start_case_idx + c]["wind_forecast"]["model_key"], 
+                #         model_config=mdl_cnf)
+                #     optuna_storage = setup_optuna_storage(
+                #         db_setup_params=db_setup_params,
+                #         restart_tuning=False,
+                #         rank=0
+                #     )
+                #     input_dicts[start_case_idx + c]["wind_forecast"]["optuna_storage"] = optuna_storage
                 
             # need to change num_turbines, floris_input_file, lut_path
             if (target_turbine_indices := input_dicts[start_case_idx + c]["controller"]["target_turbine_indices"])  != "all":
