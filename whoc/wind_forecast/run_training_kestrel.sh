@@ -6,7 +6,7 @@
 #SBATCH --time=24:00:00
 #SBATCH --nodes=1
 ##SBATCH --time=00:20:00
-#ESBATCH --partition=debug
+##SBATCH --partition=debug
 ##SBATCH --partition=nvme
 #SBATCH --ntasks-per-node=104
 ##SBATCH --cpus-per-task=1
