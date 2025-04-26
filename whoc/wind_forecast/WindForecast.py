@@ -1216,6 +1216,9 @@ class SVRForecast(WindForecast):
     
     def train_single_output(self, training_measurements, output, retrain_models, scale, scaler_params=None):
         
+        feat_type = re.search(f"\\w+(?=_{self.turbine_signature})", output).group()
+        tid = re.search(f"(?<=_){self.turbine_signature}$", output).group()
+        
         if not retrain_models \
             and os.path.exists(os.path.join(self.model_save_dir, f"{self.study_name}_model_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl")) \
                 and (not scale or scaler_params or os.path.exists(os.path.join(self.model_save_dir, f"svr_scaler_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl"))):
@@ -1231,19 +1234,21 @@ class SVRForecast(WindForecast):
             
             X_train, y_train, self.scaler[output] = self._get_output_data(measurements=training_measurements, output=output, split="train", reload=False, 
                                                                           scale=scale, return_scaler=True)
-            logging.info(f"Training SVR model for output {output}.")
+            logging.info(f"Fitting SVR model for output {output}.")
             self.model[output].fit(X_train, y_train)
             
+            logging.info(f"Saving SVR model for output {output}.")
             with open(os.path.join(self.model_save_dir, f"{self.study_name}_model_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl"), "wb") as fp:
                 pickle.dump(self.model[output], fp, protocol=5)
-                
+            
             if scale and scaler_params is None:
+                logging.info(f"Saving SVR scaler for output {output}.")
                 with open(os.path.join(self.model_save_dir, f"{self.study_name}_scaler_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl"), "wb") as fp:
                     pickle.dump(self.scaler[output], fp, protocol=5)
         
-        feat_type = re.search(f"\\w+(?=_{self.turbine_signature})", output).group()
-        tid = re.search(f"(?<=_){self.turbine_signature}$", output).group()
+        
         if scaler_params:
+            logging.info(f"Setting and saving SVR scaler for output {output} to given values.")
             input_turbine_indices = self.cluster_turbines[self.tid2idx_mapping[tid]]
             self.scaler[output].n_features_in_ = len(input_turbine_indices)
             for k, v in scaler_params.items():
@@ -1251,6 +1256,7 @@ class SVRForecast(WindForecast):
                 
             with open(os.path.join(self.model_save_dir, f"{self.study_name}_scaler_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl"), "wb") as fp:
                 pickle.dump(self.scaler[output], fp, protocol=5)
+                
         return self.model[output], self.scaler[output]
     
     def train_all_outputs(self, scale, multiprocessor, retrain_models=True,
