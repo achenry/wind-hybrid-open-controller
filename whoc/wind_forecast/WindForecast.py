@@ -1430,7 +1430,8 @@ class KalmanFilterForecast(WindForecast):
         self.prediction_interval = self.n_prediction_interval * self.measurements_timedelta
         self.n_turbines = self.fmodel.n_turbines
         self.dim_x = self.dim_z = self.n_targets_per_turbine * self.n_turbines
-        
+        self.last_pred = None
+        self.last_var = None
         self.scaler = self.create_scaler()
         self.reset()
         
@@ -1523,7 +1524,7 @@ class KalmanFilterForecast(WindForecast):
             # forecaster is called every n_controller time steps
             # n_prediction time steps may not have passed since last controller step
             # in this case, no new measurements will be available, and we can return the last state estimate
-            # logging.info(f"No new measurements  available for KalmanFilterForecaster at time {current_time}, waiting on time {(self.last_measurement_time + self.prediction_timedelta)} returning last estimated state.")
+            logging.info(f"No new measurements  available for KalmanFilterForecaster at time {current_time}, waiting on time {(self.last_measurement_time + self.prediction_timedelta)} returning last estimated state.")
             self.last_pred = self.last_pred.with_columns(time=pred_slice)
             if return_var:
                 self.last_var = self.last_var.with_columns(time=pred_slice)
@@ -1533,14 +1534,14 @@ class KalmanFilterForecast(WindForecast):
             measurement_times = zs.select(pl.col("time")).to_series() 
             zs = zs.select(outputs).to_numpy()
             
-            # logging.info(f"Adding {zs.shape[0]} new measurements to Kalman filter at time {current_time}.")
+            logging.info(f"Adding {zs.shape[0]} new measurements to Kalman filter at time {current_time}.")
             
             # initialize state
             if not self.initialized:
                 self.model.x = np.zeros_like(zs[0, :])
                 self.model.P = np.eye(self.model.dim_x)
-                Qs = [np.eye(self.model.dim_x)*1e-2 for j in range(zs.shape[0])]
-                Rs = [np.eye(self.model.dim_z)*1e-2 for j in range(zs.shape[0])]
+                # Qs = [np.eye(self.model.dim_x)*1e-2 for j in range(zs.shape[0])]
+                # Rs = [np.eye(self.model.dim_z)*1e-2 for j in range(zs.shape[0])]
                 self.initialized = True
             else:
                 # update Qt and Rt based on previous value s of process and measurement noise
@@ -1553,7 +1554,7 @@ class KalmanFilterForecast(WindForecast):
                 # for r in Rs:
                 #     np.fill_diagonal(a=r, val=np.max([np.diag(r), np.ones(r.shape[0]) * 1e-2]))
             
-            Qs = [np.eye(self.model.dim_x)*1e-1 for j in range(zs.shape[0])]
+            Qs = [np.eye(self.model.dim_x)*1e-1 for j in range(zs.shape[0])] # TODO add to config
             Rs = [np.eye(self.model.dim_z)*1e-3 for j in range(zs.shape[0])]
             
             init_x = self.model.x.copy()
@@ -1582,6 +1583,9 @@ class KalmanFilterForecast(WindForecast):
                 means[i, :] = self.model.x
                 covariances[i, :, :] = self.model.P
             
+            # if np.allclose(means, means_p):
+            #     print("oh")
+            
             # in historic process (w) and measurment (v) noise, we only need to retain enough vectors to cover all of the measurements (spaced n_prediction apart) found in this interval of n_controller measurments, as well as the context length for each of those 
             # self.historic_times = (self.historic_times + list(measurement_times))[-int(np.ceil(self.n_controller / self.n_prediction)) - self.n_context:]
             # for testing
@@ -1590,9 +1594,9 @@ class KalmanFilterForecast(WindForecast):
             # self.covariances_p = covariances_p.copy()
             # self.covariances = covariances.copy()
             
-            self.historic_v = np.vstack([self.historic_v, np.atleast_2d(zs - np.matmul(means, self.model.H))])[-int(np.ceil(self.n_controller / self.n_prediction_interval)) - self.n_context:, :]
-            means = np.vstack([init_x, means]) # concatenate initial guess of state on top to compute differences
-            self.historic_w = np.vstack([self.historic_w, np.atleast_2d(means[1:, :] - np.matmul(means[:-1, :], self.model.F))])[-int(np.ceil(self.n_controller / self.n_prediction_interval)) - self.n_context:, :]
+            # self.historic_v = np.vstack([self.historic_v, np.atleast_2d(zs - np.matmul(means, self.model.H))])[-int(np.ceil(self.n_controller / self.n_prediction_interval)) - self.n_context:, :]
+            # means = np.vstack([init_x, means]) # concatenate initial guess of state on top to compute differences
+            # self.historic_w = np.vstack([self.historic_w, np.atleast_2d(means[1:, :] - np.matmul(means[:-1, :], self.model.F))])[-int(np.ceil(self.n_controller / self.n_prediction_interval)) - self.n_context:, :]
             
             x = means[-1, :]
             P = covariances[-1, :, :]
@@ -1602,6 +1606,9 @@ class KalmanFilterForecast(WindForecast):
         
             pred = x 
             pred = {output: pred[o:o+1] for o, output in enumerate(outputs)}
+            if self.last_pred is not None and (pl.DataFrame(pred).to_numpy() == self.last_pred.select(outputs).to_numpy()).all():
+                print("oh")
+                
             self.last_pred = pl.DataFrame({"time": pred_slice}).with_columns(**pred)
             
             if return_var:
@@ -2444,7 +2451,7 @@ def plot_score_vs_prediction_dt(agg_df, metrics, ax_indices, fig_dir):
         
     # elif left_metrics or right_metrics:
     ax = sns.scatterplot(agg_df.filter(pl.col("metric").is_in(metrics)).to_pandas(),
-                    y="score", x="prediction_timedelta", style="metric", hue="forecaster", s=200, log_scale=True)
+                    y="score", x="prediction_timedelta", style="metric", hue="forecaster", s=200) #, log_scale=True)
     # ax = ax1
         
     # if left_metrics:
@@ -2469,7 +2476,9 @@ def plot_score_vs_prediction_dt(agg_df, metrics, ax_indices, fig_dir):
     #     h = h2
     ax.set_xticks(agg_df.select(pl.col("prediction_timedelta").unique()).to_numpy().flatten())
     new_labels = [" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", label).group())) 
-                  if "Forecast" in label else (label.capitalize() if not label[0].isupper() else label).replace("_", " ") for label in l]
+                  if ("Forecast" in label) else (label.capitalize() if not label[0].isupper() else label).replace("_", " ") for label in l]
+    
+    new_labels = ["".join(label.split(" ")) if all(l.isupper() or l.isspace() for l in label) else label for label in new_labels]
     
     l1, l2 = new_labels[:new_labels.index("Metric")], new_labels[new_labels.index("Metric"):]
     h1, h2 = h[:new_labels.index("Metric")], h[new_labels.index("Metric"):]
@@ -2541,6 +2550,8 @@ def plot_score_vs_forecaster(agg_df, metrics, ax_indices, prediction_intervals, 
         # new_labels = [(re.search("\\w+(?=Forecast)", label).group() if "Forecast" in label else (label.capitalize() if not label[0].isupper() else label).replace("_", " ")) for label in l]
         ax1.ax.set_xticklabels([" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", label._text).group())) for label in ax1.ax.get_xticklabels()], rotation=35)
         new_labels = [(label.capitalize() if not label[0].isupper() else label).replace("_", " ") for label in l]
+        new_labels = ["".join(label.split(" ")) if all(l.isupper() or l.isspace() for l in label) else label for label in new_labels]
+    
         ax1.ax.legend(h, new_labels, frameon=False, bbox_to_anchor=(1.01, 1), loc="upper left")
         plt.tight_layout()
         figs.append(plt.gcf())
@@ -2890,8 +2901,12 @@ if __name__ == "__main__":
             res_idx = 0
             results = []
             for forecaster in forecasters:
-                
-                if args.rerun_validation or not os.path.exists(forecast_path) or not os.path.exists(agg_metric_path):
+                prediction_timedelta = forecaster.prediction_timedelta.total_seconds()
+                save_dir = os.path.join(os.path.dirname( base_model_config["dataset"]["data_path"]), "validation_results", 
+                                    forecaster.__class__.__name__,
+                                    str(int(prediction_timedelta)))
+                forecast_path = os.path.join(save_dir, "forecast.parquet")
+                if args.rerun_validation or not os.path.exists(forecast_path):
                     forecaster_res = []
                     for cg in continuity_groups:
                         forecaster_res.append(test_futures[res_idx].result())
@@ -2960,7 +2975,7 @@ if __name__ == "__main__":
         
         if args.rerun_validation or not os.path.exists(agg_metric_path):
             forecast_df = pl.read_parquet(forecast_path)
-            agg_metrics = generate_forecaster_agg_results(forecaster, forecast_df, test_data, data_module, prediction_type)
+            agg_metrics = generate_forecaster_agg_results(forecaster, forecast_df, test_data, data_module, args.prediction_type)
             agg_metrics.write_parquet(agg_metric_path)
         else:
             agg_metrics =  pl.read_parquet(agg_metric_path)
