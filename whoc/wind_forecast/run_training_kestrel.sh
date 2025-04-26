@@ -46,8 +46,8 @@ mamba activate wind_forecasting_env
 module load PrgEnv-intel
 
 # TODO NOTE process gets stuck after writing these .dat files, so run this python first, then the loop
-export WORKER_RANK=0
 export WORKER_SEED=0
+export WORKER_SEED=0 # TODO does nothing atm
 echo "=== STARTING TRAINING ==="
 date +"%Y-%m-%d %H:%M:%S"
 python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} \
