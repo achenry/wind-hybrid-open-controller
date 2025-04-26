@@ -17,6 +17,10 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # @ profile
 def simulate_controller(controller_class, wind_forecast_class, simulation_input_dict, **kwargs):
     
+    assigned_gpu = kwargs["assigned_gpu"]
+    if assigned_gpu:
+        os.environ['CUDA_VISIBLE_DEVICES'] = str(assigned_gpu_id)
+    
     results_dir = os.path.join(kwargs["save_dir"], kwargs['case_family'])
     os.makedirs(results_dir, exist_ok=True)
     
