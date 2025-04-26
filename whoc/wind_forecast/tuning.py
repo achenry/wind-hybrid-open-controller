@@ -143,7 +143,7 @@ if __name__ == "__main__":
                             kwargs=dict(kernel="rbf", C=1.0, degree=3, gamma="auto", epsilon=0.1, cache_size=200,
                                         n_neighboring_turbines=5, max_n_samples=None, 
                                         use_trained_models=False,
-                                        model_config=model_config),
+                                        model_config=model_config), # TODO move n_neighboring_turbines to cnofig
                             tid2idx_mapping=tid2idx_mapping,
                             turbine_signature=turbine_signature,
                             use_tuned_params=False)

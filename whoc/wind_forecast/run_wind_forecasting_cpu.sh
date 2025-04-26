@@ -20,7 +20,7 @@ echo "SLURM_NTASKS_PER_NODE=${SLURM_NTASKS_PER_NODE}"
 echo "=== ENVIRONMENT ==="
 module list
 
-export MODELS="kf persistence sf"
+export MODELS="kf persistence sf svr"
 export MODEL_CONFIG_PATH="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred60.yaml $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred300.yaml"
 export DATA_CONFIG_PATH="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/preprocessing/preprocessing_inputs_kestrel_awaken_new.yaml"
 
@@ -36,5 +36,5 @@ module load mamba
 module load PrgEnv-intel
 mamba activate wind_forecasting_env
 
-python WindForecast.py --model ${MODELS} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --simulation_timestep 1 \
-	               --multiprocessor cf --max_splits 10 --prediction_type distribution --use_tuned_params --use_trained_models --rerun_validation
+mpirun -np $SLURM_NTASKS python WindForecast.py --model ${MODELS} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --simulation_timestep 1 \
+	                    --multiprocessor mpi --max_splits 10 --prediction_type distribution --use_tuned_params --use_trained_models --rerun_validation
