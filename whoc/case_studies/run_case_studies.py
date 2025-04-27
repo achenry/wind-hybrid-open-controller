@@ -68,7 +68,6 @@ if __name__ == "__main__":
     comm = MPI.COMM_WORLD
     RUN_ONCE = (args.multiprocessor == "mpi" and (comm_rank := comm.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
     PLOT = True #sys.platform != "linux"
-    # if args.run_simulations or args.generate_lut or args.generate_wind_field:
     # run simulations
     
     if RUN_ONCE:
@@ -96,9 +95,6 @@ if __name__ == "__main__":
             
             turbine_signature = data_config["turbine_signature"][0] if len(data_config["turbine_signature"]) == 1 else "\\d+"
             
-            # temp_storage_dir = data_config["temp_storage_dir"]
-            # os.makedirs(temp_storage_dir, exist_ok=True)
-            # optuna_args = model_config.setdefault("optuna", None)
     
         else:
             model_config = None
@@ -119,16 +115,16 @@ if __name__ == "__main__":
                                         multiprocessor=args.multiprocessor, 
                                         whoc_config=whoc_config, base_model_config=model_config)
         
-        logging.info(f"Resetting args.n_seeds to {len(wind_field_ts)}")
-        args.n_seeds = len(wind_field_ts)
-        # TODO broadcast/scatter/gather wind_field_ts to share between processes
     else:
         input_dicts, wind_field_config, wind_field_ts = None, None, None
         
-    if args.multiprocessor == "mpi":
-        input_dicts = comm.bcast(input_dicts, root=0)
-        wind_field_config = comm.bcast(wind_field_config, root=0)
-        wind_field_ts = comm.bcast(wind_field_ts, root=0)
+    # if args.multiprocessor == "mpi":
+    #     input_dicts = comm.bcast(input_dicts, root=0)
+    #     wind_field_config = comm.bcast(wind_field_config, root=0)
+    #     wind_field_ts = comm.bcast(wind_field_ts, root=0)
+    
+    logging.info(f"Resetting args.n_seeds to {len(wind_field_ts)}")
+    args.n_seeds = len(wind_field_ts)
             
     # if GPUs are available, use one CPU and one GPU per task
     if "CUDA_VISIBLE_DEVICES" in os.environ:
