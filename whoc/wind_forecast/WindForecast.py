@@ -2020,32 +2020,53 @@ class MLForecast(WindForecast):
                                                             for feat_type in feature_types])
             test_data = self._generate_test_data(historic_measurements)
                 
-            pred = self.predictor.predict(test_data, num_samples=1, 
-                                                output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"})
-            
-            if self.data_module.per_turbine_target:
-                pred_df = pl.concat([pl.DataFrame(
-                    data={
-                        **{"time": turbine_pred.index.to_timestamp()},
-                        **{f"loc_{col}": turbine_pred.distribution.mean[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_prefixes)},
-                        **{f"sd_{col}": turbine_pred.distribution.stddev[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_prefixes)}
-                    }
-                ).rename({
-                    f"{param}_{col}": f"{param}_{col}_{self.data_module.target_suffixes[t]}"
-                    for param in ["loc", "sd"] for col in self.data_module.target_prefixes}
-                         ).sort(by=["time"]) for t, turbine_pred in enumerate(pred)], how="align")
-            else:
-                
-                # pred = next(pred)
-                # pred_turbine_id = pd.Categorical([col.split("_")[-1] for col in col_names for t in range(pred.prediction_length)])
+            if self.model_key == 'tactis':
+                pred_iter = self.predictor.predict(test_data, num_samples=100) # Get the samples
+                pred = next(pred_iter) # Get the first forecast object
+                # TACTiS-2 specific
+                # Samples shape: (num_samples, prediction_length, num_targets)
+                samples_tensor = torch.from_numpy(pred.samples) # .to(self.predictor.device)
+                mean_samples = samples_tensor.mean(dim=0) # Mean across samples
+                std_samples = samples_tensor.std(dim=0)   # Std dev across samples
+
+                # Create DataFrame from calculated stats
                 pred_df = pl.DataFrame(
                     data={
-                        **{"time": pred.index.to_timestamp()},
-                        **{f"loc_{col}": pred.distribution.mean[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_cols)},
-                        **{f"sd_{col}": pred.distribution.stddev[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_cols)}
+                        **{"time": pred.index.to_timestamp().as_unit("us")},
+                        **{f"loc_{col}": mean_samples[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_cols)},
+                        **{f"sd_{col}": std_samples[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_cols)}
                     }
                 ).sort(by=["time"])
-            
+
+            else:
+                # DistributionForecast
+                pred_iter = self.predictor.predict(test_data, num_samples=1,
+                                              output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"})
+                
+                if self.data_module.per_turbine_target:
+                    # Handle multiple forecast objects if per_turbine_target is True
+                    pred_list = list(pred_iter)
+                    pred_df = pl.concat([pl.DataFrame(
+                        data={
+                            **{"time": turbine_pred.index.to_timestamp().as_unit("us")},
+                            **{f"loc_{col}": turbine_pred.distribution.mean[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_prefixes)},
+                            **{f"sd_{col}": turbine_pred.distribution.stddev[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_prefixes)}
+                        }
+                    ).rename({
+                        f"{param}_{col}": f"{param}_{col}_{self.data_module.target_suffixes[t]}"
+                        for param in ["loc", "sd"] for col in self.data_module.target_prefixes}
+                             ).sort(by=["time"]) for t, turbine_pred in enumerate(pred_list)], how="align")
+                else:
+                    # single forecast object
+                    pred = next(pred_iter) # Get the single forecast object
+                    pred_df = pl.DataFrame(
+                        data={
+                            **{"time": pred.index.to_timestamp().as_unit("us")},
+                            **{f"loc_{col}": pred.distribution.mean[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_cols)},
+                            **{f"sd_{col}": pred.distribution.stddev[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_cols)}
+                        }
+                    ).sort(by=["time"])
+
             # denormalize data
             pred_df = pred_df.with_columns([
                     (cs.starts_with(f"loc_{feat_type}") - self.scaler_params["min_"][feat_type]) / self.scaler_params["scale_"][feat_type]
