@@ -115,20 +115,16 @@ if __name__ == "__main__":
                                         multiprocessor=args.multiprocessor, 
                                         whoc_config=whoc_config, base_model_config=model_config)
         
-        logging.info(f"Resetting args.n_seeds to {len(wind_field_ts)}")
-        args.n_seeds = len(wind_field_ts)
-    
-    logging.info(f"Using {args.n_seeds} wind seeds.") 
-    # else:
-    #     input_dicts, wind_field_config, wind_field_ts = None, None, None
+    else:
+        input_dicts, wind_field_config, wind_field_ts = None, None, None
         
-    # if args.multiprocessor == "mpi":
-    #     input_dicts = comm.bcast(input_dicts, root=0)
-    #     wind_field_config = comm.bcast(wind_field_config, root=0)
-    #     wind_field_ts = comm.bcast(wind_field_ts, root=0)
+    if args.multiprocessor == "mpi":
+        input_dicts = comm.bcast(input_dicts, root=0)
+        wind_field_config = comm.bcast(wind_field_config, root=0)
+        wind_field_ts = comm.bcast(wind_field_ts, root=0)
     
-    # logging.info(f"Resetting args.n_seeds to {len(wind_field_ts)}")
-    # args.n_seeds = len(wind_field_ts)
+    logging.info(f"Resetting args.n_seeds to {len(wind_field_ts)}")
+    args.n_seeds = len(wind_field_ts)
             
     # if GPUs are available, use one CPU and one GPU per task
     if "CUDA_VISIBLE_DEVICES" in os.environ:
@@ -161,7 +157,8 @@ if __name__ == "__main__":
                 comm_size = MPI.COMM_WORLD.Get_size()
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0, max_workers=max_workers)
             elif args.multiprocessor == "cf":
-                executor = ProcessPoolExecutor(max_workers=max_workers)
+                executor = ProcessPoolExecutor(max_workers=max_workers,
+                                               mp_context=mp.get_context("spawn"))
             with executor as run_simulations_exec:
                 # if args.multiprocessor == "mpi":
                 #     run_simulations_exec.max_workers = max_workers
