@@ -117,7 +117,8 @@ if __name__ == "__main__":
         
         logging.info(f"Resetting args.n_seeds to {len(wind_field_ts)}")
         args.n_seeds = len(wind_field_ts)
-        
+    
+    logging.info(f"Using {args.n_seeds} wind seeds.") 
     # else:
     #     input_dicts, wind_field_config, wind_field_ts = None, None, None
         
