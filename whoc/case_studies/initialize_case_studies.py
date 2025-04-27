@@ -844,8 +844,16 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                 # only generate input_df row for one wind seed
                 input_df.append(pd.DataFrame(data={k: [v] for k, v in case.items() if k != "wind_case_idx"}))
             
+            if "case_names" not in case_lists[start_case_idx + c]:
+                # case_lists[start_case_idx + c]["case_names"] = str(len(input_df) - 1)
+                input_dicts[start_case_idx + c]["case_name"] = str(len(input_df) - 1)
+            else:
+                input_dicts[start_case_idx + c]["case_name"] = case_lists[start_case_idx + c]["case_names"]
+            
+            input_dicts[start_case_idx + c]["case_family"] = case_study_key
+            
             fn = f"input_config_case_{len(input_df) - 1}.pkl"
-            input_filenames.append((case_study_key, case_lists[start_case_idx + c]["wind_case_idx"], fn))
+            input_filenames.append((case_study_key, input_dicts[start_case_idx + c]["case_name"], input_dicts[start_case_idx + c]["wind_case_idx"], fn))
             # fn = f'input_config_case_{"_".join(
             #     [f"{key}_{val if (isinstance(val, str) or isinstance(val, np.str_) or isinstance(val, bool)) else np.round(val, 6)}" for key, val in case.items() \
             #         if key not in ["simulation_dt", "use_filtered_wind_dir", "use_lut_filtered_wind_dir", "yaw_limits", "wind_case_idx", "seed", "floris_input_file", "lut_path"]]) \
@@ -898,12 +906,10 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                     continue
         
     # delete any input files/time series files that don't belong
-    # pattern = "(?<=input_config_case_)(.*)(?=\\.pkl)"
     pattern = "(?<=input_config_case_)(.*)(?=\\.pkl)"
-    # ts_filenames = [tuple([csk, wind_case_idx, f"time_series_results_case_{re.search(pattern, fn).group()}_seed_{wind_case_idx}.csv".replace("/", "_")]) for csk, wind_case_idx, fn in input_filenames]
-    ts_filenames = [tuple([csk, f"time_series_results_case_{re.search(pattern, fn).group()}_seed_{wind_case_idx}.csv"]) for csk, wind_case_idx, fn in input_filenames]
+    ts_filenames = [tuple([csk, f"time_series_results_case_{case_name}_seed_{wind_case_idx}.csv"]) for csk, case_name, wind_case_idx, fn in input_filenames]
     for case_study_key in case_study_keys:
-        allowed_input_files = set([fn for csk, _, fn in input_filenames if csk == case_study_key])
+        allowed_input_files = set([fn for csk, _, _, fn in input_filenames if csk == case_study_key])
         allowed_ts_files = set([fn for csk, fn in ts_filenames if csk == case_study_key])
         # allowed_ts_files = set([
         #     f"time_series_results_case_{re.search('(?<=input_config_case_)(.*)(?=\\.pkl)', fn).group()}_seed_{wind_case_idx}.csv".replace("/", "_") 
@@ -916,40 +922,23 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         for ts_file in glob(os.path.join(results_dir, "time_series_results_case_*.csv")):
             if os.path.basename(ts_file) not in allowed_ts_files:
                 os.remove(ts_file)
-        
-    # prediction_timedelta = max(inp["wind_forecast"]["prediction_timedelta"] for inp in input_dicts if inp["controller"]["wind_forecast_class"]) \
-    #         if any(inp["controller"]["wind_forecast_class"] for inp in input_dicts) else pd.Timedelta(seconds=0)
-    # horizon_timedelta = max(pd.Timedelta(seconds=inp["controller"]["n_horizon"] * inp["controller"]["controller_dt"]) for inp in input_dicts if inp["controller"]["n_horizon"]) \
-    #         if any(inp["controller"]["controller_class"] == "MPC" for inp in input_dicts) else pd.Timedelta(seconds=0)
-    # stoptime -= prediction_timedelta.total_seconds()
-    # assert stoptime > 0, "increase stoptime parameter and/or decresease prediction_timedetla, as stoptime < prediction_timedelta"
-
-    # assert all([(df["time"].iloc[-1] - df["time"].iloc[0]).total_seconds() >= stoptime + prediction_timedelta + horizon_timedelta for df in wind_field_ts])
-    # wind_field_ts = [df.filter((pl.col("time") - pl.col("time").first()).dt.total_seconds() 
-    #                     <= stoptime[d] + prediction_timedelta.total_seconds() + horizon_timedelta.total_seconds())
-    #                 for d, df in enumerate(wind_field_ts)]
-    # stoptime = max(min([((df["time"].iloc[-1] - df["time"].iloc[0]) - prediction_timedelta - horizon_timedelta).total_seconds() for df in wind_field_ts]), stoptime)
-    # stoptime = [min((df.select(pl.col("time").last() - pl.col("time").first()).item() - prediction_timedelta - horizon_timedelta).total_seconds(), stoptime[d]) for d, df in enumerate(wind_field_ts)]
     
     total_cases = int(len(input_filenames) / n_seeds)
     written_input_files = set()
     
-    for f, ((case_study_key, wind_case_idx, fn), inp) in enumerate(zip(input_filenames, input_dicts)):
+    for f, ((case_study_key, case_name, wind_case_idx, fn), inp) in enumerate(zip(input_filenames, input_dicts)):
         
         inp["hercules_comms"]["helics"]["config"]["stoptime"] = stoptime[wind_case_idx]
-        if fn not in written_input_files:
-            logging.info(f"Writing input_config file {len(written_input_files)} of {total_cases}")
-            results_dir = os.path.join(save_dir, case_study_key)
+        results_dir = os.path.join(save_dir, case_study_key)
+        inp_path = os.path.join(results_dir, fn)
+        if inp_path not in written_input_files:
+            logging.info(f"Writing input_config file {len(written_input_files)+1} of {total_cases}")
             os.makedirs(results_dir, exist_ok=True)
-            with open(os.path.join(results_dir, fn), 'wb') as fp:
+            with open(inp_path, 'wb') as fp:
                 pickle.dump(inp, fp) # TODO this adds different stop times for each file
-            written_input_files.add(fn)
-    
-    # instantiate controller and run_simulations simulation
-    # with open(os.path.join(save_dir, "init_simulations.pkl"), "wb") as fp:
-    #     pickle.dump({"case_lists": case_lists, "case_name_lists": case_name_lists, "input_dicts": input_dicts, "wind_field_config": wind_field_config}, fp)
-
-    return case_lists, case_name_lists, input_dicts, wind_field_config, wind_field_ts
+            written_input_files.add(inp_path)
+            
+    return input_dicts, wind_field_config, wind_field_ts
 
 # 0, 1, 2, 3, 6
 case_families = [
