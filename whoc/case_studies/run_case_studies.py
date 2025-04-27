@@ -115,8 +115,8 @@ if __name__ == "__main__":
                                         multiprocessor=args.multiprocessor, 
                                         whoc_config=whoc_config, base_model_config=model_config)
         
-    else:
-        input_dicts, wind_field_config, wind_field_ts = None, None, None
+    # else:
+    #     input_dicts, wind_field_config, wind_field_ts = None, None, None
         
     # if args.multiprocessor == "mpi":
     #     input_dicts = comm.bcast(input_dicts, root=0)
