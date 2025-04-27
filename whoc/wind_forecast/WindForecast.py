@@ -2026,7 +2026,7 @@ class MLForecast(WindForecast):
                 # TACTiS-2 specific
                 # Samples shape: (num_samples, prediction_length, num_targets)
                 samples_tensor = torch.from_numpy(pred.samples) # .to(self.predictor.device)
-                mean_samples = samples_tensor.mean(dim=0) # Mean across samples
+                mean_samples = samples_tensor.to(self.predictor.device).mean(dim=0) # Mean across samples
                 std_samples = samples_tensor.std(dim=0)   # Std dev across samples
 
                 # Create DataFrame from calculated stats
