@@ -53,10 +53,12 @@ from pytorch_transformer_ts.autoformer.estimator import AutoformerEstimator
 from pytorch_transformer_ts.autoformer.lightning_module import AutoformerLightningModule
 from pytorch_transformer_ts.spacetimeformer.estimator import SpacetimeformerEstimator
 from pytorch_transformer_ts.spacetimeformer.lightning_module import SpacetimeformerLightningModule
+from pytorch_transformer_ts.tactis_2.estimator import TACTiS2Estimator as TactisEstimator
+from pytorch_transformer_ts.tactis_2.lightning_module import TACTiS2LightningModule as TactisLightningModule
 
 from wind_forecasting.preprocessing.data_inspector import DataInspector
 from wind_forecasting.preprocessing.data_module import DataModule
-from wind_forecasting.postprocessing.probabilistic_metrics import continuous_ranked_probability_score_gaussian, reliability, resolution, uncertainty, sharpness, pi_coverage_probability, pi_normalized_average_width, coverage_width_criterion 
+from wind_forecasting.postprocessing.probabilistic_metrics import continuous_ranked_probability_score_gaussian, pi_coverage_probability, pi_normalized_average_width, coverage_width_criterion 
 from wind_forecasting.run_scripts.testing import get_checkpoint
 from wind_forecasting.run_scripts.tuning import get_tuned_params, generate_df_setup_params
 from wind_forecasting.utils.optuna_db_utils import setup_optuna_storage
@@ -1709,7 +1711,7 @@ class MLForecast(WindForecast):
         self.model_key = self.kwargs["model_key"]
         self.model_config = self.kwargs["model_config"]
         
-        # TODO do we need this or can we load from checkpoint
+        # don't need this, can load hyperparamas from checkpoint
         # if self.use_tuned_params:
         #     try:
         #         logging.info("Getting tuned parameters")
@@ -1850,6 +1852,9 @@ class MLForecast(WindForecast):
             raise Exception(e)
         
         transformation = estimator.create_transformation(use_lazyframe=False)
+        
+        self.data_module.context_length = init_args["model_config"]["context_length"]
+        self.context_timedelta = init_args["model_config"]["context_length"] * self.measurements_timedelta
         
         # Conditionally Create Forecast Generator
         if self.model_key == 'tactis':
@@ -2055,6 +2060,7 @@ class MLForecast(WindForecast):
             historic_measurements = historic_measurements.with_columns([
                     (cs.starts_with(feat_type) * self.scaler_params["scale_"][feat_type]) + self.scaler_params["min_"][feat_type]
                                                             for feat_type in feature_types])
+            
             test_data = self._generate_test_data(historic_measurements)
             
             logging.info(f"Using {torch.cuda.device_count()} GPUs at {current_time} to make predictions for {self.model_key}.")
