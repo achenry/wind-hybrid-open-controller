@@ -2186,7 +2186,7 @@ def transform_wind(inp_df, added_wm=None, added_wd=None):
 def make_predictions(forecaster, test_data, prediction_type, single_cg, assigned_gpu=None):
     
     if assigned_gpu:
-        os.environ['CUDA_VISIBLE_DEVICES'] = str(assigned_gpu_id)
+        os.environ['CUDA_VISIBLE_DEVICES'] = str(assigned_gpu)
     
     forecasts = []
     
