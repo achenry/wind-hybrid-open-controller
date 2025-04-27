@@ -1549,13 +1549,13 @@ class KalmanFilterForecast(WindForecast):
         if self.last_measurement_time is None:
             # zs = historic_measurements.filter(pl.col("time") >= current_time)\
             #                           .gather_every(n=self.n_prediction_interval)
-            zs = historic_measurements.filter(((current_time - pl.col("time")).dt.total_microseconds().mod(self.prediction_interval.total_seconds() * 1e6) == 0))
+            zs = historic_measurements #.filter(((current_time - pl.col("time")).dt.total_microseconds().mod(self.prediction_interval.total_seconds() * 1e6) == 0))
         else:
             # collect all the measurments, prediction_timedelta apart, taken in the last n_controller time steps since predict_point was last called
             # zs = historic_measurements.filter(pl.col("time") >= (self.last_measurement_time + self.prediction_interval))\
             #                           .gather_every(n=self.n_prediction_interval)
-            zs = historic_measurements.filter(pl.col("time") >= (self.last_measurement_time + self.prediction_interval)) \
-                                      .filter(((current_time - pl.col("time")).dt.total_microseconds().mod(self.prediction_interval.total_seconds() * 1e6) == 0))
+            zs = historic_measurements.filter(pl.col("time") >= (self.last_measurement_time + self.prediction_interval))
+                                    #   .filter(((current_time - pl.col("time")).dt.total_microseconds().mod(self.prediction_interval.total_seconds() * 1e6) == 0))
             assert zs.select(pl.len()).item() == 0 or zs.select(pl.col("time").last()).item() == self.last_measurement_time + self.prediction_interval
         
         if zs.select(pl.len()).item() == 0:
@@ -1644,9 +1644,7 @@ class KalmanFilterForecast(WindForecast):
         
             pred = x 
             pred = {output: pred[o:o+1] for o, output in enumerate(outputs)}
-            # if self.last_pred is not None and (pl.DataFrame(pred).to_numpy() == self.last_pred.select(outputs).to_numpy()).all():
-            #     print("oh")
-                
+            
             self.last_pred = pl.DataFrame({"time": pred_slice}).with_columns(**pred)
             
             if return_var:
@@ -3110,7 +3108,7 @@ if __name__ == "__main__":
             forecasts_long.with_columns(pl.col("feature").str.replace("^(ws_)", "loc_ws_")),
             true_long,
             continuity_groups=[cg], turbine_ids=turbine_ids,
-            label=f"_{forecaster.__class__.__name__}_{data_config['config_label']}",
+            label=f"_all_forecasters_{data_config['config_label']}",
             fig_dir=save_dir, include_turbine_legend=True,
             feature_types=["ws_horz", "ws_vert"],
             feature_labels=["Horizontal Wind Speed (m/s)", "Vertical Wind Speed (m/s)"],
