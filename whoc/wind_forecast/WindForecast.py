@@ -2262,10 +2262,6 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, assigned
         forecasts[f] = pl.concat(forecasts[f], how="vertical_relaxed")
     forecasts = pl.concat(forecasts, how="vertical_relaxed").with_columns(pl.col("time").cast(pl.Datetime(time_unit="ns")))
     forecasts = forecasts.filter(pl.col("time").is_in(test_data.select(pl.col("time"))))
-    # true = true.filter(pl.col("time").is_in(forecasts.select(pl.col("time"))))
-    
-    # true = true.filter(pl.col("time").is_between(
-    #     forecasts.select(pl.col("time").first()).item(), forecasts.select(pl.col("time").last()).item(), closed="both"))
     
     if False:
         means_p = np.vstack(means_p)
