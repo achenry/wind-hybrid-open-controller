@@ -642,7 +642,11 @@ class WindForecast:
         
     @staticmethod
     def plot_forecast(forecast_wf, true_wf, continuity_groups=None, feature_types=None, feature_labels=None, prediction_type="point", per_turbine_target=False, turbine_ids="all", label="", fig_dir="./",
-                      include_turbine_legend=False):
+                      include_turbine_legend=False, multiple_forecasters=True):
+        
+        # hue command either differentiates forecasters or turbines. When turbine != all, the turbines are shown on different plots
+        assert (multiple_forecasters and turbine_ids != "all") or (not multiple_forecasters and turbine_ids == "all")
+        
         if isinstance(forecast_wf, pd.DataFrame):
             forecast_wf = pl.DataFrame(forecast_wf)
             
@@ -678,14 +682,15 @@ class WindForecast:
                 for t, tid in enumerate(turbine_ids):
                     sns.lineplot(data=true_wf.filter(
                                     (pl.col("feature") == feat) & (pl.col("turbine_id") == tid) & (pl.col("time").is_between(forecast_wf.select(pl.col("time").min()).item(), forecast_wf.select(pl.col("time").max()).item(), closed="both"))), 
-                                        x="time", y="value", ax=axs[t, f], style="data_type")
+                                        x="time", y="value", ax=axs[t, f], style="data_type", color="black")
             
             if prediction_type == "distribution":
                 if per_turbine_target:
                     # TODO test
                     if turbine_ids == "all":
                         sns.lineplot(data=forecast_wf.filter((pl.col("feature") == f"loc_{feat}")), 
-                                        x="time", y="value", ax=axs[0, f], style="data_type", dashes=[[4, 4]], marker="o")
+                                        x="time", y="value", ax=axs[0, f], style="data_type", dashes=[[4, 4]], marker="o",
+                                        hue="forecaster" if (multiple_forecasters and "forecaster" in forecast_wf.columns) else None)
                         
                         axs[0, f].fill_between(
                             forecast_wf.select("time"), 
@@ -696,7 +701,8 @@ class WindForecast:
                     else:
                         for t, tid in enumerate(turbine_ids):
                             sns.lineplot(data=forecast_wf.filter((pl.col("feature") == f"loc_{feat}") & (pl.col("turbine_id") == tid)), 
-                                        x="time", y="value", ax=axs[t, f], style="data_type", dashes=[[4, 4]], marker="o")
+                                        x="time", y="value", ax=axs[t, f], style="data_type", dashes=[[4, 4]], marker="o",
+                                        hue="forecaster" if (multiple_forecasters and "forecaster" in forecast_wf.columns) else None)
                         
                             axs[t, f].fill_between(
                                 forecast_wf.select("time"), 
@@ -711,27 +717,47 @@ class WindForecast:
                     else:
                         for t, tid in enumerate(turbine_ids):
                             sns.lineplot(data=forecast_wf.filter((pl.col("feature") == f"loc_{feat}") & (pl.col("turbine_id") == tid)), 
-                                    x="time", y="value",  style="data_type", ax=axs[t, f], dashes=[[4, 4]], marker="o")
+                                    x="time", y="value",  style="data_type", ax=axs[t, f], dashes=[[4, 4]], marker="o",
+                                    hue="forecaster" if (multiple_forecasters and "forecaster" in forecast_wf.columns) else None)
                     
                     for t, tid in enumerate(forecast_wf["turbine_id"].unique(maintain_order=True)):
                         # color = loc_ax.get_lines()[t].get_color()
                         tid_df = forecast_wf.filter((pl.col("feature").str.ends_with(feat)) & (pl.col("turbine_id") == tid))
-                        color = sns.color_palette()[t]
+                        
                         ax = axs[0, f] if turbine_ids == "all" else axs[t, f]
-                        ax.fill_between(
-                            tid_df.filter(pl.col("feature") == f"loc_{feat}").select("time").to_numpy().flatten(), 
-                            (tid_df.filter(pl.col("feature") == f"loc_{feat}").select(pl.col("value")) 
-                             - tid_df.filter(pl.col("feature") == f"sd_{feat}").select(pl.col("value"))).to_numpy().flatten(), 
-                            (tid_df.filter(pl.col("feature") == f"loc_{feat}").select(pl.col("value")) 
-                             + tid_df.filter(pl.col("feature") == f"sd_{feat}").select(pl.col("value"))).to_numpy().flatten(), 
-                        alpha=0.2, 
-                    )
+                        
+                        if multiple_forecasters:
+                            for ff, forecaster in enumerate(tid_df.select(pl.col("forecaster").unique(maintain_order=True)).to_numpy().flatten()):
+                                color = sns.color_palette()[ff]
+                                forecaster_df = tid_df.filter(pl.col("forecaster") == forecaster)
+                                if forecaster_df.filter(pl.col("feature") == f"sd_{feat}").select(pl.len()).item() == 0:
+                                    continue
+                                
+                                ax.fill_between(
+                                    forecaster_df.filter(pl.col("feature") == f"loc_{feat}").select("time").to_numpy().flatten(), 
+                                    (forecaster_df.filter(pl.col("feature") == f"loc_{feat}").select(pl.col("value")) 
+                                    - forecaster_df.filter(pl.col("feature") == f"sd_{feat}").select(pl.col("value"))).to_numpy().flatten(), 
+                                    (forecaster_df.filter(pl.col("feature") == f"loc_{feat}").select(pl.col("value")) 
+                                    + forecaster_df.filter(pl.col("feature") == f"sd_{feat}").select(pl.col("value"))).to_numpy().flatten(), 
+                                    alpha=0.2, color=color
+                                )
+                        else:
+                            ax.fill_between(
+                                tid_df.filter(pl.col("feature") == f"loc_{feat}").select("time").to_numpy().flatten(), 
+                                (tid_df.filter(pl.col("feature") == f"loc_{feat}").select(pl.col("value")) 
+                                - tid_df.filter(pl.col("feature") == f"sd_{feat}").select(pl.col("value"))).to_numpy().flatten(), 
+                                (tid_df.filter(pl.col("feature") == f"loc_{feat}").select(pl.col("value")) 
+                                + tid_df.filter(pl.col("feature") == f"sd_{feat}").select(pl.col("value"))).to_numpy().flatten(), 
+                                alpha=0.2, 
+                            )
             elif prediction_type == "point":
                 if turbine_ids == "all":
-                    sns.lineplot(data=forecast_wf.filter(pl.col("feature") == feat), x="time", y="value", hue="turbine_id", style="data_type", dashes=[[4, 4]], marker="o", ax=axs[f])
+                    sns.lineplot(data=forecast_wf.filter(pl.col("feature") == feat), x="time", y="value", 
+                                 hue="turbine_id", style="data_type", dashes=[[4, 4]], marker="o", ax=axs[f])
                 else:
                     for t, tid in enumerate(turbine_ids):
-                        sns.lineplot(data=forecast_wf.filter((pl.col("feature") == feat) & (pl.col("turbine_id") == tid)), x="time", y="value", style="data_type", dashes=[[4, 4]], marker="o", ax=axs[t, f])
+                        sns.lineplot(data=forecast_wf.filter((pl.col("feature") == feat) & (pl.col("turbine_id") == tid)), 
+                                     x="time", y="value", style="data_type", dashes=[[4, 4]], marker="o", ax=axs[t, f])
                     
             elif prediction_type == "sample":
                 raise NotImplementedError()
@@ -762,22 +788,34 @@ class WindForecast:
         if turbine_ids != "all":
             for t, tid in enumerate(turbine_ids):
                 axs[t, 0].set_ylabel(f"Turbine {tid}")
-            
+        
+        
         axs[0, -1].legend([], [], frameon=False)
         h, l = axs[0, -1].get_legend_handles_labels()
         labels_1 = ["True", "Forecast"] # removing data type
-        if turbine_ids == "all":
+        
+        
+        if turbine_ids == "all" and include_turbine_legend:
             labels_2 = ["turbine_id"] + sorted(list(forecast_wf.select(pl.col("turbine_id").unique()).to_numpy().flatten()))
             labels_2 = [label for label in labels_2 if label in l]
             handles_2 = [h[l.index(label)] for label in labels_2]
+            second_legend = True
+        elif multiple_forecasters and "forecaster" in forecast_wf.columns:
+            labels_2 = sorted(list(forecast_wf.select(pl.col("forecaster").unique()).to_numpy().flatten()))
+            labels_2 = [label for label in labels_2 if label in l]
+            handles_2 = [h[l.index(label)] for label in labels_2]
+            second_legend = True
+        else:
+            second_legend = False
         
         labels_1 = [label for label in labels_1 if label in l]
         handles_1 = [h[l.index(label)] for label in labels_1]
         leg1 = axs[0, -1].legend(handles_1, labels_1, loc='upper left', bbox_to_anchor=(1.01, 1), frameon=False)
         
-        if turbine_ids == "all" and include_turbine_legend:
-            leg2 = axs[0, -1].legend(handles_2, labels_2, loc='upper left', bbox_to_anchor=(1.01, 0.9), frameon=False)
+        if second_legend:
+            leg2 = axs[0, -1].legend(handles_2, labels_2, loc='upper left', bbox_to_anchor=(1.01, 0.6), frameon=False)
             axs[0, -1].add_artist(leg1)
+        
         # axs[-].set(xlabel="Time [s]", ylabel="Wind Speed [m/s]", xlim=(forecast_wf.select(pl.col("time").min()).item()], forecast_wf.select(pl.col("time").max()).item()))
         plt.tight_layout()
         fig_path = os.path.join(fig_dir, f'forecast_ts{label}.png')
@@ -1524,7 +1562,7 @@ class KalmanFilterForecast(WindForecast):
             # forecaster is called every n_controller time steps
             # n_prediction time steps may not have passed since last controller step
             # in this case, no new measurements will be available, and we can return the last state estimate
-            logging.info(f"No new measurements  available for KalmanFilterForecaster at time {current_time}, waiting on time {(self.last_measurement_time + self.prediction_timedelta)} returning last estimated state.")
+            logging.info(f"No new measurements available for KalmanFilterForecaster at time {current_time}, waiting on time {(self.last_measurement_time + self.prediction_timedelta)} returning last estimated state.")
             self.last_pred = self.last_pred.with_columns(time=pred_slice)
             if return_var:
                 self.last_var = self.last_var.with_columns(time=pred_slice)
@@ -1936,7 +1974,7 @@ class MLForecast(WindForecast):
             return pred_df.to_pandas()
 
     def predict_point(self, historic_measurements: Union[pd.DataFrame, pl.DataFrame], current_time): 
-        # TODO check not including current time
+        
         if isinstance(historic_measurements, pd.DataFrame):
             historic_measurements = pl.DataFrame(historic_measurements)
             return_pl = False
@@ -1956,22 +1994,23 @@ class MLForecast(WindForecast):
             pred = self.predictor.predict(test_data, num_samples=1, 
                                                 output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"})
             pred = next(pred)
-            # .cast(pl.Datetime(time_unit="us"))
             
             if self.data_module.per_turbine_target:
-                # TODO test
                 pred_df = pl.concat([pl.DataFrame(
                     data={
-                        **{"time": pred.index.to_timestamp().as_unit("us")},
-                        **{col: turbine_pred.distribution.loc[:, c].flatten() for c, col in enumerate(self.data_module.target_cols)}
+                        **{"time": turbine_pred.index.to_timestamp()},
+                        **{col: turbine_pred.distribution.mean[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_prefixes)}
                     }
-                ).rename({output_type: f"{output_type}_{self.data_module.static_features.iloc[t]['turbine_id']}" 
-                                for output_type in self.data_module.target_cols}).sort_values(["time"]) for t, turbine_pred in enumerate(pred)], how="horizontal")
+                ).rename({
+                    col: f"{col}_{self.data_module.target_suffixes[t]}"
+                    for col in self.data_module.target_prefixes}
+                         ).sort(by=["time"]) for t, turbine_pred in enumerate(pred)], how="align")
+                
             else:
                 # pred_turbine_id = pd.Categorical([col.split("_")[-1] for col in col_names for t in range(pred.prediction_length)])
                 pred_df = pl.DataFrame(
                     data={
-                        **{"time": pred.index.to_timestamp().as_unit("us")},
+                        **{"time": pred.index.to_timestamp()},
                         **{col: pred.distribution.mean[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_cols)}
                     }
                 ).sort(by=["time"])
@@ -2019,7 +2058,8 @@ class MLForecast(WindForecast):
                     (cs.starts_with(feat_type) * self.scaler_params["scale_"][feat_type]) + self.scaler_params["min_"][feat_type]
                                                             for feat_type in feature_types])
             test_data = self._generate_test_data(historic_measurements)
-                
+            
+            logging.info(f"Using {torch.cuda.device_count()} GPUs at {current_time} to make predictions for {self.model_key}.")
             pred = self.predictor.predict(test_data, num_samples=1, 
                                                 output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"})
             
@@ -2075,9 +2115,6 @@ class MLForecast(WindForecast):
                         **{f"sd_{col}": [0] * len(pred_slice) for c, col in enumerate(self.data_module.target_cols)}
                     }
             )
-            # pred_df = pl.concat([pred_slice.to_frame(), 
-            #                      historic_measurements.slice(-1, 1).select(self.data_module.target_cols)
-            #                      ], how="horizontal")
             
         if return_pl: 
             return pred_df
@@ -2146,7 +2183,10 @@ def transform_wind(inp_df, added_wm=None, added_wd=None):
     
     return inp_df.select(original_cols)
 
-def make_predictions(forecaster, test_data, prediction_type, single_cg):
+def make_predictions(forecaster, test_data, prediction_type, single_cg, assigned_gpu=None):
+    
+    if assigned_gpu:
+        os.environ['CUDA_VISIBLE_DEVICES'] = str(assigned_gpu_id)
     
     forecasts = []
     
@@ -2757,13 +2797,13 @@ if __name__ == "__main__":
         for mncf, ctd, ptd in zip(model_configs, context_timedelta, prediction_timedelta):
             
             # TODO don't need this if using trained models...
-            logging.info(f"Instantiating Optuna Storage for SVRForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
-            db_setup_params = generate_df_setup_params("svr", mncf)
-            optuna_storage = setup_optuna_storage(
-                db_setup_params=db_setup_params,
-                restart_tuning=False,
-                rank=rank
-            )
+            # logging.info(f"Instantiating Optuna Storage for SVRForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
+            # db_setup_params = generate_df_setup_params("svr", mncf)
+            # optuna_storage = setup_optuna_storage(
+            #     db_setup_params=db_setup_params,
+            #     restart_tuning=False,
+            #     rank=rank
+            # )
             
             logging.info(f"Instantiating SVRForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
             forecaster = SVRForecast(measurements_timedelta=measurements_timedelta,
@@ -2774,9 +2814,9 @@ if __name__ == "__main__":
                                     true_wind_field=None,
                                     kwargs=dict(kernel="rbf", C=1.0, degree=3, gamma="auto", epsilon=0.1, cache_size=200,
                                                 n_neighboring_turbines=5, max_n_samples=None,  # TODO move n_neighboring_turbines to cnofig
-                                                study_name=f"svr_{mncf['experiment']['run_name']}",
+                                                # study_name=f"svr_{mncf['experiment']['run_name']}",
                                                 use_trained_models=args.use_trained_models,
-                                                optuna_storage=optuna_storage,
+                                                optuna_storage=None,
                                                 model_config=mncf),
                                     tid2idx_mapping=tid2idx_mapping,
                                     turbine_signature=turbine_signature,
@@ -2831,20 +2871,20 @@ if __name__ == "__main__":
         for m, model in enumerate(ml_models):
             for mncf, ctd, ptd in zip(model_configs, context_timedelta, prediction_timedelta):
             
-                logging.info(f"Instantiating Optuna Storage for SVRForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
+                # logging.info(f"Instantiating Optuna Storage for SVRForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
 
-                db_setup_params = generate_df_setup_params(model, mncf)
-                try:
-                    optuna_storage = setup_optuna_storage(
-                        db_setup_params=db_setup_params,
-                        restart_tuning=False,
-                        rank=rank
-                    )
-                    use_tuned_params = True
-                except Exception as e:
-                    logging.error("Could not open Optuna storage, will use default hyper parameters.")
-                    optuna_storage = None
-                    use_tuned_params = False
+                # db_setup_params = generate_df_setup_params(model, mncf)
+                # try:
+                #     optuna_storage = setup_optuna_storage(
+                #         db_setup_params=db_setup_params,
+                #         restart_tuning=False,
+                #         rank=rank
+                #     )
+                #     use_tuned_params = True
+                # except Exception as e:
+                #     logging.error("Could not open Optuna storage, will use default hyper parameters.")
+                #     optuna_storage = None
+                #     use_tuned_params = False
                     
                 forecaster = MLForecast(measurements_timedelta=measurements_timedelta,
                                         controller_timedelta=controller_timedelta,
@@ -2854,23 +2894,46 @@ if __name__ == "__main__":
                                         true_wind_field=None,
                                         tid2idx_mapping=tid2idx_mapping,
                                         turbine_signature=turbine_signature,
-                                        use_tuned_params=use_tuned_params,
+                                        use_tuned_params=True,
                                         kwargs=dict(model_key=model,
                                                     model_checkpoint=args.checkpoint[0] if len(args.checkpoint) == 1 else args.checkpoint[m], # TODO QUESTION is the latest checkpoint not always the best?
-                                                    optuna_storage=optuna_storage,
-                                                    study_name=db_setup_params["study_name"],
+                                                    optuna_storage=None,
+                                                    study_name=None,#db_setup_params["study_name"],
                                                     model_config=mncf)
                                         )
             forecasters.append(forecaster)
-    
+
+    # if GPUs are available, use one CPU and one GPU per task
+    if "CUDA_VISIBLE_DEVICES" in os.environ:
+        cuda_devices = os.environ["CUDA_VISIBLE_DEVICES"] # Note: must 'export' variable within nohup to find on Kestrel
+        logging.info(f"CUDA_VISIBLE_DEVICES is set to: '{cuda_devices}'")
+        try:
+            # Count the number of GPUs specified in CUDA_VISIBLE_DEVICES
+            visible_gpus = [idx for idx in cuda_devices.split(',') if idx.strip()]
+            num_visible_gpus = len(visible_gpus)
+            if num_visible_gpus > 0:
+                logging.info(f"Founf {num_visible_gpus} GPUs. Setting max_workers to num_visible_gpus={num_visible_gpus}.")
+                max_workers = num_visible_gpus
+            else:
+                logging.warning(f"CUDA_VISIBLE_DEVICES is set but no valid GPU indices found. Setting max_workers to mp.cpu_count()={mp.cpu_count()}.")
+                max_workers = MPI.COMM_WORLD.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
+        except Exception as e:
+            logging.warning(f"Error parsing CUDA_VISIBLE_DEVICES: {e}")
+        
+        # Create an iterator that cycles through the available GPU IDs
+        gpu_cycler = cycle(visible_gpus)
+        
+    else:
+        max_workers = MPI.COMM_WORLD.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
+        gpu_cycler = None
     
     if args.multiprocessor:
         
         if args.multiprocessor == "mpi":
-            max_workers = MPI.COMM_WORLD.Get_size()
-            executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+            # max_workers = MPI.COMM_WORLD.Get_size()
+            executor = MPICommExecutor(MPI.COMM_WORLD, root=0, max_workers=max_workers)
         elif args.multiprocessor == "cf":
-            max_workers = mp.cpu_count()
+            # max_workers = mp.cpu_count()
             executor = ProcessPoolExecutor(max_workers=max_workers,
                                             mp_context=mp.get_context("spawn"))
         
@@ -2895,7 +2958,8 @@ if __name__ == "__main__":
                         test_futures.append(
                             ex.submit(make_predictions, forecaster=forecaster,  
                                                 test_data=test_data.filter(pl.col("continuity_group") == cg), 
-                                                prediction_type=args.prediction_type, single_cg=True))
+                                                prediction_type=args.prediction_type, single_cg=True, 
+                                                assigned_gpu=next(gpu_cycler) if gpu_cycler else None))
                     
             
             res_idx = 0
@@ -2945,7 +3009,8 @@ if __name__ == "__main__":
                 
                 forecast_df = make_predictions(
                     forecaster=forecaster, test_data=test_data,
-                    prediction_type=args.prediction_type, single_cg=False)
+                    prediction_type=args.prediction_type, single_cg=False, 
+                    assigned_gpu=next(gpu_cycler) if gpu_cycler else None)
                 results.append({
                     "forecaster_name": forecaster.__class__.__name__,
                     "forecast_df": forecast_df,
@@ -2994,6 +3059,17 @@ if __name__ == "__main__":
                                             prediction_timedelta=pl.lit(res["prediction_timedelta"]))
             for res in results], how="vertical")
         
+        turbine_ids = ["5", "74", "75"]
+        true_long = DataInspector.unpivot_dataframe(test_data, 
+                                                    value_vars=["nd_cos", "nd_sin", "ws_horz", "ws_vert"], 
+                                                    turbine_signature=forecaster.turbine_signature)\
+                                            .unpivot(index=["time", "continuity_group", "turbine_id"], on=["ws_horz", "ws_vert"], 
+                                                    variable_name="feature", value_name="value")\
+                                            .with_columns(data_type=pl.lit("True"))
+        
+        # plot continuity group with best rmse score
+        PLOT_INDIVIDUAL = True
+        forecasts_long = []
         for f, forecaster in enumerate(forecasters):
             save_dir = os.path.join(os.path.dirname(base_model_config["dataset"]["data_path"]), "validation_results", 
                                     forecaster.__class__.__name__,
@@ -3004,38 +3080,46 @@ if __name__ == "__main__":
             else:
                 value_vars = ["nd_cos", "nd_sin", "ws_horz", "ws_vert"]
                 target_vars = ["ws_horz", "ws_vert"]
-        
-            id_vars = ["time"]
-            forecasts_long = DataInspector.unpivot_dataframe(results[f]["forecast_df"], 
+            
+            forecasts_long.append(DataInspector.unpivot_dataframe(results[f]["forecast_df"], 
                                                         value_vars=value_vars, 
                                                         turbine_signature=forecaster.turbine_signature)\
-                                                .unpivot(index=["turbine_id"] + id_vars, on=target_vars, 
+                                                .unpivot(index=["time", "turbine_id"], on=target_vars, 
                                                         variable_name="feature", value_name="value")\
-                                                .with_columns(data_type=pl.lit("Forecast"))
+                                                .with_columns(data_type=pl.lit("Forecast"), forecaster=pl.lit(forecaster.__class__.__name__)))
             
-            id_vars = ["time", "continuity_group"]
-            true_long = DataInspector.unpivot_dataframe(test_data, 
-                                                        value_vars=["nd_cos", "nd_sin", "ws_horz", "ws_vert"], 
-                                                        turbine_signature=forecaster.turbine_signature)\
-                                                .unpivot(index=["turbine_id"] + id_vars, on=["ws_horz", "ws_vert"], 
-                                                        variable_name="feature", value_name="value")\
-                                                .with_columns(data_type=pl.lit("True"))
-            
-            # plot continuity group with best rmse score
-            turbine_ids = ["5", "74", "75"]
             best_cg = agg_df.filter((pl.col("forecaster") == forecaster.__class__.__name__) 
                                     & (pl.col("prediction_timedelta")== forecaster.prediction_timedelta.total_seconds())
                                     & (pl.col("metric") == "RMSE") 
                                     & (pl.col("turbine_id").is_in(turbine_ids)))\
                 .group_by("continuity_group").agg(pl.col("score").mean()).select(pl.all().sort_by("score").first()).select("continuity_group").item()
             plot_distr = forecaster.is_probabilistic and args.prediction_type == "distribution"
-            forecast_fig = WindForecast.plot_forecast(forecasts_long, true_long, 
-                                                    continuity_groups=[best_cg], turbine_ids=turbine_ids, 
-                                                    label=f"_{forecaster.__class__.__name__}_{data_config['config_label']}", 
-                                                    fig_dir=save_dir, include_turbine_legend=True,
-                                                    feature_types=["ws_horz", "ws_vert"],
-                                                    feature_labels=["Horizontal Wind Speed (m/s)", "Vertical Wind Speed (m/s)"],
-                                                    prediction_type="distribution" if plot_distr else "point") 
+            
+            if PLOT_INDIVIDUAL:
+                forecast_fig = WindForecast.plot_forecast(forecasts_long[-1], true_long, 
+                                                continuity_groups=[best_cg], turbine_ids=turbine_ids, 
+                                                label=f"_{forecaster.__class__.__name__}_{data_config['config_label']}", 
+                                                fig_dir=save_dir, include_turbine_legend=True,
+                                                feature_types=["ws_horz", "ws_vert"],
+                                                feature_labels=["Horizontal Wind Speed (m/s)", "Vertical Wind Speed (m/s)"],
+                                                prediction_type="distribution" if plot_distr else "point")
+        
+        forecasts_long = pl.concat(forecasts_long, how="vertical")
+        
+        # plot combined
+        cg = agg_df.select(pl.col("continuity_group").first()).item()
+        mean_cols = [f"{feat_type}_{tid}" for feat_type in ["loc_ws_horz", "loc_ws_vert"] for tid in data_module.target_suffixes]
+        point_cols = [f"{feat_type}_{tid}" for feat_type in ["ws_horz", "ws_vert"] for tid in data_module.target_suffixes]
+        forecast_fig = WindForecast.plot_forecast(
+            forecasts_long.with_columns(pl.col("feature").str.replace("^(ws_)", "loc_ws_")),
+            true_long,
+            continuity_groups=[cg], turbine_ids=turbine_ids,
+            label=f"_{forecaster.__class__.__name__}_{data_config['config_label']}",
+            fig_dir=save_dir, include_turbine_legend=True,
+            feature_types=["ws_horz", "ws_vert"],
+            feature_labels=["Horizontal Wind Speed (m/s)", "Vertical Wind Speed (m/s)"],
+            prediction_type="distribution",
+            multiple_forecasters=True)
         
         
         plotting_metrics_dirs = [(met, direc) for met, direc in 
