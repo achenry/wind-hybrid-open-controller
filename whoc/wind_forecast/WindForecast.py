@@ -1745,66 +1745,11 @@ class MLForecast(WindForecast):
         # else:
         #     logging.info(f"Declaring estimator {self.model_key.capitalize()} with default parameters")
             
-        self.model_prediction_timedelta = pd.Timedelta(seconds=self.model_config["dataset"]["prediction_length"])
-            
-        assert self.model_prediction_timedelta >= self.prediction_timedelta, "model is tuned for shorter prediction timedelta!"
+
         # self.context_timedelta = self.model_config["dataset"]["context_length"] \
         #     * pd.Timedelta(self.model_config["dataset"]["resample_freq"]).to_pytimedelta()
 
-        # NOTE if ml method is tuned for given context length, we use that context length for that model
-        self.data_module = DataModule(data_path=self.model_config["dataset"]["data_path"], 
-                                      n_splits=self.model_config["dataset"]["n_splits"],
-                                      continuity_groups=None, 
-                                      train_split=(1.0 - self.model_config["dataset"]["val_split"] - self.model_config["dataset"]["test_split"]),
-                                      val_split=self.model_config["dataset"]["val_split"], 
-                                      test_split=self.model_config["dataset"]["test_split"], 
-                                      prediction_length=self.model_config["dataset"]["prediction_length"], 
-                                      context_length=self.model_config["dataset"]["context_length"],
-                                      target_prefixes=["ws_horz", "ws_vert"], 
-                                      feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
-                                      freq=self.model_config["dataset"]["resample_freq"], 
-                                      normalized=True,
-                                      target_suffixes=self.model_config["dataset"]["target_turbine_ids"],
-                                      per_turbine_target=self.model_config["dataset"]["per_turbine_target"], dtype=None,
-                                      normalization_consts_path=self.model_config["dataset"]["normalization_consts_path"])
-        self.data_module.get_dataset_info()
-        self.scaler_params = self.data_module.compute_scaler_params()
-        
-        estimator_class = globals()[f"{self.model_key.capitalize()}Estimator"]
-        lightning_module_class = globals()[f"{self.model_key.capitalize()}LightningModule"]
-        distr_output_class = globals()[self.model_config["model"]["distr_output"]["class"]]
-        
-        # Prepare all arguments in a dictionary # TODO HIGH PULL FROM CHECKPOINT
-        estimator_kwargs = {
-            "freq": self.data_module.freq,
-            "prediction_length": self.data_module.prediction_length,
-            "num_feat_dynamic_real": self.data_module.num_feat_dynamic_real,
-            "num_feat_static_cat": self.data_module.num_feat_static_cat,
-            "cardinality": self.data_module.cardinality,
-            "num_feat_static_real": self.data_module.num_feat_static_real,
-            "input_size": self.data_module.num_target_vars,
-            "scaling": False, # Scaling handled externally or internally by TACTiS
-            "lags_seq": [0], # TACTiS doesn't typically use lags
-            "time_features": [second_of_minute, minute_of_hour, hour_of_day, day_of_year],
-            "batch_size": self.model_config["dataset"].setdefault("batch_size", 128), 
-            "num_batches_per_epoch": self.model_config["trainer"].setdefault("limit_train_batches", 1000), 
-            "context_length": self.data_module.context_length,
-            "train_sampler": ExpectedNumInstanceSampler(num_instances=1.0, min_past=self.data_module.context_length, min_future=self.data_module.prediction_length),
-            "validation_sampler": ValidationSplitSampler(min_past=self.data_module.context_length, min_future=self.data_module.prediction_length),
-            "trainer_kwargs": self.model_config["trainer"],
-        }
 
-        # Add model-specific arguments from the config YAML
-        estimator_kwargs.update(self.model_config["model"][self.model_key])
-        
-        if args.model != 'tactis':
-            estimator_kwargs["distr_output"] = distr_output_class(dim=self.data_module.num_target_vars, **self.model_config["model"]["distr_output"]["kwargs"])
-        elif 'distr_output' in estimator_kwargs:
-             del estimator_kwargs['distr_output']
-        
-        estimator = estimator_class(**estimator_kwargs)
-        self.data_module.freq = pd.Timedelta(self.data_module.freq).to_pytimedelta()
-        
         metric = "val_loss_epoch"
         mode = "min"
         # log_dir = os.path.join(self.model_config["trainer"]["default_root_dir"], "lightning_logs")
@@ -1835,10 +1780,35 @@ class MLForecast(WindForecast):
 
         # Explicitly extract model_config and other necessary args for LightningModule.__init__
         # Use .get() with default None to avoid KeyError if a param wasn't saved (though it should be)
-        model_config = hparams.get('model_config')
-        if model_config is None:
+        loaded_model_config = hparams.get('model_config')
+        if loaded_model_config is None:
             logging.error(f"Critical: 'model_config' dictionary not found within loaded hyperparameters in {checkpoint_path}. Check saving logic.")
             raise Exception
+        
+        # NOTE if ml method is tuned for given context length, we use that context length for that model
+        
+        freq = pd.Timedelta(loaded_model_config.get("freq", self.model_config["dataset"]["resample_freq"]))
+        self.data_module = DataModule(data_path=self.model_config["dataset"]["data_path"], 
+                                      n_splits=self.model_config["dataset"]["n_splits"],
+                                      continuity_groups=None, 
+                                      train_split=(1.0 - self.model_config["dataset"]["val_split"] - self.model_config["dataset"]["test_split"]),
+                                      val_split=self.model_config["dataset"]["val_split"], 
+                                      test_split=self.model_config["dataset"]["test_split"], 
+                                      prediction_length=(loaded_model_config["prediction_length"] * freq).total_seconds(), 
+                                      context_length=(loaded_model_config["context_length"] * freq).total_seconds(),
+                                      target_prefixes=["ws_horz", "ws_vert"], 
+                                      feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
+                                      freq=loaded_model_config.get("freq", self.model_config["dataset"]["resample_freq"]), 
+                                      normalized=True,
+                                      target_suffixes=self.model_config["dataset"]["target_turbine_ids"],
+                                      per_turbine_target=self.model_config["dataset"]["per_turbine_target"], dtype=None,
+                                      normalization_consts_path=self.model_config["dataset"]["normalization_consts_path"])
+        self.data_module.get_dataset_info()
+        self.scaler_params = self.data_module.compute_scaler_params()
+        
+        estimator_class = globals()[f"{self.model_key.capitalize()}Estimator"]
+        lightning_module_class = globals()[f"{self.model_key.capitalize()}LightningModule"]
+        distr_output_class = globals()[self.model_config["model"]["distr_output"]["class"]]
 
         module_sig = inspect.signature(lightning_module_class.__init__)
         module_params = [param.name for param in module_sig.parameters.values()]
@@ -1846,7 +1816,7 @@ class MLForecast(WindForecast):
         # Extract other args expected by LightningModule.__init__ directly from hparams
         # Provide default values from the original config if not found in hparams, logging a warning
         init_args = {
-            'model_config': model_config,
+            'model_config': loaded_model_config,
             **{k: hparams.get(k, self.model_config["model"][self.model_key].get(k)) for k in module_params}
         }
         
@@ -1885,10 +1855,46 @@ class MLForecast(WindForecast):
             logging.error(f"Unexpected error loading state_dict: {e}", exc_info=True)
             raise Exception(e)
         
-        transformation = estimator.create_transformation(use_lazyframe=False)
+        # self.data_module.context_length = init_args["model_config"]["context_length"]
+        self.context_timedelta = self.data_module.context_length * pd.Timedelta(self.data_module.freq)
+        self.model_prediction_timedelta = self.data_module.prediction_length * pd.Timedelta(self.data_module.freq)
+        assert self.model_prediction_timedelta >= self.prediction_timedelta, "model is tuned for shorter prediction timedelta!"
+
+        # Prepare all arguments in a dictionary # TODO HIGH add limit_train_batches and batch_size to hparams
+        estimator_kwargs = {
+            "freq": self.data_module.freq,
+            "prediction_length": self.data_module.prediction_length,
+            "num_feat_dynamic_real": self.data_module.num_feat_dynamic_real,
+            "num_feat_static_cat": self.data_module.num_feat_static_cat,
+            "cardinality": self.data_module.cardinality,
+            "num_feat_static_real": self.data_module.num_feat_static_real,
+            "input_size": self.data_module.num_target_vars,
+            "scaling": True if loaded_model_config["scaling"] == "True" else False, # Scaling handled externally or internally by TACTiS
+            "lags_seq": loaded_model_config["lags_seq"], # TACTiS doesn't typically use lags
+            "time_features": [second_of_minute, minute_of_hour, hour_of_day, day_of_year],
+            "batch_size": self.model_config["dataset"].setdefault("batch_size", 128), 
+            "num_batches_per_epoch": self.model_config["trainer"].setdefault("limit_train_batches", 1000), 
+            "context_length": self.data_module.context_length,
+            "train_sampler": ExpectedNumInstanceSampler(num_instances=1.0, min_past=self.data_module.context_length, min_future=self.data_module.prediction_length),
+            "validation_sampler": ValidationSplitSampler(min_past=self.data_module.context_length, min_future=self.data_module.prediction_length),
+            "trainer_kwargs": self.model_config["trainer"],
+            # Include distr_output initially, will be removed conditionally
+            "distr_output": distr_output_class(dim=self.data_module.num_target_vars, **self.model_config["model"]["distr_output"]["kwargs"]),
+            "num_parallel_samples": self.model_config["model"][self.model_key].get("num_parallel_samples", 100) if self.model_key == 'tactis' else 100, # Default 100 if not specified
         
-        self.data_module.context_length = init_args["model_config"]["context_length"]
-        self.context_timedelta = init_args["model_config"]["context_length"] * self.measurements_timedelta
+        }
+        estimator_sig = inspect.signature(estimator_class.__init__)
+        estimator_params = [param.name for param in estimator_sig.parameters.values()]
+        
+        # Add model-specific arguments
+        estimator_kwargs.update({k: v for k, v in loaded_model_config.items() if k in estimator_params and k not in estimator_kwargs})
+        
+        if self.model_key == "tactis" and "distr_output" in estimator_kwargs:
+            # TACTiS manages its own distribution output internally, remove if present
+            del estimator_kwargs["distr_output"]
+        
+        estimator = estimator_class(**estimator_kwargs)
+        transformation = estimator.create_transformation(use_lazyframe=False)
         
         # Conditionally Create Forecast Generator
         if self.model_key == 'tactis':
@@ -1907,6 +1913,7 @@ class MLForecast(WindForecast):
         
         self.predictor = estimator.create_predictor(transformation, model, 
                                                           forecast_generator=forecast_generator)
+        self.data_module.freq = pd.Timedelta(self.data_module.freq).to_pytimedelta()
         # self.sample_predictor = estimator.create_predictor(transformation, model, 
         #                                                    forecast_generator=SampleForecastGenerator())
     
@@ -2027,7 +2034,7 @@ class MLForecast(WindForecast):
                                                         for feat_type in feature_types])
             test_data = self._generate_test_data(historic_measurements)
             
-            logging.info(f"Using {torch.cuda.device_count()} GPUs at {current_time} to make predictions for {self.model_key}.")
+            logging.debug(f"Using {torch.cuda.device_count()} GPUs at {current_time} to make predictions for {self.model_key} with prediction_timedelta {self.prediction_timedelta}.")
             pred = self.predictor.predict(test_data, num_samples=1, 
                                                 output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"})
             pred = next(pred)
@@ -2097,7 +2104,7 @@ class MLForecast(WindForecast):
             
             test_data = self._generate_test_data(historic_measurements)
             
-            logging.info(f"Using {torch.cuda.device_count()} GPUs at {current_time} to make predictions for {self.model_key}.")
+            logging.info(f"Using {torch.cuda.device_count()} GPUs at {current_time} to make predictions for {self.model_key} with prediction_timedelta {self.prediction_timedelta}.")
             pred = self.predictor.predict(test_data, num_samples=1, 
                                                 output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"})
             
@@ -2275,7 +2282,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg):
             current_time = current_row["time"]
             
             # if current_time - start >= forecaster.context_timedelta:
-            logging.info(f"Predicting future wind field using {forecaster.__class__.__name__} at time {current_time}/{end} of split {splits[d]}/{n_splits-1}.")
+            logging.info(f"Predicting future wind field using {forecaster.__class__.__name__} at time {current_time}/{end} of split {splits[d]}.")
             if prediction_type == "distribution" and forecaster.is_probabilistic:
                 pred = forecaster.predict_distr(
                     ds.filter(pl.col("time") <= current_time), current_time)
