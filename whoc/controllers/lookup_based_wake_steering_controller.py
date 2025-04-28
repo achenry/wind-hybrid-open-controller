@@ -153,6 +153,32 @@ class LookupBasedWakeSteeringController(ControllerBase):
         if not generate_lut and lut_path is not None and os.path.exists(lut_path):
             df_lut = pd.read_csv(lut_path, index_col=0)
             df_lut["yaw_angles_opt"] = df_lut["yaw_angles_opt"].apply(lambda s: np.array(re.findall(r"-*\d+\.\d*", s), dtype=float))
+            
+            # start LUT inspection code
+            # import seaborn as sns
+            # import matplotlib.pyplot as plt
+            # yaw_angles_opt = np.vstack(df_lut["yaw_angles_opt"].values)
+            # df_plot = df_lut.drop(columns=["yaw_angles_opt", "farm_power_opt", "farm_power_baseline"])
+            # df_plot = pd.concat([df_plot.assign(YawOffset=yaw_angles_opt[:, i], Turbine=i) for i in range(yaw_angles_opt.shape[1])], axis=0)
+                
+            # ax = sns.lineplot(df_plot, x="wind_direction", y="YawOffset", hue="wd_stddev", style="Turbine")
+            # # ax = sns.lineplot(df_plot, x="wind_direction", y="YawOffset", style="Turbine")
+            # ax.legend(bbox_to_anchor=(1, 1.01), loc="upper left")
+            # ax.set_xlabel("Wind Direction ($^\\circ$)")
+            # ax.set_ylabel("Yaw Offset ($^\\circ$)")
+            # h, l = ax.get_legend_handles_labels()
+            # l[0] = "Wind Direction \nStandard Deviation ($^\\circ$)"
+            # l = [ll[:-2] if ".0" in ll else ll for ll in l]
+            # l[-2] = "Downstream"
+            # l[-1] = "Upstream"
+            # # ax.legend(h, l, bbox_to_anchor=(1.0, 1.01), loc="upper left")
+            # ax.legend(h, l, loc="upper right", bbox_to_anchor=(1.0, 0.92))
+            # # ax.set_xlim((0, 360))
+            # ax.set_xlim((100, 250))
+            # plt.tight_layout()
+            # plt.savefig(os.path.join(os.path.dirname(lut_path), "uncertain_lut_reduced.png"))
+            # df_plot = df_plot.groupby(["wind_speed", "wd_stddev"]).agg("mean")
+            # end LUT inspection code
         else:
             # if csv to load from is not given, optimize
             # LUT optimizer wind field options 
@@ -235,29 +261,6 @@ class LookupBasedWakeSteeringController(ControllerBase):
             df_lut = pd.concat([df_lut, df_copy_360deg], axis=0).reset_index(drop=True)
             # ['wind_direction', 'wind_speed', 'turbulence_intensity',
             #        'yaw_angles_opt', 'farm_power_opt', 'farm_power_baseline']
-            
-            # start LUT inspection code
-            # import seaborn as sns
-            # import matplotlib.pyplot as plt
-            # yaw_angles_opt = np.vstack(df_lut["yaw_angles_opt"].values)
-            # df_plot = df_lut.drop(columns=["yaw_angles_opt", "farm_power_opt", "farm_power_baseline"])
-            # df_plot = pd.concat([df_plot.assign(YawOffset=yaw_angles_opt[:, i], Turbine=i) for i in range(yaw_angles_opt.shape[1])], axis=0)
-                
-            # ax = sns.lineplot(df_plot, x="wind_direction", y="YawOffset", hue="wd_stddev", style="Turbine")
-            # ax.legend(bbox_to_anchor=(1, 1.01), loc="upper left")
-            # ax.set_xlabel("Wind Direction ($^\\circ$)")
-            # ax.set_ylabel("Yaw Offset ($^\\circ$)")
-            # h, l = ax.get_legend_handles_labels()
-            # l[0] = "Wind Direction Standard Deviation ($^\\circ$)"
-            # l = [ll[:-2] if ".0" in ll else ll for ll in l]
-            # l[-2] = "Downstream"
-            # l[-1] = "Upstream"
-            # ax.legend(h, l, bbox_to_anchor=(1.0, 1.01), loc="upper left")
-            # ax.set_xlim((0, 360))
-            # plt.tight_layout()
-            # plt.savefig(os.path.join(os.path.dirname(lut_path), "uncertain_lut.png"))
-            # df_plot = df_plot.groupby(["wind_speed", "wd_stddev"]).agg("mean")
-            # end LUT inspection code
             
             os.makedirs(os.path.dirname(lut_path), exist_ok=True)
             if lut_path is not None:

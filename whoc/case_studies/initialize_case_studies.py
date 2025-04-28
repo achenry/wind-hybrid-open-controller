@@ -191,10 +191,14 @@ case_studies = {
             "../../examples/inputs/gch_KP_v4_lut.csv",
                                         ]},
         "yaw_limits": {"group": 0, "vals": ["-15,15"]},
-        "uncertain": {"group": 0, "vals": [False, True, False]},
+        "uncertain": {"group": 0, "vals": [True, False, False]},
         "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController", "GreedyController"]},
         "prediction_timedelta": {"group": 1, "vals": [300, 300, 60]},
         "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73", "4,"]},
+        # "uncertain": {"group": 0, "vals": [True, False]},
+        # "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController"]},
+        # "prediction_timedelta": {"group": 1, "vals": [300, 300]},
+        # "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73"]},
         "wind_forecast_class": {"group": 0, "vals": ["KalmanFilterForecast"]}
     },
     "baseline_controllers": { "controller_dt": {"group": 1, "vals": [5, 5]},
@@ -826,18 +830,17 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                 uncertain_flag = input_dicts[start_case_idx + c]["controller"]["uncertain"] 
                 yaw_limits = tuple(input_dicts[start_case_idx + c]["controller"]["yaw_limits"])
                 target_turbine_indices = input_dicts[start_case_idx + c]["controller"]["target_turbine_indices"]
-                if (new_case := tuple([floris_input_file, lut_path, uncertain_flag, yaw_limits, target_turbine_indices])) in lut_cases:
-                    continue
+                if (new_case := tuple([floris_input_file, lut_path, uncertain_flag, yaw_limits, target_turbine_indices])) not in lut_cases:
                 
-                logging.info(f"Regenerating LUT {lut_path}")
-                LookupBasedWakeSteeringController._optimize_lookup_table(
-                    floris_config_path=floris_input_file, uncertain=uncertain_flag, yaw_limits=yaw_limits, 
-                    parallel=multiprocessor is not None,
-                    sorted_target_tids=sorted(target_turbine_indices) if target_turbine_indices != "all" else "all", lut_path=lut_path, generate_lut=True)
-                
-                lut_cases.add(new_case)
+                    logging.info(f"Regenerating LUT {lut_path}")
+                    LookupBasedWakeSteeringController._optimize_lookup_table(
+                        floris_config_path=floris_input_file, uncertain=uncertain_flag, yaw_limits=yaw_limits, 
+                        parallel=multiprocessor is not None,
+                        sorted_target_tids=sorted(target_turbine_indices) if target_turbine_indices != "all" else "all", lut_path=lut_path, generate_lut=True)
+                    
+                    lut_cases.add(new_case)
 
-                input_dicts[start_case_idx + c]["controller"]["generate_lut"] = False
+                    input_dicts[start_case_idx + c]["controller"]["generate_lut"] = False
             
             # rename this by index with only config updates from case inside, add dataframe csv linking case indices to names/params
             if case_lists[start_case_idx + c]["wind_case_idx"] == 0:
