@@ -1765,7 +1765,7 @@ class MLForecast(WindForecast):
         
         estimator_class = globals()[f"{self.model_key.capitalize()}Estimator"]
         lightning_module_class = globals()[f"{self.model_key.capitalize()}LightningModule"]
-        distr_output = globals()[self.model_config["model"]["distr_output"]["class"]]
+        distr_output_class = globals()[self.model_config["model"]["distr_output"]["class"]]
         
         # Prepare all arguments in a dictionary # TODO HIGH PULL FROM CHECKPOINT
         estimator_kwargs = {
@@ -1789,6 +1789,11 @@ class MLForecast(WindForecast):
 
         # Add model-specific arguments from the config YAML
         estimator_kwargs.update(self.model_config["model"][self.model_key])
+        
+        if args.model != 'tactis':
+            estimator_kwargs["distr_output"] = distr_output_class(dim=self.data_module.num_target_vars, **self.model_config["model"]["distr_output"]["kwargs"])
+        elif 'distr_output' in estimator_kwargs:
+             del estimator_kwargs['distr_output']
         
         estimator = estimator_class(**estimator_kwargs)
         self.data_module.freq = pd.Timedelta(self.data_module.freq).to_pytimedelta()
