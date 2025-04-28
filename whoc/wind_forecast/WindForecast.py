@@ -2224,10 +2224,9 @@ def transform_wind(inp_df, added_wm=None, added_wd=None):
 def make_predictions(forecaster, test_data, prediction_type, single_cg):
     
     if hasattr(forecaster, "assigned_gpu"):
-        os.environ['CUDA_VISIBLE_DEVICES'] = str(forecaster.assigned_gpu)
-        logging.info(f"Using assigned_gpu = {forecaster.assigned_gpu}")
+        os.environ['CUDA_VISIBLE_DEVICES'] = forecaster.assigned_gpu
         
-        torch.cuda.set_device(forecaster.assigned_gpu)
+        # torch.cuda.set_device(int(forecaster.assigned_gpu))
         
         # Clear GPU memory before starting
         torch.cuda.empty_cache()
@@ -2927,8 +2926,6 @@ if __name__ == "__main__":
             
             # Create an iterator that cycles through the available GPU IDs
             gpu_cycler = cycle(visible_gpus)
-            for i in range(5):
-                print(f"Next GPU is {next(gpu_cycler)}")
             
         else:
             max_workers = MPI.COMM_WORLD.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
