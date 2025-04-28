@@ -1713,10 +1713,10 @@ class MLForecast(WindForecast):
         self.model_config = self.kwargs["model_config"]
         
             
-        if self.assigned_gpu := self.kwargs["assigned_gpu"]:
+        if assigned_gpu := self.kwargs["assigned_gpu"]:
             # os.environ['CUDA_VISIBLE_DEVICES'] = str(assigned_gpu)
-            logging.info(f"Using assigned_gpu = {self.assigned_gpu}")
-            torch.cuda.set_device(self.assigned_gpu)
+            logging.info(f"Using assigned_gpu = {assigned_gpu}")
+            torch.cuda.set_device(assigned_gpu)
             
             # Clear GPU memory before starting
             torch.cuda.empty_cache()
@@ -1806,7 +1806,7 @@ class MLForecast(WindForecast):
         logging.info("Found pretrained model, loading...")
         if torch.cuda.is_available():
             # device = f"cuda:{int(os.environ['CUDA_VISIBLE_DEVICES'].split(",")[0])}"
-            device = f"cuda:{self.assigned_gpu or 0}"
+            device = f"cuda:{assigned_gpu or 0}"
             logging.info(f"Loading checkpoint onto CUDA device {device}")
         else:
             device = "cpu"
