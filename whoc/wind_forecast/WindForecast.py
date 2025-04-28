@@ -1765,69 +1765,56 @@ class MLForecast(WindForecast):
             log_dir=os.path.join(self.model_config["experiment"]["log_dir"], 
                                  f"{self.model_config['experiment']['project_name']}_{self.model_key}"))
         
-        logging.info("Found pretrained model, loading...")
-        checkpoint = torch.load(checkpoint_path, map_location="gpu" if torch.cuda.is_available() else "cpu", weights_only=False)
-        
-        # Extract hyperparameters, handling potential key variations
+        logging.info("Attempting to load pretrained model...")
+        if checkpoint_path is None:
+             raise FileNotFoundError(f"No checkpoint found for model '{self.model_key}'. Check --checkpoint argument and log directory.")
+
+        # Load the entire checkpoint dictionary first
+        checkpoint = torch.load(checkpoint_path, map_location="gpu" if torch.cuda.is_available() else "cpu")
+        logging.info(f"Successfully loaded checkpoint structure from: {checkpoint_path}")
+
+        # Load using Checkpoint Hyperparameters Only
         hparams = checkpoint.get('hyper_parameters', checkpoint.get('hparams'))
         if hparams is None:
             logging.error(f"Hyperparameters not found in checkpoint: {checkpoint_path}. Cannot re-instantiate model.")
-            raise Exception
+            raise ValueError("Checkpoint is missing hyperparameters.")
 
-        logging.debug(f"Loaded hparams from checkpoint: {hparams}")
+        logging.info("Instantiating model using ONLY hyperparameters from checkpoint...")
+        logging.debug(f"Checkpoint hparams: {hparams}")
 
-        # Explicitly extract model_config and other necessary args for LightningModule.__init__
-        # Use .get() with default None to avoid KeyError if a param wasn't saved (though it should be)
-        model_config = hparams.get('model_config')
-        if model_config is None:
-            logging.error(f"Critical: 'model_config' dictionary not found within loaded hyperparameters in {checkpoint_path}. Check saving logic.")
-            raise Exception
-
+        # Ensure all necessary args for __init__ are present in hparams
+        # Note: This assumes hparams contains everything needed, including nested dicts like model_config
         module_sig = inspect.signature(lightning_module_class.__init__)
-        module_params = [param.name for param in module_sig.parameters.values()]
-        del module_params[module_params.index("self")]
-        # Extract other args expected by LightningModule.__init__ directly from hparams
-        # Provide default values from the original config if not found in hparams, logging a warning
-        init_args = {
-            'model_config': model_config,
-            **{k: hparams.get(k, self.model_config["model"][self.model_key].get(k)) for k in module_params}
+        required_params = {
+            param.name for param in module_sig.parameters.values()
+            if param.default == inspect.Parameter.empty and param.name != 'self'
         }
-        
-        # Log if any defaults were used
-        for key, val in init_args.items():
-            if key != 'model_config' and key not in hparams:
-                logging.warning(f"Hyperparameter '{key}' not found in checkpoint, using default value: {val}")
+        missing_hparams = required_params - set(hparams.keys())
+        if missing_hparams:
+             logging.error(f"Checkpoint hyperparameters are missing required arguments for {lightning_module_class.__name__}.__init__: {missing_hparams}")
+             raise ValueError(f"Incomplete hyperparameters in checkpoint for model instantiation. Missing: {missing_hparams}")
 
-        # Check for missing essential args (should ideally not happen with defaults)
-        missing_args = [k for k, v in init_args.items() if v is None and k != 'model_config'] # model_config checked above
-        if missing_args:
-            logging.error(f"Missing required hyperparameters in checkpoint {checkpoint_path} even after checking defaults: {missing_args}")
-            raise Exception
-
-        logging.info(f"Re-instantiating LightningModule for metric retrieval with stage: {init_args.get('stage')}")
-        logging.debug(f"Using init_args: {init_args}")
-
-        # Instantiate the model using the extracted arguments
         try:
-            model = lightning_module_class.load_from_checkpoint(checkpoint_path, **init_args)
-        except Exception as e:
-            logging.error(f"Error during LightningModule re-instantiation: {e}", exc_info=True)
-            raise Exception(e)
+            # Instantiate the model directly using checkpoint hparams
+            model = lightning_module_class(**hparams)
+            logging.info("Model instantiated successfully from checkpoint hparams.")
 
-        # Load the state dict
-        logging.info(f"Loading state_dict into re-instantiated model...")
-        try:
-            model.load_state_dict(checkpoint['state_dict'])
+            logging.info("Loading state_dict into the instantiated model...")
+            incompatible_keys = model.load_state_dict(checkpoint['state_dict'], strict=False)
+
+            # Report unexpected/missing keys if strict=False was used
+            if incompatible_keys.missing_keys:
+                logging.warning(f"State_dict loading warning: Missing keys in model not found in checkpoint: {incompatible_keys.missing_keys}")
+            if incompatible_keys.unexpected_keys:
+                logging.error(f"State_dict loading error: Unexpected keys found in checkpoint's state_dict that are not in the instantiated model: {incompatible_keys.unexpected_keys}")
+                raise RuntimeError(f"Architecture mismatch: Unexpected keys in state_dict: {incompatible_keys.unexpected_keys}")
+
             logging.info("State_dict loaded successfully.")
-        except RuntimeError as e:
-            logging.error(f"RuntimeError loading state_dict: {e}. This often indicates a mismatch between the model architecture defined by hparams and the saved weights.", exc_info=True)
-            # Log details about the mismatch if possible (though the error message usually contains this)
-            logging.error(f"Model architecture stage during load attempt: {model.stage if hasattr(model, 'stage') else 'N/A'}")
-            raise Exception(e)
+
         except Exception as e:
-            logging.error(f"Unexpected error loading state_dict: {e}", exc_info=True)
+            logging.error(f"Error during model instantiation or state_dict loading using checkpoint hparams: {e}", exc_info=True)
             raise Exception(e)
-        
+
         transformation = estimator.create_transformation(use_lazyframe=False)
         
         # Conditionally Create Forecast Generator
