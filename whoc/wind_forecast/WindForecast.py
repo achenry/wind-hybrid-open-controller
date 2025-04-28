@@ -1780,11 +1780,55 @@ class MLForecast(WindForecast):
             raise ValueError("Checkpoint is missing hyperparameters.")
         logging.debug(f"Checkpoint hparams: {hparams_from_ckpt}")
 
-        # Start with arguments defining the data context from the current run
+        # Use prediction length from current config (should match training)
+        prediction_length_seconds = self.model_config["dataset"]["prediction_length"]
+        freq_seconds = pd.Timedelta(self.model_config["dataset"]["resample_freq"]).total_seconds()
+        prediction_length_steps = int(prediction_length_seconds / freq_seconds)
+
+        # Get context_length_factor from checkpoint hparams, current config if missing
+        context_length_factor = hparams_from_ckpt.get('context_length_factor')
+        if context_length_factor is None:
+            context_length_factor = self.model_config["dataset"].get('context_length_factor', 2)
+            logging.warning(f"'context_length_factor' not found in checkpoint hparams, falling back to current config value: {context_length_factor}")
+        else:
+            logging.info(f"Using 'context_length_factor' from checkpoint hparams: {context_length_factor}")
+
+        effective_context_length_steps = int(context_length_factor * prediction_length_steps)
+        logging.info(f"Effective context length for model loading (based on factor {context_length_factor}): {effective_context_length_steps} steps")
+
+        # Calculate effective context length in SECONDS for DataModule
+        effective_context_length_seconds = effective_context_length_steps * freq_seconds
+        logging.info(f"Re-initializing DataModule with effective context length: {effective_context_length_seconds} seconds and prediction length: {prediction_length_seconds} seconds")
+        # Use the calculated effective lengths in SECONDS for DataModule setup
+        self.data_module = DataModule(
+             data_path=self.model_config["dataset"]["data_path"],
+             n_splits=self.model_config["dataset"]["n_splits"],
+             continuity_groups=None,
+             train_split=(1.0 - self.model_config["dataset"]["val_split"] - self.model_config["dataset"]["test_split"]),
+             val_split=self.model_config["dataset"]["val_split"],
+             test_split=self.model_config["dataset"]["test_split"],
+             prediction_length=prediction_length_seconds, # Use SECONDS here
+             context_length=effective_context_length_seconds, # Use SECONDS here
+             target_prefixes=["ws_horz", "ws_vert"],
+             feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
+             freq=self.model_config["dataset"]["resample_freq"], # Use original freq string
+             normalized=True,
+             target_suffixes=self.model_config["dataset"]["target_turbine_ids"],
+             per_turbine_target=self.model_config["dataset"]["per_turbine_target"], dtype=None,
+             normalization_consts_path=self.model_config["dataset"]["normalization_consts_path"]
+        )
+        self.data_module.get_dataset_info()
+        # Recompute scaler params based on the potentially new DataModule setup
+        self.scaler_params = self.data_module.compute_scaler_params()
+        logging.info("Re-initialized DataModule and recomputed scaler_params.")
+
+
+        #Construct arguments for load_from_checkpoint mixed way
+        # Start with arguments defining the data context using the potentially updated data_module
         init_args = {
-            'freq': self.data_module.freq,
-            'prediction_length': self.data_module.prediction_length,
-            'context_length': self.data_module.context_length,
+            'freq': self.data_module.freq, # Use freq from re-initialized data_module
+            'prediction_length': self.data_module.prediction_length, # Use steps from data_module
+            'context_length': self.data_module.context_length, # Use effective steps from data_module
             'input_size': self.data_module.num_target_vars,
         }
 
@@ -1793,8 +1837,12 @@ class MLForecast(WindForecast):
         if model_config_from_ckpt is None:
              logging.error(f"Critical: 'model_config' dictionary not found within loaded hyperparameters in {checkpoint_path}. Check saving logic.")
              raise ValueError("Checkpoint hparams missing 'model_config'.")
+
+        model_config_from_ckpt['context_length'] = effective_context_length_steps # Keep STEPS here
+        model_config_from_ckpt['prediction_length'] = prediction_length_steps
         init_args['model_config'] = model_config_from_ckpt
 
+        # Add other hyperparameters from the checkpoint
         for key, value in hparams_from_ckpt.items():
             if key not in init_args: # Avoid overwriting freq, context_length etc. set above
                  init_args[key] = value
@@ -1815,11 +1863,11 @@ class MLForecast(WindForecast):
         logging.debug(f"Final init_args for load_from_checkpoint: {init_args}")
 
         try:
-            # Use load_from_checkpoint with the constructed init_args
+            # Use load_from_checkpoint with the carefully constructed init_args
             model = lightning_module_class.load_from_checkpoint(
                 checkpoint_path,
                 map_location="gpu" if torch.cuda.is_available() else "cpu",
-                strict=False, # for betterdebugging of mismatches
+                strict=False,
                 **init_args
             )
             logging.info("Model loaded successfully via load_from_checkpoint.")
