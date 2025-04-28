@@ -319,7 +319,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
             if wind_forecast_class:
                 predicted_wind_speeds_ts = []
 
-    logging.info(f"Saved {fn}")
+    # logging.info(f"Saved {save_path}")
     return
     # return results_data
 
