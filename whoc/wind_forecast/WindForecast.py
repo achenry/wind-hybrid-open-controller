@@ -2288,7 +2288,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                                                  
         logging.info(f"Resetting forecaster state.")
         forecaster.reset()
-        
+        n_saved = 0
         for current_row in split_controller_times.iter_rows(named=True):
             
             current_time = current_row["time"]
@@ -2309,6 +2309,14 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                     .filter(pl.col("time").is_in(test_data.select(pl.col("time"))))
             )
             
+            ram_used = virtual_memory().percent
+            if ram_used > 50:
+                sub_save_path = save_path.replace(".parquet", f"_{splits[d]}_{n_saved}.parquet")
+                logging.info(f"Used {ram_used}% RAM. Saving sub parquet to {sub_save_path}.")
+                pl.concat(forecasts, how="vertical_relaxed").write_parquet(sub_save_path, statistics=False)
+                forecasts = []
+                n_saved += 1
+            
             test_idx += 1
         
             # for kf testing
@@ -2320,12 +2328,6 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
         if not len(forecasts):
             raise Exception(f"{d}th dataset in data does not have sufficient data points, with {ds.select(pl.len()).item()}, to collect predictions after context_timedelta {forecaster.context_timedelta}")
         
-        sub_save_path = save_path.replace(".parquet", f"_{splits[d]}.parquet")
-        pl.concat(forecasts, how="vertical_relaxed").write_parquet(sub_save_path, statistics=False)
-        
-        ram_used = virtual_memory().percent
-        logging.info(f"Used {ram_used}% RAM. Saved parquet to {sub_save_path}.")
-    
     if False:
         means_p = np.vstack(means_p)
         means = np.vstack(means)
@@ -3039,7 +3041,7 @@ if __name__ == "__main__":
                 # forecast_paths = glob.glob(os.path.join(save_dir, "forecast_*.parquet"))
                 forecast_paths = [os.path.join(save_dir, f"forecast_{cg}.parquet") for cg in continuity_groups]
                 forecast_path = os.path.join(save_dir, f"forecast*.parquet")
-                if args.rerun_validation or not all(os.path.exists(fp) for fp in forecast_paths) or not (len(forecast_paths) == len(continuity_groups)):
+                if args.rerun_validation: # or not all(os.path.exists(fp) for fp in forecast_paths) or not (len(forecast_paths) == len(continuity_groups)):
                     forecaster_res = []
                     for cg in continuity_groups:
                         test_futures[res_idx].result()
@@ -3082,7 +3084,7 @@ if __name__ == "__main__":
             forecast_paths = [os.path.join(save_dir, f"forecast_{cg}.parquet") for cg in continuity_groups]
             forecast_path = os.path.join(save_dir, f"forecast*.parquet")
             save_path = os.path.join(save_dir, f"forecast.parquet")
-            if args.rerun_validation or not all(os.path.exists(fp) for fp in forecast_paths) or not (len(forecast_paths) == len(continuity_groups)):
+            if args.rerun_validation: # or not all(os.path.exists(fp) for fp in forecast_paths) or not (len(forecast_paths) == len(continuity_groups)):
                 if args.rerun_validation:
                     for f in glob.glob(forecast_path):
                         os.remove(f)
