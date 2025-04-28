@@ -24,6 +24,7 @@ from functools import partial
 from itertools import chain
 import torch
 from itertools import cycle
+from psutil import virtual_memory
 
 # from joblib import parallel_backend
 
@@ -1749,6 +1750,9 @@ class MLForecast(WindForecast):
         # self.context_timedelta = self.model_config["dataset"]["context_length"] \
         #     * pd.Timedelta(self.model_config["dataset"]["resample_freq"]).to_pytimedelta()
 
+        estimator_class = globals()[f"{self.model_key.capitalize()}Estimator"]
+        lightning_module_class = globals()[f"{self.model_key.capitalize()}LightningModule"]
+        distr_output_class = globals()[self.model_config["model"]["distr_output"]["class"]]
 
         metric = "val_loss_epoch"
         mode = "min"
@@ -1771,19 +1775,41 @@ class MLForecast(WindForecast):
         checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
         
         # Extract hyperparameters, handling potential key variations
-        hparams = checkpoint.get('hyper_parameters', checkpoint.get('hparams'))
-        if hparams is None:
-            logging.error(f"Hyperparameters not found in checkpoint: {checkpoint_path}. Cannot re-instantiate model.")
-            raise Exception
+        try:
+            hparams = checkpoint.get('hyper_parameters', checkpoint.get('hparams'))
+            if hparams is None:
+                raise Exception(f"Hyperparameters not found in checkpoint: {checkpoint_path}. Cannot re-instantiate model.")
 
-        logging.debug(f"Loaded hparams from checkpoint: {hparams}")
+            logging.debug(f"Loaded hparams from checkpoint: {hparams}")
 
-        # Explicitly extract model_config and other necessary args for LightningModule.__init__
-        # Use .get() with default None to avoid KeyError if a param wasn't saved (though it should be)
-        loaded_model_config = hparams.get('model_config')
-        if loaded_model_config is None:
-            logging.error(f"Critical: 'model_config' dictionary not found within loaded hyperparameters in {checkpoint_path}. Check saving logic.")
-            raise Exception
+            # Explicitly extract model_config and other necessary args for LightningModule.__init__
+            # Use .get() with default None to avoid KeyError if a param wasn't saved (though it should be)
+            loaded_model_config = hparams.get('model_config')
+            if loaded_model_config is None:
+                raise Exception(f"Critical: 'model_config' dictionary not found within loaded hyperparameters in {checkpoint_path}. Check saving logic.")
+
+            module_sig = inspect.signature(lightning_module_class.__init__)
+            module_params = [param.name for param in module_sig.parameters.values()] #if param.default is not inspect.Parameter.empty
+            del module_params[module_params.index("self")]
+            init_args = {
+                'model_config': loaded_model_config,
+                **{k: hparams.get(k, self.model_config["model"][self.model_key].get(k)) for k in module_params if k != 'model_config'}
+            }
+            
+            for key, val in init_args.items():
+                if (key not in ['model_config', 'initial_stage', 'load']) and (key not in hparams) and (key in module_params):
+                    logging.warning(f"Hyperparameter '{key}' not found in checkpoint, using default value from config: {val}")
+
+            missing_args = [k for k, v in init_args.items() if v is None and k not in ['model_config', 'initial_stage']]
+
+            if missing_args:
+                raise KeyError(f"Missing required hyperparameters in checkpoint {checkpoint_path} even after checking defaults: {missing_args}")
+        except KeyError as e:
+            logging.error(f"Missing hyperparameter key: {str(e)}", exc_info=False)
+            raise e
+        except Exception as e:
+            logging.error(f"Error preparing hyperparameters for re-instantiation: {str(e)}", exc_info=True)
+            raise RuntimeError(f"Error preparing hyperparameters: {str(e)}") from e
         
         # NOTE if ml method is tuned for given context length, we use that context length for that model
         
@@ -1806,54 +1832,39 @@ class MLForecast(WindForecast):
         self.data_module.get_dataset_info()
         self.scaler_params = self.data_module.compute_scaler_params()
         
-        estimator_class = globals()[f"{self.model_key.capitalize()}Estimator"]
-        lightning_module_class = globals()[f"{self.model_key.capitalize()}LightningModule"]
-        distr_output_class = globals()[self.model_config["model"]["distr_output"]["class"]]
-
-        module_sig = inspect.signature(lightning_module_class.__init__)
-        module_params = [param.name for param in module_sig.parameters.values()]
-        del module_params[module_params.index("self")]
-        # Extract other args expected by LightningModule.__init__ directly from hparams
-        # Provide default values from the original config if not found in hparams, logging a warning
-        init_args = {
-            'model_config': loaded_model_config,
-            **{k: hparams.get(k, self.model_config["model"][self.model_key].get(k)) for k in module_params}
-        }
-        
-        # Log if any defaults were used
-        for key, val in init_args.items():
-            if key != 'model_config' and key not in hparams:
-                logging.warning(f"Hyperparameter '{key}' not found in checkpoint, using default value: {val}")
-
-        # Check for missing essential args (should ideally not happen with defaults)
-        missing_args = [k for k, v in init_args.items() if v is None and k != 'model_config'] # model_config checked above
-        if missing_args:
-            logging.error(f"Missing required hyperparameters in checkpoint {checkpoint_path} even after checking defaults: {missing_args}")
-            raise Exception
-
-        logging.info(f"Re-instantiating LightningModule for metric retrieval with stage: {init_args.get('stage')}")
-        logging.debug(f"Using init_args: {init_args}")
-
+        correct_stage = 2
+        if self.model_key == "tactis":
+            init_args["stage"] = 2
         # Instantiate the model using the extracted arguments
         try:
             model = lightning_module_class.load_from_checkpoint(checkpoint_path, **init_args)
+            # model = lightning_module_class(**init_args)
+            
+            # if self.model_key == 'tactis' and correct_stage is not None:
+            #     try:
+            #         logging.info(f"Setting TACTiS model stage to {correct_stage} before loading checkpoint.")
+            #         model.stage = correct_stage
+            #         if hasattr(model.model, 'tactis') and hasattr(model.model.tactis, 'set_stage'):
+            #             model.model.tactis.set_stage(correct_stage)
+            #             logging.info(f"Successfully called model.model.tactis.set_stage({correct_stage}).")
+            #         else:
+            #             logging.warning(f"Could not find model.model.tactis.set_stage() method. Stage setting might not be fully applied.")
+            #     except Exception as stage_set_error:
+            #         logging.error(f"Error setting TACTiS stage post-instantiation: {stage_set_error}", exc_info=True)
+            #         logging.warning(f"Proceeding with state_dict loading despite stage setting error.")
+
+            
+            # logging.info(f"Loading state_dict into re-instantiated model...")
+            # model.load_state_dict(checkpoint['state_dict'])
+            # logging.info("State_dict loaded successfully.")
         except Exception as e:
             logging.error(f"Error during LightningModule re-instantiation: {e}", exc_info=True)
             raise Exception(e)
-
-        # Load the state dict
-        logging.info(f"Loading state_dict into re-instantiated model...")
-        try:
-            model.load_state_dict(checkpoint['state_dict'])
-            logging.info("State_dict loaded successfully.")
-        except RuntimeError as e:
-            logging.error(f"RuntimeError loading state_dict: {e}. This often indicates a mismatch between the model architecture defined by hparams and the saved weights.", exc_info=True)
-            # Log details about the mismatch if possible (though the error message usually contains this)
-            logging.error(f"Model architecture stage during load attempt: {model.stage if hasattr(model, 'stage') else 'N/A'}")
-            raise Exception(e)
-        except Exception as e:
-            logging.error(f"Unexpected error loading state_dict: {e}", exc_info=True)
-            raise Exception(e)
+        # except Exception as e:
+        #     stage_at_error = init_args.get('initial_stage', 'Unknown')
+        #     logging.error(f"Unexpected error instantiating model (with initial_stage={stage_at_error}) or loading state_dict: {str(e)}", exc_info=True)
+        #     raise RuntimeError(f"Error instantiating model (stage {stage_at_error}) or loading state_dict: {str(e)}") from e
+            
         
         # self.data_module.context_length = init_args["model_config"]["context_length"]
         self.context_timedelta = self.data_module.context_length * pd.Timedelta(self.data_module.freq)
@@ -2250,7 +2261,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
         logging.info("Getting number of continuity groups in data.")
         splits = test_data.select(pl.col("continuity_group").unique()).to_numpy().flatten()
         test_data_partition = test_data.partition_by("continuity_group")
-    n_splits = len(splits)
+    # n_splits = len(splits)
     
     # for kf testing
     # means_p = []
@@ -2259,6 +2270,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
     # covariances = []
     
     # for i, (inp, label) in enumerate(iter(test_data)):
+    test_idx = 0
     for d, ds in enumerate(test_data_partition):
         # start = inp[FieldName.START].to_timestamp()
          # end = (label[FieldName.START] + label['target'].shape[1]).to_timestamp()
@@ -2268,7 +2280,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
         start = ds.select(pl.col("time").first()).item()
         end = ds.select(pl.col("time").last()).item()
         logging.info(f"Getting predictions for {splits[d]}th split starting at {start} and ending at {end} using {forecaster.__class__.__name__} with prediction_timedelta {forecaster.prediction_timedelta}.")
-        forecasts.append([])
+        forecasts = []
         # split_true_wf = true_wind_field.filter(pl.col("time").is_between(start, end, closed="both"))
         logging.info(f"Getting controller times for {splits[d]}th split.")
         split_controller_times = controller_times.filter(pl.col("time").is_between(start, end, closed="both"))\
@@ -2292,26 +2304,27 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
             elif prediction_type == "sample":
                 raise NotImplementedError()
             
-            forecasts[-1].append(pred)
+            forecasts.append(
+                pred.with_columns(test_idx=pl.lit(test_idx), time=pl.col("time").cast(pl.Datetime(time_unit="ns")))\
+                    .filter(pl.col("time").is_in(test_data.select(pl.col("time"))))
+            )
+            
+            test_idx += 1
+        
             # for kf testing
             # means_p.append(forecaster.means_p)
             # means.append(forecaster.means)
             # covariances_p.append(forecaster.covariances_p)
             # covariances.append(forecaster.covariances)
         
-        if not len(forecasts[-1]):
+        if not len(forecasts):
             raise Exception(f"{d}th dataset in data does not have sufficient data points, with {ds.select(pl.len()).item()}, to collect predictions after context_timedelta {forecaster.context_timedelta}")
         
-    test_idx = 0
-    # loop through continuity groups
-    for f in range(len(forecasts)):
-        # loop through test splits, ie prediction made for each controller sampling time for which there was sufficient context length
-        for ff in range(len(forecasts[f])):
-            forecasts[f][ff] = forecasts[f][ff].with_columns(test_idx=pl.lit(test_idx))
-            test_idx += 1
-        forecasts[f] = pl.concat(forecasts[f], how="vertical_relaxed")
-    forecasts = pl.concat(forecasts, how="vertical_relaxed").with_columns(pl.col("time").cast(pl.Datetime(time_unit="ns")))
-    forecasts = forecasts.filter(pl.col("time").is_in(test_data.select(pl.col("time"))))
+        sub_save_path = save_path.replace(".parquet", f"_{splits[d]}.parquet")
+        pl.concat(forecasts, how="vertical_relaxed").write_parquet(sub_save_path, statistics=False)
+        
+        ram_used = virtual_memory().percent
+        logging.info(f"Used {ram_used}% RAM. Saved parquet to {sub_save_path}.")
     
     if False:
         means_p = np.vstack(means_p)
@@ -2372,9 +2385,6 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
         ax[1].set_title("$v$ Wind Speed (m/s)")
         ax[0].set_ylabel("")
         ax[1].set_ylabel("")
-    
-    forecasts.write_parquet(save_path, statistics=False)
-    # return forecasts
 
 def generate_wind_field_df(datasets, target_cols, feat_dynamic_real_cols):
     full_target = np.concatenate([ds[FieldName.TARGET] for ds in datasets], axis=-1)
@@ -2966,14 +2976,15 @@ if __name__ == "__main__":
                                         turbine_signature=turbine_signature,
                                         use_tuned_params=True,
                                         kwargs=dict(model_key=model,
-                                                    model_checkpoint=args.checkpoint[0] if len(args.checkpoint) == 1 else args.checkpoint[m], # TODO QUESTION is the latest checkpoint not always the best?
+                                                    model_checkpoint=args.checkpoint[0] if len(args.checkpoint) == 1 else args.checkpoint[m],
                                                     optuna_storage=None,
                                                     study_name=None,#db_setup_params["study_name"],
                                                     model_config=mncf,
                                                     assigned_gpu=next(gpu_cycler) if gpu_cycler else None)
                                         )
             forecasters.append(forecaster)
-            
+    
+    continuity_groups = test_data.select(pl.col("continuity_group").unique()).to_numpy().flatten()
     if args.multiprocessor:
         
         if args.multiprocessor == "mpi":
@@ -2989,27 +3000,32 @@ if __name__ == "__main__":
             if args.multiprocessor == "mpi":
                 ex.max_workers = max_workers
             
-            continuity_groups = test_data.select(pl.col("continuity_group").unique()).to_numpy().flatten()
             test_futures = []
             save_paths = []
+            
             for forecaster in forecasters:
                 prediction_timedelta = forecaster.prediction_timedelta.total_seconds()
                 save_dir = os.path.join(os.path.dirname( base_model_config["dataset"]["data_path"]), "validation_results", 
                                     forecaster.__class__.__name__,
                                     str(int(prediction_timedelta)))
+                save_path = os.path.join(save_dir, f"forecast.parquet")
                 os.makedirs(save_dir, exist_ok=True)
-                forecast_path = os.path.join(save_dir, "forecast.parquet")
+                
+                forecast_path = os.path.join(save_dir, f"forecast_*.parquet")
+                forecast_paths = [os.path.join(save_dir, f"forecast_{cg}.parquet") for cg in continuity_groups]
                 agg_metric_path = os.path.join(save_dir, "agg_metrics.parquet")
                 
-                if args.rerun_validation or not os.path.exists(forecast_path) or not os.path.exists(agg_metric_path):
-                    for f in glob.glob(os.path.join(save_dir, f"forecast*.parquet")):
-                        os.remove(f)
+
+                if args.rerun_validation or not all(os.path.exists(fp) for fp in forecast_paths):
+                    if args.rerun_validation:
+                        for f in glob.glob(forecast_path):
+                            os.remove(f)
                     for cg in continuity_groups:
-                        save_paths.append(os.path.join(save_dir, f"forecast_{len(save_paths)}.parquet"))
+                        # save_paths.append(os.path.join(save_dir, f"forecast_{cg}.parquet"))
                         test_futures.append(ex.submit(make_predictions, forecaster=forecaster,  
                                             test_data=test_data.filter(pl.col("continuity_group") == cg), 
-                                            prediction_type=args.prediction_type, single_cg=True, 
-                                            save_path=save_paths[-1]))
+                                            prediction_type=args.prediction_type, single_cg=True, save_path=save_path))
+                                            # save_path=save_paths[-1]))
                                             # assigned_gpu=next(gpu_cycler) if gpu_cycler else None))
             
             res_idx = 0
@@ -3020,8 +3036,10 @@ if __name__ == "__main__":
                                     forecaster.__class__.__name__,
                                     str(int(prediction_timedelta)))
                 
-                forecast_paths = glob.glob(os.path.join(save_dir, "forecast_*.parquet"))
-                if args.rerun_validation or not all(os.path.exists(fp) for fp in forecast_paths) and (len(forecast_paths) == len(continuity_groups)):
+                # forecast_paths = glob.glob(os.path.join(save_dir, "forecast_*.parquet"))
+                forecast_paths = [os.path.join(save_dir, f"forecast_{cg}.parquet") for cg in continuity_groups]
+                forecast_path = os.path.join(save_dir, f"forecast*.parquet")
+                if args.rerun_validation or not all(os.path.exists(fp) for fp in forecast_paths) or not (len(forecast_paths) == len(continuity_groups)):
                     forecaster_res = []
                     for cg in continuity_groups:
                         test_futures[res_idx].result()
@@ -3031,17 +3049,18 @@ if __name__ == "__main__":
                         # res_idx += 1
                         
                     # forecaster_res = pl.concat(forecaster_res, how="vertical")
-                    forecaster_res = pl.scan_parquet(os.path.join(save_dir, "forecast_*.parquet"), glob=True)
+                    
                     results.append({
                         "forecaster_name": forecaster.__class__.__name__,
                         "prediction_timedelta": forecaster.prediction_timedelta.total_seconds(),
-                        "forecast_df": forecaster_res
+                        "forecast_df": pl.scan_parquet(forecast_path, glob=True)
                     })
                     # forecaster_res.write_parquet(forecast_path)
                 else:
+                    
                     results.append({
                         "forecaster_name": forecaster.__class__.__name__,
-                        "forecast_df": pl.scan_parquet(forecast_path),
+                        "forecast_df": pl.scan_parquet(forecast_path, glob=True),
                         # "agg_metrics": pl.read_parquet(agg_metric_path), 
                         "prediction_timedelta": prediction_timedelta
                     })
@@ -3056,25 +3075,27 @@ if __name__ == "__main__":
                                     forecaster.__class__.__name__,
                                     str(int(prediction_timedelta)))
             os.makedirs(save_dir, exist_ok=True)
-            forecast_path = os.path.join(save_dir, "forecast.parquet")
+            # forecast_path = os.path.join(save_dir, "forecast.parquet")
             # agg_metric_path = os.path.join(save_dir, "agg_metrics.parquet")
             
-            if args.rerun_validation or not os.path.exists(forecast_path):
-                for f in glob.glob(os.path.join(save_dir, f"forecast*.parquet")):
-                    os.remove(f)
+            # forecast_paths = glob.glob(os.path.join(save_dir, "forecast_*.parquet"))
+            forecast_paths = [os.path.join(save_dir, f"forecast_{cg}.parquet") for cg in continuity_groups]
+            forecast_path = os.path.join(save_dir, f"forecast*.parquet")
+            save_path = os.path.join(save_dir, f"forecast.parquet")
+            if args.rerun_validation or not all(os.path.exists(fp) for fp in forecast_paths) or not (len(forecast_paths) == len(continuity_groups)):
+                if args.rerun_validation:
+                    for f in glob.glob(forecast_path):
+                        os.remove(f)
                     
-                save_path = os.path.join(save_dir, f"forecast_0.parquet")
                 make_predictions(
                     forecaster=forecaster, test_data=test_data,
                     prediction_type=args.prediction_type, single_cg=False,
                     save_path=save_path)
                 
-                forecast_df = pl.scan_parquet(save_path)
-                
                     # assigned_gpu=next(gpu_cycler) if gpu_cycler else None)
                 results.append({
                     "forecaster_name": forecaster.__class__.__name__,
-                    "forecast_df": forecast_df,
+                    "forecast_df": pl.scan_parquet(forecast_path),
                     # "agg_metrics": agg_metrics, 
                     "prediction_timedelta": prediction_timedelta
                     })
@@ -3083,7 +3104,7 @@ if __name__ == "__main__":
             else:
                 results.append({
                     "forecaster_name": forecaster.__class__.__name__,
-                    "forecast_df": pl.scan_parquet(forecast_path),
+                    "forecast_df": pl.scan_parquet(forecast_path, glob=True),
                     # "agg_metrics": pl.read_parquet(agg_metric_path), 
                     "prediction_timedelta": prediction_timedelta
                     })
@@ -3095,11 +3116,12 @@ if __name__ == "__main__":
                                 forecaster.__class__.__name__,
                                 str(int(prediction_timedelta)))
         os.makedirs(save_dir, exist_ok=True)
-        forecast_paths = glob.glob(os.path.join(save_dir, "forecast_*.parquet"))
+        
+        forecast_path = os.path.join(save_dir, "forecast_*.parquet")
         agg_metric_path = os.path.join(save_dir, "agg_metrics.parquet")       
         
         if args.rerun_validation or not os.path.exists(agg_metric_path):
-            forecast_df = pl.scan_parquet(forecast_paths, glob=True)
+            forecast_df = pl.scan_parquet(forecast_path, glob=True)
             agg_metrics = generate_forecaster_agg_results(forecaster, forecast_df.collect(), test_data, data_module, args.prediction_type)
             agg_metrics.write_parquet(agg_metric_path)
         else:
