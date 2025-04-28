@@ -1789,7 +1789,13 @@ class MLForecast(WindForecast):
                                  f"{self.model_config['experiment']['project_name']}_{self.model_key}"))
         
         logging.info("Found pretrained model, loading...")
-        checkpoint = torch.load(checkpoint_path, map_location="gpu" if torch.cuda.is_available() else "cpu", weights_only=False)
+        if torch.cuda.is_available():
+            device = f"cuda:{int(os.environ['CUDA_VISIBLE_DEVICES'].split(",")[0])}"
+            logging.info(f"Loading checkpoint onto CUDA device {device}")
+        else:
+            device = "cpu"
+            logging.info(f"Loading checkpoint onto cpu core.")
+        checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
         
         # Extract hyperparameters, handling potential key variations
         hparams = checkpoint.get('hyper_parameters', checkpoint.get('hparams'))
@@ -2191,6 +2197,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, assigned
     
     if assigned_gpu:
         os.environ['CUDA_VISIBLE_DEVICES'] = str(assigned_gpu)
+        logging.info(f"Using assigned_gpu = {assigned_gpu}")
     
     forecasts = []
     
