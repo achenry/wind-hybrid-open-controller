@@ -216,7 +216,7 @@ if __name__ == "__main__":
     
     scaler_params = data_module.compute_scaler_params()
     
-    if args.mode == "tune" and worker_id > 0:
+    if args.mode == "tune" and worker_id >= 0:
         
         # Parse the core argument (e.g., "0-9" or "10,11,12")
         # if args.cores:
