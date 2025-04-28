@@ -1778,7 +1778,7 @@ class MLForecast(WindForecast):
         }
 
         # Add model-specific arguments from the config YAML
-        estimator_kwargs.update(self.model_config["model"][args.model])
+        estimator_kwargs.update(self.model_config["model"][self.model_key])
         
         estimator = estimator_class(**estimator_kwargs)
         self.data_module.freq = pd.Timedelta(self.data_module.freq).to_pytimedelta()
