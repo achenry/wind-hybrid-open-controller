@@ -1774,7 +1774,7 @@ class MLForecast(WindForecast):
             "context_length": self.data_module.context_length,
             "train_sampler": ExpectedNumInstanceSampler(num_instances=1.0, min_past=self.data_module.context_length, min_future=self.data_module.prediction_length),
             "validation_sampler": ValidationSplitSampler(min_past=self.data_module.context_length, min_future=self.data_module.prediction_length),
-            "trainer_kwargs": config["trainer"],
+            "trainer_kwargs": self.model_config["trainer"],
         }
 
         # Add model-specific arguments from the config YAML
