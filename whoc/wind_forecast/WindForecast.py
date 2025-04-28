@@ -53,6 +53,8 @@ from pytorch_transformer_ts.autoformer.estimator import AutoformerEstimator
 from pytorch_transformer_ts.autoformer.lightning_module import AutoformerLightningModule
 from pytorch_transformer_ts.spacetimeformer.estimator import SpacetimeformerEstimator
 from pytorch_transformer_ts.spacetimeformer.lightning_module import SpacetimeformerLightningModule
+from pytorch_transformer_ts.tactis_2.estimator import TACTiS2Estimator
+from pytorch_transformer_ts.tactis_2.lightning_module import TACTiS2LightningModule
 
 from wind_forecasting.preprocessing.data_inspector import DataInspector
 from wind_forecasting.preprocessing.data_module import DataModule
@@ -1715,29 +1717,42 @@ class MLForecast(WindForecast):
         self.data_module.get_dataset_info()
         self.scaler_params = self.data_module.compute_scaler_params()
         
-        estimator_class = globals()[f"{self.model_key.capitalize()}Estimator"]
-        lightning_module_class = globals()[f"{self.model_key.capitalize()}LightningModule"]
-        distr_output = globals()[self.model_config["model"]["distr_output"]["class"]]
-        
-        estimator = estimator_class(
-            freq=self.data_module.freq, 
-            prediction_length=self.data_module.prediction_length,
-            context_length=self.data_module.context_length,
-            num_feat_dynamic_real=self.data_module.num_feat_dynamic_real, 
-            num_feat_static_cat=self.data_module.num_feat_static_cat,
-            cardinality=self.data_module.cardinality,
-            num_feat_static_real=self.data_module.num_feat_static_real,
-            input_size=self.data_module.num_target_vars,
-            scaling=False,
-            batch_size=self.model_config["dataset"].setdefault("batch_size", 128),
-            num_batches_per_epoch=self.model_config["trainer"].setdefault("limit_train_batches", 1000), #  set this to be arbitrarily high st limit train_batches dominates
-            train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=self.data_module.context_length, min_future=self.data_module.prediction_length), # TODO should be context_len + max(seq_len) to avoid padding..
-            validation_sampler=ValidationSplitSampler(min_past=self.data_module.context_length, min_future=self.data_module.prediction_length),
-            time_features=[second_of_minute, minute_of_hour, hour_of_day, day_of_year],
-            distr_output=distr_output(dim=self.data_module.num_target_vars, **self.model_config["model"]["distr_output"]["kwargs"]),
-            trainer_kwargs=self.model_config["trainer"],
-            **self.model_config["model"][self.model_key]
-        )
+        # Handle TACTiS-2 specifically as its name doesn't follow the simple capitalization pattern
+        if self.model_key == "tactis":
+            estimator_class = TACTiS2Estimator
+            lightning_module_class = TACTiS2LightningModule
+        else:
+            # Original logic for other models
+            estimator_class = globals()[f"{self.model_key.capitalize()}Estimator"]
+            lightning_module_class = globals()[f"{self.model_key.capitalize()}LightningModule"]
+        distr_output_class = globals()[self.model_config["model"]["distr_output"]["class"]]
+
+        # Prepare arguments for the estimator
+        estimator_args = {
+            "freq": self.data_module.freq,
+            "prediction_length": self.data_module.prediction_length,
+            "context_length": self.data_module.context_length,
+            "num_feat_dynamic_real": self.data_module.num_feat_dynamic_real,
+            "num_feat_static_cat": self.data_module.num_feat_static_cat,
+            "cardinality": self.data_module.cardinality,
+            "num_feat_static_real": self.data_module.num_feat_static_real,
+            "input_size": self.data_module.num_target_vars,
+            # scaling=False, # Already removed
+            "batch_size": self.model_config["dataset"].setdefault("batch_size", 128),
+            "num_batches_per_epoch": self.model_config["trainer"].setdefault("limit_train_batches", 1000),
+            "train_sampler": ExpectedNumInstanceSampler(num_instances=1.0, min_past=self.data_module.context_length, min_future=self.data_module.prediction_length),
+            "validation_sampler": ValidationSplitSampler(min_past=self.data_module.context_length, min_future=self.data_module.prediction_length),
+            "time_features": [second_of_minute, minute_of_hour, hour_of_day, day_of_year],
+            "trainer_kwargs": self.model_config["trainer"],
+            **self.model_config["model"][self.model_key] # Add model-specific params from config
+        }
+
+        # Add distr_output only if the model is NOT tactis
+        if self.model_key != "tactis":
+            estimator_args["distr_output"] = distr_output_class(dim=self.data_module.num_target_vars, **self.model_config["model"]["distr_output"]["kwargs"])
+
+        # Instantiate the estimator using the prepared arguments
+        estimator = estimator_class(**estimator_args)
         self.data_module.freq = pd.Timedelta(self.data_module.freq).to_pytimedelta()
         
         metric = "val_loss_epoch"
@@ -2695,7 +2710,7 @@ if __name__ == "__main__":
     
     # true_wind_field = data_module.generate_splits(save=True, reload=False, splits=["test"])._df.collect()
     logging.info("Reading saved test datasets.")
-    data_module.generate_splits(save=True, reload=False, splits=["test"], verbose=False)
+    data_module.generate_splits(save=True, reload=False, splits=["test"])
     
     logging.info("Sorting test datasets by duration.")
     data_module.test_dataset = sorted(data_module.test_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
