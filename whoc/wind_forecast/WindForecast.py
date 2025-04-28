@@ -3163,7 +3163,7 @@ if __name__ == "__main__":
                 value_vars = ["nd_cos", "nd_sin", "ws_horz", "ws_vert"]
                 target_vars = ["ws_horz", "ws_vert"]
             
-            forecasts_long.append(DataInspector.unpivot_dataframe(results[f]["forecast_df"], 
+            forecasts_long.append(DataInspector.unpivot_dataframe(results[f]["forecast_df"].collect(), 
                                                         value_vars=value_vars, 
                                                         turbine_signature=forecaster.turbine_signature)\
                                                 .unpivot(index=["time", "turbine_id"], on=target_vars, 
