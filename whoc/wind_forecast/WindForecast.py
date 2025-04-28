@@ -2210,7 +2210,7 @@ def transform_wind(inp_df, added_wm=None, added_wd=None):
 
 def make_predictions(forecaster, test_data, prediction_type, single_cg, assigned_gpu=None):
     
-    if assigned_gpu := int(assigned_gpu):
+    if assigned_gpu:
         os.environ['CUDA_VISIBLE_DEVICES'] = str(assigned_gpu)
         logging.info(f"Using assigned_gpu = {assigned_gpu}")
         
@@ -2988,7 +2988,8 @@ if __name__ == "__main__":
                         test_futures.append(
                             ex.submit(make_predictions, forecaster=forecaster,  
                                                 test_data=test_data.filter(pl.col("continuity_group") == cg), 
-                                                prediction_type=args.prediction_type, single_cg=True))
+                                                prediction_type=args.prediction_type, single_cg=True,
+                                                assigned_gpu=next(gpu_cycler) if gpu_cycler else None))
             
             res_idx = 0
             results = []
@@ -3037,7 +3038,8 @@ if __name__ == "__main__":
                 
                 forecast_df = make_predictions(
                     forecaster=forecaster, test_data=test_data,
-                    prediction_type=args.prediction_type, single_cg=False)
+                    prediction_type=args.prediction_type, single_cg=False,
+                    assigned_gpu=next(gpu_cycler) if gpu_cycler else None)
                 results.append({
                     "forecaster_name": forecaster.__class__.__name__,
                     "forecast_df": forecast_df,
