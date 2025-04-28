@@ -2228,7 +2228,7 @@ def transform_wind(inp_df, added_wm=None, added_wd=None):
     
     return inp_df.select(original_cols)
 
-def make_predictions(forecaster, test_data, prediction_type, single_cg):
+def make_predictions(forecaster, test_data, prediction_type, single_cg, save_path):
     
     if hasattr(forecaster, "assigned_gpu"):
         os.environ['CUDA_VISIBLE_DEVICES'] = forecaster.assigned_gpu
@@ -2373,8 +2373,8 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg):
         ax[0].set_ylabel("")
         ax[1].set_ylabel("")
     
-    
-    return forecasts
+    forecasts.write_parquet(save_path, statistics=False)
+    # return forecasts
 
 def generate_wind_field_df(datasets, target_cols, feat_dynamic_real_cols):
     full_target = np.concatenate([ds[FieldName.TARGET] for ds in datasets], axis=-1)
@@ -2799,6 +2799,30 @@ if __name__ == "__main__":
     #     num_workers=mp.cpu_count() if args.multiprocessor == "cf" else None,
     # )
     evaluator = None
+    
+    # if GPUs are available, use one CPU and one GPU per task
+    if "CUDA_VISIBLE_DEVICES" in os.environ:
+        cuda_devices = os.environ["CUDA_VISIBLE_DEVICES"] # Note: must 'export' variable within nohup to find on Kestrel
+        logging.info(f"CUDA_VISIBLE_DEVICES is set to: '{cuda_devices}'")
+        try:
+            # Count the number of GPUs specified in CUDA_VISIBLE_DEVICES
+            visible_gpus = [idx for idx in cuda_devices.split(',') if idx.strip()]
+            num_visible_gpus = len(visible_gpus)
+            if num_visible_gpus > 0:
+                logging.info(f"Found {num_visible_gpus} GPUs. Setting max_workers to num_visible_gpus={num_visible_gpus}.")
+                max_workers = num_visible_gpus
+            else:
+                logging.warning(f"CUDA_VISIBLE_DEVICES is set but no valid GPU indices found. Setting max_workers to mp.cpu_count()={mp.cpu_count()}.")
+                max_workers = MPI.COMM_WORLD.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
+        except Exception as e:
+            logging.warning(f"Error parsing CUDA_VISIBLE_DEVICES: {e}")
+        
+        # Create an iterator that cycles through the available GPU IDs
+        gpu_cycler = cycle(visible_gpus)
+        
+    else:
+        max_workers = MPI.COMM_WORLD.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
+        gpu_cycler = None
             
     forecasters = []
     ## GENERATE PERFECT PREVIEW \
@@ -2913,31 +2937,7 @@ if __name__ == "__main__":
     ## GENERATE ML PREVIEW
     if any(ml_model in args.model for ml_model in ["informer", "autoformer", "spacetimeformer", "tactis"]):
         ml_models = [ml_model for ml_model in args.model if ml_model in ["informer", "autoformer", "spacetimeformer", "tactis"]]
-            
-        # if GPUs are available, use one CPU and one GPU per task
-        if "CUDA_VISIBLE_DEVICES" in os.environ:
-            cuda_devices = os.environ["CUDA_VISIBLE_DEVICES"] # Note: must 'export' variable within nohup to find on Kestrel
-            logging.info(f"CUDA_VISIBLE_DEVICES is set to: '{cuda_devices}'")
-            try:
-                # Count the number of GPUs specified in CUDA_VISIBLE_DEVICES
-                visible_gpus = [idx for idx in cuda_devices.split(',') if idx.strip()]
-                num_visible_gpus = len(visible_gpus)
-                if num_visible_gpus > 0:
-                    logging.info(f"Found {num_visible_gpus} GPUs. Setting max_workers to num_visible_gpus={num_visible_gpus}.")
-                    max_workers = num_visible_gpus
-                else:
-                    logging.warning(f"CUDA_VISIBLE_DEVICES is set but no valid GPU indices found. Setting max_workers to mp.cpu_count()={mp.cpu_count()}.")
-                    max_workers = MPI.COMM_WORLD.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
-            except Exception as e:
-                logging.warning(f"Error parsing CUDA_VISIBLE_DEVICES: {e}")
-            
-            # Create an iterator that cycles through the available GPU IDs
-            gpu_cycler = cycle(visible_gpus)
-            
-        else:
-            max_workers = MPI.COMM_WORLD.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
-            gpu_cycler = None
-        
+           
         for m, model in enumerate(ml_models):
             for mncf, ctd, ptd in zip(model_configs, context_timedelta, prediction_timedelta):
             
@@ -2991,6 +2991,7 @@ if __name__ == "__main__":
             
             continuity_groups = test_data.select(pl.col("continuity_group").unique()).to_numpy().flatten()
             test_futures = []
+            save_paths = []
             for forecaster in forecasters:
                 prediction_timedelta = forecaster.prediction_timedelta.total_seconds()
                 save_dir = os.path.join(os.path.dirname( base_model_config["dataset"]["data_path"]), "validation_results", 
@@ -3001,12 +3002,15 @@ if __name__ == "__main__":
                 agg_metric_path = os.path.join(save_dir, "agg_metrics.parquet")
                 
                 if args.rerun_validation or not os.path.exists(forecast_path) or not os.path.exists(agg_metric_path):
+                    for f in glob.glob(os.path.join(save_dir, f"forecast*.parquet")):
+                        os.remove(f)
                     for cg in continuity_groups:
-                        test_futures.append(
-                            ex.submit(make_predictions, forecaster=forecaster,  
-                                                test_data=test_data.filter(pl.col("continuity_group") == cg), 
-                                                prediction_type=args.prediction_type, single_cg=True))
-                                                # assigned_gpu=next(gpu_cycler) if gpu_cycler else None))
+                        save_paths.append(os.path.join(save_dir, f"forecast_{len(save_paths)}.parquet"))
+                        test_futures.append(ex.submit(make_predictions, forecaster=forecaster,  
+                                            test_data=test_data.filter(pl.col("continuity_group") == cg), 
+                                            prediction_type=args.prediction_type, single_cg=True, 
+                                            save_path=save_paths[-1]))
+                                            # assigned_gpu=next(gpu_cycler) if gpu_cycler else None))
             
             res_idx = 0
             results = []
@@ -3015,25 +3019,29 @@ if __name__ == "__main__":
                 save_dir = os.path.join(os.path.dirname( base_model_config["dataset"]["data_path"]), "validation_results", 
                                     forecaster.__class__.__name__,
                                     str(int(prediction_timedelta)))
-                forecast_path = os.path.join(save_dir, "forecast.parquet")
-                if args.rerun_validation or not os.path.exists(forecast_path):
+                
+                forecast_paths = glob.glob(os.path.join(save_dir, "forecast_*.parquet"))
+                if args.rerun_validation or not all(os.path.exists(fp) for fp in forecast_paths) and (len(forecast_paths) == len(continuity_groups)):
                     forecaster_res = []
                     for cg in continuity_groups:
-                        forecaster_res.append(test_futures[res_idx].result())
+                        test_futures[res_idx].result()
                         
-                        res_idx += 1
+                        # forecaster_res.append(pl.read_parquet(save_paths[res_idx]))
                         
-                    forecaster_res = pl.concat(forecaster_res, how="vertical")
-                    forecaster_res.write_parquet(forecast_path)
+                        # res_idx += 1
+                        
+                    # forecaster_res = pl.concat(forecaster_res, how="vertical")
+                    forecaster_res = pl.scan_parquet(os.path.join(save_dir, "forecast_*.parquet"), glob=True)
                     results.append({
                         "forecaster_name": forecaster.__class__.__name__,
                         "prediction_timedelta": forecaster.prediction_timedelta.total_seconds(),
                         "forecast_df": forecaster_res
                     })
+                    # forecaster_res.write_parquet(forecast_path)
                 else:
                     results.append({
                         "forecaster_name": forecaster.__class__.__name__,
-                        "forecast_df": pl.read_parquet(forecast_path),
+                        "forecast_df": pl.scan_parquet(forecast_path),
                         # "agg_metrics": pl.read_parquet(agg_metric_path), 
                         "prediction_timedelta": prediction_timedelta
                     })
@@ -3041,7 +3049,7 @@ if __name__ == "__main__":
     else:
         logging.info(f"Running generate_forecaster_results with loop.")
         results = []
-        for forecaster in forecasters:
+        for f, forecaster in enumerate(forecasters):
             prediction_timedelta = forecaster.prediction_timedelta.total_seconds()
         
             save_dir = os.path.join(os.path.dirname( base_model_config["dataset"]["data_path"]), "validation_results", 
@@ -3052,10 +3060,17 @@ if __name__ == "__main__":
             # agg_metric_path = os.path.join(save_dir, "agg_metrics.parquet")
             
             if args.rerun_validation or not os.path.exists(forecast_path):
-                
-                forecast_df = make_predictions(
+                for f in glob.glob(os.path.join(save_dir, f"forecast*.parquet")):
+                    os.remove(f)
+                    
+                save_path = os.path.join(save_dir, f"forecast_0.parquet")
+                make_predictions(
                     forecaster=forecaster, test_data=test_data,
-                    prediction_type=args.prediction_type, single_cg=False)
+                    prediction_type=args.prediction_type, single_cg=False,
+                    save_path=save_path)
+                
+                forecast_df = pl.scan_parquet(save_path)
+                
                     # assigned_gpu=next(gpu_cycler) if gpu_cycler else None)
                 results.append({
                     "forecaster_name": forecaster.__class__.__name__,
@@ -3064,12 +3079,11 @@ if __name__ == "__main__":
                     "prediction_timedelta": prediction_timedelta
                     })
                 
-                results[-1]["forecast_df"].write_parquet(forecast_path)
                 # results[-1]["agg_metrics"].write_parquet(agg_metric_path)
             else:
                 results.append({
                     "forecaster_name": forecaster.__class__.__name__,
-                    "forecast_df": pl.read_parquet(forecast_path),
+                    "forecast_df": pl.scan_parquet(forecast_path),
                     # "agg_metrics": pl.read_parquet(agg_metric_path), 
                     "prediction_timedelta": prediction_timedelta
                     })
@@ -3081,15 +3095,15 @@ if __name__ == "__main__":
                                 forecaster.__class__.__name__,
                                 str(int(prediction_timedelta)))
         os.makedirs(save_dir, exist_ok=True)
-        forecast_path = os.path.join(save_dir, "forecast.parquet")
+        forecast_paths = glob.glob(os.path.join(save_dir, "forecast_*.parquet"))
         agg_metric_path = os.path.join(save_dir, "agg_metrics.parquet")       
         
         if args.rerun_validation or not os.path.exists(agg_metric_path):
-            forecast_df = pl.read_parquet(forecast_path)
-            agg_metrics = generate_forecaster_agg_results(forecaster, forecast_df, test_data, data_module, args.prediction_type)
+            forecast_df = pl.scan_parquet(forecast_paths, glob=True)
+            agg_metrics = generate_forecaster_agg_results(forecaster, forecast_df.collect(), test_data, data_module, args.prediction_type)
             agg_metrics.write_parquet(agg_metric_path)
         else:
-            agg_metrics =  pl.read_parquet(agg_metric_path)
+            agg_metrics =  pl.scan_parquet(agg_metric_path)
             
         results[f]["agg_metrics"] = agg_metrics
         
