@@ -1712,13 +1712,13 @@ class MLForecast(WindForecast):
         self.model_key = self.kwargs["model_key"]
         self.model_config = self.kwargs["model_config"]
             
-        # if assigned_gpu := int(self.kwargs["assigned_gpu"]):
-        #     # os.environ['CUDA_VISIBLE_DEVICES'] = str(assigned_gpu)
-        #     logging.info(f"Using assigned_gpu = {assigned_gpu}")
-        #     torch.cuda.set_device(assigned_gpu)
+        if assigned_gpu := int(self.kwargs["assigned_gpu"]):
+            # os.environ['CUDA_VISIBLE_DEVICES'] = str(assigned_gpu)
+            logging.info(f"Using assigned_gpu = {assigned_gpu} in MLForecast for {self.model_key} and self.prediction_timedelta = {self.prediction_timedelta}.")
+            torch.cuda.set_device(assigned_gpu)
             
-        #     # Clear GPU memory before starting
-        #     torch.cuda.empty_cache()
+            # Clear GPU memory before starting
+            torch.cuda.empty_cache()
         
         # don't need this, can load hyperparamas from checkpoint
         # if self.use_tuned_params:
@@ -1804,9 +1804,9 @@ class MLForecast(WindForecast):
         
         logging.info("Found pretrained model, loading...")
         if torch.cuda.is_available():
-            device = f"cuda:{int(os.environ['CUDA_VISIBLE_DEVICES'].split(",")[0])}"
+            device = None # f"cuda:{int(os.environ['CUDA_VISIBLE_DEVICES'].split(",")[0])}"
             # device = f"cuda:{assigned_gpu or 0}"
-            logging.info(f"Loading checkpoint onto CUDA device {device}")
+            # logging.info(f"Loading checkpoint onto CUDA device {device}")
         else:
             device = "cpu"
             logging.info(f"Loading checkpoint onto cpu core.")
@@ -2952,8 +2952,8 @@ if __name__ == "__main__":
                                                     model_checkpoint=args.checkpoint[0] if len(args.checkpoint) == 1 else args.checkpoint[m], # TODO QUESTION is the latest checkpoint not always the best?
                                                     optuna_storage=None,
                                                     study_name=None,#db_setup_params["study_name"],
-                                                    model_config=mncf)
-                                                    # assigned_gpu=next(gpu_cycler) if gpu_cycler else None)
+                                                    model_config=mncf,
+                                                    assigned_gpu=next(gpu_cycler) if gpu_cycler else None)
                                         )
             forecasters.append(forecaster)
             
