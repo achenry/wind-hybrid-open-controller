@@ -1712,15 +1712,22 @@ class MLForecast(WindForecast):
         self.model_key = self.kwargs["model_key"]
         self.model_config = self.kwargs["model_config"]
             
-        if assigned_gpu := self.kwargs["assigned_gpu"]:
-            os.environ['CUDA_VISIBLE_DEVICES'] = assigned_gpu
-            assigned_gpu = int(assigned_gpu)
-            logging.info(f"Using assigned_gpu = {assigned_gpu} in MLForecast for {self.model_key} and self.prediction_timedelta = {self.prediction_timedelta}.")
-            torch.cuda.set_device(assigned_gpu)
+        if "assigned_gpu" in self.kwargs and self.kwargs["assigned_gpu"]:
+            os.environ["CUDA_VISIBLE_DEVICES"] = self.kwargs["assigned_gpu"]
+            self.assigned_gpu = self.kwargs["assigned_gpu"]
+            logging.info(f"Using assigned_gpu = {self.assigned_gpu} in MLForecast for {self.model_key} and self.prediction_timedelta = {self.prediction_timedelta}.")
+            # torch.cuda.set_device(self.assigned_gpu)
             
             # Clear GPU memory before starting
             torch.cuda.empty_cache()
-        
+        elif "CUDA_VISIBLE_DEVICES" in os.environ:
+            self.assigned_gpu = os.environ['CUDA_VISIBLE_DEVICES']
+            logging.info(f"Using assigned_gpu = {os.environ['CUDA_VISIBLE_DEVICES']} in MLForecast for {self.model_key} and self.prediction_timedelta = {self.prediction_timedelta}.")
+            # torch.cuda.set_device(self.assigned_gpu)
+            
+            # Clear GPU memory before starting
+            torch.cuda.empty_cache()
+            
         # don't need this, can load hyperparamas from checkpoint
         # if self.use_tuned_params:
         #     try:
