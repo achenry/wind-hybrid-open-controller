@@ -1712,8 +1712,9 @@ class MLForecast(WindForecast):
         self.model_key = self.kwargs["model_key"]
         self.model_config = self.kwargs["model_config"]
             
-        if assigned_gpu := int(self.kwargs["assigned_gpu"]):
-            # os.environ['CUDA_VISIBLE_DEVICES'] = str(assigned_gpu)
+        if assigned_gpu := self.kwargs["assigned_gpu"]:
+            os.environ['CUDA_VISIBLE_DEVICES'] = assigned_gpu
+            assigned_gpu = int(assigned_gpu)
             logging.info(f"Using assigned_gpu = {assigned_gpu} in MLForecast for {self.model_key} and self.prediction_timedelta = {self.prediction_timedelta}.")
             torch.cuda.set_device(assigned_gpu)
             
@@ -2208,13 +2209,13 @@ def transform_wind(inp_df, added_wm=None, added_wd=None):
     
     return inp_df.select(original_cols)
 
-def make_predictions(forecaster, test_data, prediction_type, single_cg, assigned_gpu=None):
+def make_predictions(forecaster, test_data, prediction_type, single_cg):
     
-    if assigned_gpu:
-        os.environ['CUDA_VISIBLE_DEVICES'] = str(assigned_gpu)
-        logging.info(f"Using assigned_gpu = {assigned_gpu}")
+    if hasattr(forecaster, "assigned_gpu"):
+        os.environ['CUDA_VISIBLE_DEVICES'] = str(forecaster.assigned_gpu)
+        logging.info(f"Using assigned_gpu = {forecaster.assigned_gpu}")
         
-        # torch.cuda.set_device(assigned_gpu)
+        torch.cuda.set_device(forecaster.assigned_gpu)
         
         # Clear GPU memory before starting
         torch.cuda.empty_cache()
@@ -2988,8 +2989,8 @@ if __name__ == "__main__":
                         test_futures.append(
                             ex.submit(make_predictions, forecaster=forecaster,  
                                                 test_data=test_data.filter(pl.col("continuity_group") == cg), 
-                                                prediction_type=args.prediction_type, single_cg=True,
-                                                assigned_gpu=next(gpu_cycler) if gpu_cycler else None))
+                                                prediction_type=args.prediction_type, single_cg=True))
+                                                # assigned_gpu=next(gpu_cycler) if gpu_cycler else None))
             
             res_idx = 0
             results = []
@@ -3038,8 +3039,8 @@ if __name__ == "__main__":
                 
                 forecast_df = make_predictions(
                     forecaster=forecaster, test_data=test_data,
-                    prediction_type=args.prediction_type, single_cg=False,
-                    assigned_gpu=next(gpu_cycler) if gpu_cycler else None)
+                    prediction_type=args.prediction_type, single_cg=False)
+                    # assigned_gpu=next(gpu_cycler) if gpu_cycler else None)
                 results.append({
                     "forecaster_name": forecaster.__class__.__name__,
                     "forecast_df": forecast_df,
