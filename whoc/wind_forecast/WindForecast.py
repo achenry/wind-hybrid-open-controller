@@ -23,6 +23,7 @@ import glob
 from functools import partial
 from itertools import chain
 import torch
+from itertools import cycle
 
 # from joblib import parallel_backend
 
@@ -1711,6 +1712,15 @@ class MLForecast(WindForecast):
         self.model_key = self.kwargs["model_key"]
         self.model_config = self.kwargs["model_config"]
         
+            
+        if self.assigned_gpu := self.kwargs["assigned_gpu"]:
+            # os.environ['CUDA_VISIBLE_DEVICES'] = str(assigned_gpu)
+            logging.info(f"Using assigned_gpu = {self.assigned_gpu}")
+            torch.cuda.set_device(self.assigned_gpu)
+            
+            # Clear GPU memory before starting
+            torch.cuda.empty_cache()
+        
         # don't need this, can load hyperparamas from checkpoint
         # if self.use_tuned_params:
         #     try:
@@ -1795,7 +1805,8 @@ class MLForecast(WindForecast):
         
         logging.info("Found pretrained model, loading...")
         if torch.cuda.is_available():
-            device = f"cuda:{int(os.environ['CUDA_VISIBLE_DEVICES'].split(",")[0])}"
+            # device = f"cuda:{int(os.environ['CUDA_VISIBLE_DEVICES'].split(",")[0])}"
+            device = f"cuda:{self.assigned_gpu or 0}"
             logging.info(f"Loading checkpoint onto CUDA device {device}")
         else:
             device = "cpu"
@@ -2198,15 +2209,7 @@ def transform_wind(inp_df, added_wm=None, added_wd=None):
     
     return inp_df.select(original_cols)
 
-def make_predictions(forecaster, test_data, prediction_type, single_cg, assigned_gpu=None):
-    
-    if assigned_gpu:
-        # os.environ['CUDA_VISIBLE_DEVICES'] = str(assigned_gpu)
-        logging.info(f"Using assigned_gpu = {assigned_gpu}")
-        torch.cuda.set_device(assigned_gpu)
-        
-        # Clear GPU memory before starting
-        torch.cuda.empty_cache()
+def make_predictions(forecaster, test_data, prediction_type, single_cg):
     
     forecasts = []
     
@@ -2881,8 +2884,32 @@ if __name__ == "__main__":
             forecasters.append(forecaster)
         
     ## GENERATE ML PREVIEW
-    elif any(ml_model in args.model for ml_model in ["informer", "autoformer", "spacetimeformer", "tactis"]):
-        ml_models = [ml_model for ml_model in args.model if ml_model in ["informer", "autoformer", "spacetimeformer", "tactis"]]    
+    if any(ml_model in args.model for ml_model in ["informer", "autoformer", "spacetimeformer", "tactis"]):
+        ml_models = [ml_model for ml_model in args.model if ml_model in ["informer", "autoformer", "spacetimeformer", "tactis"]]
+            
+        # if GPUs are available, use one CPU and one GPU per task
+        if "CUDA_VISIBLE_DEVICES" in os.environ:
+            cuda_devices = os.environ["CUDA_VISIBLE_DEVICES"] # Note: must 'export' variable within nohup to find on Kestrel
+            logging.info(f"CUDA_VISIBLE_DEVICES is set to: '{cuda_devices}'")
+            try:
+                # Count the number of GPUs specified in CUDA_VISIBLE_DEVICES
+                visible_gpus = [idx for idx in cuda_devices.split(',') if idx.strip()]
+                num_visible_gpus = len(visible_gpus)
+                if num_visible_gpus > 0:
+                    logging.info(f"Found {num_visible_gpus} GPUs. Setting max_workers to num_visible_gpus={num_visible_gpus}.")
+                    max_workers = num_visible_gpus
+                else:
+                    logging.warning(f"CUDA_VISIBLE_DEVICES is set but no valid GPU indices found. Setting max_workers to mp.cpu_count()={mp.cpu_count()}.")
+                    max_workers = MPI.COMM_WORLD.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
+            except Exception as e:
+                logging.warning(f"Error parsing CUDA_VISIBLE_DEVICES: {e}")
+            
+            # Create an iterator that cycles through the available GPU IDs
+            gpu_cycler = cycle(visible_gpus)
+            
+        else:
+            max_workers = MPI.COMM_WORLD.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
+            gpu_cycler = None
         
         for m, model in enumerate(ml_models):
             for mncf, ctd, ptd in zip(model_configs, context_timedelta, prediction_timedelta):
@@ -2915,34 +2942,11 @@ if __name__ == "__main__":
                                                     model_checkpoint=args.checkpoint[0] if len(args.checkpoint) == 1 else args.checkpoint[m], # TODO QUESTION is the latest checkpoint not always the best?
                                                     optuna_storage=None,
                                                     study_name=None,#db_setup_params["study_name"],
-                                                    model_config=mncf)
+                                                    model_config=mncf,
+                                                    assigned_gpu=next(gpu_cycler) if gpu_cycler else None)
                                         )
             forecasters.append(forecaster)
-
-    # if GPUs are available, use one CPU and one GPU per task
-    if "CUDA_VISIBLE_DEVICES" in os.environ:
-        cuda_devices = os.environ["CUDA_VISIBLE_DEVICES"] # Note: must 'export' variable within nohup to find on Kestrel
-        logging.info(f"CUDA_VISIBLE_DEVICES is set to: '{cuda_devices}'")
-        try:
-            # Count the number of GPUs specified in CUDA_VISIBLE_DEVICES
-            visible_gpus = [idx for idx in cuda_devices.split(',') if idx.strip()]
-            num_visible_gpus = len(visible_gpus)
-            if num_visible_gpus > 0:
-                logging.info(f"Founf {num_visible_gpus} GPUs. Setting max_workers to num_visible_gpus={num_visible_gpus}.")
-                max_workers = num_visible_gpus
-            else:
-                logging.warning(f"CUDA_VISIBLE_DEVICES is set but no valid GPU indices found. Setting max_workers to mp.cpu_count()={mp.cpu_count()}.")
-                max_workers = MPI.COMM_WORLD.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
-        except Exception as e:
-            logging.warning(f"Error parsing CUDA_VISIBLE_DEVICES: {e}")
-        
-        # Create an iterator that cycles through the available GPU IDs
-        gpu_cycler = cycle(visible_gpus)
-        
-    else:
-        max_workers = MPI.COMM_WORLD.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
-        gpu_cycler = None
-    
+            
     if args.multiprocessor:
         
         if args.multiprocessor == "mpi":
@@ -2974,9 +2978,7 @@ if __name__ == "__main__":
                         test_futures.append(
                             ex.submit(make_predictions, forecaster=forecaster,  
                                                 test_data=test_data.filter(pl.col("continuity_group") == cg), 
-                                                prediction_type=args.prediction_type, single_cg=True, 
-                                                assigned_gpu=next(gpu_cycler) if gpu_cycler else None))
-                    
+                                                prediction_type=args.prediction_type, single_cg=True))
             
             res_idx = 0
             results = []
@@ -3025,8 +3027,7 @@ if __name__ == "__main__":
                 
                 forecast_df = make_predictions(
                     forecaster=forecaster, test_data=test_data,
-                    prediction_type=args.prediction_type, single_cg=False, 
-                    assigned_gpu=next(gpu_cycler) if gpu_cycler else None)
+                    prediction_type=args.prediction_type, single_cg=False)
                 results.append({
                     "forecaster_name": forecaster.__class__.__name__,
                     "forecast_df": forecast_df,
