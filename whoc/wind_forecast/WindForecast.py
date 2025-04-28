@@ -1711,15 +1711,14 @@ class MLForecast(WindForecast):
         self.n_prediction_interval = 1
         self.model_key = self.kwargs["model_key"]
         self.model_config = self.kwargs["model_config"]
-        
             
-        if assigned_gpu := int(self.kwargs["assigned_gpu"]):
-            # os.environ['CUDA_VISIBLE_DEVICES'] = str(assigned_gpu)
-            logging.info(f"Using assigned_gpu = {assigned_gpu}")
-            torch.cuda.set_device(assigned_gpu)
+        # if assigned_gpu := int(self.kwargs["assigned_gpu"]):
+        #     # os.environ['CUDA_VISIBLE_DEVICES'] = str(assigned_gpu)
+        #     logging.info(f"Using assigned_gpu = {assigned_gpu}")
+        #     torch.cuda.set_device(assigned_gpu)
             
-            # Clear GPU memory before starting
-            torch.cuda.empty_cache()
+        #     # Clear GPU memory before starting
+        #     torch.cuda.empty_cache()
         
         # don't need this, can load hyperparamas from checkpoint
         # if self.use_tuned_params:
@@ -1805,8 +1804,8 @@ class MLForecast(WindForecast):
         
         logging.info("Found pretrained model, loading...")
         if torch.cuda.is_available():
-            # device = f"cuda:{int(os.environ['CUDA_VISIBLE_DEVICES'].split(",")[0])}"
-            device = f"cuda:{assigned_gpu or 0}"
+            device = f"cuda:{int(os.environ['CUDA_VISIBLE_DEVICES'].split(",")[0])}"
+            # device = f"cuda:{assigned_gpu or 0}"
             logging.info(f"Loading checkpoint onto CUDA device {device}")
         else:
             device = "cpu"
@@ -2209,7 +2208,16 @@ def transform_wind(inp_df, added_wm=None, added_wd=None):
     
     return inp_df.select(original_cols)
 
-def make_predictions(forecaster, test_data, prediction_type, single_cg):
+def make_predictions(forecaster, test_data, prediction_type, single_cg, assigned_gpu=None):
+    
+    if assigned_gpu := int(assigned_gpu):
+        os.environ['CUDA_VISIBLE_DEVICES'] = str(assigned_gpu)
+        logging.info(f"Using assigned_gpu = {assigned_gpu}")
+        
+        # torch.cuda.set_device(assigned_gpu)
+        
+        # Clear GPU memory before starting
+        torch.cuda.empty_cache()
     
     forecasts = []
     
@@ -2906,6 +2914,8 @@ if __name__ == "__main__":
             
             # Create an iterator that cycles through the available GPU IDs
             gpu_cycler = cycle(visible_gpus)
+            for i in range(5):
+                print(f"Next GPU is {next(gpu_cycler)}")
             
         else:
             max_workers = MPI.COMM_WORLD.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
@@ -2942,8 +2952,8 @@ if __name__ == "__main__":
                                                     model_checkpoint=args.checkpoint[0] if len(args.checkpoint) == 1 else args.checkpoint[m], # TODO QUESTION is the latest checkpoint not always the best?
                                                     optuna_storage=None,
                                                     study_name=None,#db_setup_params["study_name"],
-                                                    model_config=mncf,
-                                                    assigned_gpu=next(gpu_cycler) if gpu_cycler else None)
+                                                    model_config=mncf)
+                                                    # assigned_gpu=next(gpu_cycler) if gpu_cycler else None)
                                         )
             forecasters.append(forecaster)
             
