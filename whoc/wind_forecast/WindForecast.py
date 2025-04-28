@@ -1713,7 +1713,7 @@ class MLForecast(WindForecast):
         self.model_config = self.kwargs["model_config"]
         
             
-        if assigned_gpu := self.kwargs["assigned_gpu"]:
+        if assigned_gpu := int(self.kwargs["assigned_gpu"]):
             # os.environ['CUDA_VISIBLE_DEVICES'] = str(assigned_gpu)
             logging.info(f"Using assigned_gpu = {assigned_gpu}")
             torch.cuda.set_device(assigned_gpu)
@@ -1889,7 +1889,7 @@ class MLForecast(WindForecast):
             logging.info(f"Using DistributionForecastGenerator for {self.model_key} model.")
             # Ensure estimator has distr_output before accessing
             if not hasattr(estimator, 'distr_output'):
-                    raise AttributeError(f"Estimator for model '{self.model_key}' is missing 'distr_output' attribute needed for DistributionForecastGenerator.")
+                raise AttributeError(f"Estimator for model '{self.model_key}' is missing 'distr_output' attribute needed for DistributionForecastGenerator.")
             forecast_generator = DistributionForecastGenerator(estimator.distr_output)
 
         
