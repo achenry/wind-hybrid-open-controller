@@ -1757,25 +1757,30 @@ class MLForecast(WindForecast):
         lightning_module_class = globals()[f"{self.model_key.capitalize()}LightningModule"]
         distr_output = globals()[self.model_config["model"]["distr_output"]["class"]]
         
-        estimator = estimator_class(
-            freq=self.data_module.freq, 
-            prediction_length=self.data_module.prediction_length,
-            context_length=self.data_module.context_length,
-            num_feat_dynamic_real=self.data_module.num_feat_dynamic_real, 
-            num_feat_static_cat=self.data_module.num_feat_static_cat,
-            cardinality=self.data_module.cardinality,
-            num_feat_static_real=self.data_module.num_feat_static_real,
-            input_size=self.data_module.num_target_vars,
-            scaling=False,
-            batch_size=self.model_config["dataset"].setdefault("batch_size", 128),
-            num_batches_per_epoch=self.model_config["trainer"].setdefault("limit_train_batches", 1000), #  set this to be arbitrarily high st limit train_batches dominates
-            train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=self.data_module.context_length, min_future=self.data_module.prediction_length), # TODO should be context_len + max(seq_len) to avoid padding..
-            validation_sampler=ValidationSplitSampler(min_past=self.data_module.context_length, min_future=self.data_module.prediction_length),
-            time_features=[second_of_minute, minute_of_hour, hour_of_day, day_of_year],
-            distr_output=distr_output(dim=self.data_module.num_target_vars, **self.model_config["model"]["distr_output"]["kwargs"]),
-            trainer_kwargs=self.model_config["trainer"],
-            **self.model_config["model"][self.model_key]
-        )
+        # Prepare all arguments in a dictionary # TODO HIGH PULL FROM CHECKPOINT
+        estimator_kwargs = {
+            "freq": self.data_module.freq,
+            "prediction_length": self.data_module.prediction_length,
+            "num_feat_dynamic_real": self.data_module.num_feat_dynamic_real,
+            "num_feat_static_cat": self.data_module.num_feat_static_cat,
+            "cardinality": self.data_module.cardinality,
+            "num_feat_static_real": self.data_module.num_feat_static_real,
+            "input_size": self.data_module.num_target_vars,
+            "scaling": False, # Scaling handled externally or internally by TACTiS
+            "lags_seq": [0], # TACTiS doesn't typically use lags
+            "time_features": [second_of_minute, minute_of_hour, hour_of_day, day_of_year],
+            "batch_size": self.model_config["dataset"].setdefault("batch_size", 128), 
+            "num_batches_per_epoch": self.model_config["trainer"].setdefault("limit_train_batches", 1000), 
+            "context_length": self.data_module.context_length,
+            "train_sampler": ExpectedNumInstanceSampler(num_instances=1.0, min_past=self.data_module.context_length, min_future=self.data_module.prediction_length),
+            "validation_sampler": ValidationSplitSampler(min_past=self.data_module.context_length, min_future=self.data_module.prediction_length),
+            "trainer_kwargs": config["trainer"],
+        }
+
+        # Add model-specific arguments from the config YAML
+        estimator_kwargs.update(self.model_config["model"][args.model])
+        
+        estimator = estimator_class(**estimator_kwargs)
         self.data_module.freq = pd.Timedelta(self.data_module.freq).to_pytimedelta()
         
         metric = "val_loss_epoch"
@@ -2196,8 +2201,12 @@ def transform_wind(inp_df, added_wm=None, added_wd=None):
 def make_predictions(forecaster, test_data, prediction_type, single_cg, assigned_gpu=None):
     
     if assigned_gpu:
-        os.environ['CUDA_VISIBLE_DEVICES'] = str(assigned_gpu)
+        # os.environ['CUDA_VISIBLE_DEVICES'] = str(assigned_gpu)
         logging.info(f"Using assigned_gpu = {assigned_gpu}")
+        torch.cuda.set_device(assigned_gpu)
+        
+        # Clear GPU memory before starting
+        torch.cuda.empty_cache()
     
     forecasts = []
     
