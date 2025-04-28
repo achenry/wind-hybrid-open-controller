@@ -2271,6 +2271,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
     
     # for i, (inp, label) in enumerate(iter(test_data)):
     test_idx = 0
+    
     for d, ds in enumerate(test_data_partition):
         # start = inp[FieldName.START].to_timestamp()
          # end = (label[FieldName.START] + label['target'].shape[1]).to_timestamp()
@@ -2325,7 +2326,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
             # covariances_p.append(forecaster.covariances_p)
             # covariances.append(forecaster.covariances)
         
-        if not len(forecasts):
+        if len(forecasts) == 0 and n_saved == 0:
             raise Exception(f"{d}th dataset in data does not have sufficient data points, with {ds.select(pl.len()).item()}, to collect predictions after context_timedelta {forecaster.context_timedelta}")
         
     if False:
