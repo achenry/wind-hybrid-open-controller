@@ -1773,46 +1773,62 @@ class MLForecast(WindForecast):
         checkpoint = torch.load(checkpoint_path, map_location="gpu" if torch.cuda.is_available() else "cpu")
         logging.info(f"Successfully loaded checkpoint structure from: {checkpoint_path}")
 
-        # Load using Checkpoint Hyperparameters Only
-        hparams = checkpoint.get('hyper_parameters', checkpoint.get('hparams'))
-        if hparams is None:
+        # Extract hyperparameters from checkpoint
+        hparams_from_ckpt = checkpoint.get('hyper_parameters', checkpoint.get('hparams'))
+        if hparams_from_ckpt is None:
             logging.error(f"Hyperparameters not found in checkpoint: {checkpoint_path}. Cannot re-instantiate model.")
             raise ValueError("Checkpoint is missing hyperparameters.")
+        logging.debug(f"Checkpoint hparams: {hparams_from_ckpt}")
 
-        logging.info("Instantiating model using ONLY hyperparameters from checkpoint...")
-        logging.debug(f"Checkpoint hparams: {hparams}")
+        # Start with arguments defining the data context from the current run
+        init_args = {
+            'freq': self.data_module.freq,
+            'prediction_length': self.data_module.prediction_length,
+            'context_length': self.data_module.context_length,
+            'input_size': self.data_module.num_target_vars,
+        }
 
-        # Ensure all necessary args for __init__ are present in hparams
-        # Note: This assumes hparams contains everything needed, including nested dicts like model_config
+        # Get the model_config dictionary from the checkpoint's hparams
+        model_config_from_ckpt = hparams_from_ckpt.get('model_config')
+        if model_config_from_ckpt is None:
+             logging.error(f"Critical: 'model_config' dictionary not found within loaded hyperparameters in {checkpoint_path}. Check saving logic.")
+             raise ValueError("Checkpoint hparams missing 'model_config'.")
+        init_args['model_config'] = model_config_from_ckpt
+
+        for key, value in hparams_from_ckpt.items():
+            if key not in init_args: # Avoid overwriting freq, context_length etc. set above
+                 init_args[key] = value
+
+        # Verify all required args for __init__ are present
         module_sig = inspect.signature(lightning_module_class.__init__)
         required_params = {
             param.name for param in module_sig.parameters.values()
             if param.default == inspect.Parameter.empty and param.name != 'self'
         }
-        missing_hparams = required_params - set(hparams.keys())
-        if missing_hparams:
-             logging.error(f"Checkpoint hyperparameters are missing required arguments for {lightning_module_class.__name__}.__init__: {missing_hparams}")
-             raise ValueError(f"Incomplete hyperparameters in checkpoint for model instantiation. Missing: {missing_hparams}")
+        missing_init_args = required_params - set(init_args.keys())
+        if missing_init_args:
+             logging.error(f"Constructed init_args are missing required arguments for {lightning_module_class.__name__}.__init__: {missing_init_args}")
+             logging.error(f"Available init_args keys: {list(init_args.keys())}")
+             raise ValueError(f"Incomplete arguments for model instantiation. Missing: {missing_init_args}")
+
+        logging.info(f"Instantiating model via load_from_checkpoint using hybrid args...")
+        logging.debug(f"Final init_args for load_from_checkpoint: {init_args}")
 
         try:
-            # Instantiate the model directly using checkpoint hparams
-            model = lightning_module_class(**hparams)
-            logging.info("Model instantiated successfully from checkpoint hparams.")
+            # Use load_from_checkpoint with the constructed init_args
+            model = lightning_module_class.load_from_checkpoint(
+                checkpoint_path,
+                map_location="gpu" if torch.cuda.is_available() else "cpu",
+                strict=False, # for betterdebugging of mismatches
+                **init_args
+            )
+            logging.info("Model loaded successfully via load_from_checkpoint.")
 
-            logging.info("Loading state_dict into the instantiated model...")
-            incompatible_keys = model.load_state_dict(checkpoint['state_dict'], strict=False)
-
-            # Report unexpected/missing keys if strict=False was used
-            if incompatible_keys.missing_keys:
-                logging.warning(f"State_dict loading warning: Missing keys in model not found in checkpoint: {incompatible_keys.missing_keys}")
-            if incompatible_keys.unexpected_keys:
-                logging.error(f"State_dict loading error: Unexpected keys found in checkpoint's state_dict that are not in the instantiated model: {incompatible_keys.unexpected_keys}")
-                raise RuntimeError(f"Architecture mismatch: Unexpected keys in state_dict: {incompatible_keys.unexpected_keys}")
-
-            logging.info("State_dict loaded successfully.")
-
+        except RuntimeError as e:
+             logging.error(f"RuntimeError loading state_dict via load_from_checkpoint: {e}. This often indicates a mismatch between the model architecture defined by combined hparams and the saved weights, or a code version mismatch.", exc_info=True)
+             raise Exception(e)
         except Exception as e:
-            logging.error(f"Error during model instantiation or state_dict loading using checkpoint hparams: {e}", exc_info=True)
+            logging.error(f"Error during load_from_checkpoint: {e}", exc_info=True)
             raise Exception(e)
 
         transformation = estimator.create_transformation(use_lazyframe=False)
