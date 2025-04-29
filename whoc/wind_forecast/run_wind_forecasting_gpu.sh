@@ -39,7 +39,7 @@ echo "DATA_CONFIG_PATH=${DATA_CONFIG_PATH}"
 date +"%Y-%m-%d %H:%M:%S"
 module purge
 module load mamba
-module load PrgEnv-intel
+#module load PrgEnv-intel
 mamba activate wind_forecasting_env
 
 export CUDA_VISIBLE_DEVICES=$(seq -s, 0 $(($SLURM_NTASKS_PER_NODE-1)))
@@ -55,5 +55,5 @@ echo "Using GPUs ${CUDA_VISIBLE_DEVICES}"
 
 # taskset -c $start_core-$end_core 
 python WindForecast.py --model ${MODELS} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --simulation_timestep 1 \
-        --save_dir $HOME/toolboxes/wind_forecasting_env/wind-forecasting/logging --checkpoint best --multiprocessor cf --max_splits 10 \ 
+        --save_dir /projects/ssc/ahenry/wind_forecasting/logging --checkpoint best --multiprocessor cf --max_splits 10 \ 
         --prediction_type distribution --use_tuned_params --use_trained_models --rerun_validation
