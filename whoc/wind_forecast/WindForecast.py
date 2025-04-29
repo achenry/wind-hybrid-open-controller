@@ -1794,12 +1794,7 @@ class MLForecast(WindForecast):
                 param.name for param in module_sig.parameters.values()
                 if param.default == inspect.Parameter.empty and param.name != 'self'
             }
-            missing_init_args = required_module_params - set(init_args.keys())
-            if missing_init_args:
-                logging.error(f"Constructed init_args are missing required arguments for {lightning_module_class.__name__}.__init__: {missing_init_args}")
-                logging.error(f"Available init_args keys: {list(init_args.keys())}")
-                raise ValueError(f"Incomplete arguments for model instantiation. Missing: {missing_init_args}")
-
+            
             init_args = {
                 'model_config': checkpoint_model_config,
                 **{k: hparams.get(k, self.model_config["model"][self.model_key].get(k)) for k in required_module_params if k != 'model_config'}
@@ -1808,6 +1803,12 @@ class MLForecast(WindForecast):
             logging.info(f"Instantiating model via load_from_checkpoint using hybrid args...")
             logging.debug(f"Final init_args for load_from_checkpoint: {init_args}")
             
+            missing_init_args = required_module_params - set(init_args.keys())
+            if missing_init_args:
+                logging.error(f"Constructed init_args are missing required arguments for {lightning_module_class.__name__}.__init__: {missing_init_args}")
+                logging.error(f"Available init_args keys: {list(init_args.keys())}")
+                raise ValueError(f"Incomplete arguments for model instantiation. Missing: {missing_init_args}")
+
             for key, val in init_args.items():
                 if (key not in ['model_config', 'initial_stage']) and (key not in hparams) and (key in required_module_params):
                     logging.warning(f"Hyperparameter '{key}' not found in checkpoint, using default value from config: {val}")
@@ -1828,11 +1829,11 @@ class MLForecast(WindForecast):
                                       train_split=(1.0 - self.model_config["dataset"]["val_split"] - self.model_config["dataset"]["test_split"]),
                                       val_split=self.model_config["dataset"]["val_split"], 
                                       test_split=self.model_config["dataset"]["test_split"], 
-                                      prediction_length=(loaded_model_config["prediction_length"] * freq).total_seconds(), # Use SECONDS here
-                                      context_length=(loaded_model_config["context_length"] * freq).total_seconds(), # Use SECONDS here
+                                      prediction_length=(checkpoint_model_config["prediction_length"] * freq).total_seconds(), # Use SECONDS here
+                                      context_length=(checkpoint_model_config["context_length"] * freq).total_seconds(), # Use SECONDS here
                                       target_prefixes=["ws_horz", "ws_vert"], 
                                       feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
-                                      freq=loaded_model_config.get("freq", self.model_config["dataset"]["resample_freq"]), # Use original freq string
+                                      freq=checkpoint_model_config.get("freq", self.model_config["dataset"]["resample_freq"]), # Use original freq string
                                       normalized=True,
                                       target_suffixes=self.model_config["dataset"]["target_turbine_ids"],
                                       per_turbine_target=self.model_config["dataset"]["per_turbine_target"], dtype=None,
@@ -1866,8 +1867,8 @@ class MLForecast(WindForecast):
             "cardinality": self.data_module.cardinality,
             "num_feat_static_real": self.data_module.num_feat_static_real,
             "input_size": self.data_module.num_target_vars,
-            "scaling": True if loaded_model_config["scaling"] == "True" else False, # Scaling handled externally or internally by TACTiS
-            "lags_seq": loaded_model_config["lags_seq"], # TACTiS doesn't typically use lags
+            "scaling": True if checkpoint_model_config["scaling"] == "True" else False, # Scaling handled externally or internally by TACTiS
+            "lags_seq": checkpoint_model_config["lags_seq"], # TACTiS doesn't typically use lags
             "time_features": [second_of_minute, minute_of_hour, hour_of_day, day_of_year],
             "batch_size": self.model_config["dataset"].setdefault("batch_size", 128), 
             "num_batches_per_epoch": self.model_config["trainer"].setdefault("limit_train_batches", 1000), 
@@ -2108,7 +2109,8 @@ class MLForecast(WindForecast):
                                                             for feat_type in feature_types])
             
             test_data = self._generate_test_data(historic_measurements)
-            
+            logging.info(f"Using {torch.cuda.device_count()} GPUs at {current_time} to make predictions for {self.model_key} with prediction_timedelta {self.prediction_timedelta}.")
+                
             # TODO TEST
             if self.model_key == 'tactis':
                 pred_iter = self.predictor.predict(test_data, num_samples=100) # Get the samples
@@ -2118,28 +2120,6 @@ class MLForecast(WindForecast):
                 samples_tensor = torch.from_numpy(pred.samples) # .to(self.predictor.device)
                 mean_samples = samples_tensor.to(self.predictor.device).mean(dim=0) # Mean across samples
                 std_samples = samples_tensor.std(dim=0)   # Std dev across samples
-
-                # Create DataFrame from calculated stats
-            else:
-                logging.info(f"Using {torch.cuda.device_count()} GPUs at {current_time} to make predictions for {self.model_key} with prediction_timedelta {self.prediction_timedelta}.")
-                pred = self.predictor.predict(test_data, num_samples=1, 
-                                                output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"})
-            
-            if self.data_module.per_turbine_target:
-                pred_df = pl.concat([pl.DataFrame(
-                    data={
-                        **{"time": turbine_pred.index.to_timestamp()},
-                        **{f"loc_{col}": turbine_pred.distribution.mean[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_prefixes)},
-                        **{f"sd_{col}": turbine_pred.distribution.stddev[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_prefixes)}
-                    }
-                ).rename({
-                    f"{param}_{col}": f"{param}_{col}_{self.data_module.target_suffixes[t]}"
-                    for param in ["loc", "sd"] for col in self.data_module.target_prefixes}
-                         ).sort(by=["time"]) for t, turbine_pred in enumerate(pred)], how="align")
-            else:
-                
-                # pred = next(pred)
-                # pred_turbine_id = pd.Categorical([col.split("_")[-1] for col in col_names for t in range(pred.prediction_length)])
                 
                 pred_df = pl.DataFrame(
                     data={
@@ -2149,7 +2129,9 @@ class MLForecast(WindForecast):
                     }
                 ).sort(by=["time"])
 
+                # Create DataFrame from calculated stats
             else:
+                
                 # DistributionForecast
                 pred_iter = self.predictor.predict(test_data, num_samples=1,
                                               output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"})
