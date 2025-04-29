@@ -1857,7 +1857,7 @@ class MLForecast(WindForecast):
         # self.data_module.context_length = init_args["model_config"]["context_length"]
         self.context_timedelta = self.data_module.context_length * pd.Timedelta(self.data_module.freq)
         self.model_prediction_timedelta = self.data_module.prediction_length * pd.Timedelta(self.data_module.freq)
-        assert self.model_prediction_timedelta >= self.prediction_timedelta, "model is tuned for shorter prediction timedelta!"
+        assert self.model_prediction_timedelta >= self.prediction_timedelta, f"model fetched from checkpoint {checkpoint_path} is tuned for shorter prediction timedelta {self.model_prediction_timedelta} than the given one {self.prediction_timedelta}!"
 
         # Prepare all arguments in a dictionary # TODO HIGH add limit_train_batches and batch_size to hparams
         estimator_kwargs = {
