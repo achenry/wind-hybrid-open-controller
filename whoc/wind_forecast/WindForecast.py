@@ -3061,7 +3061,7 @@ if __name__ == "__main__":
                     results.append({
                         "forecaster_name": forecaster.__class__.__name__,
                         "prediction_timedelta": forecaster.prediction_timedelta.total_seconds(),
-                        "forecast_df": pl.scan_csv(forecast_path, glob=True)\
+                        "forecast_df": pl.scan_csv(forecast_path, glob=True, try_parse_dates=True)\
                                          .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns"))).collect()
                     })
                     logging.info(f"Finished canning CSV files at {forecast_path}")
@@ -3070,7 +3070,7 @@ if __name__ == "__main__":
                     
                     results.append({
                         "forecaster_name": forecaster.__class__.__name__,
-                        "forecast_df": pl.scan_csv(forecast_path, glob=True)\
+                        "forecast_df": pl.scan_csv(forecast_path, glob=True, try_parse_dates=True)\
                                          .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns"))).collect(),
                         # "agg_metrics": pl.read_parquet(agg_metric_path), 
                         "prediction_timedelta": prediction_timedelta
@@ -3117,7 +3117,7 @@ if __name__ == "__main__":
             else:
                 results.append({
                     "forecaster_name": forecaster.__class__.__name__,
-                    "forecast_df": pl.scan_csv(forecast_path, glob=True)\
+                    "forecast_df": pl.scan_csv(forecast_path, glob=True, try_parse_dates=True)\
                                      .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns"))).collect(),
                     # "agg_metrics": pl.read_parquet(agg_metric_path), 
                     "prediction_timedelta": prediction_timedelta
