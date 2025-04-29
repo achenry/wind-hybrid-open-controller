@@ -3003,8 +3003,9 @@ if __name__ == "__main__":
             
             for forecaster in forecasters:
                 prediction_timedelta = forecaster.prediction_timedelta.total_seconds()
+                forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.__class__.__name__}_{forecaster.model_key}"
                 save_dir = os.path.join(args.save_dir, "validation_results", 
-                                    forecaster.__class__.__name__,
+                                    forecaster_name,
                                     str(int(prediction_timedelta)))
                 save_path = os.path.join(save_dir, f"forecast.csv")
                 os.makedirs(save_dir, exist_ok=True)
@@ -3031,8 +3032,9 @@ if __name__ == "__main__":
             results = []
             for forecaster in forecasters:
                 prediction_timedelta = forecaster.prediction_timedelta.total_seconds()
+                forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.__class__.__name__}_{forecaster.model_key}"
                 save_dir = os.path.join(args.save_dir, "validation_results", 
-                                    forecaster.__class__.__name__,
+                                    forecaster_name,
                                     str(int(prediction_timedelta)))
                 
                 # forecast_paths = glob.glob(os.path.join(save_dir, "forecast_*.csv"))
@@ -3070,9 +3072,9 @@ if __name__ == "__main__":
         results = []
         for f, forecaster in enumerate(forecasters):
             prediction_timedelta = forecaster.prediction_timedelta.total_seconds()
-        
+            forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.__class__.__name__}_{forecaster.model_key}"
             save_dir = os.path.join(args.save_dir, "validation_results", 
-                                    forecaster.__class__.__name__,
+                                    forecaster_name,
                                     str(int(prediction_timedelta)))
             os.makedirs(save_dir, exist_ok=True)
             # forecast_path = os.path.join(save_dir, "forecast.csv")
@@ -3111,9 +3113,9 @@ if __name__ == "__main__":
     
     for f, forecaster in enumerate(forecasters):
         prediction_timedelta = forecaster.prediction_timedelta.total_seconds()
-    
+        forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.__class__.__name__}_{forecaster.model_key}"
         save_dir = os.path.join(args.save_dir, "validation_results", 
-                                forecaster.__class__.__name__,
+                                forecaster_name,
                                 str(int(prediction_timedelta)))
         os.makedirs(save_dir, exist_ok=True)
         
@@ -3153,8 +3155,9 @@ if __name__ == "__main__":
         PLOT_INDIVIDUAL = True
         forecasts_long = []
         for f, forecaster in enumerate(forecasters):
+            forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.__class__.__name__}_{forecaster.model_key}"
             save_dir = os.path.join(args.save_dir, "validation_results", 
-                                    forecaster.__class__.__name__,
+                                    forecaster_name,
                                     str(int(forecaster.prediction_timedelta.total_seconds())))
             if args.prediction_type == "distribution" and forecaster.is_probabilistic:
                 value_vars = ["nd_cos", "nd_sin", "loc_ws_horz", "loc_ws_vert", "sd_ws_horz", "sd_ws_vert"]
