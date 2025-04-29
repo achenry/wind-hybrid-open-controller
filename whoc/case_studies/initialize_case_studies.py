@@ -143,7 +143,7 @@ case_studies = {
         "use_filtered_wind_dir": {"group": 0, "vals": [True]},
         "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
         "simulation_dt": {"group": 0, "vals": [1]},
-        # "model_checkpoint": {"group": 0, "vals": ["best"]},
+        "model_checkpoint": {"group": 0, "vals": ["best"]},
         "floris_input_file": {"group": 0, "vals": [
             "../../examples/inputs/gch_KP_v4.yaml"
                                                 ]},
@@ -783,14 +783,15 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                     (input_dicts[start_case_idx + c]["wind_forecast"]["prediction_timedelta"] > mdl_cnf["dataset"]["prediction_length"]):
                         logging.warning(f"Provided prediction_timedelta should be less or equal to the trained model config prediction length {mdl_cnf['dataset']['prediction_length']}. Make sure you are providing the right model config file. Resetting the prediction_timedelta variable.")
                         input_dicts[start_case_idx + c]["wind_forecast"]["prediction_timedelta"] = mdl_cnf["dataset"]["prediction_length"]
-                
+                # TODO this is overwriting params set above
                 input_dicts[start_case_idx + c]["wind_forecast"] \
                     = {**{
                         "measurements_timedelta": wind_field_ts[0].select(pl.col("time").diff().slice(1,1)).item(),
                         "context_timedelta": pd.Timedelta(seconds=mdl_cnf["dataset"]["context_length"]), # pd.Timedelta(seconds=input_dicts[start_case_idx + c]["wind_forecast"]["context_timedelta"]),
                         "prediction_timedelta": pd.Timedelta(seconds=input_dicts[start_case_idx + c]["wind_forecast"]["prediction_timedelta"]),
                         "controller_timedelta": pd.Timedelta(seconds=input_dicts[start_case_idx + c]["controller"]["controller_dt"]),
-                        "model_config": mdl_cnf
+                        "model_config": mdl_cnf,
+                        "model_checkpoint": input_dicts[start_case_idx + c]["model_checkpoint"]
                         }, 
                     **input_dicts[start_case_idx + c]["wind_forecast"].setdefault(input_dicts[start_case_idx + c]["controller"]["wind_forecast_class"], {}),
                     }
