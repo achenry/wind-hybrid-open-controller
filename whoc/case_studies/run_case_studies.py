@@ -494,7 +494,7 @@ if __name__ == "__main__":
                 or case_families.index("baseline_controllers_forecasters_test_awaken") in args.case_ids):
                 from whoc.wind_forecast.WindForecast import WindForecast
                 from wind_forecasting.preprocessing.data_inspector import DataInspector
-                # TODO HIGH only compare time after context_length, since SVR/ML assume persistance until then
+                # TODO HIGH only compare time after context_length, since SVR/ML assume persistence until then
                 if case_families.index("baseline_controllers_forecasters_test_flasc") in args.case_ids:
                     forecaster_case_fam = "baseline_controllers_forecasters_test_flasc"
                 elif case_families.index("baseline_controllers_forecasters_test_awaken") in args.case_ids:

@@ -1077,7 +1077,7 @@ class SpatialFilterForecast(WindForecast):
             weights[i] = np.divide(f, fsum, out=np.zeros_like(f), where=(fsum!=0))
             
             if fsum == 0:
-                logging.warning(f"The center point, determined by prediction_timedelta, is too far from turbine {i}'s clusters to have any nonzero weights, assuming persistance for turbine {i}.")
+                logging.warning(f"The center point, determined by prediction_timedelta, is too far from turbine {i}'s clusters to have any nonzero weights, assuming persistence for turbine {i}.")
                 weights[i][:, np.where(idx == i)[0]] = 1
 
         return weights
@@ -1406,8 +1406,8 @@ class SVRForecast(WindForecast):
             pred = pl.DataFrame({"time": pred_slice}).with_columns(**pred)
             
         else:
-            # not enough data points to train SVR, assume persistance
-            logging.info(f"Not enough data points at time {current_time} to train SVR, have {historic_measurements.select(pl.len()).item() * self.measurements_timedelta} but require {self.n_context * self.prediction_timedelta}, assuming persistance instead.")
+            # not enough data points to train SVR, assume persistence
+            logging.info(f"Not enough data points at time {current_time} to train SVR, have {historic_measurements.select(pl.len()).item() * self.measurements_timedelta} but require {self.n_context * self.prediction_timedelta}, assuming persistence instead.")
             pred = pl.concat([pred_slice.to_frame(), historic_measurements.slice(-1, 1).select(outputs)], how="horizontal")
             
         if return_pl: 
@@ -1616,7 +1616,7 @@ class KalmanFilterForecast(WindForecast):
             # for each measurement z at time step t, collected since the last controller step, 
             # predict the prior state x(t) for that time step based on the previous state x(t-1), 
             # and update the posterior estimate xhat(t) with the measurement
-            # then the prediction is the persistance of that measurment into the future
+            # then the prediction is the persistence of that measurment into the future
             for i, z in enumerate(zs):
                 logging.info(f"Adding new measurement {i} of {zs.shape[0]} to Kalman filter at time {current_time}.")
                 self.model.predict(Q=Qs[i]) # outputs new prior/prediction
@@ -2090,8 +2090,8 @@ class MLForecast(WindForecast):
         #         else:
         #             pred_df = pred_df.upsample(time_column="time", every=data_module_freq_td).fill_null(strategy="forward") # Use Timedelta here
         # else:
-        #     # not enough data points to train SVR, assume persistance
-        #     logging.info(f"Not enough data points at time {current_time} to train ML, have {historic_measurements.select(pl.len()).item()} but require {self.n_context}, assuming persistance instead.")
+        #     # not enough data points to train SVR, assume persistence
+        #     logging.info(f"Not enough data points at time {current_time} to train ML, have {historic_measurements.select(pl.len()).item()} but require {self.n_context}, assuming persistence instead.")
         #     pred_slice = self.get_pred_interval(current_time)
         #     pred_df = pl.concat([pred_slice.to_frame(), historic_measurements.slice(-1, 1).select(self.data_module.target_cols)], how="horizontal")
             
@@ -2184,8 +2184,8 @@ class MLForecast(WindForecast):
                 else:
                     pred_df = pred_df.upsample(time_column="time", every=data_module_freq_td).fill_null(strategy="forward") # Use Timedelta here
         else:
-            # not enough data points to train SVR, assume persistance
-            logging.info(f"Not enough data points at time {current_time} to train ML, have {historic_measurements.select(pl.len()).item()} but require {self.n_context}, assuming persistance instead.")
+            # not enough data points to train SVR, assume persistence
+            logging.info(f"Not enough data points at time {current_time} to train ML, have {historic_measurements.select(pl.len()).item()} but require {self.n_context}, assuming persistence instead.")
             pred_slice = self.get_pred_interval(current_time)
             pred_df = pl.DataFrame(
                     data={
