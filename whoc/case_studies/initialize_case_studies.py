@@ -164,7 +164,7 @@ case_studies = {
         "prediction_timedelta": {"group": 1, "vals": [300, 300, 60]},
         "uncertain": {"group": 1, "vals": [True, False, False]},
         "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73", "4,"]},
-        "model_key": {"group": 2, "vals": ["autoformer"]} # "informer", "spacetimeformer", "tactis"
+        "model_key": {"group": 2, "vals": ["autoformer", "informer", "spacetimeformer", "tactis"]} # 
     },
     "baseline_controllers_baseline_det_forecasters_awaken": {
         "controller_dt": {"group": 0, "vals": [5]},
@@ -791,10 +791,12 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                         "prediction_timedelta": pd.Timedelta(seconds=input_dicts[start_case_idx + c]["wind_forecast"]["prediction_timedelta"]),
                         "controller_timedelta": pd.Timedelta(seconds=input_dicts[start_case_idx + c]["controller"]["controller_dt"]),
                         "model_config": mdl_cnf,
-                        "model_checkpoint": input_dicts[start_case_idx + c]["model_checkpoint"]
-                        }, 
-                    **input_dicts[start_case_idx + c]["wind_forecast"].setdefault(input_dicts[start_case_idx + c]["controller"]["wind_forecast_class"], {}),
+                        "model_key": input_dicts[start_case_idx + c].get("model_key", None),
+                        "model_checkpoint": input_dicts[start_case_idx + c].get("model_checkpoint", "best")
+                        }
                     }
+                # model-specific kwargs
+                input_dicts[start_case_idx + c]["wind_forecast"].update({k: v for k, v in input_dicts[start_case_idx + c]["wind_forecast"].get(input_dicts[start_case_idx + c]["controller"]["wind_forecast_class"], {}).items() if k not in input_dicts[start_case_idx + c]["wind_forecast"]})
                 
                 # if "model_key" in input_dicts[start_case_idx + c]["wind_forecast"]:
                 #     db_setup_params = generate_df_setup_params(
