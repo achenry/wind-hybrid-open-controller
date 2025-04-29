@@ -2311,7 +2311,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
             )
             
             ram_used = virtual_memory().percent
-            if ram_used > 50:
+            if ram_used > 75:
                 sub_save_path = save_path.replace(".parquet", f"_{splits[d]}_{n_saved}.parquet")
                 logging.info(f"Used {ram_used}% RAM. Saving sub parquet to {sub_save_path}.")
                 pl.concat(forecasts, how="vertical_relaxed").write_parquet(sub_save_path, statistics=False)

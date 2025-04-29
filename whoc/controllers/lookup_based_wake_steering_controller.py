@@ -194,7 +194,7 @@ class LookupBasedWakeSteeringController(ControllerBase):
             if uncertain:
                 # wd_stddevs_lut = np.arange(1.0, 10.0, 2.0)
                 wd_stddevs_lut = np.arange(0.0, 10.0, 2.0)
-                 
+                wd_stddevs_lut = [0]
                 fi_lut = UncertainFlorisModel(floris_config_path,
                                                 wd_resolution=0.5,
                                                 ws_resolution=0.5,
