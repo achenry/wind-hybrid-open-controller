@@ -1751,7 +1751,6 @@ class MLForecast(WindForecast):
             log_dir=os.path.join(self.model_config["experiment"]["log_dir"], 
                                  f"{self.model_config['experiment']['project_name']}_{self.model_key}"))
         
-        logging.info("Found pretrained model, loading...")
         if torch.cuda.is_available():
             device = None # f"cuda:{int(os.environ['CUDA_VISIBLE_DEVICES'].split(",")[0])}"
             # device = f"cuda:{assigned_gpu or 0}"
@@ -2027,70 +2026,74 @@ class MLForecast(WindForecast):
         else:
             return pred_df.to_pandas()
 
-    def predict_point(self, historic_measurements: Union[pd.DataFrame, pl.DataFrame], current_time): 
+    def predict_point(self, historic_measurements: Union[pd.DataFrame, pl.DataFrame], current_time):
         
         if isinstance(historic_measurements, pd.DataFrame):
             historic_measurements = pl.DataFrame(historic_measurements)
             return_pl = False
         else:
             return_pl = True
-            
-        # normalize historic measurements
-        feature_types = list(self.scaler_params["min_"].keys())
         
-        if historic_measurements.select(pl.len()).item() >= self.n_context:
-            historic_measurements = historic_measurements.with_columns([
-                (cs.starts_with(feat_type) * self.scaler_params["scale_"][feat_type]) + self.scaler_params["min_"][feat_type]
-                                                        for feat_type in feature_types])
-            test_data = self._generate_test_data(historic_measurements)
+        # select mean features and rename
+        pred_df = self.predict_distr( historic_measurements, current_time)
+        pred_df = pred_df.select(pl.col("time"), cs.starts_with("loc_").name.map(lambda original_col: re.search("(?<=loc_)(.*)", original_col).group() if "loc" in original_col else original_col))
+        
+        # normalize historic measurements
+        # feature_types = list(self.scaler_params["min_"].keys())
+        
+        # if historic_measurements.select(pl.len()).item() >= self.n_context:
+        #     historic_measurements = historic_measurements.with_columns([
+        #         (cs.starts_with(feat_type) * self.scaler_params["scale_"][feat_type]) + self.scaler_params["min_"][feat_type]
+        #                                                 for feat_type in feature_types])
+        #     test_data = self._generate_test_data(historic_measurements)
             
-            logging.debug(f"Using {torch.cuda.device_count()} GPUs at {current_time} to make predictions for {self.model_key} with prediction_timedelta {self.prediction_timedelta}")
-            pred = self.predictor.predict(test_data, num_samples=1, 
-                                                output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"})
-            pred = next(pred)
+        #     logging.debug(f"Using {torch.cuda.device_count()} GPUs at {current_time} to make predictions for {self.model_key} with prediction_timedelta {self.prediction_timedelta}")
+        #     pred = self.predictor.predict(test_data, num_samples=1, 
+        #                                         output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"})
+        #     pred = next(pred)
             
-            if self.data_module.per_turbine_target:
-                pred_df = pl.concat([pl.DataFrame(
-                    data={
-                        **{"time": turbine_pred.index.to_timestamp()},
-                        **{col: turbine_pred.distribution.mean[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_prefixes)}
-                    }
-                ).rename({
-                    col: f"{col}_{self.data_module.target_suffixes[t]}"
-                    for col in self.data_module.target_prefixes}
-                         ).sort(by=["time"]) for t, turbine_pred in enumerate(pred)], how="align")
+        #     if self.data_module.per_turbine_target:
+        #         pred_df = pl.concat([pl.DataFrame(
+        #             data={
+        #                 **{"time": turbine_pred.index.to_timestamp()},
+        #                 **{col: turbine_pred.distribution.mean[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_prefixes)}
+        #             }
+        #         ).rename({
+        #             col: f"{col}_{self.data_module.target_suffixes[t]}"
+        #             for col in self.data_module.target_prefixes}
+        #                  ).sort(by=["time"]) for t, turbine_pred in enumerate(pred)], how="align")
                 
-            else:
-                # pred_turbine_id = pd.Categorical([col.split("_")[-1] for col in col_names for t in range(pred.prediction_length)])
-                pred_df = pl.DataFrame(
-                    data={
-                        **{"time": pred.index.to_timestamp()},
-                        **{col: pred.distribution.mean[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_cols)}
-                    }
-                ).sort(by=["time"])
+        #     else:
+        #         # pred_turbine_id = pd.Categorical([col.split("_")[-1] for col in col_names for t in range(pred.prediction_length)])
+        #         pred_df = pl.DataFrame(
+        #             data={
+        #                 **{"time": pred.index.to_timestamp()},
+        #                 **{col: pred.distribution.mean[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_cols)}
+        #             }
+        #         ).sort(by=["time"])
             
-            # denormalize data
-            pred_df = pred_df.with_columns([
-                (cs.starts_with(feat_type) - self.scaler_params["min_"][feat_type]) / self.scaler_params["scale_"][feat_type]
-                                                        for feat_type in feature_types])
+        #     # denormalize data
+        #     pred_df = pred_df.with_columns([
+        #         (cs.starts_with(feat_type) - self.scaler_params["min_"][feat_type]) / self.scaler_params["scale_"][feat_type]
+        #                                                 for feat_type in feature_types])
             
-            pred_df = pred_df.filter(pl.col("time") <= (current_time + self.prediction_timedelta))
-            # check if the data that trained the model differs from the frequency of historic_measurments
-            # Convert freq string to Timedelta for comparison and calculations
-            data_module_freq_td = pd.Timedelta(str(self.data_module.freq))
-            if data_module_freq_td != self.measurements_timedelta:
-                # resample historic measurements to historic_measurements frequency and return as pandas dataframe
-                if self.measurements_timedelta > data_module_freq_td: # Use Timedelta here
-                    pred_df = pred_df.with_columns(time=pl.col("time").dt.round(data_module_freq_td) # Use Timedelta here
-                                                + pl.duration(seconds=pred_df.select(pl.col("time").last().dt.second() % data_module_freq_td.total_seconds()).item()))\
-                                                                .group_by("time").agg(cs.numeric().mean()).sort("time")
-                else:
-                    pred_df = pred_df.upsample(time_column="time", every=data_module_freq_td).fill_null(strategy="forward") # Use Timedelta here
-        else:
-            # not enough data points to train SVR, assume persistance
-            logging.info(f"Not enough data points at time {current_time} to train ML, have {historic_measurements.select(pl.len()).item()} but require {self.n_context}, assuming persistance instead.")
-            pred_slice = self.get_pred_interval(current_time)
-            pred_df = pl.concat([pred_slice.to_frame(), historic_measurements.slice(-1, 1).select(self.data_module.target_cols)], how="horizontal")
+        #     pred_df = pred_df.filter(pl.col("time") <= (current_time + self.prediction_timedelta))
+        #     # check if the data that trained the model differs from the frequency of historic_measurments
+        #     # Convert freq string to Timedelta for comparison and calculations
+        #     data_module_freq_td = pd.Timedelta(str(self.data_module.freq))
+        #     if data_module_freq_td != self.measurements_timedelta:
+        #         # resample historic measurements to historic_measurements frequency and return as pandas dataframe
+        #         if self.measurements_timedelta > data_module_freq_td: # Use Timedelta here
+        #             pred_df = pred_df.with_columns(time=pl.col("time").dt.round(data_module_freq_td) # Use Timedelta here
+        #                                         + pl.duration(seconds=pred_df.select(pl.col("time").last().dt.second() % data_module_freq_td.total_seconds()).item()))\
+        #                                                         .group_by("time").agg(cs.numeric().mean()).sort("time")
+        #         else:
+        #             pred_df = pred_df.upsample(time_column="time", every=data_module_freq_td).fill_null(strategy="forward") # Use Timedelta here
+        # else:
+        #     # not enough data points to train SVR, assume persistance
+        #     logging.info(f"Not enough data points at time {current_time} to train ML, have {historic_measurements.select(pl.len()).item()} but require {self.n_context}, assuming persistance instead.")
+        #     pred_slice = self.get_pred_interval(current_time)
+        #     pred_df = pl.concat([pred_slice.to_frame(), historic_measurements.slice(-1, 1).select(self.data_module.target_cols)], how="horizontal")
             
         if return_pl: 
             return pred_df
@@ -2260,7 +2263,7 @@ def transform_wind(inp_df, added_wm=None, added_wd=None):
     
     return inp_df.select(original_cols)
 
-def make_predictions(forecaster, test_data, prediction_type, single_cg, save_path, assigned_gpu):
+def make_predictions(forecaster, test_data, prediction_type, single_cg, save_path, assigned_gpu, ram_limit):
     
     if assigned_gpu:
         os.environ["CUDA_VISIBLE_DEVICES"] = str(assigned_gpu)
@@ -2330,7 +2333,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
             save_length += pred.select(pl.len()).item()
             
             ram_used = virtual_memory().percent
-            if (ram_used > 50) or (final := ((c == n_controller_times - 1) and (d == n_splits - 1))):
+            if  (final := ((c == n_controller_times - 1) and (d == n_splits - 1))) or (ram_used > ram_limit):
                 # sub_save_path = save_path.replace(".csv", f"_{splits[d]}_{n_saved}.csv")
                 logging.info(f"Used {ram_used}% RAM. Saving sub parquet of length {save_length} to {save_path}.")
                 forecasts = (fc for fc in forecasts)
@@ -2697,6 +2700,8 @@ if __name__ == "__main__":
                         help="Use parameters tuned from Optuna optimization, otherwise use defaults set in Module class.")
     parser.add_argument("-tm", "--use_trained_models", action="store_true",
                         help="Use parameters trained and stored for models that require training, e.g. SVR, read existing trained models from file.")
+    parser.add_argument("-rl", "--ram_limit", type=int, default=75,
+                        help="Percentage of RAM usage, above which to store checkpoints.")
     args = parser.parse_args()
     
     assert all(model in ["perfect", "persistence", "svr", "kf", "informer", "autoformer", "spacetimeformer", "tactis", "sf"] for model in args.model)
@@ -3026,7 +3031,8 @@ if __name__ == "__main__":
                                             test_data=test_data.filter(pl.col("continuity_group") == cg), 
                                             prediction_type=args.prediction_type, single_cg=True, 
                                             save_path=save_path.replace(".csv", f"_{cg}.csv"),
-                                            assigned_gpu=next(gpu_cycler) if gpu_cycler else None))
+                                            assigned_gpu=next(gpu_cycler) if gpu_cycler else None, 
+                                            ram_limit=args.ram_limit))
                                             # save_path=save_paths[-1]))
             
             res_idx = 0
@@ -3094,7 +3100,8 @@ if __name__ == "__main__":
                     forecaster=forecaster, test_data=test_data,
                     prediction_type=args.prediction_type, single_cg=False,
                     save_path=save_path.replace(".csv", "_0.csv"),
-                    assigned_gpu=next(gpu_cycler) if gpu_cycler else None)
+                    assigned_gpu=next(gpu_cycler) if gpu_cycler else None,
+                    ram_limit=args.ram_limit)
                 
                 results.append({
                     "forecaster_name": forecaster.__class__.__name__,
