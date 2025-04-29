@@ -872,7 +872,7 @@ class PerfectForecast(WindForecast):
     col_mapping: Optional[dict] = None
     is_probabilistic = False
     
-    def reset(self):
+    def reset(self, **kwargs):
         pass
     
     
@@ -910,7 +910,7 @@ class PersistenceForecast(WindForecast):
     """ Wind speed component forecasting using persistence model that assumes future values equal current value. """
     is_probabilistic = False
     
-    def reset(self):
+    def reset(self, **kwargs):
         pass
     
     def predict_point(self, historic_measurements: Union[pl.DataFrame, pd.DataFrame], current_time):
@@ -955,7 +955,7 @@ class SpatialFilterForecast(WindForecast):
         else:
             self.cluster_turbines = [np.arange(self.n_turbines)] * self.n_turbines
     
-    def reset(self):
+    def reset(self, **kwargs):
         pass
     
     def predict_point(self, historic_measurements: Union[pd.DataFrame, pl.DataFrame], current_time):
@@ -1233,7 +1233,7 @@ class SVRForecast(WindForecast):
                 with open(os.path.join(self.model_save_dir, scaler_file), "rb") as fp:
                     self.scaler[output] = pickle.load(fp)
     
-    def reset(self):
+    def reset(self, **kwargs):
         pass
     
     def create_scaler(self):
@@ -1484,7 +1484,7 @@ class KalmanFilterForecast(WindForecast):
         self.n_context = int(self.context_timedelta / self.prediction_timedelta)
         assert self.n_context >= 2, "For KalmanFilterForecaster, context_timedelta must be at least 2 times prediction_timedelta, since prediction_timedelta is the time interval at which it makes new estimates"
       
-    def reset(self):
+    def reset(self, **kwargs):
         self.model = self.create_model(
             dim_x=self.dim_x, 
             dim_z=self.dim_z,
@@ -1714,26 +1714,8 @@ class MLForecast(WindForecast):
         self.n_prediction_interval = 1
         self.model_key = self.kwargs["model_key"]
         self.model_config = self.kwargs["model_config"]
-            
-        if "assigned_gpu" in self.kwargs and self.kwargs["assigned_gpu"]:
-            # os.environ["CUDA_VISIBLE_DEVICES"] = self.kwargs["assigned_gpu"]
-            self.assigned_gpu = self.kwargs["assigned_gpu"]
-            logging.info(f"Using assigned_gpu = {self.assigned_gpu} in MLForecast for {self.model_key} and self.prediction_timedelta = {self.prediction_timedelta}.")
-            # torch.cuda.set_device(self.assigned_gpu)
-            self.device = f"cuda:{self.assigned_gpu}"
-            
-            # Clear GPU memory before starting
-            torch.cuda.empty_cache()
-        elif "CUDA_VISIBLE_DEVICES" in os.environ:
-            self.assigned_gpu = os.environ['CUDA_VISIBLE_DEVICES']
-            logging.info(f"Using assigned_gpu = {os.environ['CUDA_VISIBLE_DEVICES']} in MLForecast for {self.model_key} and self.prediction_timedelta = {self.prediction_timedelta}.")
-            # torch.cuda.set_device(self.assigned_gpu)
-            self.device = "cuda"
-            # Clear GPU memory before starting
-            torch.cuda.empty_cache()
-        else:
-            self.assigned_gpu = None
-            self.device = "cpu"
+        self.device = None
+        
         # don't need this, can load hyperparamas from checkpoint
         # if self.use_tuned_params:
         #     try:
@@ -1770,14 +1752,14 @@ class MLForecast(WindForecast):
                                  f"{self.model_config['experiment']['project_name']}_{self.model_key}"))
         
         logging.info("Found pretrained model, loading...")
-        # if torch.cuda.is_available():
-        #     device = None # f"cuda:{int(os.environ['CUDA_VISIBLE_DEVICES'].split(",")[0])}"
-        #     # device = f"cuda:{assigned_gpu or 0}"
-        #     # logging.info(f"Loading checkpoint onto CUDA device {device}")
-        # else:
-        #     device = "cpu"
-        #     logging.info(f"Loading checkpoint onto cpu core.")
-        checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
+        if torch.cuda.is_available():
+            device = None # f"cuda:{int(os.environ['CUDA_VISIBLE_DEVICES'].split(",")[0])}"
+            # device = f"cuda:{assigned_gpu or 0}"
+            # logging.info(f"Loading checkpoint onto CUDA device {device}")
+        else:
+            device = "cpu"
+            logging.info(f"Loading checkpoint onto cpu core.")
+        checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
         
         # Extract hyperparameters, handling potential key variations
         try:
@@ -1915,13 +1897,33 @@ class MLForecast(WindForecast):
 
         
         self.predictor = estimator.create_predictor(transformation, model, 
-                                                          forecast_generator=forecast_generator).to(self.device)
+                                                          forecast_generator=forecast_generator)
         self.data_module.freq = pd.Timedelta(self.data_module.freq).to_pytimedelta()
         # self.sample_predictor = estimator.create_predictor(transformation, model, 
         #                                                    forecast_generator=SampleForecastGenerator())
     
-    def reset(self):
-        pass
+    def reset(self, **kwargs):
+        if "assigned_gpu" in kwargs and kwargs["assigned_gpu"]:
+            # os.environ["CUDA_VISIBLE_DEVICES"] = self.kwargs["assigned_gpu"]
+            self.assigned_gpu = kwargs["assigned_gpu"]
+            logging.info(f"Using assigned_gpu = {self.assigned_gpu} in MLForecast for {self.model_key} and self.prediction_timedelta = {self.prediction_timedelta}.")
+            # torch.cuda.set_device(self.assigned_gpu)
+            self.device = f"cuda:{self.assigned_gpu}"
+            
+            # Clear GPU memory before starting
+            torch.cuda.empty_cache()
+        elif "CUDA_VISIBLE_DEVICES" in os.environ:
+            self.assigned_gpu = os.environ['CUDA_VISIBLE_DEVICES']
+            logging.info(f"Using assigned_gpu = {os.environ['CUDA_VISIBLE_DEVICES']} in MLForecast for {self.model_key} and self.prediction_timedelta = {self.prediction_timedelta}.")
+            # torch.cuda.set_device(self.assigned_gpu)
+            self.device = "cuda"
+            # Clear GPU memory before starting
+            torch.cuda.empty_cache()
+        else:
+            self.assigned_gpu = None
+            self.device = "cpu"
+            
+        self.predictor = self.predictor.to(self.device)
     
     def _generate_test_data(self, historic_measurements: pl.DataFrame):
         # resample data to frequency model was trained on
@@ -2264,14 +2266,7 @@ def transform_wind(inp_df, added_wm=None, added_wd=None):
     
     return inp_df.select(original_cols)
 
-def make_predictions(forecaster, test_data, prediction_type, single_cg, save_path):
-    
-    if forecaster.assigned_gpu:
-        os.environ['CUDA_VISIBLE_DEVICES'] = forecaster.assigned_gpu
-        # torch.cuda.set_device(int(forecaster.assigned_gpu))
-        
-        # Clear GPU memory before starting
-        torch.cuda.empty_cache()
+def make_predictions(forecaster, test_data, prediction_type, single_cg, save_path, assigned_gpu):
     
     forecasts = []
     
@@ -2313,7 +2308,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                                                  .filter((pl.col("time") - start) >= forecaster.context_timedelta)
         n_controller_times = split_controller_times.select(pl.len()).item()
         logging.info(f"Resetting forecaster state.")
-        forecaster.reset()
+        forecaster.reset(assigned_gpu=assigned_gpu)
         n_saved = 0
         save_length = 0
         for c, current_row in enumerate(split_controller_times.iter_rows(named=True)):
@@ -2988,9 +2983,7 @@ if __name__ == "__main__":
                                                     model_checkpoint=args.checkpoint[0] if len(args.checkpoint) == 1 else args.checkpoint[m],
                                                     optuna_storage=None,
                                                     study_name=None,#db_setup_params["study_name"],
-                                                    model_config=mncf,
-                                                    assigned_gpu=next(gpu_cycler) if gpu_cycler else None)
-                                        )
+                                                    model_config=mncf))
             forecasters.append(forecaster)
     
     continuity_groups = test_data.select(pl.col("continuity_group").unique()).to_numpy().flatten()
@@ -3035,9 +3028,9 @@ if __name__ == "__main__":
                         test_futures.append(ex.submit(make_predictions, forecaster=forecaster,  
                                             test_data=test_data.filter(pl.col("continuity_group") == cg), 
                                             prediction_type=args.prediction_type, single_cg=True, 
-                                            save_path=save_path.replace(".csv", f"_{cg}.csv")))
+                                            save_path=save_path.replace(".csv", f"_{cg}.csv"),
+                                            assigned_gpu=next(gpu_cycler) if gpu_cycler else None))
                                             # save_path=save_paths[-1]))
-                                            # assigned_gpu=next(gpu_cycler) if gpu_cycler else None))
             
             res_idx = 0
             results = []
@@ -3103,9 +3096,9 @@ if __name__ == "__main__":
                 make_predictions(
                     forecaster=forecaster, test_data=test_data,
                     prediction_type=args.prediction_type, single_cg=False,
-                    save_path=save_path.replace(".csv", "_0.csv"))
+                    save_path=save_path.replace(".csv", "_0.csv"),
+                    assigned_gpu=next(gpu_cycler) if gpu_cycler else None)
                 
-                    # assigned_gpu=next(gpu_cycler) if gpu_cycler else None)
                 results.append({
                     "forecaster_name": forecaster.__class__.__name__,
                     "forecast_df": pl.scan_csv(forecast_path),
