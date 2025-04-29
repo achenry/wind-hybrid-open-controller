@@ -120,4 +120,4 @@ wind_forecast:
     n_neighboring_turbines: 5
   MLForecast:
     model_key: informer
-    model_checkpoint: latest
+    model_checkpoint: best

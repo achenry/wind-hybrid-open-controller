@@ -65,9 +65,9 @@ if __name__ == "__main__":
     args.case_ids = [int(i) for i in args.case_ids]
 
     # os.environ["PYOPTSPARSE_REQUIRE_MPI"] = "false"
-    RUN_ONCE = (args.multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
+    comm = MPI.COMM_WORLD
+    RUN_ONCE = (args.multiprocessor == "mpi" and (comm_rank := comm.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
     PLOT = True #sys.platform != "linux"
-    # if args.run_simulations or args.generate_lut or args.generate_wind_field:
     # run simulations
     
     if RUN_ONCE:
@@ -95,9 +95,6 @@ if __name__ == "__main__":
             
             turbine_signature = data_config["turbine_signature"][0] if len(data_config["turbine_signature"]) == 1 else "\\d+"
             
-            # temp_storage_dir = data_config["temp_storage_dir"]
-            # os.makedirs(temp_storage_dir, exist_ok=True)
-            # optuna_args = model_config.setdefault("optuna", None)
     
         else:
             model_config = None
@@ -107,7 +104,7 @@ if __name__ == "__main__":
             # temp_storage_dir = None
             
         logging.info(f"running initialize_simulations for case_ids {[case_families[i] for i in args.case_ids]}")
-        case_lists, case_name_lists, input_dicts, wind_field_config, wind_field_ts \
+        input_dicts, wind_field_config, wind_field_ts \
             = initialize_simulations(case_study_keys=[case_families[i] for i in args.case_ids], 
                                         regenerate_wind_field=args.generate_wind_field, 
                                         regenerate_lut=args.generate_lut, 
@@ -118,11 +115,18 @@ if __name__ == "__main__":
                                         multiprocessor=args.multiprocessor, 
                                         whoc_config=whoc_config, base_model_config=model_config)
         
+    # else:
+    #     input_dicts, wind_field_config, wind_field_ts = None, None, None
+        
+    # if args.multiprocessor == "mpi":
+    #     input_dicts = comm.bcast(input_dicts, root=0)
+    #     wind_field_config = comm.bcast(wind_field_config, root=0)
+    #     wind_field_ts = comm.bcast(wind_field_ts, root=0)
+    
         logging.info(f"Resetting args.n_seeds to {len(wind_field_ts)}")
         args.n_seeds = len(wind_field_ts)
-        # TODO broadcast/scatter/gather wind_field_ts to share between processes
-    
-    # TODO if GPUs are available, use one CPU and one GPU per task
+            
+    # if GPUs are available, use one CPU and one GPU per task
     if "CUDA_VISIBLE_DEVICES" in os.environ:
         cuda_devices = os.environ["CUDA_VISIBLE_DEVICES"] # Note: must 'export' variable within nohup to find on Kestrel
         logging.info(f"CUDA_VISIBLE_DEVICES is set to: '{cuda_devices}'")
@@ -153,7 +157,8 @@ if __name__ == "__main__":
                 comm_size = MPI.COMM_WORLD.Get_size()
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0, max_workers=max_workers)
             elif args.multiprocessor == "cf":
-                executor = ProcessPoolExecutor(max_workers=max_workers)
+                executor = ProcessPoolExecutor(max_workers=max_workers,
+                                               mp_context=mp.get_context("spawn"))
             with executor as run_simulations_exec:
                 # if args.multiprocessor == "mpi":
                 #     run_simulations_exec.max_workers = max_workers
@@ -165,10 +170,10 @@ if __name__ == "__main__":
                                                 wind_forecast_class=globals()[d["controller"]["wind_forecast_class"]] if d["controller"]["wind_forecast_class"] else None,
                                                 simulation_input_dict=d,
                                                 wf_source=args.wf_source, 
-                                                wind_case_idx=case_lists[c]["wind_case_idx"], wind_field_ts=wind_field_ts[case_lists[c]["wind_case_idx"]],
-                                                # case_name="_".join([f"{key}_{val if (isinstance(val, str) or isinstance(val, np.str_) or isinstance(val, bool)) else np.round(val, 6)}" for key, val in case_lists[c].items() if key not in ["simulation_dt", "use_filtered_wind_dir", "use_lut_filtered_wind_dir", "yaw_limits", "wind_case_idx", "seed", "floris_input_file", "lut_path"]]) if "case_names" not in case_lists[c] else case_lists[c]["case_names"], 
-                                                case_name=f"{c}" if "case_names" not in case_lists[c] else case_lists[c]["case_names"],
-                                                case_family="_".join(case_name_lists[c].split("_")[:-1]), 
+                                                wind_case_idx=input_dicts[c]["wind_case_idx"], 
+                                                wind_field_ts=wind_field_ts[input_dicts[c]["wind_case_idx"]],
+                                                case_name=input_dicts[c]["case_name"],
+                                                case_family=input_dicts[c]["case_family"], 
                                                 verbose=args.verbose, 
                                                 save_dir=args.save_dir, 
                                                 rerun_simulations=args.rerun_simulations,
@@ -191,10 +196,10 @@ if __name__ == "__main__":
                                     wind_forecast_class=globals()[d["controller"]["wind_forecast_class"]] if d["controller"]["wind_forecast_class"] else None, 
                                     simulation_input_dict=d, 
                                     wf_source=args.wf_source,
-                                    wind_case_idx=case_lists[c]["wind_case_idx"], wind_field_ts=wind_field_ts[case_lists[c]["wind_case_idx"]],
-                                    # case_name="_".join([f"{key}_{val if (isinstance(val, str) or isinstance(val, np.str_) or isinstance(val, bool)) else np.round(val, 6)}" for key, val in case_lists[c].items() if key not in ["simulation_dt", "use_filtered_wind_dir", "use_lut_filtered_wind_dir", "yaw_limits", "wind_case_idx", "seed", "floris_input_file", "lut_path"]]) if "case_names" not in case_lists[c] else case_lists[c]["case_names"], 
-                                    case_name=f"{c}" if "case_names" not in case_lists[c] else case_lists[c]["case_names"],
-                                    case_family="_".join(case_name_lists[c].split("_")[:-1]),
+                                    wind_case_idx=input_dicts[c]["wind_case_idx"], 
+                                    wind_field_ts=wind_field_ts[input_dicts[c]["wind_case_idx"]],
+                                    case_name=input_dicts[c]["case_name"],
+                                    case_family=input_dicts[c]["case_family"],
                                     multiprocessor=False, 
                                     wind_field_config=wind_field_config, verbose=args.verbose, save_dir=args.save_dir, rerun_simulations=args.rerun_simulations,
                                     turbine_signature=turbine_signature, tid2idx_mapping=tid2idx_mapping,
