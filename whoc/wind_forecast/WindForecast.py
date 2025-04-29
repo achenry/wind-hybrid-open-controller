@@ -2330,7 +2330,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
             save_length += pred.select(pl.len()).item()
             
             ram_used = virtual_memory().percent
-            if (ram_used > 75) or (final := ((c == n_controller_times - 1) and (d == n_splits - 1))):
+            if (ram_used > 50) or (final := ((c == n_controller_times - 1) and (d == n_splits - 1))):
                 # sub_save_path = save_path.replace(".csv", f"_{splits[d]}_{n_saved}.csv")
                 logging.info(f"Used {ram_used}% RAM. Saving sub parquet of length {save_length} to {save_path}.")
                 forecasts = (fc for fc in forecasts)
