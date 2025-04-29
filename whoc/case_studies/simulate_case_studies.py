@@ -110,6 +110,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
                                             use_tuned_params=kwargs["use_tuned_params"],
                                             **{k: v for k, v in simulation_input_dict["wind_forecast"].items() if "timedelta" in k},
                                             kwargs={k: v for k, v in simulation_input_dict["wind_forecast"].items() if "timedelta" not in k})
+        wind_forecast.reset(assigned_gpu)
     else:
         wind_forecast = None
     ctrl = controller_class(fi, wind_forecast=wind_forecast, simulation_input_dict=simulation_input_dict, **kwargs)

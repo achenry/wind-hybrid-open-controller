@@ -925,7 +925,7 @@ class PersistenceForecast(WindForecast):
          
         assert historic_measurements.select((pl.col("time") == current_time).any()).item()
         last_measurement = historic_measurements.filter(pl.col("time") == current_time)
-        pred = {k: [v[0]] * len(pred_slice) for k, v in last_measurement.to_dict().items() if k != "time"}
+        pred = {k: [v[0]] * len(pred_slice) for k, v in last_measurement.to_dict().items() if k.startswith("ws_")}
         
         pred =  pl.concat([pred_slice.to_frame(), pl.DataFrame(pred)], how="horizontal")
         if return_pl:
@@ -2333,7 +2333,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
             save_length += pred.select(pl.len()).item()
             
             ram_used = virtual_memory().percent
-            if  (final := ((c == n_controller_times - 1) and (d == n_splits - 1))) or (ram_used > ram_limit):
+            if  (final := ((c == n_controller_times - 1) and (d == n_splits - 1))) or ((ram_used > ram_limit) and (save_length > 500)):
                 # sub_save_path = save_path.replace(".csv", f"_{splits[d]}_{n_saved}.csv")
                 logging.info(f"Used {ram_used}% RAM. Saving sub parquet of length {save_length} to {save_path}.")
                 forecasts = (fc for fc in forecasts)
@@ -2470,9 +2470,9 @@ def generate_forecaster_agg_results(forecaster, forecast_df, test_data, data_mod
     
     logging.info(f"Preparing combined df for forecaster {forecaster.__class__.__name__} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
     
-    fdf = forecast_df.select(["time"] + [cs.ends_with(tgt) for tgt in data_module.target_cols])
+    fdf = forecast_df.select(["time", "test_idx"] + [cs.ends_with(tgt) for tgt in data_module.target_cols])
     tdf = test_data.filter(pl.col("time").is_in(forecast_df.select(pl.col("time"))))\
-                       .select(["time", "continuity_group"] + data_module.target_cols).collect()
+                       .select(["time", "continuity_group"] + data_module.target_cols)
     combined_df = fdf.rename(lambda col: re.search("(?<=loc_)(\\w+)$", col).group() if col.startswith("loc_") else col)\
                      .join(tdf, on=["time"], suffix="_true", coalesce=False)
     true_cols = [f"{c}_true" for c in data_module.target_cols]
@@ -3061,7 +3061,8 @@ if __name__ == "__main__":
                     results.append({
                         "forecaster_name": forecaster.__class__.__name__,
                         "prediction_timedelta": forecaster.prediction_timedelta.total_seconds(),
-                        "forecast_df": pl.scan_csv(forecast_path, glob=True)
+                        "forecast_df": pl.scan_csv(forecast_path, glob=True)\
+                                         .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns"))).collect()
                     })
                     logging.info(f"Finished canning CSV files at {forecast_path}")
                     # forecaster_res.write_parquet(forecast_path)
@@ -3069,7 +3070,8 @@ if __name__ == "__main__":
                     
                     results.append({
                         "forecaster_name": forecaster.__class__.__name__,
-                        "forecast_df": pl.scan_csv(forecast_path, glob=True),
+                        "forecast_df": pl.scan_csv(forecast_path, glob=True)\
+                                         .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns"))).collect(),
                         # "agg_metrics": pl.read_parquet(agg_metric_path), 
                         "prediction_timedelta": prediction_timedelta
                     })
@@ -3105,7 +3107,8 @@ if __name__ == "__main__":
                 
                 results.append({
                     "forecaster_name": forecaster.__class__.__name__,
-                    "forecast_df": pl.scan_csv(forecast_path),
+                    "forecast_df": pl.scan_csv(forecast_path)\
+                                     .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns"))).collect(),
                     # "agg_metrics": agg_metrics, 
                     "prediction_timedelta": prediction_timedelta
                     })
@@ -3114,7 +3117,8 @@ if __name__ == "__main__":
             else:
                 results.append({
                     "forecaster_name": forecaster.__class__.__name__,
-                    "forecast_df": pl.scan_csv(forecast_path, glob=True),
+                    "forecast_df": pl.scan_csv(forecast_path, glob=True)\
+                                     .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns"))).collect(),
                     # "agg_metrics": pl.read_parquet(agg_metric_path), 
                     "prediction_timedelta": prediction_timedelta
                     })
@@ -3131,11 +3135,12 @@ if __name__ == "__main__":
         agg_metric_path = os.path.join(save_dir, "agg_metrics.csv")       
         
         if args.rerun_validation or not os.path.exists(agg_metric_path):
-            forecast_df = pl.scan_csv(forecast_path, glob=True)
-            agg_metrics = generate_forecaster_agg_results(forecaster, forecast_df.collect(), test_data, data_module, args.prediction_type)
+            forecast_df = pl.scan_csv(forecast_path, glob=True, try_parse_dates=True)\
+                           .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns"))).collect()
+            agg_metrics = generate_forecaster_agg_results(forecaster, forecast_df, test_data, data_module, args.prediction_type)
             agg_metrics.write_csv(agg_metric_path)
         else:
-            agg_metrics =  pl.scan_csv(agg_metric_path)
+            agg_metrics =  pl.scan_csv(agg_metric_path, try_parse_dates=True).collect()
             
         results[f]["agg_metrics"] = agg_metrics
         
@@ -3174,7 +3179,7 @@ if __name__ == "__main__":
                 value_vars = ["nd_cos", "nd_sin", "ws_horz", "ws_vert"]
                 target_vars = ["ws_horz", "ws_vert"]
             
-            forecasts_long.append(DataInspector.unpivot_dataframe(results[f]["forecast_df"].collect(), 
+            forecasts_long.append(DataInspector.unpivot_dataframe(results[f]["forecast_df"], 
                                                         value_vars=value_vars, 
                                                         turbine_signature=forecaster.turbine_signature)\
                                                 .unpivot(index=["time", "turbine_id"], on=target_vars, 
