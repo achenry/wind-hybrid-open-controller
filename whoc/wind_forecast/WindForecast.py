@@ -2306,16 +2306,17 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                 raise NotImplementedError()
             
             forecasts.append(
-                pred.with_columns(test_idx=pl.lit(test_idx), time=pl.col("time").cast(pl.Datetime(time_unit="ns")))\
+                pred.with_columns(test_idx=pl.lit(test_idx), time=pl.col("time").cast(pl.Datetime(time_unit="ns"))).with_columns(cs.numeric().cast(pl.Float32))\
                     .filter(pl.col("time").is_in(test_data.select(pl.col("time"))))
             )
             
             ram_used = virtual_memory().percent
-            if ram_used > 65:
+            if ram_used > 50:
                 sub_save_path = save_path.replace(".parquet", f"_{splits[d]}_{n_saved}.parquet")
                 logging.info(f"Used {ram_used}% RAM. Saving sub parquet to {sub_save_path}.")
-                pl.concat(forecasts, how="vertical_relaxed").write_parquet(sub_save_path, statistics=False)
-                forecasts = []
+                forecasts = (fc for fc in forecasts)
+                pl.concat(forecasts, how="vertical").write_parquet(sub_save_path, statistics=False)
+                # forecasts = []
                 # gc.collect()
                 logging.info(f"Used {ram_used}% RAM after saving {sub_save_path}.")
                 n_saved += 1
