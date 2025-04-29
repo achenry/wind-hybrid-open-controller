@@ -26,7 +26,8 @@ CORES="${start_core}-${end_core}"
 echo "Using CPUs ${CORES} out of available {$SLURM_NTASKS_PER_NODE}"
 echo "Using GPUs ${CUDA_VISIBLE_DEVICES}"
 
-taskset -c $start_core-$end_core python run_case_studies.py 15 --exclude_prediction --multiprocessor cf -rs --ram_limit 75 --wf_source scada \
+# taskset -c $start_core-$end_core 
+python run_case_studies.py 15 --exclude_prediction --multiprocessor cf -rs --ram_limit 75 --wf_source scada \
        -st auto -ns 10 -sd /projects/ssc/ahenry/whoc/floris_case_studies/ \
        -wcnf $HOME/toolboxes/wind_forecasting_env/wind-hybrid-open-controller/examples/hercules_input_001.yaml \
        -dcnf $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/preprocessing/preprocessing_inputs_kestrel_awaken_new.yaml \
