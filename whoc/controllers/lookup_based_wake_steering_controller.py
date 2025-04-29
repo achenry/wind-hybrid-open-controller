@@ -194,14 +194,15 @@ class LookupBasedWakeSteeringController(ControllerBase):
             if uncertain:
                 # wd_stddevs_lut = np.arange(1.0, 10.0, 2.0)
                 wd_stddevs_lut = np.arange(0.0, 10.0, 2.0)
-                wd_stddevs_lut = [0]
+                wd_stddevs_lut = np.array([0])
                 fi_lut = UncertainFlorisModel(floris_config_path,
                                                 wd_resolution=0.5,
                                                 ws_resolution=0.5,
                                                 ti_resolution=0.01,
                                                 yaw_resolution=0.5,
                                                 power_setpoint_resolution=100,
-                                                wd_std=3)
+                                                wd_std=3,
+                                                wd_sample_points=np.array([0]))
                 # wd_grid, ws_grid, wds_grid = np.meshgrid(wind_directions_lut, wind_speeds_lut, wd_stddevs_lut, indexing="ij")
                 
             else:
