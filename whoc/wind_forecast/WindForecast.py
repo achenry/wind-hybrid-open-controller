@@ -2275,7 +2275,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
     else:
         logging.info("Getting number of continuity groups in data.")
         splits = test_data.select(pl.col("continuity_group").unique()).collect().to_numpy().flatten()
-        test_data = test_data.collect().partition_by("continuity_group").lazy()
+        test_data = [td.lazy() for td in test_data.collect().partition_by("continuity_group")]
     n_splits = len(splits)
     
     # for kf testing
