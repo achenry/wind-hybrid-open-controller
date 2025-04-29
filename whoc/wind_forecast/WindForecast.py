@@ -2268,6 +2268,9 @@ def transform_wind(inp_df, added_wm=None, added_wd=None):
 
 def make_predictions(forecaster, test_data, prediction_type, single_cg, save_path, assigned_gpu):
     
+    if assigned_gpu:
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(assigned_gpu)
+    
     forecasts = []
     
     logging.info("Getting timestamps at which controller will call forecaster.")
