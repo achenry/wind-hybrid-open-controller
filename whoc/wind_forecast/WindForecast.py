@@ -2316,7 +2316,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                 logging.info(f"Used {ram_used}% RAM. Saving sub parquet to {sub_save_path}.")
                 forecasts = (fc for fc in forecasts)
                 pl.concat(forecasts, how="vertical").write_parquet(sub_save_path, statistics=False)
-                # forecasts = []
+                forecasts = []
                 # gc.collect()
                 logging.info(f"Used {ram_used}% RAM after saving {sub_save_path}.")
                 n_saved += 1
@@ -2425,47 +2425,6 @@ def generate_metric_per_cg(pred_mean, pred_stddev, true, metric_name, metric_fun
                     )),
                 schema=target_cols).with_columns(continuity_group=pl.lit(cg)) for cg in cg_vals], how="vertical")\
                     .with_columns(metric=pl.lit(metric_name), test_idx=pl.lit(-1))
-
-# def generate_forecaster_ts_results(forecaster, data_module, evaluator, test_data, prediction_type, single_cg):
-    
-    # logging.info(f"Generating predictions for forecaster {forecaster.__class__.__name__} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
-    # forecast_df = make_predictions(forecaster=forecaster, test_data=test_data, 
-    #                                 prediction_type=prediction_type, single_cg=single_cg)
-    
-    # logging.info(f"Partitioning forecasts by test_idx for forecaster {forecaster.__class__.__name__} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
-    # forecast_df = forecast_df.partition_by("test_idx")
-    # if prediction_type == "distribution" and forecaster.is_probabilistic:
-    #     value_vars = ["nd_cos", "nd_sin", "loc_ws_horz", "loc_ws_vert", "sd_ws_horz", "sd_ws_vert"]
-    #     target_vars = ["loc_ws_horz", "loc_ws_vert", "sd_ws_horz", "sd_ws_vert"] 
-    #     distributions = []
-    #     for split_idx, wf in enumerate(forecast_df):
-    #         loc = Tensor(wf.select([cs.starts_with(feat_type) & cs.contains("loc") for feat_type in target_vars]).to_numpy())
-    #         cov = Tensor(np.apply_along_axis(
-    #                     np.diag, axis=-1, 
-    #                     arr=wf.select([cs.starts_with(feat_type) & cs.contains("sd_") for feat_type in target_vars]).to_numpy()**2))
-            
-    #         distr = DistributionForecast(
-    #             distribution=MultivariateNormal(loc=loc, covariance_matrix=cov), 
-    #             start_date=pd.Period(wf.select(pl.col("time").first()).item(), freq=data_module.freq), 
-    #             item_id=f"SPLIT{split_idx}")
-    #         distributions.append(distr)
-    #     forecasts = distributions
-    # else:
-    #     value_vars = ["nd_cos", "nd_sin", "ws_horz", "ws_vert"]
-    #     target_vars = ["ws_horz", "ws_vert"] 
-        
-    #     forecasts = [SampleForecast(
-    #         samples=wf.select([cs.starts_with(feat_type) for feat_type in target_vars]).to_numpy()[np.newaxis, :, :], 
-    #         start_date=pd.Period(wf.select(pl.col("time").first()).item(), freq=data_module.freq), 
-    #         item_id=f"SPLIT{split_idx}") for split_idx, wf in enumerate(forecast_df)]
-
-    # agg_metrics, ts_metrics = evaluator(
-    #             islice(repeat(true_df_pd), len(forecast_df)),
-    #             forecasts, 
-    #             num_series=data_module.num_target_vars,
-    #             include_metrics=[])
-    
-    # return forecast_df
 
 def generate_forecaster_agg_results(forecaster, forecast_df, test_data, data_module, prediction_type):
     logging.info(f"Preparing true data for forecaster {forecaster.__class__.__name__} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
@@ -3055,12 +3014,13 @@ if __name__ == "__main__":
                         # res_idx += 1
                         
                     # forecaster_res = pl.concat(forecaster_res, how="vertical")
-                    
+                    logging.info(f"Scanning Parquet files at {forecast_path}")
                     results.append({
                         "forecaster_name": forecaster.__class__.__name__,
                         "prediction_timedelta": forecaster.prediction_timedelta.total_seconds(),
                         "forecast_df": pl.scan_parquet(forecast_path, glob=True)
                     })
+                    logging.info(f"Finished canning Parquet files at {forecast_path}")
                     # forecaster_res.write_parquet(forecast_path)
                 else:
                     
