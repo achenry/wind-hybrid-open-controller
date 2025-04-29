@@ -1,0 +1,9 @@
+sbatch run_wind_forecasting_gpu.sh informer $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred60.yaml
+sbatch run_wind_forecasting_gpu.sh informer $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred300.yaml
+sbatch run_wind_forecasting_gpu.sh autoformer $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred60.yaml
+sbatch run_wind_forecasting_gpu.sh autoformer $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred300.yaml
+sbatch run_wind_forecasting_gpu.sh spacetimeformer $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred60.yaml
+sbatch run_wind_forecasting_gpu.sh spacetimeformer $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred300.yaml
+sbatch run_wind_forecasting_gpu.sh tactis $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred60.yaml
+sbatch run_wind_forecasting_gpu.sh tactis $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred300.yaml
+
