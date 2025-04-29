@@ -19,7 +19,6 @@ echo "SLURM_JOB_GPUS=${SLURM_JOB_GPUS}"
 echo "SLURM_JOB_GRES=${SLURM_JOB_GRES}"
 echo "SLURM_NTASKS=${SLURM_NTASKS}"
 echo "SLURM_NTASKS_PER_NODE=${SLURM_NTASKS_PER_NODE}"
-echo "SLURM_NTASKS_PER_NODE=${SLURM_NTASKS_PER_NODE}"
 
 echo "=== ENVIRONMENT ==="
 module list
@@ -40,5 +39,18 @@ module load mamba
 module load PrgEnv-intel
 mamba activate wind_forecasting_env
 
-python WindForecast.py --model ${MODELS} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --simulation_timestep 1 --checkpoint latest \
-	               --multiprocessor cf --max_splits 10 --prediction_type distribution --use_tuned_params --use_trained_models --rerun_validation
+export CUDA_VISIBLE_DEVICES=$(seq -s, 0 $(($SLURM_NTASKS_PER_NODE-1)))
+
+# Calculate start and end cores (assuming i is 1-based)
+start_core=$(( ($i - 1) * $SLURM_NTASKS_PER_NODE ))
+end_core=$(( $i * $SLURM_NTASKS_PER_NODE - 1 ))
+
+# Create the range string
+CORES="${start_core}-${end_core}"
+echo "Using CPUs ${CORES} out of available {$SLURM_NTASKS_PER_NODE}"
+echo "Using GPUs ${CUDA_VISIBLE_DEVICES}"
+
+# taskset -c $start_core-$end_core 
+python WindForecast.py --model ${MODELS} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --simulation_timestep 1 \
+        --save_dir $HOME/toolboxes/wind_forecasting_env/wind-forecasting/logging --checkpoint best --multiprocessor cf --max_splits 10 \ 
+        --prediction_type distribution --use_tuned_params --use_trained_models --rerun_validation
