@@ -881,6 +881,8 @@ class PerfectForecast(WindForecast):
         self.train_first = False
         if isinstance(self.true_wind_field, pd.DataFrame):
             self.true_wind_field = pl.from_pandas(self.true_wind_field)
+        elif isinstance(self.true_wind_field, pl.LazyFrame):
+            self.true_wind_field = self.true_wind_field.collect()
         self.true_wind_field = self.true_wind_field.select(pl.col("time"), cs.starts_with("ws_"))
     
     # @profile
@@ -1576,8 +1578,6 @@ class KalmanFilterForecast(WindForecast):
             measurement_times = zs.select(pl.col("time")).to_series() 
             zs = zs.select(outputs).to_numpy()
             
-            logging.info(f"Adding {zs.shape[0]} new measurements to Kalman filter at time {current_time}.")
-            
             # initialize state
             if not self.initialized:
                 self.model.x = np.zeros_like(zs[0, :])
@@ -1602,12 +1602,12 @@ class KalmanFilterForecast(WindForecast):
             init_x = self.model.x.copy()
             # use batch_filter to, on each controller sampling time
             # mean estimates from Kalman Filter
-            means_p = np.zeros((zs.shape[0], self.model.dim_x)) # after predict step (prior)
-            means = np.zeros((zs.shape[0], self.model.dim_x)) # after update step (posterior)
+            # means_p = np.zeros((zs.shape[0], self.model.dim_x)) # after predict step (prior)
+            # means = np.zeros((zs.shape[0], self.model.dim_x)) # after update step (posterior)
             
             # state covariances from Kalman Filter
-            covariances_p = np.zeros((zs.shape[0], self.model.dim_x, self.model.dim_x)) # (prior)
-            covariances = np.zeros((zs.shape[0], self.model.dim_x, self.model.dim_x)) # (posterior)
+            # covariances_p = np.zeros((zs.shape[0], self.model.dim_x, self.model.dim_x)) # (prior)
+            # covariances = np.zeros((zs.shape[0], self.model.dim_x, self.model.dim_x)) # (posterior)
             
             # (means, covariances, means_p, covariances_p) = self.model.batch_filter(zs=z, Qs=Qt, Rs=Rt)
             # use single longer prediction time; by performing predict/update steps at time intervals == prediction_timedelta
@@ -1617,13 +1617,14 @@ class KalmanFilterForecast(WindForecast):
             # and update the posterior estimate xhat(t) with the measurement
             # then the prediction is the persistance of that measurment into the future
             for i, z in enumerate(zs):
+                logging.info(f"Adding new measurement {i} of {zs.shape[0]} to Kalman filter at time {current_time}.")
                 self.model.predict(Q=Qs[i]) # outputs new prior/prediction
-                means_p[i, :] = self.model.x
-                covariances_p[i, :, :] = self.model.P
+                # means_p[i, :] = self.model.x
+                # covariances_p[i, :, :] = self.model.P
 
                 self.model.update(z, R=Rs[i]) # outputs new posterior
-                means[i, :] = self.model.x
-                covariances[i, :, :] = self.model.P
+                # means[i, :] = self.model.x
+                # covariances[i, :, :] = self.model.P
             
             # if np.allclose(means, means_p):
             #     print("oh")
@@ -1640,8 +1641,8 @@ class KalmanFilterForecast(WindForecast):
             # means = np.vstack([init_x, means]) # concatenate initial guess of state on top to compute differences
             # self.historic_w = np.vstack([self.historic_w, np.atleast_2d(means[1:, :] - np.matmul(means[:-1, :], self.model.F))])[-int(np.ceil(self.n_controller / self.n_prediction_interval)) - self.n_context:, :]
             
-            x = means[-1, :]
-            P = covariances[-1, :, :]
+            x = self.model.x #means[-1, :]
+            P = self.model.P # covariances[-1, :, :]
             
             x = np.dot(self.model.F, x) # predict step outputs new prior (in this case same, due to identity F)
             P = self.model._alpha_sq * np.dot(np.dot(self.model.F, P), self.model.F.T) + Qs[-1]
@@ -2252,16 +2253,17 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
     forecasts = []
     
     logging.info("Getting timestamps at which controller will call forecaster.")
-    controller_times = test_data.gather_every(forecaster.n_controller).select(pl.col("time"))
+    controller_times = test_data.gather_every(forecaster.n_controller).select(pl.col("time")).collect()
     
+    test_data_time = test_data.select(pl.col("time")).collect()
     if single_cg:
-        splits = [test_data.select(pl.col("continuity_group").first()).item()]
-        test_data_partition = [test_data]
+        splits = [test_data.select(pl.col("continuity_group").first()).collect().item()]
+        test_data = [test_data]
     else:
         logging.info("Getting number of continuity groups in data.")
-        splits = test_data.select(pl.col("continuity_group").unique()).to_numpy().flatten()
-        test_data_partition = test_data.partition_by("continuity_group")
-    # n_splits = len(splits)
+        splits = test_data.select(pl.col("continuity_group").unique()).collect().to_numpy().flatten()
+        test_data = test_data.collect().partition_by("continuity_group")
+    n_splits = len(splits)
     
     # for kf testing
     # means_p = []
@@ -2272,26 +2274,26 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
     # for i, (inp, label) in enumerate(iter(test_data)):
     test_idx = 0
     
-    for d, ds in enumerate(test_data_partition):
+    for d, ds in enumerate(test_data):
         # start = inp[FieldName.START].to_timestamp()
          # end = (label[FieldName.START] + label['target'].shape[1]).to_timestamp()
          
         # start = ds[FieldName.START].to_timestamp()
         # end = (ds[FieldName.START] + ds['target'].shape[1]).to_timestamp()
-        start = ds.select(pl.col("time").first()).item()
-        end = ds.select(pl.col("time").last()).item()
+        start = ds.select(pl.col("time").first()).collect().item()
+        end = ds.select(pl.col("time").last()).collect().item()
         logging.info(f"Getting predictions for {splits[d]}th split starting at {start} and ending at {end} using {forecaster.__class__.__name__} with prediction_timedelta {forecaster.prediction_timedelta}.")
         forecasts = []
         # split_true_wf = true_wind_field.filter(pl.col("time").is_between(start, end, closed="both"))
         logging.info(f"Getting controller times for {splits[d]}th split.")
         split_controller_times = controller_times.filter(pl.col("time").is_between(start, end, closed="both"))\
                                                  .filter((pl.col("time") - start) >= forecaster.context_timedelta)
-                                                 
+        n_controller_times = split_controller_times.select(pl.len()).item()
         logging.info(f"Resetting forecaster state.")
         forecaster.reset()
         n_saved = 0
         save_length = 0
-        for current_row in split_controller_times.iter_rows(named=True):
+        for c, current_row in enumerate(split_controller_times.iter_rows(named=True)):
             
             current_time = current_row["time"]
             
@@ -2299,31 +2301,40 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
             logging.info(f"Predicting future wind field using {forecaster.__class__.__name__} at time {current_time}/{end} of split {splits[d]}.")
             if prediction_type == "distribution" and forecaster.is_probabilistic:
                 pred = forecaster.predict_distr(
-                    ds.filter(pl.col("time") <= current_time), current_time)
+                    ds.filter(pl.col("time") <= current_time).collect(), current_time)
             elif prediction_type == "point" or not forecaster.is_probabilistic:
                 pred = forecaster.predict_point(
-                    ds.filter(pl.col("time") <= current_time), current_time)
+                    ds.filter(pl.col("time") <= current_time).collect(), current_time)
             elif prediction_type == "sample":
                 raise NotImplementedError()
             
             forecasts.append(
                 pred.with_columns(test_idx=pl.lit(test_idx), time=pl.col("time").cast(pl.Datetime(time_unit="ns"))).with_columns(cs.numeric().cast(pl.Float32))\
-                    .filter(pl.col("time").is_in(test_data.select(pl.col("time"))))
+                    .filter(pl.col("time").is_in(test_data_time))
             )
             save_length += pred.select(pl.len()).item()
             
             ram_used = virtual_memory().percent
-            if ram_used > 75:
-                sub_save_path = save_path.replace(".parquet", f"_{splits[d]}_{n_saved}.parquet")
-                logging.info(f"Used {ram_used}% RAM. Saving sub parquet of length {save_length} to {sub_save_path}.")
+            if (ram_used > 75) or (final := ((c == n_controller_times - 1) and (d == n_splits - 1))):
+                # sub_save_path = save_path.replace(".csv", f"_{splits[d]}_{n_saved}.csv")
+                logging.info(f"Used {ram_used}% RAM. Saving sub parquet of length {save_length} to {save_path}.")
                 forecasts = (fc for fc in forecasts)
-                pl.concat(forecasts, how="vertical").write_parquet(sub_save_path, statistics=False)
+                # pl.concat(forecasts, how="vertical").write_parquet(sub_save_path)
+                
+                logging.info(f"Writing {'final' if final else 'intermediary'} result to file.")
+                if not os.path.exists(save_path):
+                    with open(save_path, mode="w") as fp:
+                        pl.concat(forecasts, how="vertical").write_csv(fp, include_header=True)
+                elif os.path.exists(save_path):
+                    with open(save_path, mode="a") as fp:
+                        pl.concat(forecasts, how="vertical").write_csv(fp, include_header=False)
+                
+                
                 forecasts = []
                 save_length = 0
-                del pred
                 # gc.collect()
                 ram_used = virtual_memory().percent
-                logging.info(f"Used {ram_used}% RAM after saving {sub_save_path}.")
+                logging.info(f"Used {ram_used}% RAM after saving {save_path}.")
                 n_saved += 1
             
             test_idx += 1
@@ -2336,7 +2347,8 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
         
         if len(forecasts) == 0 and n_saved == 0:
             raise Exception(f"{d}th dataset in data does not have sufficient data points, with {ds.select(pl.len()).item()}, to collect predictions after context_timedelta {forecaster.context_timedelta}")
-        
+    
+    gc.collect()
     if False:
         means_p = np.vstack(means_p)
         means = np.vstack(means)
@@ -2433,16 +2445,16 @@ def generate_metric_per_cg(pred_mean, pred_stddev, true, metric_name, metric_fun
 
 def generate_forecaster_agg_results(forecaster, forecast_df, test_data, data_module, prediction_type):
     logging.info(f"Preparing true data for forecaster {forecaster.__class__.__name__} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
-    true_df_pd = test_data.to_pandas()
-    true_df_pd = true_df_pd.set_index(pd.PeriodIndex(true_df_pd["time"].dt.to_period(freq=data_module.freq)))[data_module.target_cols]\
-                        .rename(columns={src: s for s, src in enumerate(data_module.target_cols)})
+    # true_df_pd = test_data.collect().to_pandas()
+    # true_df_pd = true_df_pd.set_index(pd.PeriodIndex(true_df_pd["time"].dt.to_period(freq=data_module.freq)))[data_module.target_cols]\
+    #                     .rename(columns={src: s for s, src in enumerate(data_module.target_cols)})
     
     
     logging.info(f"Preparing combined df for forecaster {forecaster.__class__.__name__} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
     
     fdf = forecast_df.select(["time"] + [cs.ends_with(tgt) for tgt in data_module.target_cols])
     tdf = test_data.filter(pl.col("time").is_in(forecast_df.select(pl.col("time"))))\
-                       .select(["time", "continuity_group"] + data_module.target_cols)
+                       .select(["time", "continuity_group"] + data_module.target_cols).collect()
     combined_df = fdf.rename(lambda col: re.search("(?<=loc_)(\\w+)$", col).group() if col.startswith("loc_") else col)\
                      .join(tdf, on=["time"], suffix="_true", coalesce=False)
     true_cols = [f"{c}_true" for c in data_module.target_cols]
@@ -2635,8 +2647,8 @@ if __name__ == "__main__":
                         help="Filepaths to model configurations with experiment, optuna, dataset, model, callbacks, trainer keys.")
     parser.add_argument("-dcnf", "--data_config", type=str, 
                         help="Filepath to data preprocessing configuration with filters, feature_mapping, turbine_signature, nacelle_calibration_turbine_pairs, dt, raw_data_directory, processed_data_path, raw_data_file_signature, turbine_input_path, farm_input_path keys.")
-    parser.add_argument("-fd", "--fig_dir", type=str, 
-                        help="Directory to save plots to.", default="./")
+    parser.add_argument("-sd", "--save_dir", type=str, 
+                        help="Directory to save results to.", default="./")
     parser.add_argument("-m", "--model", #type=str, 
                         # choices=["perfect", "persistence", "svr", "kf", "informer", "autoformer", "spacetimeformer", "sf"], 
                         required=True, nargs="+",
@@ -2682,7 +2694,7 @@ if __name__ == "__main__":
     # args.fig_dir = os.path.join(os.path.dirname(whoc_file), "..", "examples", "wind_forecasting")
     
     if RUN_ONCE:
-        os.makedirs(args.fig_dir, exist_ok=True)
+        os.makedirs(args.save_dir, exist_ok=True)
      
     model_configs = []
     for mnf_path in args.model_config:
@@ -2754,7 +2766,11 @@ if __name__ == "__main__":
         test_data = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in test_data]
     
     logging.info("Generating dataframe.")
-    test_data = generate_wind_field_df(test_data, data_module.target_cols, data_module.feat_dynamic_real_cols)
+    save_path = os.path.join(os.path.dirname( base_model_config["dataset"]["data_path"]), "test_data.parquet")
+    generate_wind_field_df(test_data, data_module.target_cols, data_module.feat_dynamic_real_cols).write_parquet(save_path, statistics=False)
+    test_data = pl.scan_parquet(save_path)
+    
+    
     # window_length = model_config["dataset"]["prediction_length"] + model_config["dataset"].get("lead_time", 0)
     # window_length = int(test_data[0]["target"].shape[1] * (2/3))
     # _, test_template = split(test_data, offset=-window_length)
@@ -2765,7 +2781,7 @@ if __name__ == "__main__":
     logging.info("Finished creating datasets.")
     
     # assert pd.Timedelta(test_data[0]["start"].freq) == measurements_timedelta
-    assert pd.Timedelta(test_data.select(pl.col("time").diff()).slice(1,1).item()) == measurements_timedelta
+    assert pd.Timedelta(test_data.select(pl.col("time").diff()).slice(1,1).collect().item()) == measurements_timedelta
     # assert test_data.select(pl.col("time").slice(0, 2).diff()).slice(1,1).item() == measurements_timedelta
    
     # custom_eval_fn = {
@@ -2819,7 +2835,6 @@ if __name__ == "__main__":
                 tid2idx_mapping=tid2idx_mapping,
                 turbine_signature=turbine_signature,
                 use_tuned_params=False,
-                
                 kwargs={}
             )
                                 
@@ -2954,7 +2969,7 @@ if __name__ == "__main__":
                                         )
             forecasters.append(forecaster)
     
-    continuity_groups = test_data.select(pl.col("continuity_group").unique()).to_numpy().flatten()
+    continuity_groups = test_data.select(pl.col("continuity_group").unique()).collect().to_numpy().flatten()
     if args.multiprocessor:
         
         if args.multiprocessor == "mpi":
@@ -2975,15 +2990,15 @@ if __name__ == "__main__":
             
             for forecaster in forecasters:
                 prediction_timedelta = forecaster.prediction_timedelta.total_seconds()
-                save_dir = os.path.join(os.path.dirname( base_model_config["dataset"]["data_path"]), "validation_results", 
+                save_dir = os.path.join(args.save_dir, "validation_results", 
                                     forecaster.__class__.__name__,
                                     str(int(prediction_timedelta)))
-                save_path = os.path.join(save_dir, f"forecast.parquet")
+                save_path = os.path.join(save_dir, f"forecast.csv")
                 os.makedirs(save_dir, exist_ok=True)
                 
-                forecast_path = os.path.join(save_dir, f"forecast_*.parquet")
-                forecast_paths = [os.path.join(save_dir, f"forecast_{cg}.parquet") for cg in continuity_groups]
-                agg_metric_path = os.path.join(save_dir, "agg_metrics.parquet")
+                forecast_path = os.path.join(save_dir, f"forecast_*.csv")
+                forecast_paths = [os.path.join(save_dir, f"forecast_{cg}.csv") for cg in continuity_groups]
+                agg_metric_path = os.path.join(save_dir, "agg_metrics.csv")
                 
 
                 if args.rerun_validation or not all(os.path.exists(fp) for fp in forecast_paths):
@@ -2991,10 +3006,11 @@ if __name__ == "__main__":
                         for f in glob.glob(forecast_path):
                             os.remove(f)
                     for cg in continuity_groups:
-                        # save_paths.append(os.path.join(save_dir, f"forecast_{cg}.parquet"))
+                        # save_paths.append(os.path.join(save_dir, f"forecast_{cg}.csv"))
                         test_futures.append(ex.submit(make_predictions, forecaster=forecaster,  
                                             test_data=test_data.filter(pl.col("continuity_group") == cg), 
-                                            prediction_type=args.prediction_type, single_cg=True, save_path=save_path))
+                                            prediction_type=args.prediction_type, single_cg=True, 
+                                            save_path=save_path.replace(".csv", f"_{cg}.csv")))
                                             # save_path=save_paths[-1]))
                                             # assigned_gpu=next(gpu_cycler) if gpu_cycler else None))
             
@@ -3002,13 +3018,13 @@ if __name__ == "__main__":
             results = []
             for forecaster in forecasters:
                 prediction_timedelta = forecaster.prediction_timedelta.total_seconds()
-                save_dir = os.path.join(os.path.dirname( base_model_config["dataset"]["data_path"]), "validation_results", 
+                save_dir = os.path.join(args.save_dir, "validation_results", 
                                     forecaster.__class__.__name__,
                                     str(int(prediction_timedelta)))
                 
-                # forecast_paths = glob.glob(os.path.join(save_dir, "forecast_*.parquet"))
-                forecast_paths = [os.path.join(save_dir, f"forecast_{cg}.parquet") for cg in continuity_groups]
-                forecast_path = os.path.join(save_dir, f"forecast*.parquet")
+                # forecast_paths = glob.glob(os.path.join(save_dir, "forecast_*.csv"))
+                forecast_paths = [os.path.join(save_dir, f"forecast_{cg}.csv") for cg in continuity_groups]
+                forecast_path = os.path.join(save_dir, f"forecast*.csv")
                 if args.rerun_validation: # or not all(os.path.exists(fp) for fp in forecast_paths) or not (len(forecast_paths) == len(continuity_groups)):
                     forecaster_res = []
                     for cg in continuity_groups:
@@ -3019,19 +3035,19 @@ if __name__ == "__main__":
                         # res_idx += 1
                         
                     # forecaster_res = pl.concat(forecaster_res, how="vertical")
-                    logging.info(f"Scanning Parquet files at {forecast_path}")
+                    logging.info(f"Scanning CSV files at {forecast_path}")
                     results.append({
                         "forecaster_name": forecaster.__class__.__name__,
                         "prediction_timedelta": forecaster.prediction_timedelta.total_seconds(),
-                        "forecast_df": pl.scan_parquet(forecast_path, glob=True)
+                        "forecast_df": pl.scan_csv(forecast_path, glob=True)
                     })
-                    logging.info(f"Finished canning Parquet files at {forecast_path}")
+                    logging.info(f"Finished canning CSV files at {forecast_path}")
                     # forecaster_res.write_parquet(forecast_path)
                 else:
                     
                     results.append({
                         "forecaster_name": forecaster.__class__.__name__,
-                        "forecast_df": pl.scan_parquet(forecast_path, glob=True),
+                        "forecast_df": pl.scan_csv(forecast_path, glob=True),
                         # "agg_metrics": pl.read_parquet(agg_metric_path), 
                         "prediction_timedelta": prediction_timedelta
                     })
@@ -3042,17 +3058,17 @@ if __name__ == "__main__":
         for f, forecaster in enumerate(forecasters):
             prediction_timedelta = forecaster.prediction_timedelta.total_seconds()
         
-            save_dir = os.path.join(os.path.dirname( base_model_config["dataset"]["data_path"]), "validation_results", 
+            save_dir = os.path.join(args.save_dir, "validation_results", 
                                     forecaster.__class__.__name__,
                                     str(int(prediction_timedelta)))
             os.makedirs(save_dir, exist_ok=True)
-            # forecast_path = os.path.join(save_dir, "forecast.parquet")
-            # agg_metric_path = os.path.join(save_dir, "agg_metrics.parquet")
+            # forecast_path = os.path.join(save_dir, "forecast.csv")
+            # agg_metric_path = os.path.join(save_dir, "agg_metrics.csv")
             
-            # forecast_paths = glob.glob(os.path.join(save_dir, "forecast_*.parquet"))
-            forecast_paths = [os.path.join(save_dir, f"forecast_{cg}.parquet") for cg in continuity_groups]
-            forecast_path = os.path.join(save_dir, f"forecast*.parquet")
-            save_path = os.path.join(save_dir, f"forecast.parquet")
+            # forecast_paths = glob.glob(os.path.join(save_dir, "forecast_*.csv"))
+            forecast_paths = [os.path.join(save_dir, f"forecast_{cg}.csv") for cg in continuity_groups]
+            forecast_path = os.path.join(save_dir, f"forecast*.csv")
+            save_path = os.path.join(save_dir, f"forecast.csv")
             if args.rerun_validation: # or not all(os.path.exists(fp) for fp in forecast_paths) or not (len(forecast_paths) == len(continuity_groups)):
                 if args.rerun_validation:
                     for f in glob.glob(forecast_path):
@@ -3061,12 +3077,12 @@ if __name__ == "__main__":
                 make_predictions(
                     forecaster=forecaster, test_data=test_data,
                     prediction_type=args.prediction_type, single_cg=False,
-                    save_path=save_path)
+                    save_path=save_path.replace(".csv", "_0.csv"))
                 
                     # assigned_gpu=next(gpu_cycler) if gpu_cycler else None)
                 results.append({
                     "forecaster_name": forecaster.__class__.__name__,
-                    "forecast_df": pl.scan_parquet(forecast_path),
+                    "forecast_df": pl.scan_csv(forecast_path),
                     # "agg_metrics": agg_metrics, 
                     "prediction_timedelta": prediction_timedelta
                     })
@@ -3075,7 +3091,7 @@ if __name__ == "__main__":
             else:
                 results.append({
                     "forecaster_name": forecaster.__class__.__name__,
-                    "forecast_df": pl.scan_parquet(forecast_path, glob=True),
+                    "forecast_df": pl.scan_csv(forecast_path, glob=True),
                     # "agg_metrics": pl.read_parquet(agg_metric_path), 
                     "prediction_timedelta": prediction_timedelta
                     })
@@ -3083,20 +3099,20 @@ if __name__ == "__main__":
     for f, forecaster in enumerate(forecasters):
         prediction_timedelta = forecaster.prediction_timedelta.total_seconds()
     
-        save_dir = os.path.join(os.path.dirname( base_model_config["dataset"]["data_path"]), "validation_results", 
+        save_dir = os.path.join(args.save_dir, "validation_results", 
                                 forecaster.__class__.__name__,
                                 str(int(prediction_timedelta)))
         os.makedirs(save_dir, exist_ok=True)
         
-        forecast_path = os.path.join(save_dir, "forecast_*.parquet")
-        agg_metric_path = os.path.join(save_dir, "agg_metrics.parquet")       
+        forecast_path = os.path.join(save_dir, "forecast_*.csv")
+        agg_metric_path = os.path.join(save_dir, "agg_metrics.csv")       
         
         if args.rerun_validation or not os.path.exists(agg_metric_path):
-            forecast_df = pl.scan_parquet(forecast_path, glob=True)
+            forecast_df = pl.scan_csv(forecast_path, glob=True)
             agg_metrics = generate_forecaster_agg_results(forecaster, forecast_df.collect(), test_data, data_module, args.prediction_type)
-            agg_metrics.write_parquet(agg_metric_path)
+            agg_metrics.write_csv(agg_metric_path)
         else:
-            agg_metrics =  pl.scan_parquet(agg_metric_path)
+            agg_metrics =  pl.scan_csv(agg_metric_path)
             
         results[f]["agg_metrics"] = agg_metrics
         
@@ -3124,7 +3140,7 @@ if __name__ == "__main__":
         PLOT_INDIVIDUAL = True
         forecasts_long = []
         for f, forecaster in enumerate(forecasters):
-            save_dir = os.path.join(os.path.dirname(base_model_config["dataset"]["data_path"]), "validation_results", 
+            save_dir = os.path.join(args.save_dir, "validation_results", 
                                     forecaster.__class__.__name__,
                                     str(int(forecaster.prediction_timedelta.total_seconds())))
             if args.prediction_type == "distribution" and forecaster.is_probabilistic:
@@ -3185,7 +3201,7 @@ if __name__ == "__main__":
         totals_agg_df = agg_df.filter((pl.col("test_idx")==-1) & (pl.col("turbine_id") == "all"))\
                             .group_by(["forecaster", "metric", "prediction_timedelta"]).agg(pl.col("score").mean())
                             
-        save_dir = os.path.join(os.path.dirname(base_model_config["dataset"]["data_path"]), "validation_results")
+        save_dir = os.path.join(args.save_dir, "validation_results")
                                 
         # generate scatterplot of metric vs prediction time for different models (different colors) and different metrics (different_styles) (crps, picp, pinaw, cwc, mse, mae)
         plot_score_vs_prediction_dt(totals_agg_df, 
