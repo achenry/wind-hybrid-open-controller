@@ -135,7 +135,7 @@ if __name__ == "__main__":
             visible_gpus = [idx for idx in cuda_devices.split(',') if idx.strip()]
             num_visible_gpus = len(visible_gpus)
             if num_visible_gpus > 0:
-                logging.info(f"Founf {num_visible_gpus} GPUs. Setting max_workers to num_visible_gpus={num_visible_gpus}.")
+                logging.info(f"Found {num_visible_gpus} GPUs. Setting max_workers to num_visible_gpus={num_visible_gpus}.")
                 max_workers = num_visible_gpus
             else:
                 logging.warning(f"CUDA_VISIBLE_DEVICES is set but no valid GPU indices found. Setting max_workers to mp.cpu_count()={mp.cpu_count()}.")
