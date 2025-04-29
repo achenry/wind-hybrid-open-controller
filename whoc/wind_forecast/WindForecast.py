@@ -2111,7 +2111,7 @@ class MLForecast(WindForecast):
             test_data = self._generate_test_data(historic_measurements)
             logging.info(f"Using {torch.cuda.device_count()} GPUs at {current_time} to make predictions for {self.model_key} with prediction_timedelta {self.prediction_timedelta}.")
                 
-            # TODO TEST
+            # TODO HIGH will this work if per_turbine_target=False and True? Juan?
             if self.model_key == 'tactis':
                 pred_iter = self.predictor.predict(test_data, num_samples=100) # Get the samples
                 pred = next(pred_iter) # Get the first forecast object
@@ -2132,33 +2132,36 @@ class MLForecast(WindForecast):
                 # Create DataFrame from calculated stats
             else:
                 
-                # DistributionForecast
-                pred_iter = self.predictor.predict(test_data, num_samples=1,
-                                              output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"})
+            pred_iter = self.predictor.predict(test_data, num_samples=1,
+                                            output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"})
+            
+            if self.data_module.per_turbine_target:
+                # Handle multiple forecast objects if per_turbine_target is True
+                pred_list = list(pred_iter)
                 
-                if self.data_module.per_turbine_target:
-                    # Handle multiple forecast objects if per_turbine_target is True
-                    pred_list = list(pred_iter)
-                    pred_df = pl.concat([pl.DataFrame(
-                        data={
-                            **{"time": turbine_pred.index.to_timestamp().as_unit("us")},
-                            **{f"loc_{col}": turbine_pred.distribution.mean[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_prefixes)},
-                            **{f"sd_{col}": turbine_pred.distribution.stddev[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_prefixes)}
-                        }
-                    ).rename({
-                        f"{param}_{col}": f"{param}_{col}_{self.data_module.target_suffixes[t]}"
-                        for param in ["loc", "sd"] for col in self.data_module.target_prefixes}
-                             ).sort(by=["time"]) for t, turbine_pred in enumerate(pred_list)], how="align")
-                else:
-                    # single forecast object
-                    pred = next(pred_iter) # Get the single forecast object
-                    pred_df = pl.DataFrame(
-                        data={
-                            **{"time": pred.index.to_timestamp().as_unit("us")},
-                            **{f"loc_{col}": pred.distribution.mean[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_cols)},
-                            **{f"sd_{col}": pred.distribution.stddev[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_cols)}
-                        }
-                    ).sort(by=["time"])
+                if self.model_key == 'tactis':
+                    pred_list = 
+                
+                pred_df = pl.concat([pl.DataFrame(
+                    data={
+                        **{"time": turbine_pred.index.to_timestamp().as_unit("us")},
+                        **{f"loc_{col}": turbine_pred.distribution.mean[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_prefixes)},
+                        **{f"sd_{col}": turbine_pred.distribution.stddev[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_prefixes)}
+                    }
+                ).rename({
+                    f"{param}_{col}": f"{param}_{col}_{self.data_module.target_suffixes[t]}"
+                    for param in ["loc", "sd"] for col in self.data_module.target_prefixes}
+                            ).sort(by=["time"]) for t, turbine_pred in enumerate(pred_list)], how="align")
+            else:
+                # single forecast object
+                pred = next(pred_iter) # Get the single forecast object
+                pred_df = pl.DataFrame(
+                    data={
+                        **{"time": pred.index.to_timestamp().as_unit("us")},
+                        **{f"loc_{col}": pred.distribution.mean[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_cols)},
+                        **{f"sd_{col}": pred.distribution.stddev[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_cols)}
+                    }
+                ).sort(by=["time"])
 
             # denormalize data
             pred_df = pred_df.with_columns([
@@ -2281,7 +2284,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
     else:
         logging.info("Getting number of continuity groups in data.")
         splits = test_data.select(pl.col("continuity_group").unique()).collect().to_numpy().flatten()
-        test_data = test_data.collect().partition_by("continuity_group")
+        test_data = test_data.collect().partition_by("continuity_group").lazy()
     n_splits = len(splits)
     
     # for kf testing
