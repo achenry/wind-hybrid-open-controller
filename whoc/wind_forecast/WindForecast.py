@@ -2313,13 +2313,14 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
             save_length += pred.select(pl.len()).item()
             
             ram_used = virtual_memory().percent
-            if ram_used > 50:
+            if ram_used > 75:
                 sub_save_path = save_path.replace(".parquet", f"_{splits[d]}_{n_saved}.parquet")
                 logging.info(f"Used {ram_used}% RAM. Saving sub parquet of length {save_length} to {sub_save_path}.")
                 forecasts = (fc for fc in forecasts)
                 pl.concat(forecasts, how="vertical").write_parquet(sub_save_path, statistics=False)
                 forecasts = []
                 save_length = 0
+                del pred
                 # gc.collect()
                 ram_used = virtual_memory().percent
                 logging.info(f"Used {ram_used}% RAM after saving {sub_save_path}.")
