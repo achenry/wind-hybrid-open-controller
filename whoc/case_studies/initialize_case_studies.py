@@ -182,7 +182,7 @@ case_studies = {
         "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
         "prediction_timedelta": {"group": 1, "vals": [300, 60]},
         "target_turbine_indices": {"group": 1, "vals": ["74,73", "4,"]},
-        "wind_forecast_class": {"group": 2, "vals": ["SVRForecast", "SpatialFilterForecast", "PersistentForecast", "PerfectForecast"]},
+        "wind_forecast_class": {"group": 2, "vals": ["SVRForecast", "SpatialFilterForecast", "PersistenceForecast", "PerfectForecast"]},
     },
     "baseline_controllers_baseline_prob_forecasters_awaken": {
         "controller_dt": {"group": 0, "vals": [5]},
