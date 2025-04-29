@@ -2266,16 +2266,16 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
     forecasts = []
     
     logging.info("Getting timestamps at which controller will call forecaster.")
-    controller_times = test_data.gather_every(forecaster.n_controller).select(pl.col("time")).collect()
+    controller_times = test_data.gather_every(forecaster.n_controller).select(pl.col("time"))
     
-    test_data_time = test_data.select(pl.col("time")).collect()
+    test_data_time = test_data.select(pl.col("time"))
     if single_cg:
-        splits = [test_data.select(pl.col("continuity_group").first()).collect().item()]
+        splits = [test_data.select(pl.col("continuity_group").first()).item()]
         test_data = [test_data]
     else:
         logging.info("Getting number of continuity groups in data.")
-        splits = test_data.select(pl.col("continuity_group").unique()).collect().to_numpy().flatten()
-        test_data = [td.lazy() for td in test_data.collect().partition_by("continuity_group")]
+        splits = test_data.select(pl.col("continuity_group").unique()).to_numpy().flatten()
+        test_data = test_data.partition_by("continuity_group")
     n_splits = len(splits)
     
     # for kf testing
@@ -2293,8 +2293,8 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
          
         # start = ds[FieldName.START].to_timestamp()
         # end = (ds[FieldName.START] + ds['target'].shape[1]).to_timestamp()
-        start = ds.select(pl.col("time").first()).collect().item()
-        end = ds.select(pl.col("time").last()).collect().item()
+        start = ds.select(pl.col("time").first()).item()
+        end = ds.select(pl.col("time").last()).item()
         logging.info(f"Getting predictions for {splits[d]}th split starting at {start} and ending at {end} using {forecaster.__class__.__name__} with prediction_timedelta {forecaster.prediction_timedelta}.")
         forecasts = []
         # split_true_wf = true_wind_field.filter(pl.col("time").is_between(start, end, closed="both"))
@@ -2314,10 +2314,10 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
             logging.info(f"Predicting future wind field using {forecaster.__class__.__name__} at time {current_time}/{end} of split {splits[d]}.")
             if prediction_type == "distribution" and forecaster.is_probabilistic:
                 pred = forecaster.predict_distr(
-                    ds.filter(pl.col("time") <= current_time).collect(), current_time)
+                    ds.filter(pl.col("time") <= current_time), current_time)
             elif prediction_type == "point" or not forecaster.is_probabilistic:
                 pred = forecaster.predict_point(
-                    ds.filter(pl.col("time") <= current_time).collect(), current_time)
+                    ds.filter(pl.col("time") <= current_time), current_time)
             elif prediction_type == "sample":
                 raise NotImplementedError()
             
@@ -2779,9 +2779,10 @@ if __name__ == "__main__":
         test_data = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in test_data]
     
     logging.info("Generating dataframe.")
-    save_path = os.path.join(os.path.dirname( base_model_config["dataset"]["data_path"]), "test_data.parquet")
-    generate_wind_field_df(test_data, data_module.target_cols, data_module.feat_dynamic_real_cols).write_parquet(save_path, statistics=False)
-    test_data = pl.scan_parquet(save_path)
+    # save_path = os.path.join(os.path.dirname( base_model_config["dataset"]["data_path"]), "test_data.parquet")
+    test_data = generate_wind_field_df(test_data, data_module.target_cols, data_module.feat_dynamic_real_cols)
+    # .write_parquet(save_path, statistics=False)
+    # test_data = pl.scan_parquet(save_path)
     
     
     # window_length = model_config["dataset"]["prediction_length"] + model_config["dataset"].get("lead_time", 0)
@@ -2794,7 +2795,7 @@ if __name__ == "__main__":
     logging.info("Finished creating datasets.")
     
     # assert pd.Timedelta(test_data[0]["start"].freq) == measurements_timedelta
-    assert pd.Timedelta(test_data.select(pl.col("time").diff()).slice(1,1).collect().item()) == measurements_timedelta
+    assert pd.Timedelta(test_data.select(pl.col("time").diff()).slice(1,1).item()) == measurements_timedelta
     # assert test_data.select(pl.col("time").slice(0, 2).diff()).slice(1,1).item() == measurements_timedelta
    
     # custom_eval_fn = {
@@ -2982,7 +2983,7 @@ if __name__ == "__main__":
                                         )
             forecasters.append(forecaster)
     
-    continuity_groups = test_data.select(pl.col("continuity_group").unique()).collect().to_numpy().flatten()
+    continuity_groups = test_data.select(pl.col("continuity_group").unique()).to_numpy().flatten()
     if args.multiprocessor:
         
         if args.multiprocessor == "mpi":
