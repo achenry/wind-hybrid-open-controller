@@ -18,7 +18,7 @@
 export BASE_DIR="/user/taed7566/Forecasting"
 export WHOC_DIR="${BASE_DIR}/wind-hybrid-open-controller"
 export WF_DIR="${BASE_DIR}/wind-forecasting"
-export LOG_DIR="${WF_DIR}/logs" # Use wind-forecasting logs dir for consistency
+export LOG_DIR="${WF_DIR}/logs"
 export WHOC_SCRIPT_DIR="${WHOC_DIR}/whoc/wind_forecast"
 
 # --- Input Arguments ---
@@ -26,21 +26,21 @@ export WHOC_SCRIPT_DIR="${WHOC_DIR}/whoc/wind_forecast"
 #                       /user/taed7566/Forecasting/wind-forecasting/config/training/training_inputs_juan_flasc.yaml \
 #                       /user/taed7566/Forecasting/wind-forecasting/config/preprocessing/preprocessing_inputs_flasc.yaml
 export MODELS=${1:-"tactis"}
-export MODEL_CONFIG_PATH_ARG=${2:-"${WF_DIR}/config/training/training_inputs_juan_flasc.yaml"} # Default config
-export DATA_CONFIG_PATH_ARG=${3:-"${WF_DIR}/config/preprocessing/preprocessing_inputs_flasc_juan.yaml"} # Default config
+export MODEL_CONFIG_PATH_ARG=${2:-"${WF_DIR}/config/training/training_inputs_juan_flasc_test_storm.yaml"}
+export DATA_CONFIG_PATH_ARG=${3:-"${WF_DIR}/config/preprocessing/preprocessing_inputs_flasc_juan.yaml"}
 
 # --- Create Logging Directories ---
 mkdir -p ${LOG_DIR}/slurm_logs
-mkdir -p ${LOG_DIR}/inference_results/${SLURM_JOB_ID} # Job-specific output dir
+mkdir -p ${LOG_DIR}/inference_results/${SLURM_JOB_ID}
 
 # --- Change to Working Directory ---
 cd ${WHOC_SCRIPT_DIR} || { echo "ERROR: Failed to change directory to ${WHOC_SCRIPT_DIR}"; exit 1; }
 echo "Changed directory to $(pwd)"
 
 # --- Set Shared Environment Variables ---
-export PYTHONPATH=${WHOC_DIR}:${WF_DIR}:${PYTHONPATH} # Add both project dirs to PYTHONPATH
-export WANDB_DIR=${LOG_DIR} # WandB logs directory
-export NUMEXPR_MAX_THREADS=${SLURM_CPUS_PER_TASK} # Use allocated CPUs
+export PYTHONPATH=${WHOC_DIR}:${WF_DIR}:${PYTHONPATH}
+export WANDB_DIR=${LOG_DIR}
+export NUMEXPR_MAX_THREADS=${SLURM_CPUS_PER_TASK}
 
 # --- Print Job Info ---
 echo "--- SLURM JOB INFO ---"
@@ -93,13 +93,13 @@ echo "------------------------"
 echo "Starting WindForecast script..."
 date +"%Y-%m-%d %H:%M:%S"
 
-# Ensure config paths are absolute (handle relative paths passed as args)
+# Ensure config paths are absolute
 resolve_path() {
   local path_to_resolve=$1
   if [[ "$path_to_resolve" = /* ]]; then
     echo "$path_to_resolve"
   else
-    echo "${BASE_DIR}/${path_to_resolve}" # Assume relative to BASE_DIR if not absolute
+    echo "${BASE_DIR}/${path_to_resolve}"
   fi
 }
 MODEL_CONFIG_PATH_ABS=$(resolve_path "${MODEL_CONFIG_PATH_ARG}")
