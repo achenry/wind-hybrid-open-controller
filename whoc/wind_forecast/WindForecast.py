@@ -1907,14 +1907,17 @@ class MLForecast(WindForecast):
     def _generate_test_data(self, historic_measurements: pl.DataFrame):
         # resample data to frequency model was trained on
             
-        if self.data_module.freq != self.measurements_timedelta:
-            if self.measurements_timedelta < self.data_module.freq:
+        # Convert freq string to Timedelta for comparison and calculations
+        # Ensure self.data_module.freq is treated as a string before conversion
+        data_module_freq_td = pd.Timedelta(str(self.data_module.freq))
+        if data_module_freq_td != self.measurements_timedelta:
+            if self.measurements_timedelta < data_module_freq_td:
                 historic_measurements = historic_measurements.with_columns(
-                    time=pl.col("time").dt.round(self.data_module.freq)
-                    + pl.duration(seconds=historic_measurements.select(pl.col("time").last().dt.second() % self.data_module.freq.seconds).item()))\
+                    time=pl.col("time").dt.round(data_module_freq_td) # Use Timedelta here
+                    + pl.duration(seconds=historic_measurements.select(pl.col("time").last().dt.second() % data_module_freq_td.total_seconds()).item()))\
                     .group_by("time").agg(cs.numeric().mean()).sort("time")
             else:
-                historic_measurements = historic_measurements.upsample(time_column="time", every=self.data_module.freq).fill_null(strategy="forward")
+                historic_measurements = historic_measurements.upsample(time_column="time", every=data_module_freq_td).fill_null(strategy="forward") # Use Timedelta here
         
         historic_measurements = historic_measurements.with_columns(cs.numeric().cast(pl.Float32))
         # test_data must be iterable where each item generated is a dict with keys start, target, item_id, and feat_dynamic_real
@@ -1929,7 +1932,7 @@ class MLForecast(WindForecast):
                     "feat_static_cat": np.array([t]),
                     "feat_dynamic_real": pl.concat([
                         historic_measurements.select([f"{pfx}_{turbine_id}" for pfx in self.data_module.feat_dynamic_real_prefixes]),
-                        historic_measurements.select([pl.col(f"{pfx}_{turbine_id}").last().repeat_by(int(self.model_prediction_timedelta / self.data_module.freq)).explode() 
+                        historic_measurements.select([pl.col(f"{pfx}_{turbine_id}").last().repeat_by(int(self.model_prediction_timedelta.total_seconds() / data_module_freq_td.total_seconds())).explode() # Use Timedelta seconds
                                                       for pfx in self.data_module.feat_dynamic_real_prefixes])], how="vertical").to_numpy().T
                 } for t, turbine_id in enumerate(self.data_module.target_suffixes))
         else:
@@ -1938,7 +1941,7 @@ class MLForecast(WindForecast):
                     "target": historic_measurements.select(self.data_module.target_cols).to_numpy().T, 
                     "feat_dynamic_real": pl.concat([
                         historic_measurements.select(self.data_module.feat_dynamic_real_cols),
-                        historic_measurements.select([pl.col(col).last().repeat_by(int(self.model_prediction_timedelta / self.data_module.freq)).explode() 
+                        historic_measurements.select([pl.col(col).last().repeat_by(int(self.model_prediction_timedelta.total_seconds() / data_module_freq_td.total_seconds())).explode() # Use Timedelta seconds
                                                       for col in self.data_module.feat_dynamic_real_cols])], how="vertical").to_numpy().T
             }]
         return test_data
@@ -1987,14 +1990,16 @@ class MLForecast(WindForecast):
                                                     for c, col in enumerate(self.norm_min_cols)])
         pred_df = pred_df.filter(pl.col("time") <= (current_time + self.prediction_timedelta))
         # check if the data that trained the model differs from the frequency of historic_measurments
-        if self.data_module.freq != self.measurements_timedelta:
+        # Convert freq string to Timedelta for comparison and calculations
+        data_module_freq_td = pd.Timedelta(str(self.data_module.freq))
+        if data_module_freq_td != self.measurements_timedelta:
             # resample historic measurements to historic_measurements frequency and return as pandas dataframe
-            if self.measurements_timedelta > self.data_module.freq:
-                pred_df = pred_df.with_columns(time=pl.col("time").dt.round(self.measurements_timedelta)
-                                               + pl.duration(seconds=pred_df.select(pl.col("time").last().dt.second() % self.data_module.freq.seconds).item()))\
-                                                              .group_by("time").agg(cs.numeric().mean()).sort("time")
+            if self.measurements_timedelta > data_module_freq_td: # Use Timedelta here
+                pred_df = pred_df.with_columns(time=pl.col("time").dt.round(data_module_freq_td) # Use Timedelta here
+                                               + pl.duration(seconds=pred_df.select(pl.col("time").last().dt.second() % data_module_freq_td.total_seconds()).item()))\
+                                                               .group_by("time").agg(cs.numeric().mean()).sort("time")
             else:
-                pred_df = pred_df.upsample(time_column="time", every=self.measurements_timedelta).fill_null(strategy="forward")
+                pred_df = pred_df.upsample(time_column="time", every=data_module_freq_td).fill_null(strategy="forward") # Use Timedelta here
         
         if return_pl: 
             return pred_df
@@ -2049,14 +2054,16 @@ class MLForecast(WindForecast):
             
             pred_df = pred_df.filter(pl.col("time") <= (current_time + self.prediction_timedelta))
             # check if the data that trained the model differs from the frequency of historic_measurments
-            if self.data_module.freq != self.measurements_timedelta:
+            # Convert freq string to Timedelta for comparison and calculations
+            data_module_freq_td = pd.Timedelta(str(self.data_module.freq))
+            if data_module_freq_td != self.measurements_timedelta:
                 # resample historic measurements to historic_measurements frequency and return as pandas dataframe
-                if self.measurements_timedelta > self.data_module.freq:
-                    pred_df = pred_df.with_columns(time=pl.col("time").dt.round(self.measurements_timedelta)
-                                                + pl.duration(seconds=pred_df.select(pl.col("time").last().dt.second() % self.data_module.freq.seconds).item()))\
+                if self.measurements_timedelta > data_module_freq_td: # Use Timedelta here
+                    pred_df = pred_df.with_columns(time=pl.col("time").dt.round(data_module_freq_td) # Use Timedelta here
+                                                + pl.duration(seconds=pred_df.select(pl.col("time").last().dt.second() % data_module_freq_td.total_seconds()).item()))\
                                                                 .group_by("time").agg(cs.numeric().mean()).sort("time")
                 else:
-                    pred_df = pred_df.upsample(time_column="time", every=self.measurements_timedelta).fill_null(strategy="forward")
+                    pred_df = pred_df.upsample(time_column="time", every=data_module_freq_td).fill_null(strategy="forward") # Use Timedelta here
         else:
             # not enough data points to train SVR, assume persistance
             logging.info(f"Not enough data points at time {current_time} to train ML, have {historic_measurements.select(pl.len()).item()} but require {self.n_context}, assuming persistance instead.")
@@ -2142,14 +2149,16 @@ class MLForecast(WindForecast):
                                                             for feat_type in feature_types])                                   
             pred_df = pred_df.filter(pl.col("time") <= (current_time + self.prediction_timedelta)) 
             # check if the data that trained the model differs from the frequency of historic_measurments
-            if self.data_module.freq != self.measurements_timedelta:
+            # Convert freq string to Timedelta for comparison and calculations
+            data_module_freq_td = pd.Timedelta(str(self.data_module.freq))
+            if data_module_freq_td != self.measurements_timedelta:
                 # resample historic measurements to historic_measurements frequency and return as pandas dataframe
-                if self.measurements_timedelta > self.data_module.freq:
-                    pred_df = pred_df.with_columns(time=pl.col("time").dt.round(self.measurements_timedelta)
-                                                + pl.duration(seconds=pred_df.select(pl.col("time").last().dt.second() % self.data_module.freq.seconds).item()))\
+                if self.measurements_timedelta > data_module_freq_td: # Use Timedelta here
+                    pred_df = pred_df.with_columns(time=pl.col("time").dt.round(data_module_freq_td) # Use Timedelta here
+                                                + pl.duration(seconds=pred_df.select(pl.col("time").last().dt.second() % data_module_freq_td.total_seconds()).item()))\
                                                                 .group_by("time").agg(cs.numeric().mean()).sort("time")
                 else:
-                    pred_df = pred_df.upsample(time_column="time", every=self.measurements_timedelta).fill_null(strategy="forward")
+                    pred_df = pred_df.upsample(time_column="time", every=data_module_freq_td).fill_null(strategy="forward") # Use Timedelta here
         else:
             # not enough data points to train SVR, assume persistance
             logging.info(f"Not enough data points at time {current_time} to train ML, have {historic_measurements.select(pl.len()).item()} but require {self.n_context}, assuming persistance instead.")
