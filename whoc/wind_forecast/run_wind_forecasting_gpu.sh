@@ -52,4 +52,5 @@ echo "Using GPUs ${CUDA_VISIBLE_DEVICES}"
 
 # taskset -c $start_core-$end_core 
 python WindForecast.py --model ${MODELS} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --simulation_timestep 1 \
-        --checkpoint best --multiprocessor cf --max_splits 10 --prediction_type distribution --use_tuned_params --use_trained_models --rerun_validation
+        --save_dir $HOME/toolboxes/wind_forecasting_env/wind-forecasting/logging --checkpoint best --multiprocessor cf --max_splits 10 \ 
+        --prediction_type distribution --use_tuned_params --use_trained_models --rerun_validation
