@@ -1716,10 +1716,11 @@ class MLForecast(WindForecast):
         self.model_config = self.kwargs["model_config"]
             
         if "assigned_gpu" in self.kwargs and self.kwargs["assigned_gpu"]:
-            os.environ["CUDA_VISIBLE_DEVICES"] = self.kwargs["assigned_gpu"]
+            # os.environ["CUDA_VISIBLE_DEVICES"] = self.kwargs["assigned_gpu"]
             self.assigned_gpu = self.kwargs["assigned_gpu"]
             logging.info(f"Using assigned_gpu = {self.assigned_gpu} in MLForecast for {self.model_key} and self.prediction_timedelta = {self.prediction_timedelta}.")
             # torch.cuda.set_device(self.assigned_gpu)
+            self.device = f"cuda:{self.assigned_gpu}"
             
             # Clear GPU memory before starting
             torch.cuda.empty_cache()
@@ -1727,10 +1728,12 @@ class MLForecast(WindForecast):
             self.assigned_gpu = os.environ['CUDA_VISIBLE_DEVICES']
             logging.info(f"Using assigned_gpu = {os.environ['CUDA_VISIBLE_DEVICES']} in MLForecast for {self.model_key} and self.prediction_timedelta = {self.prediction_timedelta}.")
             # torch.cuda.set_device(self.assigned_gpu)
-            
+            self.device = "cuda"
             # Clear GPU memory before starting
             torch.cuda.empty_cache()
-            
+        else:
+            self.assigned_gpu = None
+            self.device = "cpu"
         # don't need this, can load hyperparamas from checkpoint
         # if self.use_tuned_params:
         #     try:
@@ -1767,14 +1770,14 @@ class MLForecast(WindForecast):
                                  f"{self.model_config['experiment']['project_name']}_{self.model_key}"))
         
         logging.info("Found pretrained model, loading...")
-        if torch.cuda.is_available():
-            device = None # f"cuda:{int(os.environ['CUDA_VISIBLE_DEVICES'].split(",")[0])}"
-            # device = f"cuda:{assigned_gpu or 0}"
-            # logging.info(f"Loading checkpoint onto CUDA device {device}")
-        else:
-            device = "cpu"
-            logging.info(f"Loading checkpoint onto cpu core.")
-        checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+        # if torch.cuda.is_available():
+        #     device = None # f"cuda:{int(os.environ['CUDA_VISIBLE_DEVICES'].split(",")[0])}"
+        #     # device = f"cuda:{assigned_gpu or 0}"
+        #     # logging.info(f"Loading checkpoint onto CUDA device {device}")
+        # else:
+        #     device = "cpu"
+        #     logging.info(f"Loading checkpoint onto cpu core.")
+        checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
         
         # Extract hyperparameters, handling potential key variations
         try:
@@ -1912,7 +1915,7 @@ class MLForecast(WindForecast):
 
         
         self.predictor = estimator.create_predictor(transformation, model, 
-                                                          forecast_generator=forecast_generator)
+                                                          forecast_generator=forecast_generator).to(self.device)
         self.data_module.freq = pd.Timedelta(self.data_module.freq).to_pytimedelta()
         # self.sample_predictor = estimator.create_predictor(transformation, model, 
         #                                                    forecast_generator=SampleForecastGenerator())
@@ -2039,7 +2042,7 @@ class MLForecast(WindForecast):
                                                         for feat_type in feature_types])
             test_data = self._generate_test_data(historic_measurements)
             
-            logging.debug(f"Using {torch.cuda.device_count()} GPUs at {current_time} to make predictions for {self.model_key} with prediction_timedelta {self.prediction_timedelta}.")
+            logging.debug(f"Using {torch.cuda.device_count()} GPUs at {current_time} to make predictions for {self.model_key} with prediction_timedelta {self.prediction_timedelta}")
             pred = self.predictor.predict(test_data, num_samples=1, 
                                                 output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"})
             pred = next(pred)
@@ -2109,21 +2112,29 @@ class MLForecast(WindForecast):
                     (cs.starts_with(feat_type) * self.scaler_params["scale_"][feat_type]) + self.scaler_params["min_"][feat_type]
                                                             for feat_type in feature_types])
             
-            test_data = self._generate_test_data(historic_measurements)
-            logging.info(f"Using {torch.cuda.device_count()} GPUs at {current_time} to make predictions for {self.model_key} with prediction_timedelta {self.prediction_timedelta}.")
+            if self.assigned_gpu:
+                device = torch.device(f"cuda:{self.assigned_gpu}")
+            else:
+                device = "cpu"
                 
+            test_data = self._generate_test_data(historic_measurements)
+            logging.info(f"Using {torch.cuda.device_count()} GPU devices: {self.device} at {current_time} to make predictions for {self.model_key} with prediction_timedelta {self.prediction_timedelta}.")
+            
+            
             pred_iter = self.predictor.predict(test_data, num_samples=1,
-                                            output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"})
+                                                output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"})
             
             if self.data_module.per_turbine_target:
                 # Handle multiple forecast objects if per_turbine_target is True
                 pred_list = list(pred_iter)
                 
+                # logging.info(f"pred_list[0] is on device {pred_list[0].samples.device}")
+                
                 if self.model_key == 'tactis':
                     for p in range(len(pred_list)):
                         pred_list[p].distribution = types.SimpleNamespace()
-                        samples_tensor = torch.from_numpy(pred_list[p].samples) # .to(self.predictor.device)
-                        pred_list[p].distribution.mean = samples_tensor.to(self.predictor.device).mean(dim=0)
+                        samples_tensor = torch.from_numpy(pred_list[p].samples).to(self.predictor.device) # .to(self.predictor.device)
+                        pred_list[p].distribution.mean = samples_tensor.mean(dim=0)
                         pred_list[p].distribution.stddev = samples_tensor.std(dim=0)
                 
                 pred_df = pl.concat([pl.DataFrame(
@@ -2255,9 +2266,8 @@ def transform_wind(inp_df, added_wm=None, added_wd=None):
 
 def make_predictions(forecaster, test_data, prediction_type, single_cg, save_path):
     
-    if hasattr(forecaster, "assigned_gpu"):
+    if forecaster.assigned_gpu:
         os.environ['CUDA_VISIBLE_DEVICES'] = forecaster.assigned_gpu
-        
         # torch.cuda.set_device(int(forecaster.assigned_gpu))
         
         # Clear GPU memory before starting
