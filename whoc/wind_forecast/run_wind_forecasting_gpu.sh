@@ -23,8 +23,11 @@ echo "SLURM_NTASKS_PER_NODE=${SLURM_NTASKS_PER_NODE}"
 echo "=== ENVIRONMENT ==="
 module list
 
-export MODELS="informer autoformer spacetimeformer tactis"
-export MODEL_CONFIG_PATH="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred60.yaml $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred300.yaml"
+# export MODELS="informer autoformer spacetimeformer tactis"
+#export MODEL_CONFIG_PATH="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred60.yaml $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred300.yaml"
+
+export MODEL=$1
+export MODEL_CONFIG_PATH=$2
 export DATA_CONFIG_PATH="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/preprocessing/preprocessing_inputs_kestrel_awaken_new.yaml"
 
 echo "MODELS=${MODELS}"
