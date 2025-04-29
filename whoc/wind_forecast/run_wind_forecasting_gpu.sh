@@ -3,8 +3,8 @@
 #SBATCH --account=ssc
 #SBATCH --output=%j_%x.out
 #SBATCH --nodes=1
-#SBATCH --time=01:00:00
-#SBATCH --partition=debug
+#SBATCH --time=24:00:00
+##SBATCH --partition=debug
 #SBATCH --ntasks-per-node=4
 #SBATCH --gres=gpu:4
 #SBATCH --mem-per-cpu=85G
@@ -26,7 +26,7 @@ module list
 # export MODELS="informer autoformer spacetimeformer tactis"
 #export MODEL_CONFIG_PATH="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred60.yaml $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred300.yaml"
 
-export MODEL=$1
+export MODELS=$1
 export MODEL_CONFIG_PATH=$2
 export DATA_CONFIG_PATH="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/preprocessing/preprocessing_inputs_kestrel_awaken_new.yaml"
 
@@ -39,7 +39,7 @@ echo "DATA_CONFIG_PATH=${DATA_CONFIG_PATH}"
 date +"%Y-%m-%d %H:%M:%S"
 module purge
 module load mamba
-#module load PrgEnv-intel
+# module load PrgEnv-intel
 mamba activate wind_forecasting_env
 
 export CUDA_VISIBLE_DEVICES=$(seq -s, 0 $(($SLURM_NTASKS_PER_NODE-1)))
