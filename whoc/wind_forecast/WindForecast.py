@@ -2290,6 +2290,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
         logging.info(f"Resetting forecaster state.")
         forecaster.reset()
         n_saved = 0
+        save_length = 0
         for current_row in split_controller_times.iter_rows(named=True):
             
             current_time = current_row["time"]
@@ -2309,15 +2310,18 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                 pred.with_columns(test_idx=pl.lit(test_idx), time=pl.col("time").cast(pl.Datetime(time_unit="ns"))).with_columns(cs.numeric().cast(pl.Float32))\
                     .filter(pl.col("time").is_in(test_data.select(pl.col("time"))))
             )
+            save_length += pred.select(pl.len()).item()
             
             ram_used = virtual_memory().percent
             if ram_used > 50:
                 sub_save_path = save_path.replace(".parquet", f"_{splits[d]}_{n_saved}.parquet")
-                logging.info(f"Used {ram_used}% RAM. Saving sub parquet to {sub_save_path}.")
+                logging.info(f"Used {ram_used}% RAM. Saving sub parquet of length {save_length} to {sub_save_path}.")
                 forecasts = (fc for fc in forecasts)
                 pl.concat(forecasts, how="vertical").write_parquet(sub_save_path, statistics=False)
                 forecasts = []
+                save_length = 0
                 # gc.collect()
+                ram_used = virtual_memory().percent
                 logging.info(f"Used {ram_used}% RAM after saving {sub_save_path}.")
                 n_saved += 1
             
