@@ -164,7 +164,7 @@ case_studies = {
         "prediction_timedelta": {"group": 1, "vals": [300, 300, 60]},
         "uncertain": {"group": 1, "vals": [True, False, False]},
         "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73", "4,"]},
-        "model_key": {"group": 2, "vals": ["informer", "autoformer", "spacetimeformer", "tactis"]}
+        "model_key": {"group": 2, "vals": ["autoformer", "spacetimeformer", "tactis", "informer"]}
     },
     "baseline_controllers_baseline_det_forecasters_awaken": {
         "controller_dt": {"group": 0, "vals": [5]},
