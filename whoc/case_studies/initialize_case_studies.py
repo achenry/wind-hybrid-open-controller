@@ -819,7 +819,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
              
             # regenerate floris lookup tables for all wind farms included
             # generate LUT for combinations of lut_path/floris_input_file, yaw_limits, uncertain, and target_turbine_indices that arise together
-            if regenerate_lut or not os.path.exists(input_dicts[start_case_idx + c]["controller"]["lut_path"]):
+            if (case.get("controller_class", whoc_config["controller"]["controller_class"]).in(["LookupBasedWakeSteeringController", "MPC"])) and regenerate_lut or not os.path.exists(input_dicts[start_case_idx + c]["controller"]["lut_path"]):
                 
                 floris_input_file = input_dicts[start_case_idx + c]["controller"]["floris_input_file"]
                 lut_path = input_dicts[start_case_idx + c]["controller"]["lut_path"] 
