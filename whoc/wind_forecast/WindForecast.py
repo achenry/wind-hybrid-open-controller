@@ -10,6 +10,7 @@ from datetime import timedelta
 import yaml
 import time
 import re
+import types
 import argparse
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing as mp
@@ -2111,27 +2112,6 @@ class MLForecast(WindForecast):
             test_data = self._generate_test_data(historic_measurements)
             logging.info(f"Using {torch.cuda.device_count()} GPUs at {current_time} to make predictions for {self.model_key} with prediction_timedelta {self.prediction_timedelta}.")
                 
-            # TODO HIGH will this work if per_turbine_target=False and True? Juan?
-            if self.model_key == 'tactis':
-                pred_iter = self.predictor.predict(test_data, num_samples=100) # Get the samples
-                pred = next(pred_iter) # Get the first forecast object
-                # TACTiS-2 specific
-                # Samples shape: (num_samples, prediction_length, num_targets)
-                samples_tensor = torch.from_numpy(pred.samples) # .to(self.predictor.device)
-                mean_samples = samples_tensor.to(self.predictor.device).mean(dim=0) # Mean across samples
-                std_samples = samples_tensor.std(dim=0)   # Std dev across samples
-                
-                pred_df = pl.DataFrame(
-                    data={
-                        **{"time": pred.index.to_timestamp().as_unit("us")},
-                        **{f"loc_{col}": mean_samples[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_cols)},
-                        **{f"sd_{col}": std_samples[:, c].cpu().numpy() for c, col in enumerate(self.data_module.target_cols)}
-                    }
-                ).sort(by=["time"])
-
-                # Create DataFrame from calculated stats
-            else:
-                
             pred_iter = self.predictor.predict(test_data, num_samples=1,
                                             output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"})
             
@@ -2140,7 +2120,11 @@ class MLForecast(WindForecast):
                 pred_list = list(pred_iter)
                 
                 if self.model_key == 'tactis':
-                    pred_list = 
+                    for p in range(len(pred_list)):
+                        pred_list[p].distribution = types.SimpleNamespace()
+                        samples_tensor = torch.from_numpy(pred_list[p].samples) # .to(self.predictor.device)
+                        pred_list[p].distribution.mean = samples_tensor.to(self.predictor.device).mean(dim=0)
+                        pred_list[p].distribution.stddev = samples_tensor.std(dim=0)
                 
                 pred_df = pl.concat([pl.DataFrame(
                     data={
@@ -2155,6 +2139,13 @@ class MLForecast(WindForecast):
             else:
                 # single forecast object
                 pred = next(pred_iter) # Get the single forecast object
+                
+                if self.model_key == 'tactis':
+                    pred.distribution = types.SimpleNamespace()
+                    samples_tensor = torch.from_numpy(pred.samples) # .to(self.predictor.device)
+                    pred.distribution.mean = samples_tensor.to(self.predictor.device).mean(dim=0)
+                    pred.distribution.stddev = samples_tensor.std(dim=0)
+                
                 pred_df = pl.DataFrame(
                     data={
                         **{"time": pred.index.to_timestamp().as_unit("us")},
