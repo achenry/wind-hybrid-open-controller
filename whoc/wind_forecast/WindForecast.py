@@ -2113,15 +2113,9 @@ class MLForecast(WindForecast):
             historic_measurements = historic_measurements.with_columns([
                     (cs.starts_with(feat_type) * self.scaler_params["scale_"][feat_type]) + self.scaler_params["min_"][feat_type]
                                                             for feat_type in feature_types])
-            
-            if self.assigned_gpu:
-                device = torch.device(f"cuda:{self.assigned_gpu}")
-            else:
-                device = "cpu"
                 
             test_data = self._generate_test_data(historic_measurements)
             logging.info(f"Using {torch.cuda.device_count()} GPU devices: {self.device} at {current_time} to make predictions for {self.model_key} with prediction_timedelta {self.prediction_timedelta}.")
-            
             
             pred_iter = self.predictor.predict(test_data, num_samples=1,
                                                 output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"})
