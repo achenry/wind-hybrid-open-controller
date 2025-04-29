@@ -1768,6 +1768,27 @@ class MLForecast(WindForecast):
 
             logging.debug(f"Loaded hparams from checkpoint: {hparams}")
 
+            if self.model_key == 'tactis':
+                try:
+                    runtime_num_samples = self.model_config.get('model', {}).get('tactis', {}).get('inference_num_samples')
+
+                    if runtime_num_samples is not None:
+                        if isinstance(runtime_num_samples, int) and runtime_num_samples > 0:
+                            original_value = hparams.get('num_parallel_samples')
+                            if original_value != runtime_num_samples:
+                                logging.info(f"Overriding TACTiS num_parallel_samples from checkpoint ({original_value}) with runtime config value: {runtime_num_samples}")
+                                hparams['num_parallel_samples'] = runtime_num_samples
+                            else:
+                                logging.info(f"Runtime config TACTiS num_parallel_samples ({runtime_num_samples}) matches checkpoint value. Using value: {runtime_num_samples}")
+                        else:
+                            logging.warning(f"Invalid runtime config value for model.tactis.inference_num_samples: '{runtime_num_samples}'. Must be a positive integer. Using checkpoint value: {hparams.get('num_parallel_samples', 'N/A')}")
+                    else:
+                        if 'num_parallel_samples' in hparams:
+                             logging.info(f"Using TACTiS num_parallel_samples from checkpoint: {hparams.get('num_parallel_samples', 'N/A')}")
+
+                except Exception as e:
+                    logging.error(f"Error processing runtime override for num_parallel_samples: {e}. Using checkpoint value.", exc_info=True)
+
             # Explicitly extract model_config and other necessary args for LightningModule.__init__
             # Use .get() with default None to avoid KeyError if a param wasn't saved (though it should be)
             checkpoint_model_config = hparams.get('model_config')
