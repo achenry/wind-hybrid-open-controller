@@ -783,10 +783,15 @@ class WindForecast:
             # x_time_vals = x_time_vals[::n_skips]
             # n_skips = int(len(x_time_vals) // 10)
             # x_time_vals = x_time_vals[::n_skips]
-            xtick_labels = [int((x - x_start) / x1_delta) for x in x_time_vals]
-            # xticks = xticks.astype("timedelta64[s]") / x_delta
-            axs[-1, f].set_xticks(x_time_vals)
-            axs[-1, f].set_xticklabels(xtick_labels)
+            # Calculate xtick labels only if the time delta is positive
+            if x1_delta.total_seconds() > 0:
+                xtick_labels = [int((x - x_start) / x1_delta) for x in x_time_vals]
+                axs[-1, f].set_xticks(x_time_vals)
+                axs[-1, f].set_xticklabels(xtick_labels)
+            else:
+                axs[-1, f].set_xticks([x_start, x_end])
+                axs[-1, f].set_xticklabels(["Start", "End"])
+                logging.warning(f"Plotting forecast for feature '{feat}': Time delta is zero or too small. Using default x-axis ticks.")
             
             for t in range(axs.shape[0]):
                 axs[t, f].set_ylabel("")

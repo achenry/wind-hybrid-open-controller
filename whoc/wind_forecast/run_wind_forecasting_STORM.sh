@@ -117,7 +117,7 @@ python WindForecast.py \
     --model ${MODELS} \
     --model_config "${MODEL_CONFIG_PATH_ABS}" \
     --data_config "${DATA_CONFIG_PATH_ABS}" \
-    --simulation_timestep 1 \
+    --simulation_timestep 60 \
     --save_dir "${LOG_DIR}/inference_results/${SLURM_JOB_ID}" \
     --checkpoint best \
     --prediction_type distribution \
