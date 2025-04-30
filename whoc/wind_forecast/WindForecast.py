@@ -2338,7 +2338,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                 pred.with_columns(test_idx=pl.lit(test_idx), continuity_group=pl.lit(splits[d]), time=pl.col("time").cast(pl.Datetime(time_unit="ns"))).with_columns(cs.numeric().cast(pl.Float32))\
                     .filter(pl.col("time").is_in(test_data_time))
             )
-            logging.info(f"pred.columns = {forecasts[-1].columns}")
+            
             save_length += pred.select(pl.len()).item()
             
             ram_used = virtual_memory().percent
@@ -2347,21 +2347,21 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                 # sub_save_path = save_path.replace(".csv", f"_{splits[d]}_{n_saved}.csv")
                 logging.info(f"Used {ram_used}% RAM. Saving sub parquet of length {save_length} to {save_path}.")
                 
-                try:
-                    x = pl.concat(forecasts, how="vertical")
-                    logging.info(f"vertical concat columns = {x.columns}")
-                except Exception as e:
-                    logging.error(f"Couldn't vertically concat forecasts with columns:")
-                    fcst = forecasts[0]
-                    cols_1 = fcst.columns
-                    for fcst in forecasts[1:]:
-                        cols_2 = fcst.columns
-                        if not all(c1 == c2 for c1, c2 in zip(cols_1, cols_2)):
-                            logging.error(f"Two pairs of columns are unequal:\n{cols_1}\n{cols_2}")
-                        cols_1 = cols_2
+                # try:
+                #     x = pl.concat(forecasts, how="vertical")
+                #     logging.info(f"vertical concat columns = {x.columns}")
+                # except Exception as e:
+                #     logging.error(f"Couldn't vertically concat forecasts with columns:")
+                #     fcst = forecasts[0]
+                #     cols_1 = fcst.columns
+                #     for fcst in forecasts[1:]:
+                #         cols_2 = fcst.columns
+                #         if not all(c1 == c2 for c1, c2 in zip(cols_1, cols_2)):
+                #             logging.error(f"Two pairs of columns are unequal:\n{cols_1}\n{cols_2}")
+                #         cols_1 = cols_2
                         
-                forecasts = pl.concat(forecasts, how="diagonal")
-                logging.info(f"diagonal concat for {save_path} columns = {forecasts.columns}")
+                forecasts = pl.concat(forecasts, how="vertical")
+                # logging.info(f"diagonal concat for {save_path} columns = {forecasts.columns}")
                 logging.info(f"Writing {'final' if final else 'intermediary'} result to file {save_path}.")
                 if not os.path.exists(save_path):
                     with open(save_path, mode="w") as fp:
@@ -2752,6 +2752,13 @@ if __name__ == "__main__":
          comm = MPI.COMM_WORLD
          rank = comm.Get_rank()
 
+
+    # save_dir = "/Users/ahenry/Documents/toolboxes/wind_forecasting/logging/validation_results/MLForecast_informer"
+    # forecast_path = os.path.join(save_dir, f"forecast*.csv")
+    # forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
+    #             .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
+    # forecast_df.select(pl.col('continuity_group').unique())
+
     RUN_ONCE = (args.multiprocessor == "mpi" and rank == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
     
     TRANSFORM_WIND = {"added_wm": args.added_wind_mag, "added_wd": args.added_wind_dir}
@@ -3080,13 +3087,13 @@ if __name__ == "__main__":
                     "prediction_timedelta": forecaster.prediction_timedelta.total_seconds(),
                     "forecast_df": forecast_df
                 })
-                logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('continuity_group)').unique())} continuity_groups.")
+                logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('continuity_group').unique())} continuity_groups.")
                 # forecaster_res.write_parquet(forecast_path)
             else:
                 logging.info(f"Loading forecast_df from {forecast_path}.")
                 forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
                                 .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
-                logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('continuity_group)').unique())} continuity_groups.")
+                logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('continuity_group').unique())} continuity_groups.")
                 results.append({
                     "forecaster_name": forecaster.__class__.__name__,
                     "forecast_df": forecast_df,
@@ -3127,7 +3134,7 @@ if __name__ == "__main__":
                 logging.info(f"Loading forecast_df from {forecast_path}.")
                 forecast_df = pl.read_csv(forecast_path)\
                                      .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
-                logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('continuity_group)').unique())} continuity_groups.")
+                logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('continuity_group').unique())} continuity_groups.")
                 results.append({
                     "forecaster_name": forecaster.__class__.__name__,
                     "forecast_df": forecast_df,
@@ -3140,7 +3147,7 @@ if __name__ == "__main__":
                 logging.info(f"Loading forecast_df from {forecast_path}.")
                 forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
                                      .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
-                logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('continuity_group)').unique())} continuity_groups.")
+                logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('continuity_group').unique())} continuity_groups.")
                 results.append({
                     "forecaster_name": forecaster.__class__.__name__,
                     "forecast_df": forecast_df,
@@ -3163,7 +3170,7 @@ if __name__ == "__main__":
             logging.info(f"Loading forecast_df from {forecast_path}.")
             forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
                            .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
-            logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('test_idx)').unique())} test_indices.")
+            logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('continuity_group').unique())} continuity_groups.")
             agg_metrics = generate_forecaster_agg_results(forecaster, forecast_df, test_data, data_module, args.prediction_type)
             agg_metrics.write_csv(agg_metric_path)
         else:
