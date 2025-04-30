@@ -2,7 +2,7 @@
 
 #SBATCH --partition=all_gpu.p          # Partition for H100/A100 GPUs (adjust if needed)
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=1         # Requesting 1 task for 1 GPU
+#SBATCH --ntasks-per-node=2         # Requesting 1 task for 1 GPU
 #SBATCH --cpus-per-task=32          # CPUs per task (adjust based on inference needs)
 #SBATCH --mem-per-cpu=8192          # Memory per CPU (Total Mem = 1 * 16 * 8192 = 128GB)
 #SBATCH --gres=gpu:H100:2           # Request 1 H100 GPU (Matches ntasks-per-node)
@@ -13,6 +13,15 @@
 #SBATCH --hint=nomultithread        # Disable hyperthreading
 #SBATCH --distribution=block:block  # Improve GPU-CPU affinity
 #SBATCH --gres-flags=enforce-binding # Enforce binding of GPU to task
+
+# Use SLURM_NTASKS_PER_NODE which should match the number of GPUs requested per node
+GPUS_PER_NODE=${SLURM_NTASKS_PER_NODE}
+if [ -z "$GPUS_PER_NODE" ]; then
+  echo "ERROR: SLURM_NTASKS_PER_NODE is not set. Cannot determine GPUs per node." >&2
+  # Fallback or hardcode if necessary, e.g., GPUS_PER_NODE=2 based on #SBATCH directives
+  GPUS_PER_NODE=2 # Fallback based on #SBATCH --ntasks-per-node=2
+  echo "Warning: Using fallback GPUS_PER_NODE=${GPUS_PER_NODE}"
+fi
 
 # --- Base Directories ---
 export BASE_DIR="/user/taed7566/Forecasting"
@@ -109,11 +118,11 @@ echo "Resolved Model Config Path: ${MODEL_CONFIG_PATH_ABS}"
 echo "Resolved Data Config Path: ${DATA_CONFIG_PATH_ABS}"
 
 # Execute the Python script (assuming WindForecast.py is in the current dir: WHOC_SCRIPT_DIR)
-# Using CUDA_VISIBLE_DEVICES=0 explicitly, although Slurm binding should handle it
-export CUDA_VISIBLE_DEVICES=0
-echo "Using GPU ${CUDA_VISIBLE_DEVICES}"
+# Do NOT set CUDA_VISIBLE_DEVICES manually when using torchrun with Slurm binding.
+# Slurm and torchrun handle device assignment.
 
-python WindForecast.py \
+echo "Launching multi-GPU validation with ${GPUS_PER_NODE} processes (GPUs)..."
+torchrun --nproc_per_node=${GPUS_PER_NODE} WindForecast.py \
     --model ${MODELS} \
     --model_config "${MODEL_CONFIG_PATH_ABS}" \
     --data_config "${DATA_CONFIG_PATH_ABS}" \
@@ -123,7 +132,9 @@ python WindForecast.py \
     --prediction_type distribution \
     --use_tuned_params \
     --use_trained_models \
-    --rerun_validation
+    --rerun_validation \
+    --max_splits 1 \
+    --plot
 
 EXIT_CODE=$?
 
