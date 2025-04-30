@@ -2132,10 +2132,31 @@ class MLForecast(WindForecast):
                 
             test_data = self._generate_test_data(historic_measurements)
             logging.info(f"Using {torch.cuda.device_count()} GPU devices: {self.device} at {current_time} to make predictions for {self.model_key} with prediction_timedelta {self.prediction_timedelta}.")
-            
-            pred_iter = self.predictor.predict(test_data, num_samples=1 if self.model_key != "tactis" else 100,
+
+            num_samples_to_use = 100 # Default
+            try:
+                # Prioritize inference_num_samples
+                runtime_samples = self.model_config.get("model", {}).get(self.model_key, {}).get("inference_num_samples")
+                if runtime_samples is not None and isinstance(runtime_samples, int) and runtime_samples > 0:
+                    num_samples_to_use = runtime_samples
+                    logging.info(f"Using inference_num_samples from runtime config: {num_samples_to_use}")
+                else:
+                    # Fallback to num_parallel_samples from checkpoint hparams
+                    hparams_samples = self.predictor.model.hparams.get('num_parallel_samples')
+                    if hparams_samples is not None and isinstance(hparams_samples, int) and hparams_samples > 0:
+                        num_samples_to_use = hparams_samples
+                        logging.info(f"Using num_parallel_samples from checkpoint hparams: {num_samples_to_use}")
+                    else:
+                        logging.warning(f"Could not find valid 'inference_num_samples' in runtime config or 'num_parallel_samples' in checkpoint hparams. Using default: {num_samples_to_use}")
+            except AttributeError:
+                 logging.warning(f"Could not access hparams on predictor.model. Using default num_samples: {num_samples_to_use}")
+            except Exception as e:
+                 logging.warning(f"Error retrieving num_samples configuration, using default {num_samples_to_use}: {e}")
+
+            logging.info(f"Calling predictor.predict with num_samples={num_samples_to_use}")
+            pred_iter = self.predictor.predict(test_data, num_samples=num_samples_to_use,
                                                 output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"})
-            
+
             if self.data_module.per_turbine_target:
                 # Handle multiple forecast objects if per_turbine_target is True
                 pred_list = list(pred_iter)
