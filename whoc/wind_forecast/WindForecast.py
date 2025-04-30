@@ -2140,6 +2140,7 @@ class MLForecast(WindForecast):
                 if self.model_key == 'tactis':
                     for p in range(len(pred_list)):
                         pred_list[p].distribution = types.SimpleNamespace()
+                        logging.info(f"TACTiS samples are stored on device {pred_list[p].samples.get_device()}")
                         samples_tensor = torch.from_numpy(pred_list[p].samples).to(self.predictor.device) # .to(self.predictor.device)
                         pred_list[p].distribution.mean = samples_tensor.mean(dim=0)
                         pred_list[p].distribution.stddev = samples_tensor.std(dim=0)
