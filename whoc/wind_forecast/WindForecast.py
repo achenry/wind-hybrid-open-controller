@@ -2128,7 +2128,7 @@ class MLForecast(WindForecast):
             test_data = self._generate_test_data(historic_measurements)
             logging.info(f"Using {torch.cuda.device_count()} GPU devices: {self.device} at {current_time} to make predictions for {self.model_key} with prediction_timedelta {self.prediction_timedelta}.")
             
-            pred_iter = self.predictor.predict(test_data, num_samples=1,
+            pred_iter = self.predictor.predict(test_data, num_samples=1 if self.model_key != "tactis" else 100,
                                                 output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"})
             
             if self.data_module.per_turbine_target:
