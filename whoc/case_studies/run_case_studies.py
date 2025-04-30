@@ -30,7 +30,8 @@ from whoc.case_studies.simulate_case_studies import simulate_controller
 from whoc.case_studies.process_case_studies import (read_time_series_data, write_case_family_time_series_data, read_case_family_time_series_data, 
                                                     aggregate_time_series_data, read_case_family_agg_data, write_case_family_agg_data, 
                                                     generate_outputs, plot_simulations, plot_wind_farm, plot_breakdown_robustness, plot_horizon_length,
-                                                    plot_cost_function_pareto_curve, plot_yaw_offset_wind_direction, plot_parameter_sweep, plot_power_increase_vs_prediction_time)
+                                                    plot_cost_function_pareto_curve, plot_yaw_offset_wind_direction, plot_parameter_sweep, plot_power_increase_vs_prediction_time,
+                                                    plot_power_vs_prediction_time, plot_power_vs_forecaster)
 try:
     from whoc.wind_forecast.WindForecast import PerfectForecast, PersistenceForecast, MLForecast, SVRForecast, KalmanFilterForecast, SpatialFilterForecast
 except ModuleNotFoundError:
@@ -259,7 +260,7 @@ if __name__ == "__main__":
                     if len(new_time_series_df):
                         write_futures = [run_simulations_exec.submit(write_case_family_time_series_data, 
                                                                      case_family=case_families[i], 
-                                                                     new_time_series_df=new_time_series_df, 
+                                                                     new_time_series_df=new_time_series_df[0],
                                                                      save_dir=args.save_dir)
                                         for i in args.case_ids
                                         if args.reaggregate_simulations or not os.path.exists(os.path.join(args.save_dir, case_families[i], "time_series_results_all.csv"))]
@@ -433,55 +434,10 @@ if __name__ == "__main__":
 
                 perfect_agg_df = baseline_agg_df.loc[baseline_agg_df["wind_forecast_class"] == "PerfectForecast", :]
                 controllers = pd.unique(perfect_agg_df["controller_class"])
-                controller_labels = {"GreedyController": "Greedy", "LookupBasedWakeSteeringController": "LUT"}
-                
-                
                 
                 # PLOT 1) Farm power of perfect forecaster vs prediction timedela for different controllers
-                import seaborn as sns
-                import matplotlib.pyplot as plt
-                controllers = pd.unique(perfect_agg_df["controller_class"])
-                plot_df = perfect_agg_df.copy()
-                plot_df["prediction_timedelta"] = plot_df["prediction_timedelta"].dt.total_seconds()
-                plot_df[("FarmPowerMean", "mean")] = plot_df[("FarmPowerMean", "mean")] / 1e6
+                plot_power_vs_prediction_time(perfect_agg_df, args.save_dir, "perfect_forecaster_")
                 
-                # get gain of LUT compared to greedy wo preview
-                compute_df = plot_df.copy()
-                case_name = compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), :].index.get_level_values("CaseName")[0]
-                input_fn = f"input_config_case_{case_name}.pkl"
-                with open(os.path.join(args.save_dir, case_family, input_fn), mode='rb') as fp:
-                    lut_input_config = pickle.load(fp)
-                n_lut_turbines = len(lut_input_config["controller"]["target_turbine_indices"])
-                
-                case_name = compute_df.loc[(compute_df["controller_class"] == "GreedyController"), :].index.get_level_values("CaseName")[0]
-                input_fn = f"input_config_case_{case_name}.pkl"
-                with open(os.path.join(args.save_dir, case_family, input_fn), mode='rb') as fp:
-                    greedy_input_config = pickle.load(fp)
-                n_greedy_turbines = len(greedy_input_config["controller"]["target_turbine_indices"])
-                        
-                compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] = compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] / n_lut_turbines
-                compute_df.loc[(compute_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")] = compute_df.loc[(compute_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")] / n_greedy_turbines
-                compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] = 100 * (compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] - compute_df.loc[(compute_df["prediction_timedelta"] == 0) & (compute_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")].iloc[0]) / compute_df.loc[(compute_df["prediction_timedelta"] == 0) & (compute_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")].iloc[0]
-                compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), [("prediction_timedelta", ""), ("FarmPowerMean", "mean")]].reset_index(drop=True)
-
-                plot_df.loc[(plot_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")] = 100 * (plot_df.loc[(plot_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")] - plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")].iloc[0]) / plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")].iloc[0]
-                plot_df.loc[(plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] = 100 * (plot_df.loc[(plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] - plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")].iloc[0]) / plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")].iloc[0]
-
-                x_vals = np.sort(pd.unique(plot_df["prediction_timedelta"]))
-                xlim = (x_vals.min(), x_vals.max())
-                fig, ax = plt.subplots(1, len(controllers), sharey=True)
-                for c, ctrl in enumerate(controllers):
-                    sns.lineplot(plot_df.loc[plot_df["controller_class"] == ctrl, :], 
-                                x="prediction_timedelta", y=("FarmPowerMean", "mean"), ax=ax[c])
-                    ax[c].set_ylabel("")
-                    ax[c].set_xlabel("Prediction Horizon (s)")
-                    # ax[c].set_title(f"{controller_labels[ctrl]} Mean Farm Power (MW)")
-                    ax[c].set_title(f"{controller_labels[ctrl]} Mean Farm Power Gain (%)")
-                    ax[c].set_xlim(xlim)
-                    ax[c].set_xticks(x_vals[1::2])
-                    ax[c].tick_params("x", rotation=45)
-                plt.tight_layout()
-                fig.savefig(os.path.join(args.save_dir, "perfect_forecaster_power_vs_prediction_time.png"))
                 
                 # PLOT 2) Farm power ratio of other forecasters relative to perfect forecaster vs prediction timedela for different controllers (diff plots)
                 plot_df = plot_df.set_index(["controller_class", "prediction_timedelta"])
@@ -490,18 +446,20 @@ if __name__ == "__main__":
                 # plot_power_increase_vs_prediction_time(plot_df, args.save_dir)
 
             
-            if (case_families.index("baseline_controllers_forecasters_test_flasc") in args.case_ids
-                or case_families.index("baseline_controllers_forecasters_test_awaken") in args.case_ids):
+            if any(case_families.index(cf) in args.case_ids for cf in ["baseline_controllers_ml_forecasters_awaken", "baseline_controllers_baseline_det_forecasters_awaken", "baseline_controllers_baseline_prob_forecasters_awaken"]):
                 from whoc.wind_forecast.WindForecast import WindForecast
                 from wind_forecasting.preprocessing.data_inspector import DataInspector
                 # TODO HIGH only compare time after context_length, since SVR/ML assume persistence until then
-                if case_families.index("baseline_controllers_forecasters_test_flasc") in args.case_ids:
-                    forecaster_case_fam = "baseline_controllers_forecasters_test_flasc"
-                elif case_families.index("baseline_controllers_forecasters_test_awaken") in args.case_ids:
-                    forecaster_case_fam = "baseline_controllers_forecasters_test_awaken"
+                # if case_families.index("baseline_controllers_ml_forecasters_awaken") in args.case_ids:
+                #     forecaster_case_fam = "baseline_controllers_ml_forecasters_awaken"
+                # elif case_families.index("baseline_controllers_baseline_det_forecasters_awaken") in args.case_ids:
+                #     forecaster_case_fam = "baseline_controllers_baseline_det_forecasters_awaken"
+                # elif case_families.index("baseline_controllers_baseline_det_forecasters_awaken") in args.case_ids:
+                #     forecaster_case_fam = "baseline_controllers_baseline_det_forecasters_awaken"
                 
-                baseline_time_df = time_series_df.loc[time_series_df.index.get_level_values("CaseFamily") == forecaster_case_fam, :] #.reset_index(level="CaseFamily", drop=True)
-                baseline_agg_df = agg_df.loc[agg_df.index.get_level_values("CaseFamily") == forecaster_case_fam, :] #.reset_index(level="CaseFamily", drop=True)
+                cfs = ["baseline_controllers_ml_forecasters_awaken", "baseline_controllers_baseline_det_forecasters_awaken", "baseline_controllers_baseline_prob_forecasters_awaken"]
+                baseline_time_df = time_series_df.loc[time_series_df.index.get_level_values("CaseFamily").isin(cfs), :] #.reset_index(level="CaseFamily", drop=True)
+                baseline_agg_df = agg_df.loc[agg_df.index.get_level_values("CaseFamily").isin(cfs), :] #.reset_index(level="CaseFamily", drop=True)
                 
                 config_cols = ["controller_class", "wind_forecast_class", "prediction_timedelta", "uncertain"]
                 
@@ -523,178 +481,21 @@ if __name__ == "__main__":
                 forecasters_agg_df = baseline_agg_df.loc[baseline_agg_df["wind_forecast_class"] != "PerfectForecast", :]
                 perfect_agg_df = baseline_agg_df.loc[baseline_agg_df["wind_forecast_class"] == "PerfectForecast", :]
                 controllers = pd.unique(perfect_agg_df["controller_class"])
-                controller_labels = {"GreedyController": "Greedy", "LookupBasedWakeSteeringController": "LUT"}
                 
-                # PLOT 3) Mean of True vs Predicted values of Turbine wind speeds vs. time for different controllers (diff plots) and forecasters (diff colors)
+                # PLOT 0) Farm power of perfect forecaster vs prediction timedela for different controllers
+                plot_power_vs_forecaster(baseline_agg_df, args.save_dir, "all_forecasters_")
                 
-                # forecasters_time_df = baseline_time_df.loc[baseline_time_df["wind_forecast_class"] != "PerfectForecast", :]
-                # perfect_time_df = baseline_time_df.loc[baseline_time_df["wind_forecast_class"] == "PerfectForecast", :]
-                baseline_time_df["TrueTurbineWindSpeedHorzMean"] = baseline_time_df[[col for col in baseline_time_df.columns if "TrueTurbineWindSpeedHorz_" in col]].mean(axis=1)
-                baseline_time_df["TrueTurbineWindSpeedVertMean"] = baseline_time_df[[col for col in baseline_time_df.columns if "TrueTurbineWindSpeedVert_" in col]].mean(axis=1)
-                baseline_time_df["PredictedTurbineWindSpeedHorzMean"] = baseline_time_df[[col for col in baseline_time_df.columns if "PredictedTurbineWindSpeedHorz_" in col]].mean(axis=1)
-                baseline_time_df["PredictedTurbineWindSpeedVertMean"] = baseline_time_df[[col for col in baseline_time_df.columns if "PredictedTurbineWindSpeedVert_" in col]].mean(axis=1)
-                baseline_time_df["StddevTurbineWindSpeedHorzMean"] = baseline_time_df[[col for col in baseline_time_df.columns if "StddevTurbineWindSpeedHorz_" in col]].mean(axis=1)
-                baseline_time_df["StddevTurbineWindSpeedVertMean"] = baseline_time_df[[col for col in baseline_time_df.columns if "StddevTurbineWindSpeedVert_" in col]].mean(axis=1)
+                # PLOT 1) Farm power of perfect forecaster vs prediction timedela for different controllers
+                plot_power_vs_prediction_time(baseline_agg_df, args.save_dir, "all_forecasters_")
                 
-                
-                
-                # color = sns.color_palette()[t]
-                #     ax.fill_between(
-                #         forecast.index.to_timestamp(), tid_df["loc"] - 1*tid_df["std_dev"], tid_df["loc"] + 1*tid_df["std_dev"], alpha=0.2, color=color
-                #     )
-                import seaborn as sns
-                import matplotlib.pyplot as plt
-                # controllers = pd.unique(baseline_time_df["controller_class"])
-                controllers = baseline_agg_df[["controller_class", "uncertain"]].reset_index(drop=True)
-                
-                xlim = (baseline_time_df[["Time", "TrueTurbineWindSpeedHorzMean", "TrueTurbineWindSpeedVertMean"]].dropna()["Time"].min(),
-                        baseline_time_df[["Time", "TrueTurbineWindSpeedHorzMean", "TrueTurbineWindSpeedVertMean"]].dropna()["Time"].max())
-                
-                # controllers = controllers.iloc[1:]
-                fig, ax = plt.subplots(2, len(controllers), sharex=True)
-                if ax.ndim == 1 :
-                    ax = ax[:, np.newaxis]
-                for c, row in controllers.iterrows():
-                    ctrl = row["controller_class"].iloc[0]
-                    uncertain = row["uncertain"].iloc[0]
-                    cond = (baseline_time_df["controller_class"] == ctrl) & (baseline_time_df["uncertain"] == uncertain) & (baseline_time_df["WindSeed"] == 0)
-                    df = baseline_time_df.reset_index(level=["CaseFamily", "CaseName"], drop=True).loc[cond.values, :].dropna(subset=["TrueTurbineWindSpeedHorzMean", "TrueTurbineWindSpeedVertMean"])
-                    df["prediction_timedelta"] = df["prediction_timedelta"].dt.total_seconds().astype(int)
-                    df = df.rename(columns={"prediction_timedelta": "Prediction Horizon (s)", "wind_forecast_class": "Forecaster"})
-                    sns.lineplot(df,
-                                x="Time", y="PredictedTurbineWindSpeedHorzMean", 
-                                hue="Prediction Horizon (s)",
-                                style="Forecaster", ax=ax[0, c],
-                                palette=sns.color_palette("tab10"))
-                    ax[0, c].plot(df["Time"], df["TrueTurbineWindSpeedHorzMean"], linestyle="-", color="black")
-                    sns.lineplot(df,
-                                x="Time", y="PredictedTurbineWindSpeedVertMean", 
-                                hue="Prediction Horizon (s)",
-                                style="Forecaster", ax=ax[1, c],
-                                palette=sns.color_palette("tab10"))
-                    ax[1, c].plot(df["Time"], df["TrueTurbineWindSpeedVertMean"], linestyle="-", color="black")
-                    
-                    if uncertain:
-                        for p, pred_len in enumerate(pd.unique(df["Prediction Horizon (s)"])):
-                            sub_df = df.loc[(df["Prediction Horizon (s)"] == pred_len), :]
-                            color = sns.color_palette("tab10")[p]
-                            ax[0, c].fill_between(
-                                sub_df["Time"], 
-                                sub_df["PredictedTurbineWindSpeedHorzMean"] - 1*sub_df["StddevTurbineWindSpeedHorzMean"], 
-                                sub_df["PredictedTurbineWindSpeedHorzMean"] + 1*sub_df["StddevTurbineWindSpeedHorzMean"], 
-                                alpha=0.2, color=ax[0, c].get_lines()[p].get_color()
-                            )
-                            ax[1, c].fill_between(
-                                sub_df["Time"], 
-                                sub_df["PredictedTurbineWindSpeedVertMean"] - 1*sub_df["StddevTurbineWindSpeedVertMean"], 
-                                sub_df["PredictedTurbineWindSpeedVertMean"] + 1*sub_df["StddevTurbineWindSpeedVertMean"], 
-                                alpha=0.2, color=ax[1, c].get_lines()[p].get_color()
-                            )
-                    
-                    single_df = df.loc[df["Prediction Horizon (s)"] == df["Prediction Horizon (s)"].max(), :]
-                    # ax[0, c].plot(single_df["Time"], single_df["TrueTurbineWindSpeedHorzMean"], color=None, linestyle=":")
-                    # ax[1, c].plot(single_df["Time"], single_df["TrueTurbineWindSpeedVertMean"], color=None, linestyle=":")
-                    ax[0, c].set_title(f"{controller_labels[ctrl]}")
-                    ax[0, c].set_ylabel("")
-                    ax[1, c].set_ylabel("")
-                    ax[0, c].legend([], [], frameon=False)
-                    ax[1, c].legend([], [], frameon=False)
-                    ax[0, c].set_xlabel("")
-                    ax[1, c].set_xlabel("Time (s)")
-                    ax[0, c].set_xlim(xlim)
-                    ax[1, c].set_xlim(xlim)
-                    # ax[0, c].set_xticks([])
-                
-                ax[0, 0].set_ylabel("$u$ Wind \nSpeed (m/s)", rotation=0, labelpad=50)
-                ax[1, 0].set_ylabel("$v$ Wind \nSpeed (m/s)", rotation=0, labelpad=50)
-                h, l = ax[0, -1].get_legend_handles_labels()
-                # new_labels = [" ".join([lll.capitalize() for lll in ll.split("_")]) for ll in l]
-                new_labels = l[:l.index("Forecaster")+1] + [" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", ll).group())) for ll in l[l.index("Forecaster")+1:]]
-                
-                ax[0, -1].legend(h, new_labels, frameon=False, loc='upper left', bbox_to_anchor=(1.01, 1))
-                plt.tight_layout()
-                fig.savefig(os.path.join(args.save_dir, "prob_forecast.png"))
-                
-                # PLOT 4) Yaw angles/power for persistent vs. other forecasters for best lead times
+                # PLOT 2) Yaw angles/power for persistent vs. other forecasters for best lead times
                 best_forecaster_prediction_delta = forecasters_agg_df.groupby("wind_forecast_class", group_keys=False).apply(lambda x: x.sort_values(by=("FarmPowerMean", "mean"), ascending=False).head(10)) #[("FarmPowerMean", "mean")] 
                 best_perfect_prediction_delta = perfect_agg_df.groupby("wind_forecast_class", group_keys=False).apply(lambda x: x.sort_values(by=("FarmPowerMean", "mean"), ascending=False).head(10))
                 plotting_cases = [(forecaster_case_fam, df[1]._name[1]) for df in baseline_agg_df.iterrows()]
                 plot_simulations(
                         time_series_df, plotting_cases, args.save_dir, include_power=True, 
                         legend_loc="outer", single_plot=False) 
-                # TODO yaw, power, and offline columns are only present for turbine in target_turbine_indices, otherwise nan = these should be renamed to reflect which turbines they are
-                # PLOT 5) True vs predicted values
-                forecast_wf = time_series_df.iloc[
-                    (time_series_df.index.get_level_values("CaseFamily") == forecaster_case_fam)]\
-                        .reset_index(level=["CaseFamily", "CaseName"], drop=True)[
-                           ["WindSeed", "PredictedTime", "controller_class", "wind_forecast_class", "prediction_timedelta"] 
-                           + [col for col in time_series_df.columns if "PredictedTurbine" in col] 
-                        ].rename(columns={"PredictedTime": "time"})
-                        
-                true_wf = time_series_df.iloc[
-                    (time_series_df.index.get_level_values("CaseFamily") == forecaster_case_fam)]\
-                        .reset_index(level=["CaseFamily", "CaseName"], drop=True)[
-                           ["WindSeed", "Time", "controller_class", "wind_forecast_class", "prediction_timedelta"] 
-                           + [col for col in time_series_df.columns if col.startswith("TurbineWind")] 
-                           + [col for col in time_series_df.columns if col.startswith("TurbineYawAngle_")] 
-                        ].rename(columns={"Time": "time"})
                 
-                id_vars = ["WindSeed", "time", "controller_class", "wind_forecast_class", "prediction_timedelta"]
-                value_vars = set([re.match(".*(?=_\\d+)", col).group(0) for col in time_series_df.columns if col.startswith("PredictedTurbine")])
-                # first unpivot makes long on turbine ids, second makes long on feature type, for the purposes of seaborn plot
-                forecast_wf = DataInspector.unpivot_dataframe(forecast_wf, 
-                                                            value_vars=value_vars, 
-                                                            turbine_signature="_(\\d+)$")\
-                                                    .melt(id_vars=["turbine_id"] + id_vars, 
-                                                          value_vars=value_vars, 
-                                                          var_name="feature", value_name="value")
-                forecast_wf = forecast_wf.assign(data_type="Forecast")
-                forecast_wf["time"] = pd.to_datetime(forecast_wf["time"], unit="s")
-                forecast_wf.loc[forecast_wf["feature"] == "PredictedTurbineWindSpeedVert", "feature"] = "ws_vert"
-                forecast_wf.loc[forecast_wf["feature"] == "PredictedTurbineWindSpeedHorz", "feature"] = "ws_horz"
-                forecast_wf.loc[forecast_wf["feature"] == "PredictedTurbineWindDir", "feature"] = "wd"
-                forecast_wf.loc[forecast_wf["feature"] == "PredictedTurbineWindMag", "feature"] = "wm"
-                
-                value_vars = set([re.match(".*(?=_\\d+)", col).group(0) for col in time_series_df.columns if (col.startswith("TurbineWind") or col.startswith("TurbineYawAngle_"))]) 
-                true_wf = DataInspector.unpivot_dataframe(true_wf, 
-                                                    value_vars=value_vars, 
-                                                turbine_signature="_(\\d+)$")\
-                                                .melt(id_vars=["turbine_id"] + id_vars, 
-                                            value_vars=value_vars, 
-                                            var_name="feature", value_name="value")
-                true_wf = true_wf.assign(data_type="True")
-                true_wf["time"] = pd.to_datetime(true_wf["time"], unit="s")
-                true_wf.loc[true_wf["feature"] == "TurbineWindSpeedVert", "feature"] = "ws_vert"
-                true_wf.loc[true_wf["feature"] == "TurbineWindSpeedHorz", "feature"] = "ws_horz"
-                true_wf.loc[true_wf["feature"] == "TurbineWindDir", "feature"] = "wd"
-                true_wf.loc[true_wf["feature"] == "TurbineWindMag", "feature"] = "wm"
-                true_wf.loc[true_wf["feature"] == "TurbineYawAngle", "feature"] = "nc"
-                # TODO HIGH clean this code up
-                
-                wind_seed = 0
-                wind_forecast_class = "KalmanFilterForecast" # "PerfectForecast" # 
-                # controller_class = "GreedyController"
-                controller_class = "LookupBasedWakeSteeringController"
-                WindForecast.plot_forecast(
-                    forecast_wf=forecast_wf.loc[
-                        (forecast_wf["WindSeed"] == wind_seed) & (forecast_wf["wind_forecast_class"] == wind_forecast_class) & (forecast_wf["controller_class"] == controller_class), 
-                        ["data_type", "time", "feature", "value", "turbine_id"]],
-                    true_wf=true_wf.loc[
-                        (true_wf["WindSeed"] == wind_seed) & (true_wf["wind_forecast_class"] == wind_forecast_class) & (true_wf["controller_class"] == controller_class), 
-                        ["data_type", "time", "feature", "value", "turbine_id"]]
-                )
-                import seaborn as sns
-                import matplotlib.pyplot as plt
-                import polars as pl
-                fig, ax = plt.subplots(1, 1)
-                #  & (true_wf["time"].between(forecast_wf["time"].min(), forecast_wf["time"].max(), closed="both"))
-                sns.lineplot(data=true_wf.loc[
-                        (true_wf["WindSeed"] == wind_seed) & (true_wf["wind_forecast_class"] == wind_forecast_class) & (true_wf["controller_class"] == controller_class), 
-                        ["data_type", "time", "feature", "value", "turbine_id"]]\
-                                        .loc[(true_wf["feature"] == "nc"), :],
-                                 x="time", y="value", ax=ax, style="data_type", hue="turbine_id")
-            
-                 
             
             if ((case_families.index("baseline_controllers") in args.case_ids)):
                 mpc_df = agg_df.iloc[agg_df.index.get_level_values("CaseFamily") != "baseline_controllers"]

@@ -809,6 +809,10 @@ class WindForecast:
             labels_2 = sorted(list(forecast_wf.select(pl.col("forecaster").unique()).to_numpy().flatten()))
             labels_2 = [label for label in labels_2 if label in l]
             handles_2 = [h[l.index(label)] for label in labels_2]
+            labels_2 = [" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", label).group())) 
+                  if ("Forecast" in label) else (label.capitalize() if not label[0].isupper() else label).replace("_", " ") for label in labels_2]
+    
+            labels_2 = ["".join(label.split(" ")) if all(l.isupper() or l.isspace() for l in label) else label for label in labels_2]
             second_legend = True
         else:
             second_legend = False
@@ -822,7 +826,8 @@ class WindForecast:
             axs[0, -1].add_artist(leg1)
         
         # axs[-].set(xlabel="Time [s]", ylabel="Wind Speed [m/s]", xlim=(forecast_wf.select(pl.col("time").min()).item()], forecast_wf.select(pl.col("time").max()).item()))
-        plt.tight_layout()
+        fig.subplots_adjust(right=0.75)
+        # plt.tight_layout()
         fig_path = os.path.join(fig_dir, f'forecast_ts{label}.png')
         logging.info(f"Saving plot_forecast to {fig_path}")
         fig.savefig(fig_path)
@@ -1561,9 +1566,10 @@ class KalmanFilterForecast(WindForecast):
             # collect all the measurments, prediction_timedelta apart, taken in the last n_controller time steps since predict_point was last called
             # zs = historic_measurements.filter(pl.col("time") >= (self.last_measurement_time + self.prediction_interval))\
             #                           .gather_every(n=self.n_prediction_interval)
-            zs = historic_measurements.filter(pl.col("time") >= (self.last_measurement_time + self.prediction_interval))
+            # zs = historic_measurements.filter(pl.col("time") >= (self.last_measurement_time + self.prediction_interval))
+            zs = historic_measurements.filter(pl.col("time") >= (self.last_measurement_time + self.controller_timedelta))
                                     #   .filter(((current_time - pl.col("time")).dt.total_microseconds().mod(self.prediction_interval.total_seconds() * 1e6) == 0))
-            assert zs.select(pl.len()).item() == 0 or zs.select(pl.col("time").last()).item() == self.last_measurement_time + self.prediction_interval
+            assert zs.select(pl.len()).item() == 0 or zs.select(pl.col("time").last()).item() == self.last_measurement_time + self.controller_timedelta #self.prediction_interval
         
         if zs.select(pl.len()).item() == 0:
             # forecaster is called every n_controller time steps
@@ -1576,7 +1582,7 @@ class KalmanFilterForecast(WindForecast):
         else:
             
             self.last_measurement_time = zs.select(pl.col("time").last()).item()
-            measurement_times = zs.select(pl.col("time")).to_series() 
+            # measurement_times = zs.select(pl.col("time")).to_series() 
             zs = zs.select(outputs).to_numpy()
             
             # initialize state
@@ -2332,7 +2338,9 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
             )
             save_length += pred.select(pl.len()).item()
             
+            logging.info(f"pred_columns = {pred.columns}")
             ram_used = virtual_memory().percent
+            
             if  (final := ((c == n_controller_times - 1) and (d == n_splits - 1))) or ((ram_used > ram_limit) and (save_length > 500)):
                 # sub_save_path = save_path.replace(".csv", f"_{splits[d]}_{n_saved}.csv")
                 logging.info(f"Used {ram_used}% RAM. Saving sub parquet of length {save_length} to {save_path}.")
@@ -2342,10 +2350,10 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                 logging.info(f"Writing {'final' if final else 'intermediary'} result to file.")
                 if not os.path.exists(save_path):
                     with open(save_path, mode="w") as fp:
-                        pl.concat(forecasts, how="vertical").write_csv(fp, include_header=True)
+                        pl.concat(forecasts, how="diagonal").write_csv(fp, include_header=True)
                 elif os.path.exists(save_path):
                     with open(save_path, mode="a") as fp:
-                        pl.concat(forecasts, how="vertical").write_csv(fp, include_header=False)
+                        pl.concat(forecasts, how="diagonal").write_csv(fp, include_header=False)
                 
                 
                 forecasts = []
@@ -2534,7 +2542,7 @@ def plot_score_vs_prediction_dt(agg_df, metrics, ax_indices, fig_dir):
     
     # fig, ax1 = plt.subplots(1, 1)
     sns.set_style("whitegrid")
-    fig = plt.figure(figsize=(12.8, 9.6))
+    fig = plt.figure(figsize=(10.5, 7.4))
     # if left_metrics and right_metrics:
     #     # TODO will have same color for different metrics over pos/neg
     #     ax1 = sns.scatterplot(agg_df.filter(pl.col("metric").is_in(left_metrics)).to_pandas(),
@@ -2579,9 +2587,9 @@ def plot_score_vs_prediction_dt(agg_df, metrics, ax_indices, fig_dir):
     l1, l2 = new_labels[:new_labels.index("Metric")], new_labels[new_labels.index("Metric"):]
     h1, h2 = h[:new_labels.index("Metric")], h[new_labels.index("Metric"):]
     leg1 = ax.legend(h1, l1, loc='upper left', bbox_to_anchor=(1.01, 1), frameon=False)
-    leg2 = plt.legend(h2, l2, loc='upper left', bbox_to_anchor=(1.01, 0.8), frameon=False)
+    leg2 = plt.legend(h2, l2, loc='upper left', bbox_to_anchor=(1.01, 0.6), frameon=False)
     ax.add_artist(leg1)
-    plt.tight_layout()
+    fig.subplots_adjust(right=0.75)
     
     fig_path = os.path.join(fig_dir, "score_vs_pred.png")
     logging.info(f"Saving plot_score_vs_prediction_dt to {fig_path}")
@@ -2602,7 +2610,7 @@ def plot_score_vs_forecaster(agg_df, metrics, ax_indices, prediction_intervals, 
     for pred_int in prediction_intervals:
         ax1 = sns.catplot(agg_df.filter((pl.col("metric").is_in(metrics)) & (pl.col("prediction_timedelta") == pred_int)),
                     kind="bar",
-                    hue="metric", x="forecaster", y="score", log_scale=True)
+                    hue="metric", x="forecaster", y="score")
         # sub_ax1 = ax1.ax
         
         # sub_ax2 = sub_ax1.twinx()
@@ -2644,13 +2652,21 @@ def plot_score_vs_forecaster(agg_df, metrics, ax_indices, prediction_intervals, 
         
         ax1.legend.set_visible(False)
         # new_labels = [(re.search("\\w+(?=Forecast)", label).group() if "Forecast" in label else (label.capitalize() if not label[0].isupper() else label).replace("_", " ")) for label in l]
-        ax1.ax.set_xticklabels([" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", label._text).group())) for label in ax1.ax.get_xticklabels()], rotation=35)
+        
+        new_xticks = [" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", label._text).group())) for label in ax1.ax.get_xticklabels()]
+        new_xticks = ["".join(label.split(" ")) if all(l.isupper() or l.isspace() for l in label) else label for label in new_xticks]
+        ax1.ax.set_xticklabels(new_xticks, rotation=35)
+        
+        
         new_labels = [(label.capitalize() if not label[0].isupper() else label).replace("_", " ") for label in l]
         new_labels = ["".join(label.split(" ")) if all(l.isupper() or l.isspace() for l in label) else label for label in new_labels]
-    
+        
         ax1.ax.legend(h, new_labels, frameon=False, bbox_to_anchor=(1.01, 1), loc="upper left")
-        plt.tight_layout()
-        figs.append(plt.gcf())
+        fig = plt.gcf()
+        fig.set_size_inches((10.5, 7.8))
+        fig.subplots_adjust(right=0.75)
+        # plt.tight_layout()
+        figs.append(fig)
         
         fig_path = os.path.join(fig_dir, f"score_vs_forecaster_pred{int(pred_int)}.png")
         logging.info(f"Saving plot_score_vs_forecaster to {fig_path}")
@@ -2782,7 +2798,7 @@ if __name__ == "__main__":
         test_data = data_module.test_dataset
     
     if args.max_steps:
-        assert args.max_steps > int((max(context_timedelta) + max(prediction_timedelta)) / measurements_timedelta), f"max_steps, if provided, must allow for context_timedelta + max(prediction_timedelta) = {int((max(context_timedelta) + max(prediction_timedelta)) / measurements_timedelta)}"
+        assert args.max_steps >= int((max(context_timedelta) + max(prediction_timedelta)) / measurements_timedelta), f"max_steps, if provided, must allow for context_timedelta + max(prediction_timedelta) = {int((max(context_timedelta) + max(prediction_timedelta)) / measurements_timedelta)}"
         test_data = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in test_data]
     
     logging.info("Generating dataframe.")
@@ -2882,15 +2898,6 @@ if __name__ == "__main__":
     if "svr" in args.model:
         for mncf, ctd, ptd in zip(model_configs, context_timedelta, prediction_timedelta):
             
-            # TODO don't need this if using trained models...
-            # logging.info(f"Instantiating Optuna Storage for SVRForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
-            # db_setup_params = generate_df_setup_params("svr", mncf)
-            # optuna_storage = setup_optuna_storage(
-            #     db_setup_params=db_setup_params,
-            #     restart_tuning=False,
-            #     rank=rank
-            # )
-            
             logging.info(f"Instantiating SVRForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
             forecaster = SVRForecast(measurements_timedelta=measurements_timedelta,
                                     controller_timedelta=controller_timedelta,
@@ -2957,21 +2964,6 @@ if __name__ == "__main__":
         for m, model in enumerate(ml_models):
             for mncf, ctd, ptd in zip(model_configs, context_timedelta, prediction_timedelta):
             
-                # logging.info(f"Instantiating Optuna Storage for SVRForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
-
-                # db_setup_params = generate_df_setup_params(model, mncf)
-                # try:
-                #     optuna_storage = setup_optuna_storage(
-                #         db_setup_params=db_setup_params,
-                #         restart_tuning=False,
-                #         rank=rank
-                #     )
-                #     use_tuned_params = True
-                # except Exception as e:
-                #     logging.error("Could not open Optuna storage, will use default hyper parameters.")
-                #     optuna_storage = None
-                #     use_tuned_params = False
-                    
                 forecaster = MLForecast(measurements_timedelta=measurements_timedelta,
                                         controller_timedelta=controller_timedelta,
                                         prediction_timedelta=ptd,
@@ -3140,7 +3132,7 @@ if __name__ == "__main__":
             agg_metrics = generate_forecaster_agg_results(forecaster, forecast_df, test_data, data_module, args.prediction_type)
             agg_metrics.write_csv(agg_metric_path)
         else:
-            agg_metrics =  pl.scan_csv(agg_metric_path, try_parse_dates=True).collect()
+            agg_metrics =  pl.read_csv(agg_metric_path, schema_overrides={"turbine_id": pl.String})
             
         results[f]["agg_metrics"] = agg_metrics
         
@@ -3194,12 +3186,13 @@ if __name__ == "__main__":
             plot_distr = forecaster.is_probabilistic and args.prediction_type == "distribution"
             
             if PLOT_INDIVIDUAL:
+                # TODO why only one item in forecasts_long[-1]
                 forecast_fig = WindForecast.plot_forecast(forecasts_long[-1], true_long, 
                                                 continuity_groups=[best_cg], turbine_ids=turbine_ids, 
                                                 label=f"_{forecaster.__class__.__name__}_{data_config['config_label']}", 
                                                 fig_dir=save_dir, include_turbine_legend=True,
                                                 feature_types=["ws_horz", "ws_vert"],
-                                                feature_labels=["Horizontal Wind Speed (m/s)", "Vertical Wind Speed (m/s)"],
+                                                feature_labels=["Horizontal Wind\nSpeed (m/s)", "Vertical Wind\nSpeed (m/s)"],
                                                 prediction_type="distribution" if plot_distr else "point")
         
         forecasts_long = pl.concat(forecasts_long, how="vertical")
@@ -3208,6 +3201,7 @@ if __name__ == "__main__":
         cg = agg_df.select(pl.col("continuity_group").first()).item()
         mean_cols = [f"{feat_type}_{tid}" for feat_type in ["loc_ws_horz", "loc_ws_vert"] for tid in data_module.target_suffixes]
         point_cols = [f"{feat_type}_{tid}" for feat_type in ["ws_horz", "ws_vert"] for tid in data_module.target_suffixes]
+        save_dir = os.path.join(args.save_dir, "validation_results")
         forecast_fig = WindForecast.plot_forecast(
             forecasts_long.with_columns(pl.col("feature").str.replace("^(ws_)", "loc_ws_")),
             true_long,
@@ -3215,7 +3209,7 @@ if __name__ == "__main__":
             label=f"_all_forecasters_{data_config['config_label']}",
             fig_dir=save_dir, include_turbine_legend=True,
             feature_types=["ws_horz", "ws_vert"],
-            feature_labels=["Horizontal Wind Speed (m/s)", "Vertical Wind Speed (m/s)"],
+            feature_labels=["Horizontal Wind\nSpeed (m/s)", "Vertical Wind\nSpeed (m/s)"],
             prediction_type="distribution",
             multiple_forecasters=True)
         
