@@ -2338,7 +2338,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                 pred.with_columns(test_idx=pl.lit(test_idx), continuity_group=pl.lit(splits[d]), time=pl.col("time").cast(pl.Datetime(time_unit="ns"))).with_columns(cs.numeric().cast(pl.Float32))\
                     .filter(pl.col("time").is_in(test_data_time))
             )
-            logging.info(f"pred.columns = {pred.columns}")
+            logging.info(f"pred.columns = {forecasts[-1].columns}")
             save_length += pred.select(pl.len()).item()
             
             ram_used = virtual_memory().percent
