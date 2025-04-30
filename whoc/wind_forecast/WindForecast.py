@@ -2345,7 +2345,11 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
             
             if  (final := ((c == n_controller_times - 1) and (d == n_splits - 1))) or ((ram_used > ram_limit) and (save_length > 500)):
                 # sub_save_path = save_path.replace(".csv", f"_{splits[d]}_{n_saved}.csv")
-                logging.info(f"Used {ram_used}% RAM. Saving sub parquet of length {save_length} to {save_path}.")
+                if callable(save_path):
+                    sp = save_path(splits[d])
+                else:
+                    sp = save_path
+                logging.info(f"Used {ram_used}% RAM. Saving sub parquet of length {save_length} to {sp}.")
                 
                 # try:
                 #     x = pl.concat(forecasts, how="vertical")
@@ -2360,24 +2364,36 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                 #             logging.error(f"Two pairs of columns are unequal:\n{cols_1}\n{cols_2}")
                 #         cols_1 = cols_2
                         
-                forecasts = pl.concat(forecasts, how="vertical")
+                try:
+                    forecasts = pl.concat(forecasts, how="vertical")
+                except Exception as e:
+                    logging.error(f"Couldn't vertically concat forecasts with columns:")
+                    fcst = forecasts[0]
+                    cols_1 = fcst.columns
+                    for fcst in forecasts[1:]:
+                        cols_2 = fcst.columns
+                        if not all(c1 == c2 for c1, c2 in zip(cols_1, cols_2)):
+                            logging.error(f"Two pairs of columns are unequal:\n{cols_1}\n{cols_2}")
+                        cols_1 = cols_2
+                    forecasts = pl.concat(forecasts, how="diagonal")
+                    
                 # logging.info(f"diagonal concat for {save_path} columns = {forecasts.columns}")
-                logging.info(f"Writing {'final' if final else 'intermediary'} result to file {save_path}.")
-                if not os.path.exists(save_path):
-                    with open(save_path, mode="w") as fp:
+                logging.info(f"Writing {'final' if final else 'intermediary'} result to file {sp}.")
+                if not os.path.exists(sp):
+                    with open(sp, mode="w") as fp:
                         forecasts.write_csv(fp, include_header=True)
-                    logging.info(f"File {save_path} has size {os.path.getsize(save_path)} after first write.")
-                elif os.path.exists(save_path):
-                    logging.info(f"File {save_path} has size {os.path.getsize(save_path)} before appending.")
-                    with open(save_path, mode="a") as fp:
+                    logging.info(f"File {sp} has size {os.path.getsize(sp)} after first write.")
+                elif os.path.exists(sp):
+                    logging.info(f"File {sp} has size {os.path.getsize(sp)} before appending.")
+                    with open(sp, mode="a") as fp:
                         forecasts.write_csv(fp, include_header=False)
-                    logging.info(f"File {save_path} has size {os.path.getsize(save_path)} after appending.")
+                    logging.info(f"File {sp} has size {os.path.getsize(sp)} after appending.")
                 
                 forecasts = []
                 save_length = 0
                 # gc.collect()
                 ram_used = virtual_memory().percent
-                logging.info(f"Used {ram_used}% RAM after saving {save_path}.")
+                logging.info(f"Used {ram_used}% RAM after saving {sp}.")
                 n_saved += 1
             
             test_idx += 1
@@ -3016,6 +3032,32 @@ if __name__ == "__main__":
             forecasters.append(forecaster)
     
     continuity_groups = test_data.select(pl.col("continuity_group").unique()).to_numpy().flatten()
+    
+    for f, forecaster in enumerate(forecasters):
+        prediction_timedelta = forecaster.prediction_timedelta.total_seconds()
+        forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.__class__.__name__}_{forecaster.model_key}"
+        save_dir = os.path.join(args.save_dir, "validation_results", 
+                                forecaster_name,
+                                str(int(prediction_timedelta)))
+        os.makedirs(save_dir, exist_ok=True)
+        
+        forecast_paths = [os.path.join(save_dir, f"forecast_{cg}.csv") for cg in continuity_groups]
+        forecast_path = os.path.join(save_dir, f"forecast*.csv")
+        
+        if len(glob.glob(forecast_path)):
+            forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
+                            .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
+            # check that requested splits and time steps are available
+            # if (forecast_df.select(pl.col("continuity_group").unique().len()).item() >= args.max_splits)
+                        
+        if args.rerun_validation or not all(os.path.exists(fp) for fp in forecast_paths):
+            # TODO also delete existing files if not rerun_validation but existing files have different number of time steps
+            if args.rerun_validation:
+                for f in glob.glob(forecast_path):
+                    logging.info(f"Removing existing file {f}.")
+                    os.remove(f)
+                    
+    
     if args.multiprocessor:
         
         if args.multiprocessor == "mpi":
@@ -3040,26 +3082,18 @@ if __name__ == "__main__":
                 save_dir = os.path.join(args.save_dir, "validation_results", 
                                     forecaster_name,
                                     str(int(prediction_timedelta)))
-                save_path = os.path.join(save_dir, f"forecast.csv")
-                os.makedirs(save_dir, exist_ok=True)
                 
                 forecast_path = os.path.join(save_dir, f"forecast_*.csv")
                 forecast_paths = [os.path.join(save_dir, f"forecast_{cg}.csv") for cg in continuity_groups]
                 agg_metric_path = os.path.join(save_dir, "agg_metrics.csv")
                 
-
                 if args.rerun_validation or not all(os.path.exists(fp) for fp in forecast_paths):
-                    if args.rerun_validation:
-                        for f in glob.glob(forecast_path):
-                            logging.info(f"Removing existing file {f}.")
-                            os.remove(f)
-                            
-                    for cg in continuity_groups:
+                    for c, cg in enumerate(continuity_groups):
                         # save_paths.append(os.path.join(save_dir, f"forecast_{cg}.csv"))
                         test_futures.append(ex.submit(make_predictions, forecaster=forecaster,  
                                             test_data=test_data.filter(pl.col("continuity_group") == cg), 
                                             prediction_type=args.prediction_type, single_cg=True, 
-                                            save_path=save_path.replace(".csv", f"_{cg}.csv"),
+                                            save_path=forecast_paths[c],
                                             assigned_gpu=next(gpu_cycler) if gpu_cycler else None, 
                                             ram_limit=args.ram_limit))
                                             # save_path=save_paths[-1]))
@@ -3110,24 +3144,16 @@ if __name__ == "__main__":
             save_dir = os.path.join(args.save_dir, "validation_results", 
                                     forecaster_name,
                                     str(int(prediction_timedelta)))
-            os.makedirs(save_dir, exist_ok=True)
-            # forecast_path = os.path.join(save_dir, "forecast.csv")
-            # agg_metric_path = os.path.join(save_dir, "agg_metrics.csv")
-            
-            # forecast_paths = glob.glob(os.path.join(save_dir, "forecast_*.csv"))
+            # forecast_paths = [os.path.join(save_dir, f"forecast_{0}.csv")]
             forecast_paths = [os.path.join(save_dir, f"forecast_{cg}.csv") for cg in continuity_groups]
             forecast_path = os.path.join(save_dir, f"forecast*.csv")
-            save_path = os.path.join(save_dir, f"forecast.csv")
             if args.rerun_validation or not all(os.path.exists(fp) for fp in forecast_paths):
-                if args.rerun_validation:
-                    for f in glob.glob(forecast_path):
-                        logging.info(f"Removing existing file {f}.")
-                        os.remove(f)
+                
                     
                 make_predictions(
                     forecaster=forecaster, test_data=test_data,
                     prediction_type=args.prediction_type, single_cg=False,
-                    save_path=save_path.replace(".csv", "_0.csv"),
+                    save_path=lambda cg: forecast_paths[continuity_groups.index(cg)],
                     assigned_gpu=next(gpu_cycler) if gpu_cycler else None,
                     ram_limit=args.ram_limit)
                 
