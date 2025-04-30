@@ -20,7 +20,7 @@ module load PrgEnv-intel
 echo $SLURM_NTASKS
 
 #mpirun -np $SLURM_NTASKS python run_case_studies.py 16 17 --exclude_prediction --multiprocessor mpi -rs -rrs --ram_limit 75 --wf_source scada \
-python run_case_studies.py 17 --exclude_prediction --multiprocessor cf -rs -rrs --ram_limit 75 --wf_source scada \
+python run_case_studies.py 19 20 --exclude_prediction --multiprocessor cf -rs -rrs --ram_limit 75 --wf_source scada \
        -st auto -ns 10 -sd /projects/ssc/ahenry/whoc/floris_case_studies/ --generate_lut \
        -wcnf $HOME/toolboxes/wind_forecasting_env/wind-hybrid-open-controller/examples/hercules_input_001.yaml \
        -dcnf $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/preprocessing/preprocessing_inputs_kestrel_awaken_new.yaml \
