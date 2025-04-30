@@ -34,8 +34,10 @@ try:
     from mpi4py import MPI
     from mpi4py.futures import MPICommExecutor
     mpi_exists = True
-except:
-    print("No MPI available on system.")
+except ImportError as e:
+    import traceback
+    print(f"ERROR: Failed to import mpi4py. MPI will not be available. Error: {e}")
+    print(traceback.format_exc())
 
 from gluonts.evaluation import MultivariateEvaluator
 from gluonts.dataset.util import period_index
@@ -2737,8 +2739,19 @@ if __name__ == "__main__":
     
     assert all(model in ["perfect", "persistence", "svr", "kf", "informer", "autoformer", "spacetimeformer", "tactis", "sf"] for model in args.model)
     
-    comm = MPI.COMM_WORLD
-    rank = comm.Get_rank()
+    if not mpi_exists and args.multiprocessor == "mpi":
+        raise RuntimeError("MPI was requested (--multiprocessor mpi) but mpi4py failed to import. Check previous logs for import error details.")
+    elif not mpi_exists:
+         # If MPI wasn't requested, we might not need it here, but accessing MPI.COMM_WORLD directly is still problematic.
+         # Depending on logic flow, this might need adjustment. For now, assume it's an error if MPI isn't available.
+         # If MPI is optional, this block might need refinement based on how `comm` is used later.
+         comm = None # Or handle appropriately if MPI is truly optional here
+         rank = -1   # Assign a default rank if MPI is not used
+         print("Warning: MPI not available, proceeding without it where possible.")
+    else:
+         comm = MPI.COMM_WORLD
+         rank = comm.Get_rank()
+
     RUN_ONCE = (args.multiprocessor == "mpi" and rank == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
     
     TRANSFORM_WIND = {"added_wm": args.added_wind_mag, "added_wd": args.added_wind_dir}
