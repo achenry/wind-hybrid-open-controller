@@ -27,7 +27,7 @@ export WHOC_SCRIPT_DIR="${WHOC_DIR}/whoc/wind_forecast"
 #                       /user/taed7566/Forecasting/wind-forecasting/config/preprocessing/preprocessing_inputs_flasc.yaml
 export MODELS=${1:-"tactis"}
 export MODEL_CONFIG_PATH_ARG=${2:-"${WF_DIR}/config/training/training_inputs_juan_flasc_test_storm.yaml"}
-export DATA_CONFIG_PATH_ARG=${3:-"${WF_DIR}/config/preprocessing/preprocessing_inputs_flasc_juan.yaml"}
+export DATA_CONFIG_PATH_ARG=${3:-"${WF_DIR}/config/preprocessing/preprocessing_inputs_flasc_STORM.yaml"}
 
 # --- Create Logging Directories ---
 mkdir -p ${LOG_DIR}/slurm_logs
