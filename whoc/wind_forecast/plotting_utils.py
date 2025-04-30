@@ -82,7 +82,7 @@ def plot_forecast(forecast_wf, true_wf, continuity_groups, turbine_ids, label, f
         axes = [axes] # Ensure axes is always iterable
 
     sns.set_style("whitegrid")
-    palette = sns.color_palette("tab10", n_colors=len(turbine_ids) * (len(results.keys()) if multiple_forecasters else 1))
+    palette = sns.color_palette("tab10", n_colors=len(turbine_ids) * (forecast_wf['forecaster'].n_unique() if multiple_forecasters and 'forecaster' in forecast_wf.columns else 1))
     color_idx = 0
     handles = []
     labels = []
@@ -288,9 +288,9 @@ def plot_wind_ts(data_df, save_path, turbine_ids="all", include_filtered_wind_di
     fig.legend(handles, labels, loc='upper left', bbox_to_anchor=(1.01, 0.95), frameon=False, title="Legend")
 
     plt.tight_layout(rect=[0, 0, 0.85, 1]) # Adjust layout for legend
-    fig_path = os.path.join(fig_dir, f'wind_direction_ts{case_label or ""}.png')
-    logging.info(f"Saving plot_wind_ts to {fig_path}")
-    fig.savefig(fig_path, bbox_inches='tight')
+    # fig_path = os.path.join(fig_dir, f'wind_direction_ts{case_label or ""}.png') # Use save_path directly
+    logging.info(f"Saving plot_wind_ts to {save_path}")
+    fig.savefig(save_path, bbox_inches='tight')
     plt.close(fig)
     return fig, ax
 
@@ -486,7 +486,7 @@ def plot_forecast_samples(forecast_samples_df, true_wf, feature, turbine_id, uni
     sns.lineplot(data=plot_df.to_pandas(), x='time', y=feature, hue='sample_id', palette='viridis', alpha=0.3, legend=False, ax=ax)
 
     # Plot true values
-    true_turbine_df = true_wf.filter((pl.col("turbine_id") == tid) & (pl.col("feature") == feature)).sort("time")
+    true_turbine_df = true_wf.filter((pl.col("turbine_id") == turbine_id) & (pl.col("feature") == feature)).sort("time")
     if not true_turbine_df.is_empty():
         ax.plot(true_turbine_df["time"], true_turbine_df["value"], color='red', linewidth=2, label='True Value', zorder=10)
 
