@@ -2357,16 +2357,19 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                         if not all(c1 == c2 for c1, c2 in zip(cols_1, cols_2)):
                             logging.error(f"Two pairs of columns are unequal:\n{cols_1}\n{cols_2}")
                         cols_1 = cols_2
+                        
                 forecasts = (fc for fc in forecasts)
                 
-                logging.info(f"Writing {'final' if final else 'intermediary'} result to file.")
+                logging.info(f"Writing {'final' if final else 'intermediary'} result to file {save_path}.")
                 if not os.path.exists(save_path):
                     with open(save_path, mode="w") as fp:
                         pl.concat(forecasts, how="diagonal").write_csv(fp, include_header=True)
+                    logging.info(f"File {save_path} has size {os.path.getsize(save_path)} after first write.")
                 elif os.path.exists(save_path):
+                    logging.info(f"File {save_path} has size {os.path.getsize(save_path)} before appending.")
                     with open(save_path, mode="a") as fp:
                         pl.concat(forecasts, how="diagonal").write_csv(fp, include_header=False)
-                
+                    logging.info(f"File {save_path} has size {os.path.getsize(save_path)} after appending.")
                 
                 forecasts = []
                 save_length = 0
@@ -3110,6 +3113,7 @@ if __name__ == "__main__":
                     assigned_gpu=next(gpu_cycler) if gpu_cycler else None,
                     ram_limit=args.ram_limit)
                 
+                logging.info(f"Loading forecast_df from {forecast_path}.")
                 forecast_df = pl.read_csv(forecast_path)\
                                      .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
                 
@@ -3122,6 +3126,7 @@ if __name__ == "__main__":
                 
                 # results[-1]["agg_metrics"].write_parquet(agg_metric_path)
             else:
+                logging.info(f"Loading forecast_df from {forecast_path}.")
                 forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
                                      .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
                 results.append({
@@ -3177,9 +3182,10 @@ if __name__ == "__main__":
         forecasts_long = []
         for f, forecaster in enumerate(forecasters):
             forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.__class__.__name__}_{forecaster.model_key}"
+            prediction_timedelta = int(forecaster.prediction_timedelta.total_seconds())
             save_dir = os.path.join(args.save_dir, "validation_results", 
                                     forecaster_name,
-                                    str(int(forecaster.prediction_timedelta.total_seconds())))
+                                    str(prediction_timedelta))
             if args.prediction_type == "distribution" and forecaster.is_probabilistic:
                 value_vars = ["nd_cos", "nd_sin", "loc_ws_horz", "loc_ws_vert", "sd_ws_horz", "sd_ws_vert"]
                 target_vars = ["loc_ws_horz", "loc_ws_vert", "sd_ws_horz", "sd_ws_vert"]
@@ -3187,7 +3193,8 @@ if __name__ == "__main__":
                 value_vars = ["nd_cos", "nd_sin", "ws_horz", "ws_vert"]
                 target_vars = ["ws_horz", "ws_vert"]
             
-            logging.info(f"Length of forecaster {forecaster_name} forecast_df = {results[f]['forecast_df'].select(pl.len()).item()}")
+            logging.info(f"Length of forecaster {forecaster_name} for prediction_timedelta = {prediction_timedelta} forecast_df = {results[f]['forecast_df'].select(pl.len()).item()}")
+            logging.info(f"forecast_df = {results[f]['forecast_df']}")
             
             forecasts_long.append(DataInspector.unpivot_dataframe(results[f]["forecast_df"], 
                                                         value_vars=value_vars, 
@@ -3204,7 +3211,7 @@ if __name__ == "__main__":
             plot_distr = forecaster.is_probabilistic and args.prediction_type == "distribution"
             
             if PLOT_INDIVIDUAL:
-                # TODO why only one item in forecasts_long[-1]
+                # TODO why only one time stamp in forecasts_long[-1]
                 forecast_fig = WindForecast.plot_forecast(forecasts_long[-1], true_long, 
                                                 continuity_groups=[best_cg], turbine_ids=turbine_ids, 
                                                 label=f"_{forecaster.__class__.__name__}_{data_config['config_label']}", 
