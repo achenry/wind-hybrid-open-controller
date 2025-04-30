@@ -161,12 +161,6 @@ def plot_power_vs_forecaster(agg_df, save_dir, label):
     plot_df.columns = plot_df.columns.droplevel(1)
     plot_df = pd.melt(plot_df, id_vars=["controller_class", "wind_forecast_class", "prediction_timedelta"], value_vars=["FarmPowerMean", "YawAngleChangeAbsMean"])
     
-    x_vals = pd.unique(plot_df["wind_forecast_class"])
-    x_vals = [" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", label).group())) 
-                  if ("Forecast" in label) else (label.capitalize() if not label[0].isupper() else label).replace("_", " ") for label in x_vals]
-    
-    x_vals = ["".join(label.split(" ")) if all(l.isupper() or l.isspace() for l in label) else label for label in x_vals]
-    
     # fig, ax = plt.subplots(1, len(controllers), sharey=True)
     # fig = plt.figure()
     # ax = np.atleast_1d(ax)
@@ -203,6 +197,13 @@ def plot_power_vs_forecaster(agg_df, save_dir, label):
         # ax[c].set_title(f"{controller_labels[ctrl]} Mean Farm Power (MW)")
         ax.ax.get_yaxis().set_visible(False)
         ax.ax.set_title(f"{controller_labels[ctrl]}")
+        
+        x_vals = ax.ax.get_xticklabels()
+        x_vals = [" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", label.get_text()).group())) 
+                    if ("Forecast" in label.get_text()) else (label.get_text().capitalize() if not label.get_text()[0].isupper() else label.get_text()).replace("_", " ") for label in x_vals]
+        
+        x_vals = ["".join(label.split(" ")) if all(l.isupper() or l.isspace() for l in label) else label for label in x_vals]
+    
         ax.ax.set_xticklabels(x_vals)
         ax.ax.tick_params("x", rotation=35)
         # ax.ax.legend([], [], frameon=False)
@@ -211,14 +212,13 @@ def plot_power_vs_forecaster(agg_df, save_dir, label):
     ax.legend.get_texts()[0].set_text("Farm Power Change")
     ax.legend.get_texts()[1].set_text("Yaw Actuation Change")
     ax.legend.set_title("")
-    # TODO move this legend up
-    # ax.legend.set_loc("upper left")
-    # ax.legend.set_bbox_to_anchor((1.01, 1))
+    ax.legend.set_loc("upper right")
+    ax.legend.set_bbox_to_anchor((0.0, 0.0, 0.8, 0.9))
     
     fig = plt.gcf()
-    fig.set_size_inches((10.5, 7.8))
+    fig.set_size_inches((15, 8))
 
-    fig.subplots_adjust(right=0.8)
+    # fig.subplots_adjust(right=0.8)
     fig.savefig(os.path.join(save_dir, f"{label}_power_vs_forecaster.png"))
 
 def read_case_family_time_series_data(case_family, save_dir):
