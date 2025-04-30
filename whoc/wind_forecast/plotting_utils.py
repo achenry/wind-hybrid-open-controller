@@ -457,7 +457,7 @@ def plot_forecast_vs_actual_scatter(results_df, feature, turbine_id, unit, fig_d
     plt.close(fig)
     return fig
 
-def plot_forecast_samples(forecast_samples_df, true_wf, feature, turbine_id, unit, fig_dir, label="", model_name=None, date_range=None, n_samples_to_plot=20):
+def plot_forecast_samples(forecast_samples_df, true_wf, feature, turbine_id, unit, fig_dir, label="", model_name=None, date_range=None, n_samples_to_plot=20, random_seed=None):
     """Plots individual forecast sample paths against true values."""
 
     # Check required columns
@@ -475,6 +475,8 @@ def plot_forecast_samples(forecast_samples_df, true_wf, feature, turbine_id, uni
 
     sample_ids = turbine_samples_df['sample_id'].unique().to_list()
     if len(sample_ids) > n_samples_to_plot:
+        if random_seed is not None:
+            np.random.seed(random_seed)
         plot_sample_ids = np.random.choice(sample_ids, n_samples_to_plot, replace=False)
         plot_df = turbine_samples_df.filter(pl.col('sample_id').is_in(plot_sample_ids))
     else:
