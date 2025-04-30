@@ -3083,13 +3083,13 @@ if __name__ == "__main__":
                         "prediction_timedelta": forecaster.prediction_timedelta.total_seconds(),
                         "forecast_df": forecast_df
                     })
-                    logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('continuity_group').unique())} continuity groups.")
+                    logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('test_idx)').unique())} test_indices.")
                     # forecaster_res.write_parquet(forecast_path)
                 else:
                     logging.info(f"Loading forecast_df from {forecast_path}.")
                     forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
                                     .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
-                    logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('continuity_group').unique())} continuity groups.")
+                    logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('test_idx)').unique())} test_indices.")
                     results.append({
                         "forecaster_name": forecaster.__class__.__name__,
                         "forecast_df": forecast_df,
@@ -3129,7 +3129,7 @@ if __name__ == "__main__":
                 logging.info(f"Loading forecast_df from {forecast_path}.")
                 forecast_df = pl.read_csv(forecast_path)\
                                      .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
-                logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('continuity_group').unique())} continuity groups.")
+                logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('test_idx)').unique())} test_indices.")
                 results.append({
                     "forecaster_name": forecaster.__class__.__name__,
                     "forecast_df": forecast_df,
@@ -3142,7 +3142,7 @@ if __name__ == "__main__":
                 logging.info(f"Loading forecast_df from {forecast_path}.")
                 forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
                                      .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
-                logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('continuity_group').unique())} continuity groups.")
+                logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('test_idx)').unique())} test_indices.")
                 results.append({
                     "forecaster_name": forecaster.__class__.__name__,
                     "forecast_df": forecast_df,
@@ -3165,7 +3165,7 @@ if __name__ == "__main__":
             logging.info(f"Loading forecast_df from {forecast_path}.")
             forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
                            .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
-            logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('continuity_group').unique())} continuity groups.")
+            logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('test_idx)').unique())} test_indices.")
             agg_metrics = generate_forecaster_agg_results(forecaster, forecast_df, test_data, data_module, args.prediction_type)
             agg_metrics.write_csv(agg_metric_path)
         else:
