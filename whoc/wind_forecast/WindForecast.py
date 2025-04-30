@@ -205,8 +205,8 @@ class WindForecast:
                 # max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
                 max_workers = mp.cpu_count()
                 logging.info(f"Starting ProcessPoolExecutor in _tuning_objective with {max_workers} workers")
-                executor = ProcessPoolExecutor(max_workers=max_workers)
-                                                # mp_context=mp.get_context("spawn"))
+                executor = ProcessPoolExecutor(max_workers=max_workers,
+                                            mp_context=mp.get_context("spawn"))
             
             with executor as ex:
                 futures = [ex.submit(self._compute_output_score, output=output, params=params, limit_train_val=limit_train_val) for output in self.outputs]
@@ -247,8 +247,8 @@ class WindForecast:
                 max_workers = comm_size
             elif multiprocessor == "cf":
                 max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
-                executor = ProcessPoolExecutor(max_workers=max_workers)
-                                                # mp_context=mp.get_context("spawn"))
+                executor = ProcessPoolExecutor(max_workers=max_workers,
+                                                mp_context=mp.get_context("spawn"))
             with executor as ex:
                 # if multiprocessor == "mpi":
                 #     ex.max_workers = comm_size
@@ -1347,8 +1347,8 @@ class SVRForecast(WindForecast):
             elif multiprocessor == "cf":
                 # max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
                 max_workers = mp.cpu_count()
-                executor = ProcessPoolExecutor(max_workers=max_workers)
-                                                # mp_context=mp.get_context("spawn"))
+                executor = ProcessPoolExecutor(max_workers=max_workers,
+                                                mp_context=mp.get_context("spawn"))
             with executor as ex:
                 if multiprocessor == "mpi":
                     ex.max_workers = comm_size
@@ -2338,6 +2338,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                 pred.with_columns(test_idx=pl.lit(test_idx), continuity_group=pl.lit(splits[d]), time=pl.col("time").cast(pl.Datetime(time_unit="ns"))).with_columns(cs.numeric().cast(pl.Float32))\
                     .filter(pl.col("time").is_in(test_data_time))
             )
+            logging.info(f"pred.columns = {pred.columns}")
             save_length += pred.select(pl.len()).item()
             
             ram_used = virtual_memory().percent
@@ -2347,7 +2348,8 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                 logging.info(f"Used {ram_used}% RAM. Saving sub parquet of length {save_length} to {save_path}.")
                 
                 try:
-                    pl.concat(forecasts, how="vertical")
+                    x = pl.concat(forecasts, how="vertical")
+                    logging.info(f"vertical concat columns = {x.columns}")
                 except Exception as e:
                     logging.error(f"Couldn't vertically concat forecasts with columns:")
                     fcst = forecasts[0]
@@ -2358,17 +2360,17 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                             logging.error(f"Two pairs of columns are unequal:\n{cols_1}\n{cols_2}")
                         cols_1 = cols_2
                         
-                forecasts = (fc for fc in forecasts)
-                
+                forecasts = pl.concat(forecasts, how="diagonal")
+                logging.info(f"diagonal concat for {save_path} columns = {forecasts.columns}")
                 logging.info(f"Writing {'final' if final else 'intermediary'} result to file {save_path}.")
                 if not os.path.exists(save_path):
                     with open(save_path, mode="w") as fp:
-                        pl.concat(forecasts, how="diagonal").write_csv(fp, include_header=True)
+                        forecasts.write_csv(fp, include_header=True)
                     logging.info(f"File {save_path} has size {os.path.getsize(save_path)} after first write.")
                 elif os.path.exists(save_path):
                     logging.info(f"File {save_path} has size {os.path.getsize(save_path)} before appending.")
                     with open(save_path, mode="a") as fp:
-                        pl.concat(forecasts, how="diagonal").write_csv(fp, include_header=False)
+                        forecasts.write_csv(fp, include_header=False)
                     logging.info(f"File {save_path} has size {os.path.getsize(save_path)} after appending.")
                 
                 forecasts = []
