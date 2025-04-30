@@ -139,6 +139,7 @@ case_studies = {
         "prediction_timedelta": {"group": 2, "vals": [60, 120, 180]} #240, 300, 360, 420, 480, 540, 600, 660, 720, 780, 840, 900, 960, 1020, 1080]},
         },
     "baseline_controllers_ml_forecasters_awaken": {
+        "n_horizon": {"group": 0, "vals": [0]},
         "controller_dt": {"group": 0, "vals": [5]},
         "use_filtered_wind_dir": {"group": 0, "vals": [True]},
         "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
@@ -167,6 +168,7 @@ case_studies = {
         "model_key": {"group": 2, "vals": ["autoformer", "informer", "spacetimeformer", "tactis"]} # 
     },
     "baseline_controllers_baseline_det_forecasters_awaken": {
+        "n_horizon": {"group": 0, "vals": [0]},
         "controller_dt": {"group": 0, "vals": [5]},
         "use_filtered_wind_dir": {"group": 0, "vals": [True]},
         "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
@@ -179,12 +181,21 @@ case_studies = {
                                         ]},
         "yaw_limits": {"group": 0, "vals": ["-15,15"]},
         "uncertain": {"group": 0, "vals": [False]},
-        "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
-        "prediction_timedelta": {"group": 1, "vals": [300, 60]},
-        "target_turbine_indices": {"group": 1, "vals": ["74,73", "4,"]},
+        # "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
+        # "prediction_timedelta": {"group": 1, "vals": [300, 60]},
+        # "target_turbine_indices": {"group": 1, "vals": ["74,73", "4,"]},
+        # "model_config_path": {"group": 1, "vals": [
+        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred300_svr.yaml"),, 
+        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred60_svr.yaml")]},
+        "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
+        "prediction_timedelta": {"group": 1, "vals": [300]},
+        "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
+        "model_config_path": {"group": 1, "vals": [
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred300.yaml")]},
         "wind_forecast_class": {"group": 2, "vals": ["SVRForecast", "SpatialFilterForecast", "PersistenceForecast", "PerfectForecast"]},
     },
     "baseline_controllers_baseline_prob_forecasters_awaken": {
+        "n_horizon": {"group": 0, "vals": [0]},
         "controller_dt": {"group": 0, "vals": [5]},
         "use_filtered_wind_dir": {"group": 0, "vals": [True]},
         "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
@@ -697,6 +708,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             # whoc_config["hercules_comms"]["helics"]["config"]["stoptime"] = stoptime = min([d.total_seconds() for d in durations])
             whoc_config["hercules_comms"]["helics"]["config"]["stoptime"] = stoptime = [d.total_seconds() for d in durations]
         else:
+            wind_field_ts = [wf.filter((pl.col("time") - pl.col("time").first()).dt.total_seconds() <= stoptime) for wf in wind_field_ts]
             stoptime = [stoptime] * len(wind_field_ts)
 
         # TESTING START
@@ -783,21 +795,25 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                     (input_dicts[start_case_idx + c]["wind_forecast"]["prediction_timedelta"] > mdl_cnf["dataset"]["prediction_length"]):
                         logging.warning(f"Provided prediction_timedelta should be less or equal to the trained model config prediction length {mdl_cnf['dataset']['prediction_length']}. Make sure you are providing the right model config file. Resetting the prediction_timedelta variable.")
                         input_dicts[start_case_idx + c]["wind_forecast"]["prediction_timedelta"] = mdl_cnf["dataset"]["prediction_length"]
-                # TODO this is overwriting params set above
-                input_dicts[start_case_idx + c]["wind_forecast"] \
-                    = {**{
-                        "measurements_timedelta": wind_field_ts[0].select(pl.col("time").diff().slice(1,1)).item(),
-                        "context_timedelta": pd.Timedelta(seconds=mdl_cnf["dataset"]["context_length"]), # pd.Timedelta(seconds=input_dicts[start_case_idx + c]["wind_forecast"]["context_timedelta"]),
-                        "prediction_timedelta": pd.Timedelta(seconds=input_dicts[start_case_idx + c]["wind_forecast"]["prediction_timedelta"]),
-                        "controller_timedelta": pd.Timedelta(seconds=input_dicts[start_case_idx + c]["controller"]["controller_dt"]),
-                        "model_config": mdl_cnf,
-                        "model_key": input_dicts[start_case_idx + c].get("model_key", None),
-                        "model_checkpoint": input_dicts[start_case_idx + c].get("model_checkpoint", "best")
-                        }
-                    }
-                # model-specific kwargs
-                input_dicts[start_case_idx + c]["wind_forecast"].update({k: v for k, v in input_dicts[start_case_idx + c]["wind_forecast"].get(input_dicts[start_case_idx + c]["controller"]["wind_forecast_class"], {}).items() if k not in input_dicts[start_case_idx + c]["wind_forecast"]})
                 
+                wind_forecast_kwargs = {
+                    "measurements_timedelta": wind_field_ts[0].select(pl.col("time").diff().slice(1,1)).item(),
+                    "context_timedelta": pd.Timedelta(seconds=mdl_cnf["dataset"]["context_length"]), # pd.Timedelta(seconds=input_dicts[start_case_idx + c]["wind_forecast"]["context_timedelta"]),
+                    "prediction_timedelta": pd.Timedelta(seconds=input_dicts[start_case_idx + c]["wind_forecast"]["prediction_timedelta"]),
+                    "controller_timedelta": pd.Timedelta(seconds=input_dicts[start_case_idx + c]["controller"]["controller_dt"]),
+                    "model_config": mdl_cnf,
+                    "model_key": input_dicts[start_case_idx + c].get("model_key", None),
+                    "model_checkpoint": input_dicts[start_case_idx + c].get("model_checkpoint", "best")
+                }
+                input_dicts[start_case_idx + c]["wind_forecast"].update(wind_forecast_kwargs)
+                # model-specific kwargs
+                input_dicts[start_case_idx + c]["wind_forecast"].update(
+                    {k: v for k, v in input_dicts[start_case_idx + c]["wind_forecast"].get(input_dicts[start_case_idx + c]["controller"]["wind_forecast_class"], {}).items() 
+                     if k not in wind_forecast_kwargs})
+                
+                model_specific_keys = [key for key in input_dicts[start_case_idx + c]["wind_forecast"].keys() if key.endswith("Forecast")]
+                for k in model_specific_keys:
+                    input_dicts[start_case_idx + c]["wind_forecast"].pop(k)
                 # if "model_key" in input_dicts[start_case_idx + c]["wind_forecast"]:
                 #     db_setup_params = generate_df_setup_params(
                 #         model=input_dicts[start_case_idx + c]["wind_forecast"]["model_key"], 

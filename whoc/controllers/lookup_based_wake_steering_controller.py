@@ -165,10 +165,10 @@ class LookupBasedWakeSteeringController(ControllerBase):
             # df_plot = df_lut.drop(columns=["yaw_angles_opt", "farm_power_opt", "farm_power_baseline"])
             # df_plot = pd.concat([df_plot.assign(YawOffset=yaw_angles_opt[:, i], Turbine=i) for i in range(yaw_angles_opt.shape[1])], axis=0)
                 
-            # ax = sns.lineplot(df_plot, x="wind_direction", y="YawOffset", 
+            # ax = sns.lineplot(df_plot.loc[df_plot["YawOffset"] != 0, :], x="wind_direction", y="YawOffset", 
             #                   hue="wd_stddev", style="Turbine", 
             #                 #   estimator=lambda arr: max(arr.min(), arr.max(), key=abs),
-            #                 estimator=lambda arr: np.mean(arr[arr != 0]),
+            #                 # estimator=lambda arr: np.mean(arr[arr != 0]),
             #                 #  errorbar=lambda x: (x.min(), x.max())
             #                 #  estimator="median",
             #                 errorbar=("pi", 95)
