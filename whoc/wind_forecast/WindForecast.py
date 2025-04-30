@@ -2128,7 +2128,7 @@ class MLForecast(WindForecast):
             test_data = self._generate_test_data(historic_measurements)
             logging.info(f"Using {torch.cuda.device_count()} GPU devices: {self.device} at {current_time} to make predictions for {self.model_key} with prediction_timedelta {self.prediction_timedelta}.")
             
-            pred_iter = self.predictor.predict(test_data, num_samples=1,
+            pred_iter = self.predictor.predict(test_data, num_samples=1 if self.model_key != "tactis" else 100,
                                                 output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"})
             
             if self.data_module.per_turbine_target:
@@ -2140,6 +2140,7 @@ class MLForecast(WindForecast):
                 if self.model_key == 'tactis':
                     for p in range(len(pred_list)):
                         pred_list[p].distribution = types.SimpleNamespace()
+                        logging.info(f"TACTiS samples are stored on device {pred_list[p].samples.get_device()}")
                         samples_tensor = torch.from_numpy(pred_list[p].samples).to(self.predictor.device) # .to(self.predictor.device)
                         pred_list[p].distribution.mean = samples_tensor.mean(dim=0)
                         pred_list[p].distribution.stddev = samples_tensor.std(dim=0)
