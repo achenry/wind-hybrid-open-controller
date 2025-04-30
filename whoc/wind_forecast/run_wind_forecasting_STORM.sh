@@ -2,10 +2,10 @@
 
 #SBATCH --partition=all_gpu.p          # Partition for H100/A100 GPUs (adjust if needed)
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=1         # Requesting 1 task for 1 GPU
-#SBATCH --cpus-per-task=16          # CPUs per task (adjust based on inference needs)
+#SBATCH --ntasks-per-node=4         # Requesting 1 task for 1 GPU
+#SBATCH --cpus-per-task=32          # CPUs per task (adjust based on inference needs)
 #SBATCH --mem-per-cpu=8192          # Memory per CPU (Total Mem = 1 * 16 * 8192 = 128GB)
-#SBATCH --gres=gpu:H100:1           # Request 1 H100 GPU (Matches ntasks-per-node)
+#SBATCH --gres=gpu:H100:4           # Request 1 H100 GPU (Matches ntasks-per-node)
 #SBATCH --time=1-00:00              # Time limit (e.g., 1 hour for inference)
 #SBATCH --job-name=whoc_infer_storm
 #SBATCH --output=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/whoc_infer_%j.out
@@ -117,13 +117,17 @@ python WindForecast.py \
     --model ${MODELS} \
     --model_config "${MODEL_CONFIG_PATH_ABS}" \
     --data_config "${DATA_CONFIG_PATH_ABS}" \
-    --simulation_timestep 1 \
+    --simulation_timestep 60 \
     --save_dir "${LOG_DIR}/inference_results/${SLURM_JOB_ID}" \
     --checkpoint best \
     --prediction_type distribution \
     --use_tuned_params \
     --use_trained_models \
-    --rerun_validation
+    --rerun_validation \
+    --max_splits 1 \
+    --max_steps 1080 \
+    --multiprocessor cf \
+    --plot
 
 EXIT_CODE=$?
 
