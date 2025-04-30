@@ -34,8 +34,10 @@ try:
     from mpi4py import MPI
     from mpi4py.futures import MPICommExecutor
     mpi_exists = True
-except:
-    print("No MPI available on system.")
+except ImportError as e:
+    import traceback
+    print(f"ERROR: Failed to import mpi4py. MPI will not be available. Error: {e}")
+    print(traceback.format_exc())
 
 from gluonts.evaluation import MultivariateEvaluator
 from gluonts.dataset.util import period_index
@@ -2338,13 +2340,11 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
             )
             save_length += pred.select(pl.len()).item()
             
-            logging.info(f"pred_columns = {pred.columns}")
             ram_used = virtual_memory().percent
             
             if  (final := ((c == n_controller_times - 1) and (d == n_splits - 1))) or ((ram_used > ram_limit) and (save_length > 500)):
                 # sub_save_path = save_path.replace(".csv", f"_{splits[d]}_{n_saved}.csv")
                 logging.info(f"Used {ram_used}% RAM. Saving sub parquet of length {save_length} to {save_path}.")
-                
                 
                 try:
                     pl.concat(forecasts, how="vertical")
@@ -2737,8 +2737,19 @@ if __name__ == "__main__":
     
     assert all(model in ["perfect", "persistence", "svr", "kf", "informer", "autoformer", "spacetimeformer", "tactis", "sf"] for model in args.model)
     
-    comm = MPI.COMM_WORLD
-    rank = comm.Get_rank()
+    if not mpi_exists and args.multiprocessor == "mpi":
+        raise RuntimeError("MPI was requested (--multiprocessor mpi) but mpi4py failed to import. Check previous logs for import error details.")
+    elif not mpi_exists:
+         # If MPI wasn't requested, we might not need it here, but accessing MPI.COMM_WORLD directly is still problematic.
+         # Depending on logic flow, this might need adjustment. For now, assume it's an error if MPI isn't available.
+         # If MPI is optional, this block might need refinement based on how `comm` is used later.
+         comm = None # Or handle appropriately if MPI is truly optional here
+         rank = -1   # Assign a default rank if MPI is not used
+         print("Warning: MPI not available, proceeding without it where possible.")
+    else:
+         comm = MPI.COMM_WORLD
+         rank = comm.Get_rank()
+
     RUN_ONCE = (args.multiprocessor == "mpi" and rank == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
     
     TRANSFORM_WIND = {"added_wm": args.added_wind_mag, "added_wd": args.added_wind_dir}
@@ -3064,7 +3075,7 @@ if __name__ == "__main__":
                         # res_idx += 1
                         
                     # forecaster_res = pl.concat(forecaster_res, how="vertical")
-                    logging.info(f"Scanning CSV files at {forecast_path}")
+                    logging.info(f"Loading forecast_df from {forecast_path}.")
                     forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
                                     .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
                     results.append({
@@ -3072,11 +3083,13 @@ if __name__ == "__main__":
                         "prediction_timedelta": forecaster.prediction_timedelta.total_seconds(),
                         "forecast_df": forecast_df
                     })
-                    logging.info(f"Finished canning CSV files at {forecast_path}")
+                    logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('continuity_group').unique())} continuity groups.")
                     # forecaster_res.write_parquet(forecast_path)
                 else:
+                    logging.info(f"Loading forecast_df from {forecast_path}.")
                     forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
                                     .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
+                    logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('continuity_group').unique())} continuity groups.")
                     results.append({
                         "forecaster_name": forecaster.__class__.__name__,
                         "forecast_df": forecast_df,
@@ -3116,7 +3129,7 @@ if __name__ == "__main__":
                 logging.info(f"Loading forecast_df from {forecast_path}.")
                 forecast_df = pl.read_csv(forecast_path)\
                                      .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
-                
+                logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('continuity_group').unique())} continuity groups.")
                 results.append({
                     "forecaster_name": forecaster.__class__.__name__,
                     "forecast_df": forecast_df,
@@ -3129,6 +3142,7 @@ if __name__ == "__main__":
                 logging.info(f"Loading forecast_df from {forecast_path}.")
                 forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
                                      .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
+                logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('continuity_group').unique())} continuity groups.")
                 results.append({
                     "forecaster_name": forecaster.__class__.__name__,
                     "forecast_df": forecast_df,
@@ -3148,12 +3162,16 @@ if __name__ == "__main__":
         agg_metric_path = os.path.join(save_dir, "agg_metrics.csv")       
         
         if args.rerun_validation or not os.path.exists(agg_metric_path):
+            logging.info(f"Loading forecast_df from {forecast_path}.")
             forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
                            .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
+            logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('continuity_group').unique())} continuity groups.")
             agg_metrics = generate_forecaster_agg_results(forecaster, forecast_df, test_data, data_module, args.prediction_type)
             agg_metrics.write_csv(agg_metric_path)
         else:
+            logging.info(f"Loading agg_metrics from {agg_metric_path}.")
             agg_metrics =  pl.read_csv(agg_metric_path, schema_overrides={"turbine_id": pl.String})
+            logging.info(f"Finished scanning CSV files at {agg_metric_path}. Found {agg_metrics.select(pl.col('continuity_group').unique())} continuity groups.")
             
         results[f]["agg_metrics"] = agg_metrics
         
