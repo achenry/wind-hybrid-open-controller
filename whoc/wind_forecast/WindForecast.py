@@ -3044,7 +3044,9 @@ if __name__ == "__main__":
                 if args.rerun_validation or not all(os.path.exists(fp) for fp in forecast_paths):
                     if args.rerun_validation:
                         for f in glob.glob(forecast_path):
+                            logging.info(f"Removing existing file {f}.")
                             os.remove(f)
+                            
                     for cg in continuity_groups:
                         # save_paths.append(os.path.join(save_dir, f"forecast_{cg}.csv"))
                         test_futures.append(ex.submit(make_predictions, forecaster=forecaster,  
@@ -3054,50 +3056,43 @@ if __name__ == "__main__":
                                             assigned_gpu=next(gpu_cycler) if gpu_cycler else None, 
                                             ram_limit=args.ram_limit))
                                             # save_path=save_paths[-1]))
+                    
+                    [fut.result() for fut in test_futures]
             
-            res_idx = 0
-            results = []
-            for forecaster in forecasters:
-                prediction_timedelta = forecaster.prediction_timedelta.total_seconds()
-                forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.__class__.__name__}_{forecaster.model_key}"
-                save_dir = os.path.join(args.save_dir, "validation_results", 
-                                    forecaster_name,
-                                    str(int(prediction_timedelta)))
-                
-                # forecast_paths = glob.glob(os.path.join(save_dir, "forecast_*.csv"))
-                forecast_paths = [os.path.join(save_dir, f"forecast_{cg}.csv") for cg in continuity_groups]
-                forecast_path = os.path.join(save_dir, f"forecast*.csv")
-                if args.rerun_validation or not all(os.path.exists(fp) for fp in forecast_paths):
-                    forecaster_res = []
-                    for cg in continuity_groups:
-                        test_futures[res_idx].result()
-                        
-                        # forecaster_res.append(pl.read_parquet(save_paths[res_idx]))
-                        
-                        # res_idx += 1
-                        
-                    # forecaster_res = pl.concat(forecaster_res, how="vertical")
-                    logging.info(f"Loading forecast_df from {forecast_path}.")
-                    forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
-                                    .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
-                    results.append({
-                        "forecaster_name": forecaster.__class__.__name__,
-                        "prediction_timedelta": forecaster.prediction_timedelta.total_seconds(),
-                        "forecast_df": forecast_df
-                    })
-                    logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('test_idx)').unique())} test_indices.")
-                    # forecaster_res.write_parquet(forecast_path)
-                else:
-                    logging.info(f"Loading forecast_df from {forecast_path}.")
-                    forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
-                                    .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
-                    logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('test_idx)').unique())} test_indices.")
-                    results.append({
-                        "forecaster_name": forecaster.__class__.__name__,
-                        "forecast_df": forecast_df,
-                        # "agg_metrics": pl.read_parquet(agg_metric_path), 
-                        "prediction_timedelta": prediction_timedelta
-                    })
+        res_idx = 0
+        results = []
+        for forecaster in forecasters:
+            prediction_timedelta = forecaster.prediction_timedelta.total_seconds()
+            forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.__class__.__name__}_{forecaster.model_key}"
+            save_dir = os.path.join(args.save_dir, "validation_results", 
+                                forecaster_name,
+                                str(int(prediction_timedelta)))
+            
+            # forecast_paths = glob.glob(os.path.join(save_dir, "forecast_*.csv"))
+            forecast_paths = [os.path.join(save_dir, f"forecast_{cg}.csv") for cg in continuity_groups]
+            forecast_path = os.path.join(save_dir, f"forecast*.csv")
+            if args.rerun_validation or not all(os.path.exists(fp) for fp in forecast_paths):
+                logging.info(f"Loading forecast_df from {forecast_path}.")
+                forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
+                                .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
+                results.append({
+                    "forecaster_name": forecaster.__class__.__name__,
+                    "prediction_timedelta": forecaster.prediction_timedelta.total_seconds(),
+                    "forecast_df": forecast_df
+                })
+                logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('continuity_group)').unique())} continuity_groups.")
+                # forecaster_res.write_parquet(forecast_path)
+            else:
+                logging.info(f"Loading forecast_df from {forecast_path}.")
+                forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
+                                .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
+                logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('continuity_group)').unique())} continuity_groups.")
+                results.append({
+                    "forecaster_name": forecaster.__class__.__name__,
+                    "forecast_df": forecast_df,
+                    # "agg_metrics": pl.read_parquet(agg_metric_path), 
+                    "prediction_timedelta": prediction_timedelta
+                })
             
     else:
         logging.info(f"Running generate_forecaster_results with loop.")
@@ -3119,6 +3114,7 @@ if __name__ == "__main__":
             if args.rerun_validation or not all(os.path.exists(fp) for fp in forecast_paths):
                 if args.rerun_validation:
                     for f in glob.glob(forecast_path):
+                        logging.info(f"Removing existing file {f}.")
                         os.remove(f)
                     
                 make_predictions(
@@ -3131,7 +3127,7 @@ if __name__ == "__main__":
                 logging.info(f"Loading forecast_df from {forecast_path}.")
                 forecast_df = pl.read_csv(forecast_path)\
                                      .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
-                logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('test_idx)').unique())} test_indices.")
+                logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('continuity_group)').unique())} continuity_groups.")
                 results.append({
                     "forecaster_name": forecaster.__class__.__name__,
                     "forecast_df": forecast_df,
@@ -3144,7 +3140,7 @@ if __name__ == "__main__":
                 logging.info(f"Loading forecast_df from {forecast_path}.")
                 forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
                                      .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
-                logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('test_idx)').unique())} test_indices.")
+                logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('continuity_group)').unique())} continuity_groups.")
                 results.append({
                     "forecaster_name": forecaster.__class__.__name__,
                     "forecast_df": forecast_df,
