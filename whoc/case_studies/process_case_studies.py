@@ -92,6 +92,135 @@ def write_case_family_agg_data(case_family, new_agg_df, save_dir):
     logging.info(f"Writing case family {case_family} aggregate dataframe.")
     new_agg_df.loc[new_agg_df.index.get_level_values("CaseFamily") == case_family, :].to_csv(all_agg_df_path)   
 
+def plot_power_vs_prediction_time(agg_df, save_dir, label):
+    controller_labels = {"GreedyController": "Greedy", "LookupBasedWakeSteeringController": "LUT"}
+    controllers = pd.unique(agg_df["controller_class"])
+    plot_df = agg_df.copy()
+    plot_df["prediction_timedelta"] = plot_df["prediction_timedelta"].dt.total_seconds()
+    plot_df[("FarmPowerMean", "mean")] = plot_df[("FarmPowerMean", "mean")] / 1e6
+    
+    # get gain of LUT compared to greedy wo preview
+    compute_df = plot_df.copy()
+    
+    greedy_compute_df = compute_df.loc[(compute_df["controller_class"] == "GreedyController"), :]
+    if greedy_compute_df.shape[0]:
+        case_name = greedy_compute_df.index.get_level_values("CaseName")[0]
+        input_fn = f"input_config_case_{case_name}.pkl"
+        with open(os.path.join(save_dir, case_families[0], input_fn), mode='rb') as fp:
+            greedy_input_config = pickle.load(fp)
+        n_greedy_turbines = len(greedy_input_config["controller"]["target_turbine_indices"])
+        compute_df.loc[(compute_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")] = compute_df.loc[(compute_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")] / n_greedy_turbines
+        
+        if 0 in compute_df["prediction_timedelta"]:
+            plot_df.loc[(plot_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")] = 100 * (plot_df.loc[(plot_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")] - plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")].iloc[0]) / plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")].iloc[0]
+    
+    lut_compute_df = compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), :]
+    if lut_compute_df.shape[0]:
+        case_name = lut_compute_df.index.get_level_values("CaseName")[0]
+        input_fn = f"input_config_case_{case_name}.pkl"
+        case_families = agg_df.index.get_level_values("CaseFamily")
+        with open(os.path.join(save_dir, case_families[0], input_fn), mode='rb') as fp:
+            lut_input_config = pickle.load(fp)
+        n_lut_turbines = len(lut_input_config["controller"]["target_turbine_indices"])
+        compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] = compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] / n_lut_turbines
+
+        if 0 in compute_df["prediction_timedelta"]:
+            if greedy_compute_df.shape[0]:
+                compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] = 100 * (compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] - compute_df.loc[(compute_df["prediction_timedelta"] == 0) & (compute_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")].iloc[0]) / compute_df.loc[(compute_df["prediction_timedelta"] == 0) & (compute_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")].iloc[0]
+            else:
+                compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] = 100 * (compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] - compute_df.loc[(compute_df["prediction_timedelta"] == 0) & (compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")].iloc[0]) / compute_df.loc[(compute_df["prediction_timedelta"] == 0) & (compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")].iloc[0]
+
+            plot_df.loc[(plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] = 100 * (plot_df.loc[(plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] - plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")].iloc[0]) / plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")].iloc[0]
+
+        compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), [("prediction_timedelta", ""), ("FarmPowerMean", "mean")]].reset_index(drop=True)
+        
+    x_vals = np.sort(pd.unique(plot_df["prediction_timedelta"]))
+    xlim = (x_vals.min(), x_vals.max())
+    fig, ax = plt.subplots(1, len(controllers), sharey=True)
+    ax = np.atleast_1d(ax)
+    for c, ctrl in enumerate(controllers):
+        sns.lineplot(plot_df.loc[plot_df["controller_class"] == ctrl, :], 
+                    x="prediction_timedelta", y=("FarmPowerMean", "mean"), ax=ax[c])
+        ax[c].set_ylabel("")
+        ax[c].set_xlabel("Prediction Horizon (s)")
+        # ax[c].set_title(f"{controller_labels[ctrl]} Mean Farm Power (MW)")
+        ax[c].set_title(f"{controller_labels[ctrl]} Mean Farm Power Gain (%)")
+        ax[c].set_xlim(xlim)
+        ax[c].set_xticks(x_vals[1::2])
+        ax[c].tick_params("x", rotation=45)
+    plt.tight_layout()
+    fig.savefig(os.path.join(save_dir, f"{label}_power_vs_prediction_time.png"))
+
+def plot_power_vs_forecaster(agg_df, save_dir, label):
+    controller_labels = {"GreedyController": "Greedy", "LookupBasedWakeSteeringController": "LUT"}
+    controllers = pd.unique(agg_df["controller_class"])
+    plot_df = agg_df.copy()
+    plot_df["prediction_timedelta"] = plot_df["prediction_timedelta"].dt.total_seconds()
+    plot_df[("FarmPowerMean", "mean")] = plot_df[("FarmPowerMean", "mean")] / 1e6
+    plot_df = plot_df[[("controller_class", ""), ("wind_forecast_class", ""), ("prediction_timedelta", ""), ("FarmPowerMean", "mean"), ("YawAngleChangeAbsMean",  "mean")]]
+    plot_df.columns = plot_df.columns.droplevel(1)
+    plot_df = pd.melt(plot_df, id_vars=["controller_class", "wind_forecast_class", "prediction_timedelta"], value_vars=["FarmPowerMean", "YawAngleChangeAbsMean"])
+    
+    x_vals = pd.unique(plot_df["wind_forecast_class"])
+    x_vals = [" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", label).group())) 
+                  if ("Forecast" in label) else (label.capitalize() if not label[0].isupper() else label).replace("_", " ") for label in x_vals]
+    
+    x_vals = ["".join(label.split(" ")) if all(l.isupper() or l.isspace() for l in label) else label for label in x_vals]
+    
+    # fig, ax = plt.subplots(1, len(controllers), sharey=True)
+    # fig = plt.figure()
+    # ax = np.atleast_1d(ax)
+    for c, ctrl in enumerate(controllers):
+       
+        for var in pd.unique(plot_df["variable"]):
+            cond = (plot_df["controller_class"] == ctrl) & (plot_df["variable"] == var)
+            base_val = plot_df.loc[(plot_df["wind_forecast_class"] == "PersistenceForecast") & cond, "value"].iloc[0]
+            plot_df.loc[cond, "value"] = 100 * (plot_df.loc[cond, "value"] - base_val) / base_val
+
+        plot_df.loc[(plot_df["controller_class"] == ctrl) & (plot_df["variable"] == "YawAngleChangeAbsMean"), "value"] = plot_df.loc[(plot_df["controller_class"] == ctrl) & (plot_df["variable"] == "YawAngleChangeAbsMean"), "value"] / 100
+        
+        ax = sns.catplot(plot_df.loc[(plot_df["controller_class"] == ctrl) & ((plot_df["wind_forecast_class"] != "PersistenceForecast")), :], kind="bar",
+                    x="wind_forecast_class", y="value", row=0, col=c, hue="variable")
+        
+        for f, fcst in enumerate(ax.ax.get_xticklabels()):
+            for v, var in enumerate(pd.unique(plot_df["variable"])):
+                cond = (plot_df["controller_class"] == ctrl) & (plot_df["wind_forecast_class"] == fcst.get_text()) & (plot_df["variable"] == var)
+                print_val = val = plot_df.loc[cond, 'value'].iloc[0]
+                if var ==  "YawAngleChangeAbsMean":
+                    print_val *= 100
+                xcoord = fcst._x - (0.4 if v == 0 else 0)
+                ycoord = val if val > 0 else val - 0.05
+                if abs(print_val) < 1.0:
+                    ax.ax.annotate(text=f"{print_val:.1g}%", xy=(xcoord, ycoord))
+                else:
+                    ax.ax.annotate(text=f"{print_val:.2g}%", xy=(xcoord, ycoord))
+        
+        # ax._legend.set_visible(False)
+        # plt.gcf().canvas.draw()
+        
+        ax.ax.set_ylabel("")
+        ax.ax.set_xlabel("Forecaster")
+        # ax[c].set_title(f"{controller_labels[ctrl]} Mean Farm Power (MW)")
+        ax.ax.get_yaxis().set_visible(False)
+        ax.ax.set_title(f"{controller_labels[ctrl]}")
+        ax.ax.set_xticklabels(x_vals)
+        ax.ax.tick_params("x", rotation=35)
+        # ax.ax.legend([], [], frameon=False)
+    
+    
+    ax.legend.get_texts()[0].set_text("Farm Power Change")
+    ax.legend.get_texts()[1].set_text("Yaw Actuation Change")
+    ax.legend.set_title("")
+    # TODO move this legend up
+    # ax.legend.set_loc("upper left")
+    # ax.legend.set_bbox_to_anchor((1.01, 1))
+    
+    fig = plt.gcf()
+    fig.set_size_inches((10.5, 7.8))
+
+    fig.subplots_adjust(right=0.8)
+    fig.savefig(os.path.join(save_dir, f"{label}_power_vs_forecaster.png"))
+
 def read_case_family_time_series_data(case_family, save_dir):
     # if reaggregate_simulations, or if the aggregated time series data doesn't exist for this case family, read the csv files for that case family
     all_ts_df_path = os.path.join(save_dir, case_family, "time_series_results_all.csv") 
