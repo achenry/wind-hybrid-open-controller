@@ -2344,8 +2344,20 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
             if  (final := ((c == n_controller_times - 1) and (d == n_splits - 1))) or ((ram_used > ram_limit) and (save_length > 500)):
                 # sub_save_path = save_path.replace(".csv", f"_{splits[d]}_{n_saved}.csv")
                 logging.info(f"Used {ram_used}% RAM. Saving sub parquet of length {save_length} to {save_path}.")
+                
+                
+                try:
+                    pl.concat(forecasts, how="vertical")
+                except Exception as e:
+                    logging.error(f"Couldn't vertically concat forecasts with columns:")
+                    fcst = forecasts[0]
+                    cols_1 = fcst.columns
+                    for fcst in forecasts[1:]:
+                        cols_2 = fcst.columns
+                        if not all(c1 == c2 for c1, c2 in zip(cols_1, cols_2)):
+                            logging.error(f"Two pairs of columns are unequal:\n{cols_1}\n{cols_2}")
+                        cols_1 = cols_2
                 forecasts = (fc for fc in forecasts)
-                # pl.concat(forecasts, how="vertical").write_parquet(sub_save_path)
                 
                 logging.info(f"Writing {'final' if final else 'intermediary'} result to file.")
                 if not os.path.exists(save_path):
