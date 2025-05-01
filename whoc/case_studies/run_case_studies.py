@@ -31,7 +31,7 @@ from whoc.case_studies.process_case_studies import (read_time_series_data, write
                                                     aggregate_time_series_data, read_case_family_agg_data, write_case_family_agg_data, 
                                                     generate_outputs, plot_simulations, plot_wind_farm, plot_breakdown_robustness, plot_horizon_length,
                                                     plot_cost_function_pareto_curve, plot_yaw_offset_wind_direction, plot_parameter_sweep, plot_power_increase_vs_prediction_time,
-                                                    plot_power_vs_prediction_time, plot_power_vs_forecaster)
+                                                    plot_power_vs_prediction_time, plot_agg_metrics_vs_forecaster)
 try:
     from whoc.wind_forecast.WindForecast import PerfectForecast, PersistenceForecast, MLForecast, SVRForecast, KalmanFilterForecast, SpatialFilterForecast
 except ModuleNotFoundError:
@@ -446,7 +446,10 @@ if __name__ == "__main__":
                 # plot_power_increase_vs_prediction_time(plot_df, args.save_dir)
 
             
-            if any(case_families.index(cf) in args.case_ids for cf in ["baseline_controllers_ml_forecasters_awaken", "baseline_controllers_baseline_det_forecasters_awaken", "baseline_controllers_baseline_prob_forecasters_awaken"]):
+            if any(case_families.index(cf) in args.case_ids for cf in 
+                   ["baseline_controllers_informer_forecasters_awaken", "baseline_controllers_autoformer_forecasters_awaken",
+                    "baseline_controllers_spacetimeformer_forecasters_awaken", "baseline_controllers_tactis_forecasters_awaken",
+                    "baseline_controllers_baseline_det_forecasters_awaken", "baseline_controllers_baseline_prob_forecasters_awaken"]):
                 from whoc.wind_forecast.WindForecast import WindForecast
                 from wind_forecasting.preprocessing.data_inspector import DataInspector
                 # TODO HIGH only compare time after context_length, since SVR/ML assume persistence until then
@@ -457,7 +460,10 @@ if __name__ == "__main__":
                 # elif case_families.index("baseline_controllers_baseline_det_forecasters_awaken") in args.case_ids:
                 #     forecaster_case_fam = "baseline_controllers_baseline_det_forecasters_awaken"
                 
-                cfs = ["baseline_controllers_ml_forecasters_awaken", "baseline_controllers_baseline_det_forecasters_awaken", "baseline_controllers_baseline_prob_forecasters_awaken"]
+                cfs = ["baseline_controllers_informer_forecasters_awaken", "baseline_controllers_autoformer_forecasters_awaken",
+                    "baseline_controllers_spacetimeformer_forecasters_awaken", "baseline_controllers_tactis_forecasters_awaken", 
+                    "baseline_controllers_baseline_det_forecasters_awaken", "baseline_controllers_baseline_prob_forecasters_awaken"]
+                
                 baseline_time_df = time_series_df.loc[time_series_df.index.get_level_values("CaseFamily").isin(cfs), :] #.reset_index(level="CaseFamily", drop=True)
                 baseline_agg_df = agg_df.loc[agg_df.index.get_level_values("CaseFamily").isin(cfs), :] #.reset_index(level="CaseFamily", drop=True)
                 
@@ -483,7 +489,7 @@ if __name__ == "__main__":
                 controllers = pd.unique(perfect_agg_df["controller_class"])
                 
                 # PLOT 0) Farm power of perfect forecaster vs prediction timedela for different controllers
-                plot_power_vs_forecaster(baseline_agg_df, args.save_dir, "all_forecasters_")
+                plot_agg_metrics_vs_forecaster(baseline_agg_df, args.save_dir, "all_forecasters_")
                 
                 # PLOT 1) Farm power of perfect forecaster vs prediction timedela for different controllers
                 plot_power_vs_prediction_time(baseline_agg_df, args.save_dir, "all_forecasters_")
