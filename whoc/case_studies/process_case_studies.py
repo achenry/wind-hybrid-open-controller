@@ -151,66 +151,78 @@ def plot_power_vs_prediction_time(agg_df, save_dir, label):
     plt.tight_layout()
     fig.savefig(os.path.join(save_dir, f"{label}_power_vs_prediction_time.png"))
 
-def plot_power_vs_forecaster(agg_df, save_dir, label):
+def plot_agg_metrics_vs_forecaster(agg_df, save_dir, label, agg_metrics=None):
     controller_labels = {"GreedyController": "Greedy", "LookupBasedWakeSteeringController": "LUT"}
+    metric_labels = {"FarmPowerMean": "Farm Power Change\nvs. Persistence (%)", "YawAngleChangeAbsMean": "Yaw Actuation Change\nvs. Persistence (%)"}
     controllers = pd.unique(agg_df["controller_class"])
+    if agg_metrics is None:
+        agg_metrics = [("FarmPowerMean", "mean"), ("YawAngleChangeAbsMean",  "mean")]
+    
+    sns.set_style("whitegrid")
     plot_df = agg_df.copy()
     plot_df["prediction_timedelta"] = plot_df["prediction_timedelta"].dt.total_seconds()
-    plot_df[("FarmPowerMean", "mean")] = plot_df[("FarmPowerMean", "mean")] / 1e6
-    plot_df = plot_df[[("controller_class", ""), ("wind_forecast_class", ""), ("prediction_timedelta", ""), ("FarmPowerMean", "mean"), ("YawAngleChangeAbsMean",  "mean")]]
+    # plot_df[("FarmPowerMean", "mean")] = plot_df[("FarmPowerMean", "mean")] / 1e6
+    plot_df = plot_df[[("controller_class", ""), ("wind_forecast_class", ""), ("prediction_timedelta", "")] + agg_metrics]
     plot_df.columns = plot_df.columns.droplevel(1)
-    plot_df = pd.melt(plot_df, id_vars=["controller_class", "wind_forecast_class", "prediction_timedelta"], value_vars=["FarmPowerMean", "YawAngleChangeAbsMean"])
+    agg_metrics = [m if not isinstance(m, tuple) else m[0] for m in agg_metrics]
+    plot_df = pd.melt(plot_df, id_vars=["controller_class", "wind_forecast_class", "prediction_timedelta"], value_vars=agg_metrics)
     
     # fig, ax = plt.subplots(1, len(controllers), sharey=True)
     # fig = plt.figure()
     # ax = np.atleast_1d(ax)
-    for c, ctrl in enumerate(controllers):
-       
-        for var in pd.unique(plot_df["variable"]):
+    # 
+    
+    for v, var in enumerate(agg_metrics):
+        for c, ctrl in enumerate(controllers):
             cond = (plot_df["controller_class"] == ctrl) & (plot_df["variable"] == var)
             base_val = plot_df.loc[(plot_df["wind_forecast_class"] == "PersistenceForecast") & cond, "value"].iloc[0]
             plot_df.loc[cond, "value"] = 100 * (plot_df.loc[cond, "value"] - base_val) / base_val
 
-        plot_df.loc[(plot_df["controller_class"] == ctrl) & (plot_df["variable"] == "YawAngleChangeAbsMean"), "value"] = plot_df.loc[(plot_df["controller_class"] == ctrl) & (plot_df["variable"] == "YawAngleChangeAbsMean"), "value"] / 100
-        
-        ax = sns.catplot(plot_df.loc[(plot_df["controller_class"] == ctrl) & ((plot_df["wind_forecast_class"] != "PersistenceForecast")), :], kind="bar",
-                    x="wind_forecast_class", y="value", row=0, col=c, hue="variable")
-        
-        for f, fcst in enumerate(ax.ax.get_xticklabels()):
-            for v, var in enumerate(pd.unique(plot_df["variable"])):
+    # plot_df.loc[(plot_df["controller_class"] == ctrl) & (plot_df["variable"] == "YawAngleChangeAbsMean"), "value"] = plot_df.loc[(plot_df["controller_class"] == ctrl) & (plot_df["variable"] == "YawAngleChangeAbsMean"), "value"] / 100
+    
+    ax = sns.catplot(plot_df.loc[((plot_df["wind_forecast_class"] != "PersistenceForecast")), :], kind="bar",
+                x="wind_forecast_class", y="value", col="variable", hue="controller_class", sharey=False)
+    
+    for v, var in enumerate(agg_metrics):
+        for f, fcst in enumerate(ax.axes[0, v].get_xticklabels()):
+            for c, ctrl in enumerate(controllers):
                 cond = (plot_df["controller_class"] == ctrl) & (plot_df["wind_forecast_class"] == fcst.get_text()) & (plot_df["variable"] == var)
                 print_val = val = plot_df.loc[cond, 'value'].iloc[0]
-                if var ==  "YawAngleChangeAbsMean":
-                    print_val *= 100
-                xcoord = fcst._x - (0.4 if v == 0 else 0)
-                ycoord = val if val > 0 else val - 0.05
+                x = fcst._x - 0.2
+                y = val + (0.02 * max(1, 100*np.round(abs(val)/100))) if val > 0 else val - (0.06 * max(1, 100*np.round(abs(val)/100)))
+                
                 if abs(print_val) < 1.0:
-                    ax.ax.annotate(text=f"{print_val:.1g}%", xy=(xcoord, ycoord))
+                    ax.axes[0, v].annotate(text=f"{print_val:.1g}%", xy=(x, y))
                 else:
-                    ax.ax.annotate(text=f"{print_val:.2g}%", xy=(xcoord, ycoord))
+                    ax.axes[0, v].annotate(text=f"{print_val:.2g}%", xy=(x, y))
         
-        # ax._legend.set_visible(False)
-        # plt.gcf().canvas.draw()
-        
-        ax.ax.set_ylabel("")
-        ax.ax.set_xlabel("Forecaster")
+        ax.axes[0, v].set_yticklabels([])
+        ax.axes[0, v].set_ylabel("")
+        ax.axes[0, v].set_xlabel("Forecaster")
         # ax[c].set_title(f"{controller_labels[ctrl]} Mean Farm Power (MW)")
-        ax.ax.get_yaxis().set_visible(False)
-        ax.ax.set_title(f"{controller_labels[ctrl]}")
-        
-        x_vals = ax.ax.get_xticklabels()
+        # ax.axes[0, v].get_yaxis().set_visible(False)
+        ax.axes[0, v].set_title(f"{metric_labels[var]}")
+
+    
+    for v, var in enumerate(agg_metrics):
+        x_vals = ax.axes[0, v].get_xticklabels()
         x_vals = [" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", label.get_text()).group())) 
                     if ("Forecast" in label.get_text()) else (label.get_text().capitalize() if not label.get_text()[0].isupper() else label.get_text()).replace("_", " ") for label in x_vals]
         
         x_vals = ["".join(label.split(" ")) if all(l.isupper() or l.isspace() for l in label) else label for label in x_vals]
+
+        ax.axes[0, v].set_xticklabels(x_vals)
+        ax.axes[0, v].tick_params("x", rotation=35)
+    # ax.ax.legend([], [], frameon=False)
     
-        ax.ax.set_xticklabels(x_vals)
-        ax.ax.tick_params("x", rotation=35)
-        # ax.ax.legend([], [], frameon=False)
+        # ax._legend.set_visible(False)
+    # plt.gcf().canvas.draw()
+    ax.axes[0, 0].set_ylim((-0.5, 0.5))
+    ax.axes[0, 1].set_ylim((-110, 0))
     
+    for c, ctrl in enumerate(controllers):
+        ax.legend.get_texts()[c].set_text(controller_labels[ax.legend.get_texts()[c]._text])
     
-    ax.legend.get_texts()[0].set_text("Farm Power Change")
-    ax.legend.get_texts()[1].set_text("Yaw Actuation Change")
     ax.legend.set_title("")
     ax.legend.set_loc("upper right")
     ax.legend.set_bbox_to_anchor((0.0, 0.0, 0.8, 0.9))
