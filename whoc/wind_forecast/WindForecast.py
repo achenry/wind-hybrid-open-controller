@@ -1944,21 +1944,21 @@ class MLForecast(WindForecast):
                 {
                     "item_id": f"TURBINE{turbine_id}",
                     "start": pd.Period(historic_measurements.select(pl.col("time").first()).item(), freq=self.data_module.freq), 
-                    "target": torch.from_numpy(historic_measurements.select([f"{pfx}_{turbine_id}" for pfx in self.data_module.target_prefixes]).to_numpy().T).float().to(self.device), 
-                    "feat_static_cat": torch.from_numpy(np.array([t])).float().to(self.device),
-                    "feat_dynamic_real": torch.from_numpy(pl.concat([
+                    "target": historic_measurements.select([f"{pfx}_{turbine_id}" for pfx in self.data_module.target_prefixes]).to_numpy().T, 
+                    "feat_static_cat": np.array([t]),
+                    "feat_dynamic_real": pl.concat([
                         historic_measurements.select([f"{pfx}_{turbine_id}" for pfx in self.data_module.feat_dynamic_real_prefixes]),
                         historic_measurements.select([pl.col(f"{pfx}_{turbine_id}").last().repeat_by(int(self.model_prediction_timedelta.total_seconds() / data_module_freq_td.total_seconds())).explode() # Use Timedelta seconds
-                                                      for pfx in self.data_module.feat_dynamic_real_prefixes])], how="vertical").to_numpy().T).float().to(self.device)
+                                                      for pfx in self.data_module.feat_dynamic_real_prefixes])], how="vertical").to_numpy().T
                 } for t, turbine_id in enumerate(self.data_module.target_suffixes))
         else:
             test_data = [{
                     "start": pd.Period(historic_measurements.select(pl.col("time").first()).item(), freq=self.data_module.freq), 
-                    "target": torch.from_numpy(historic_measurements.select(self.data_module.target_cols).to_numpy().T).float().to(self.device), 
-                    "feat_dynamic_real": torch.from_numpy(pl.concat([
+                    "target": historic_measurements.select(self.data_module.target_cols).to_numpy().T, 
+                    "feat_dynamic_real": pl.concat([
                         historic_measurements.select(self.data_module.feat_dynamic_real_cols),
                         historic_measurements.select([pl.col(col).last().repeat_by(int(self.model_prediction_timedelta.total_seconds() / data_module_freq_td.total_seconds())).explode() # Use Timedelta seconds
-                                                      for col in self.data_module.feat_dynamic_real_cols])], how="vertical").to_numpy().T).float().to(self.device)
+                                                      for col in self.data_module.feat_dynamic_real_cols])], how="vertical").to_numpy().T
             }]
         return test_data
     
