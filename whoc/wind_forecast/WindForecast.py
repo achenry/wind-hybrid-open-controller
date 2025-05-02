@@ -798,7 +798,7 @@ class WindForecast:
             # x1_delta = timedelta(seconds=int(forecast_wf.filter(pl.col("test_idx") == forecast_wf.select(pl.col("test_idx").first())).select(pl.col("time").diff().slice(1,1)).item().total_seconds()))
             x1_delta = timedelta(seconds=5)
             # x2_delta = timedelta(minutes=15)
-            n_ticks = 6
+            n_ticks = 5
             x2_delta = forecast_wf.select(pl.col("time").max().alias("last_time") - pl.col("time").min().alias("first_time")).item() / n_ticks
             x2_delta = timedelta(seconds=int(np.round(x2_delta.total_seconds() / (15*60)) * (15*60)))
             
@@ -847,7 +847,7 @@ class WindForecast:
             axs[0, -1].add_artist(leg1)
         
         # axs[-].set(xlabel="Time [s]", ylabel="Wind Speed [m/s]", xlim=(forecast_wf.select(pl.col("time").min()).item()], forecast_wf.select(pl.col("time").max()).item()))
-        fig.subplots_adjust(right=0.8)
+        fig.subplots_adjust(right=0.75)
         # plt.tight_layout()
         fig_path = os.path.join(fig_dir, f'forecast_ts{label}.png')
         logging.info(f"Saving plot_forecast to {fig_path}")
@@ -858,7 +858,7 @@ class WindForecast:
         new_time_range = timedelta(minutes=15)
         new_time_lim = (x_start, x_start + new_time_range)
         new_xlim = (ax.get_xlim()[0], ax.get_xlim()[0] + (new_time_range/time_rng)*xlim_rng)
-        n_ticks = 6
+        n_ticks = 5
         xdelta = int(np.round((new_time_range/n_ticks).total_seconds() / 30) * 30) / 60
         new_xticks = np.linspace(new_xlim[0], new_xlim[1], n_ticks)
         new_xticklabels = [i * xdelta for i in range(n_ticks)]
