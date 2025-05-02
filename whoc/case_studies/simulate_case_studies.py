@@ -202,8 +202,6 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         simulation_u = simulation_mag * np.sin(np.deg2rad(180 + simulation_dir))
         simulation_v = simulation_mag * np.cos(np.deg2rad(180 + simulation_dir))
         
-        
-        
     # recompute controls and step floris forward by ctrl.controller_dt
     while t < stoptime:
 
