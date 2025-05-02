@@ -45,6 +45,14 @@ plt.rc('ytick', labelsize=12*factor)    # fontsize of the ytick labels
 plt.rc('legend', fontsize=12*factor)    # legend fontsize
 plt.rc('legend', title_fontsize=14*factor)  # legend title fontsize
 
+# To geneate an example raw wind direction time series
+def wd_total_psd(f):
+    return 1. / f
+
+# magnitude of frequency response from a Butterworth filter
+def butterworth_LPF_TFmag(f, fc, n):
+    return 1 / np.sqrt(1 + (f / fc)**(2 * n))
+
 class WindField:
     def __init__(self, **config: dict):
 
