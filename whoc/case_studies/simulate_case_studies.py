@@ -10,12 +10,17 @@ from shutil import move
 
 from whoc.interfaces.controlled_floris_interface import ControlledFlorisModel
 from whoc.wind_field.WindField import first_ord_filter
+from whoc.wind_field.WindField import butterworth_LPF_TFmag
 
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # @profile
 def simulate_controller(controller_class, wind_forecast_class, simulation_input_dict, **kwargs):
+    
+    assigned_gpu = kwargs["assigned_gpu"]
+    if assigned_gpu:
+        os.environ['CUDA_VISIBLE_DEVICES'] = str(assigned_gpu)
     
     results_dir = os.path.join(kwargs["save_dir"], kwargs['case_family'])
     os.makedirs(results_dir, exist_ok=True)
@@ -104,9 +109,9 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
                                             tid2idx_mapping=kwargs["tid2idx_mapping"],
                                             turbine_signature=kwargs["turbine_signature"],
                                             use_tuned_params=kwargs["use_tuned_params"],
-                                            model_config=kwargs["model_config"],
                                             **{k: v for k, v in simulation_input_dict["wind_forecast"].items() if "timedelta" in k},
                                             kwargs={k: v for k, v in simulation_input_dict["wind_forecast"].items() if "timedelta" not in k})
+        wind_forecast.reset(assigned_gpu=assigned_gpu)
     else:
         wind_forecast = None
     ctrl = controller_class(fi, wind_forecast=wind_forecast, simulation_input_dict=simulation_input_dict, **kwargs)
@@ -166,6 +171,40 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         simulation_dir = 180.0 + np.rad2deg(np.arctan2(simulation_u, simulation_v))
         simulation_dir[simulation_dir < 0] = 360. + simulation_dir[simulation_dir < 0]
         simulation_dir[simulation_dir > 360] = np.mod(simulation_dir[simulation_dir > 360], 360.) 
+        
+        # filter wind field
+        fc = 0.0011 # TODO what should this be for wind speed
+        n_lpf = 1
+        ts_len = len(simulation_dir)
+        fs = (0.5 / simulation_input_dict["simulation_dt"]) * np.array([i for i in range(1, int(ts_len / 2))]) / (ts_len / 2)
+        
+        tf_mag_lpf = butterworth_LPF_TFmag(fs, fc, n_lpf)
+
+        # FFT of raw wind direction time series
+        freq_vec_dir = np.fft.fft(simulation_dir)
+
+        # Apply LPF magnitude
+        freq_vec_dir[1:int(ts_len / 2)] *= tf_mag_lpf
+        
+        if ts_len % 2 == 0:
+            freq_vec_dir[int(ts_len / 2)] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc, n_lpf), 0]))
+            freq_vec_dir[int(ts_len / 2) + 1:] *= np.flip(tf_mag_lpf)
+        else:
+            freq_vec_dir[int(ts_len / 2):int(ts_len / 2)+2] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc, n_lpf), 0]))
+            freq_vec_dir[int(ts_len / 2) + 2:] *= np.flip(tf_mag_lpf)
+
+        # time series of low-frequency wind direction
+        simulation_dir = np.real(np.fft.ifft(freq_vec_dir))
+        
+        # START TEST
+        # import matplotlib.pyplot as plt
+        # plt.figure(figsize=(10,6))
+        # plt.plot(simulation_dir,label="Raw Wind Direction")
+        # plt.plot(new_simulation_dir,linewidth=2.0,color='r',label="Low-Frequency Wind Direction")
+        # plt.grid()
+        # plt.legend()
+        # END TEST
+        
     else:
         simulation_mag = kwargs["wind_field_ts"].select("FreestreamWindMag").to_numpy()
         simulation_dir = kwargs["wind_field_ts"].select("FreestreamWindDir").to_numpy()
@@ -279,7 +318,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     
         # if RAM is running low, write existing data to dataframe and continue
         # turn data into arrays, pandas dataframe, and export to csv
-        if ((ram_used := virtual_memory().percent) > kwargs["ram_limit"]) or (final := (t>=stoptime)):
+        if (final := (t>=stoptime)) or ((ram_used := virtual_memory().percent) > kwargs["ram_limit"]):
             logging.info(f"Used {ram_used}% RAM.")
             # turn data into arrays, pandas dataframe, and export to csv
             write_df(case_family=kwargs["case_family"],
@@ -325,7 +364,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
             if wind_forecast_class:
                 predicted_wind_speeds_ts = []
 
-    logging.info(f"Saved {fn}")
+    # logging.info(f"Saved {save_path}")
     return
     # return results_data
 

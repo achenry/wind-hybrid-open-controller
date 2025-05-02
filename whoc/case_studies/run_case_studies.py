@@ -4,9 +4,11 @@ import warnings
 import re
 import argparse
 import csv
+from itertools import cycle
 
 from mpi4py import MPI
 from mpi4py.futures import MPICommExecutor
+import multiprocessing as mp
 import numpy as np
 import pandas as pd
 import yaml
@@ -28,7 +30,8 @@ from whoc.case_studies.simulate_case_studies import simulate_controller
 from whoc.case_studies.process_case_studies import (read_time_series_data, write_case_family_time_series_data, read_case_family_time_series_data, 
                                                     aggregate_time_series_data, read_case_family_agg_data, write_case_family_agg_data, 
                                                     generate_outputs, plot_simulations, plot_wind_farm, plot_breakdown_robustness, plot_horizon_length,
-                                                    plot_cost_function_pareto_curve, plot_yaw_offset_wind_direction, plot_parameter_sweep, plot_power_increase_vs_prediction_time)
+                                                    plot_cost_function_pareto_curve, plot_yaw_offset_wind_direction, plot_parameter_sweep, plot_power_increase_vs_prediction_time,
+                                                    plot_power_vs_prediction_time, plot_agg_metrics_vs_forecaster)
 try:
     from whoc.wind_forecast.WindForecast import PerfectForecast, PersistenceForecast, MLForecast, SVRForecast, KalmanFilterForecast, SpatialFilterForecast
 except ModuleNotFoundError:
@@ -63,9 +66,9 @@ if __name__ == "__main__":
     args.case_ids = [int(i) for i in args.case_ids]
 
     # os.environ["PYOPTSPARSE_REQUIRE_MPI"] = "false"
-    RUN_ONCE = (args.multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
+    comm = MPI.COMM_WORLD
+    RUN_ONCE = (args.multiprocessor == "mpi" and (comm_rank := comm.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
     PLOT = True #sys.platform != "linux"
-    # if args.run_simulations or args.generate_lut or args.generate_wind_field:
     # run simulations
     
     if RUN_ONCE:
@@ -93,9 +96,6 @@ if __name__ == "__main__":
             
             turbine_signature = data_config["turbine_signature"][0] if len(data_config["turbine_signature"]) == 1 else "\\d+"
             
-            # temp_storage_dir = data_config["temp_storage_dir"]
-            # os.makedirs(temp_storage_dir, exist_ok=True)
-            # optuna_args = model_config.setdefault("optuna", None)
     
         else:
             model_config = None
@@ -105,7 +105,7 @@ if __name__ == "__main__":
             # temp_storage_dir = None
             
         logging.info(f"running initialize_simulations for case_ids {[case_families[i] for i in args.case_ids]}")
-        case_lists, case_name_lists, input_dicts, wind_field_config, wind_field_ts \
+        input_dicts, wind_field_config, wind_field_ts \
             = initialize_simulations(case_study_keys=[case_families[i] for i in args.case_ids], 
                                         regenerate_wind_field=args.generate_wind_field, 
                                         regenerate_lut=args.generate_lut, 
@@ -116,21 +116,54 @@ if __name__ == "__main__":
                                         multiprocessor=args.multiprocessor, 
                                         whoc_config=whoc_config, base_model_config=model_config)
         
-        logging.info(f"Resetting args.n_seeds to {len(wind_field_ts)}")
-        args.n_seeds = len(wind_field_ts)
-        # TODO broadcast/scatter/gather wind_field_ts to share between processes
+    # else:
+    #     input_dicts, wind_field_config, wind_field_ts = None, None, None
+        
+    # if args.multiprocessor == "mpi":
+    #     input_dicts = comm.bcast(input_dicts, root=0)
+    #     wind_field_config = comm.bcast(wind_field_config, root=0)
+    #     wind_field_ts = comm.bcast(wind_field_ts, root=0)
     
+    #     logging.info(f"Resetting args.n_seeds to {len(wind_field_ts)}")
+    #     args.n_seeds = len(wind_field_ts)
+            
+    # if GPUs are available, use one CPU and one GPU per task
+    if "CUDA_VISIBLE_DEVICES" in os.environ:
+        cuda_devices = os.environ["CUDA_VISIBLE_DEVICES"] # Note: must 'export' variable within nohup to find on Kestrel
+        logging.info(f"CUDA_VISIBLE_DEVICES is set to: '{cuda_devices}'")
+        try:
+            # Count the number of GPUs specified in CUDA_VISIBLE_DEVICES
+            visible_gpus = [idx for idx in cuda_devices.split(',') if idx.strip()]
+            num_visible_gpus = len(visible_gpus)
+            if num_visible_gpus > 0:
+                logging.info(f"Found {num_visible_gpus} GPUs. Setting max_workers to num_visible_gpus={num_visible_gpus}.")
+                max_workers = num_visible_gpus
+            else:
+                logging.warning(f"CUDA_VISIBLE_DEVICES is set but no valid GPU indices found. Setting max_workers to mp.cpu_count()={mp.cpu_count()}.")
+                max_workers = comm.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
+        except Exception as e:
+            logging.warning(f"Error parsing CUDA_VISIBLE_DEVICES: {e}")
+        
+        # Create an iterator that cycles through the available GPU IDs
+        gpu_cycler = cycle(visible_gpus)
+        
+    else:
+        max_workers = comm.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
+        gpu_cycler = None
+        
     if args.run_simulations: 
         if args.multiprocessor is not None:
-            if args.multiprocessor == "mpi":
-                comm_size = MPI.COMM_WORLD.Get_size()
-                executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
-            elif args.multiprocessor == "cf":
-                executor = ProcessPoolExecutor()
-            with executor as run_simulations_exec:
-                if args.multiprocessor == "mpi":
-                    run_simulations_exec.max_workers = comm_size
                     
+            if args.multiprocessor == "mpi":
+                comm_size = comm.Get_size()
+                executor = MPICommExecutor(comm, root=0, max_workers=max_workers)
+            elif args.multiprocessor == "cf":
+                executor = ProcessPoolExecutor(max_workers=max_workers,
+                                               mp_context=mp.get_context("spawn"))
+            with executor as run_simulations_exec:
+                # if args.multiprocessor == "mpi":
+                #     run_simulations_exec.max_workers = max_workers
+                
                 logging.info(f"Submitting simulate_controller calls to pool executor with {run_simulations_exec._max_workers} workers")
                 # for MPIPool executor, (waiting as if shutdown() were called with wait set to True)
                 futures = [run_simulations_exec.submit(simulate_controller, 
@@ -138,10 +171,10 @@ if __name__ == "__main__":
                                                 wind_forecast_class=globals()[d["controller"]["wind_forecast_class"]] if d["controller"]["wind_forecast_class"] else None,
                                                 simulation_input_dict=d,
                                                 wf_source=args.wf_source, 
-                                                wind_case_idx=case_lists[c]["wind_case_idx"], wind_field_ts=wind_field_ts[case_lists[c]["wind_case_idx"]],
-                                                # case_name="_".join([f"{key}_{val if (isinstance(val, str) or isinstance(val, np.str_) or isinstance(val, bool)) else np.round(val, 6)}" for key, val in case_lists[c].items() if key not in ["simulation_dt", "use_filtered_wind_dir", "use_lut_filtered_wind_dir", "yaw_limits", "wind_case_idx", "seed", "floris_input_file", "lut_path"]]) if "case_names" not in case_lists[c] else case_lists[c]["case_names"], 
-                                                case_name=f"{c}" if "case_names" not in case_lists[c] else case_lists[c]["case_names"],
-                                                case_family="_".join(case_name_lists[c].split("_")[:-1]), 
+                                                wind_case_idx=input_dicts[c]["wind_case_idx"], 
+                                                wind_field_ts=wind_field_ts[input_dicts[c]["wind_case_idx"]],
+                                                case_name=input_dicts[c]["case_name"],
+                                                case_family=input_dicts[c]["case_family"], 
                                                 verbose=args.verbose, 
                                                 save_dir=args.save_dir, 
                                                 rerun_simulations=args.rerun_simulations,
@@ -151,7 +184,8 @@ if __name__ == "__main__":
                                                 use_tuned_params=True, 
                                                 model_config=model_config, wind_field_config=wind_field_config, 
                                                 ram_limit=args.ram_limit,
-                                                include_prediction=not args.exclude_prediction)
+                                                include_prediction=not args.exclude_prediction,
+                                                assigned_gpu=next(gpu_cycler) if gpu_cycler else None)
 
                         for c, d in enumerate(input_dicts)]
                 
@@ -163,15 +197,16 @@ if __name__ == "__main__":
                                     wind_forecast_class=globals()[d["controller"]["wind_forecast_class"]] if d["controller"]["wind_forecast_class"] else None, 
                                     simulation_input_dict=d, 
                                     wf_source=args.wf_source,
-                                    wind_case_idx=case_lists[c]["wind_case_idx"], wind_field_ts=wind_field_ts[case_lists[c]["wind_case_idx"]],
-                                    # case_name="_".join([f"{key}_{val if (isinstance(val, str) or isinstance(val, np.str_) or isinstance(val, bool)) else np.round(val, 6)}" for key, val in case_lists[c].items() if key not in ["simulation_dt", "use_filtered_wind_dir", "use_lut_filtered_wind_dir", "yaw_limits", "wind_case_idx", "seed", "floris_input_file", "lut_path"]]) if "case_names" not in case_lists[c] else case_lists[c]["case_names"], 
-                                    case_name=f"{c}" if "case_names" not in case_lists[c] else case_lists[c]["case_names"],
-                                    case_family="_".join(case_name_lists[c].split("_")[:-1]),
+                                    wind_case_idx=input_dicts[c]["wind_case_idx"], 
+                                    wind_field_ts=wind_field_ts[input_dicts[c]["wind_case_idx"]],
+                                    case_name=input_dicts[c]["case_name"],
+                                    case_family=input_dicts[c]["case_family"],
                                     multiprocessor=False, 
                                     wind_field_config=wind_field_config, verbose=args.verbose, save_dir=args.save_dir, rerun_simulations=args.rerun_simulations,
                                     turbine_signature=turbine_signature, tid2idx_mapping=tid2idx_mapping,
                                     use_tuned_params=True, model_config=model_config, ram_limit=args.ram_limit,
-                                    include_prediction=not args.exclude_prediction)
+                                    include_prediction=not args.exclude_prediction,
+                                    assigned_gpu=next(gpu_cycler) if gpu_cycler else None)
     
     if args.postprocess_simulations:
         # if (not os.path.exists(os.path.join(args.save_dir, f"time_series_results.csv"))) or (not os.path.exists(os.path.join(args.save_dir, f"agg_results.csv"))):
@@ -189,23 +224,25 @@ if __name__ == "__main__":
             # if using multiprocessing
             if args.multiprocessor is not None:
                 if args.multiprocessor == "mpi":
-                    comm_size = MPI.COMM_WORLD.Get_size()
-                    executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+                    comm_size = comm.Get_size()
+                    executor = MPICommExecutor(comm, root=0, max_workers=comm_size)
                 elif args.multiprocessor == "cf":
-                    executor = ProcessPoolExecutor()
+                    executor = ProcessPoolExecutor(max_workers=mp.cpu_count())
                 with executor as run_simulations_exec:
-                    if args.multiprocessor == "mpi":
-                        run_simulations_exec.max_workers = comm_size
+                    # if args.multiprocessor == "mpi":
+                    #     run_simulations_exec.max_workers = comm_size
                         
                     # for MPIPool executor, (waiting as if shutdown() were called with wait set to True)
 
                     # if args.reaggregate_simulations is true, or for any case family where doesn't time_series_results_all.csv exist, 
                     # read the time-series csv files for all case families, case names, and wind seeds
+                    input_regex = "(?<=time_series_results_).+(?=_seed_\\d+.csv)"
                     read_futures = [run_simulations_exec.submit(
                                                     read_time_series_data, 
                                                     results_path=os.path.join(args.save_dir, case_families[i], fn),
-                                                    input_dict_path=os.path.join(args.save_dir, case_families[i], 
-                                                                                   f"input_config_{re.search('(?<=time_series_results_).+(?=_seed_\\d+.csv)', fn).group()}.pkl"))
+                                                    input_dict_path=os.path.join(
+                                                        args.save_dir, case_families[i], 
+                                                            f"input_config_{re.search(input_regex, fn).group()}.pkl"))
                         for i in args.case_ids 
                         for fn in case_family_case_names[case_families[i]]
                         if args.reaggregate_simulations or not os.path.exists(os.path.join(args.save_dir, case_families[i], "time_series_results_all.csv"))
@@ -225,7 +262,7 @@ if __name__ == "__main__":
                     if len(new_time_series_df):
                         write_futures = [run_simulations_exec.submit(write_case_family_time_series_data, 
                                                                      case_family=case_families[i], 
-                                                                     new_time_series_df=new_time_series_df, 
+                                                                     new_time_series_df=new_time_series_df[0],
                                                                      save_dir=args.save_dir)
                                         for i in args.case_ids
                                         if args.reaggregate_simulations or not os.path.exists(os.path.join(args.save_dir, case_families[i], "time_series_results_all.csv"))]
@@ -283,10 +320,11 @@ if __name__ == "__main__":
                     # if reaggregate_simulations, or if the aggregated time series data doesn't exist for this case family, read the csv files for that case family
                     if args.reaggregate_simulations or not os.path.exists(os.path.join(args.save_dir, case_families[i], "time_series_results_all.csv")):
                         for fn in case_family_case_names[case_families[i]]:
+                            input_regex = "(?<=time_series_results_).+(?=_seed_\\d+.csv)"
                             new_case_family_time_series_df.append(
                                 read_time_series_data(results_path=os.path.join(args.save_dir, case_families[i], fn),
                                                       input_dict_path=os.path.join(args.save_dir, case_families[i], 
-                                                                                   f"input_config_{re.search('(?<=time_series_results_).+(?=_seed_\\d+.csv)', fn).group()}.pkl")))
+                                                                                   f"input_config_{re.search(input_regex, fn).group()}.pkl")))
 
                     # if any new time series data has been read, add it to the new_time_series_df list and save the aggregated time-series data
                     if new_case_family_time_series_df:
@@ -399,55 +437,10 @@ if __name__ == "__main__":
 
                 perfect_agg_df = baseline_agg_df.loc[baseline_agg_df["wind_forecast_class"] == "PerfectForecast", :]
                 controllers = pd.unique(perfect_agg_df["controller_class"])
-                controller_labels = {"GreedyController": "Greedy", "LookupBasedWakeSteeringController": "LUT"}
-                
-                
                 
                 # PLOT 1) Farm power of perfect forecaster vs prediction timedela for different controllers
-                import seaborn as sns
-                import matplotlib.pyplot as plt
-                controllers = pd.unique(perfect_agg_df["controller_class"])
-                plot_df = perfect_agg_df.copy()
-                plot_df["prediction_timedelta"] = plot_df["prediction_timedelta"].dt.total_seconds()
-                plot_df[("FarmPowerMean", "mean")] = plot_df[("FarmPowerMean", "mean")] / 1e6
+                plot_power_vs_prediction_time(perfect_agg_df, args.save_dir, "perfect_forecaster_")
                 
-                # get gain of LUT compared to greedy wo preview
-                compute_df = plot_df.copy()
-                case_name = compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), :].index.get_level_values("CaseName")[0]
-                input_fn = f"input_config_case_{case_name}.pkl"
-                with open(os.path.join(args.save_dir, case_family, input_fn), mode='rb') as fp:
-                    lut_input_config = pickle.load(fp)
-                n_lut_turbines = len(lut_input_config["controller"]["target_turbine_indices"])
-                
-                case_name = compute_df.loc[(compute_df["controller_class"] == "GreedyController"), :].index.get_level_values("CaseName")[0]
-                input_fn = f"input_config_case_{case_name}.pkl"
-                with open(os.path.join(args.save_dir, case_family, input_fn), mode='rb') as fp:
-                    greedy_input_config = pickle.load(fp)
-                n_greedy_turbines = len(greedy_input_config["controller"]["target_turbine_indices"])
-                        
-                compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] = compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] / n_lut_turbines
-                compute_df.loc[(compute_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")] = compute_df.loc[(compute_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")] / n_greedy_turbines
-                compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] = 100 * (compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] - compute_df.loc[(compute_df["prediction_timedelta"] == 0) & (compute_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")].iloc[0]) / compute_df.loc[(compute_df["prediction_timedelta"] == 0) & (compute_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")].iloc[0]
-                compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), [("prediction_timedelta", ""), ("FarmPowerMean", "mean")]].reset_index(drop=True)
-
-                plot_df.loc[(plot_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")] = 100 * (plot_df.loc[(plot_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")] - plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")].iloc[0]) / plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")].iloc[0]
-                plot_df.loc[(plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] = 100 * (plot_df.loc[(plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] - plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")].iloc[0]) / plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")].iloc[0]
-
-                x_vals = np.sort(pd.unique(plot_df["prediction_timedelta"]))
-                xlim = (x_vals.min(), x_vals.max())
-                fig, ax = plt.subplots(1, len(controllers), sharey=True)
-                for c, ctrl in enumerate(controllers):
-                    sns.lineplot(plot_df.loc[plot_df["controller_class"] == ctrl, :], 
-                                x="prediction_timedelta", y=("FarmPowerMean", "mean"), ax=ax[c])
-                    ax[c].set_ylabel("")
-                    ax[c].set_xlabel("Prediction Horizon (s)")
-                    # ax[c].set_title(f"{controller_labels[ctrl]} Mean Farm Power (MW)")
-                    ax[c].set_title(f"{controller_labels[ctrl]} Mean Farm Power Gain (%)")
-                    ax[c].set_xlim(xlim)
-                    ax[c].set_xticks(x_vals[1::2])
-                    ax[c].tick_params("x", rotation=45)
-                plt.tight_layout()
-                fig.savefig(os.path.join(args.save_dir, "perfect_forecaster_power_vs_prediction_time.png"))
                 
                 # PLOT 2) Farm power ratio of other forecasters relative to perfect forecaster vs prediction timedela for different controllers (diff plots)
                 plot_df = plot_df.set_index(["controller_class", "prediction_timedelta"])
@@ -465,8 +458,12 @@ if __name__ == "__main__":
                 elif case_families.index("baseline_controllers_forecasters_test_awaken") in args.case_ids:
                     forecaster_case_fam = "baseline_controllers_forecasters_test_awaken"
                 
-                baseline_time_df = time_series_df.loc[time_series_df.index.get_level_values("CaseFamily") == forecaster_case_fam, :] #.reset_index(level="CaseFamily", drop=True)
-                baseline_agg_df = agg_df.loc[agg_df.index.get_level_values("CaseFamily") == forecaster_case_fam, :] #.reset_index(level="CaseFamily", drop=True)
+                cfs = ["baseline_controllers_informer_forecasters_awaken", "baseline_controllers_autoformer_forecasters_awaken",
+                    "baseline_controllers_spacetimeformer_forecasters_awaken", "baseline_controllers_tactis_forecasters_awaken", 
+                    "baseline_controllers_baseline_det_forecasters_awaken", "baseline_controllers_baseline_prob_forecasters_awaken"]
+                
+                baseline_time_df = time_series_df.loc[time_series_df.index.get_level_values("CaseFamily").isin(cfs), :] #.reset_index(level="CaseFamily", drop=True)
+                baseline_agg_df = agg_df.loc[agg_df.index.get_level_values("CaseFamily").isin(cfs), :] #.reset_index(level="CaseFamily", drop=True)
                 
                 config_cols = ["controller_class", "wind_forecast_class", "prediction_timedelta", "uncertain"]
                 
@@ -489,99 +486,14 @@ if __name__ == "__main__":
                 forecasters_agg_df = baseline_agg_df.loc[baseline_agg_df["wind_forecast_class"] != "PerfectForecast", :] 
                 perfect_agg_df = baseline_agg_df.loc[baseline_agg_df["wind_forecast_class"] == "PerfectForecast", :] #PerfectForecast
                 controllers = pd.unique(perfect_agg_df["controller_class"])
-                controller_labels = {"GreedyController": "Greedy", "LookupBasedWakeSteeringController": "LUT"}
                 
-                # PLOT 3) Mean of True vs Predicted values of Turbine wind speeds vs. time for different controllers (diff plots) and forecasters (diff colors)
+                # PLOT 0) Farm power of perfect forecaster vs prediction timedela for different controllers
+                plot_agg_metrics_vs_forecaster(baseline_agg_df, args.save_dir, "all_forecasters_")
                 
-                # forecasters_time_df = baseline_time_df.loc[baseline_time_df["wind_forecast_class"] != "PerfectForecast", :]
-                # perfect_time_df = baseline_time_df.loc[baseline_time_df["wind_forecast_class"] == "PerfectForecast", :]
-                baseline_time_df["TrueTurbineWindSpeedHorzMean"] = baseline_time_df[[col for col in baseline_time_df.columns if "TrueTurbineWindSpeedHorz_" in col]].mean(axis=1)
-                baseline_time_df["TrueTurbineWindSpeedVertMean"] = baseline_time_df[[col for col in baseline_time_df.columns if "TrueTurbineWindSpeedVert_" in col]].mean(axis=1)
-                baseline_time_df["PredictedTurbineWindSpeedHorzMean"] = baseline_time_df[[col for col in baseline_time_df.columns if "PredictedTurbineWindSpeedHorz_" in col]].mean(axis=1)
-                baseline_time_df["PredictedTurbineWindSpeedVertMean"] = baseline_time_df[[col for col in baseline_time_df.columns if "PredictedTurbineWindSpeedVert_" in col]].mean(axis=1)
-                baseline_time_df["StddevTurbineWindSpeedHorzMean"] = baseline_time_df[[col for col in baseline_time_df.columns if "StddevTurbineWindSpeedHorz_" in col]].mean(axis=1)
-                baseline_time_df["StddevTurbineWindSpeedVertMean"] = baseline_time_df[[col for col in baseline_time_df.columns if "StddevTurbineWindSpeedVert_" in col]].mean(axis=1)
+                # PLOT 1) Farm power of perfect forecaster vs prediction timedela for different controllers
+                plot_power_vs_prediction_time(baseline_agg_df, args.save_dir, "all_forecasters_")
                 
-                
-                
-                # color = sns.color_palette()[t]
-                #     ax.fill_between(
-                #         forecast.index.to_timestamp(), tid_df["loc"] - 1*tid_df["std_dev"], tid_df["loc"] + 1*tid_df["std_dev"], alpha=0.2, color=color
-                #     )
-                import seaborn as sns
-                import matplotlib.pyplot as plt
-                # controllers = pd.unique(baseline_time_df["controller_class"])
-                controllers = baseline_agg_df[["controller_class", "uncertain"]].reset_index(drop=True)
-                
-                xlim = (baseline_time_df[["Time", "TrueTurbineWindSpeedHorzMean", "TrueTurbineWindSpeedVertMean"]].dropna()["Time"].min(),
-                        baseline_time_df[["Time", "TrueTurbineWindSpeedHorzMean", "TrueTurbineWindSpeedVertMean"]].dropna()["Time"].max())
-                
-                # controllers = controllers.iloc[1:]
-                fig, ax = plt.subplots(2, len(controllers), sharex=True)
-                if ax.ndim == 1 :
-                    ax = ax[:, np.newaxis]
-                for c, row in controllers.iterrows():
-                    ctrl = row["controller_class"].iloc[0]
-                    uncertain = row["uncertain"].iloc[0]
-                    cond = (baseline_time_df["controller_class"] == ctrl) & (baseline_time_df["uncertain"] == uncertain) & (baseline_time_df["WindSeed"] == 0)
-                    df = baseline_time_df.reset_index(level=["CaseFamily", "CaseName"], drop=True).loc[cond.values, :].dropna(subset=["TrueTurbineWindSpeedHorzMean", "TrueTurbineWindSpeedVertMean"])
-                    df["prediction_timedelta"] = df["prediction_timedelta"].dt.total_seconds().astype(int)
-                    df = df.rename(columns={"prediction_timedelta": "Prediction Horizon (s)", "wind_forecast_class": "Forecaster"})
-                    sns.lineplot(df,
-                                x="Time", y="PredictedTurbineWindSpeedHorzMean", 
-                                hue="Prediction Horizon (s)",
-                                style="Forecaster", ax=ax[0, c],
-                                palette=sns.color_palette("tab10"))
-                    ax[0, c].plot(df["Time"], df["TrueTurbineWindSpeedHorzMean"], linestyle="-", color="black")
-                    sns.lineplot(df,
-                                x="Time", y="PredictedTurbineWindSpeedVertMean", 
-                                hue="Prediction Horizon (s)",
-                                style="Forecaster", ax=ax[1, c],
-                                palette=sns.color_palette("tab10"))
-                    ax[1, c].plot(df["Time"], df["TrueTurbineWindSpeedVertMean"], linestyle="-", color="black")
-                    
-                    if uncertain:
-                        for p, pred_len in enumerate(pd.unique(df["Prediction Horizon (s)"])):
-                            sub_df = df.loc[(df["Prediction Horizon (s)"] == pred_len), :]
-                            color = sns.color_palette("tab10")[p]
-                            ax[0, c].fill_between(
-                                sub_df["Time"], 
-                                sub_df["PredictedTurbineWindSpeedHorzMean"] - 1*sub_df["StddevTurbineWindSpeedHorzMean"], 
-                                sub_df["PredictedTurbineWindSpeedHorzMean"] + 1*sub_df["StddevTurbineWindSpeedHorzMean"], 
-                                alpha=0.2, color=ax[0, c].get_lines()[p].get_color()
-                            )
-                            ax[1, c].fill_between(
-                                sub_df["Time"], 
-                                sub_df["PredictedTurbineWindSpeedVertMean"] - 1*sub_df["StddevTurbineWindSpeedVertMean"], 
-                                sub_df["PredictedTurbineWindSpeedVertMean"] + 1*sub_df["StddevTurbineWindSpeedVertMean"], 
-                                alpha=0.2, color=ax[1, c].get_lines()[p].get_color()
-                            )
-                    
-                    single_df = df.loc[df["Prediction Horizon (s)"] == df["Prediction Horizon (s)"].max(), :]
-                    # ax[0, c].plot(single_df["Time"], single_df["TrueTurbineWindSpeedHorzMean"], color=None, linestyle=":")
-                    # ax[1, c].plot(single_df["Time"], single_df["TrueTurbineWindSpeedVertMean"], color=None, linestyle=":")
-                    ax[0, c].set_title(f"{controller_labels[ctrl]}")
-                    ax[0, c].set_ylabel("")
-                    ax[1, c].set_ylabel("")
-                    ax[0, c].legend([], [], frameon=False)
-                    ax[1, c].legend([], [], frameon=False)
-                    ax[0, c].set_xlabel("")
-                    ax[1, c].set_xlabel("Time (s)")
-                    ax[0, c].set_xlim(xlim)
-                    ax[1, c].set_xlim(xlim)
-                    # ax[0, c].set_xticks([])
-                
-                ax[0, 0].set_ylabel("$u$ Wind \nSpeed (m/s)", rotation=0, labelpad=50)
-                ax[1, 0].set_ylabel("$v$ Wind \nSpeed (m/s)", rotation=0, labelpad=50)
-                h, l = ax[0, -1].get_legend_handles_labels()
-                # new_labels = [" ".join([lll.capitalize() for lll in ll.split("_")]) for ll in l]
-                new_labels = l[:l.index("Forecaster")+1] + [" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", ll).group())) for ll in l[l.index("Forecaster")+1:]]
-                
-                ax[0, -1].legend(h, new_labels, frameon=False, loc='upper left', bbox_to_anchor=(1.01, 1))
-                plt.tight_layout()
-                fig.savefig(os.path.join(args.save_dir, "prob_forecast.png"))
-                
-                # PLOT 4) Yaw angles/power for persistent vs. other forecasters for best lead times
+                # PLOT 2) Yaw angles/power for persistent vs. other forecasters for best lead times
                 best_forecaster_prediction_delta = forecasters_agg_df.groupby("wind_forecast_class", group_keys=False).apply(lambda x: x.sort_values(by=("FarmPowerMean", "mean"), ascending=False).head(10)) #[("FarmPowerMean", "mean")] 
                 best_perfect_prediction_delta = perfect_agg_df.groupby("wind_forecast_class", group_keys=False).apply(lambda x: x.sort_values(by=("FarmPowerMean", "mean"), ascending=False).head(10))
                 plotting_cases = [(forecaster_case_fam, df[1]._name[1]) for df in baseline_agg_df.iterrows()]
@@ -605,62 +517,6 @@ if __name__ == "__main__":
                            + [col for col in time_series_df.columns if col.startswith("TurbineYawAngle_")] 
                         ].rename(columns={"Time": "time"})
                 
-                id_vars = ["WindSeed", "time", "controller_class", "wind_forecast_class", "prediction_timedelta"]
-                value_vars = set([re.match(".*(?=_\\d+)", col).group(0) for col in time_series_df.columns if col.startswith("PredictedTurbine")])
-                # first unpivot makes long on turbine ids, second makes long on feature type, for the purposes of seaborn plot
-                forecast_wf = DataInspector.unpivot_dataframe(forecast_wf, 
-                                                            value_vars=value_vars, 
-                                                            turbine_signature="_(\\d+)$")\
-                                                    .melt(id_vars=["turbine_id"] + id_vars, 
-                                                          value_vars=value_vars, 
-                                                          var_name="feature", value_name="value")
-                forecast_wf = forecast_wf.assign(data_type="Forecast")
-                forecast_wf["time"] = pd.to_datetime(forecast_wf["time"], unit="s")
-                forecast_wf.loc[forecast_wf["feature"] == "PredictedTurbineWindSpeedVert", "feature"] = "ws_vert"
-                forecast_wf.loc[forecast_wf["feature"] == "PredictedTurbineWindSpeedHorz", "feature"] = "ws_horz"
-                forecast_wf.loc[forecast_wf["feature"] == "PredictedTurbineWindDir", "feature"] = "wd"
-                forecast_wf.loc[forecast_wf["feature"] == "PredictedTurbineWindMag", "feature"] = "wm"
-                
-                value_vars = set([re.match(".*(?=_\\d+)", col).group(0) for col in time_series_df.columns if (col.startswith("TurbineWind") or col.startswith("TurbineYawAngle_"))]) 
-                true_wf = DataInspector.unpivot_dataframe(true_wf, 
-                                                    value_vars=value_vars, 
-                                                turbine_signature="_(\\d+)$")\
-                                                .melt(id_vars=["turbine_id"] + id_vars, 
-                                            value_vars=value_vars, 
-                                            var_name="feature", value_name="value")
-                true_wf = true_wf.assign(data_type="True")
-                true_wf["time"] = pd.to_datetime(true_wf["time"], unit="s")
-                true_wf.loc[true_wf["feature"] == "TurbineWindSpeedVert", "feature"] = "ws_vert"
-                true_wf.loc[true_wf["feature"] == "TurbineWindSpeedHorz", "feature"] = "ws_horz"
-                true_wf.loc[true_wf["feature"] == "TurbineWindDir", "feature"] = "wd"
-                true_wf.loc[true_wf["feature"] == "TurbineWindMag", "feature"] = "wm"
-                true_wf.loc[true_wf["feature"] == "TurbineYawAngle", "feature"] = "nc"
-                # TODO HIGH clean this code up
-                
-                wind_seed = 0
-                wind_forecast_class = "KalmanFilterForecast" # "PerfectForecast" # 
-                # controller_class = "GreedyController"
-                controller_class = "LookupBasedWakeSteeringController"
-                WindForecast.plot_forecast(
-                    forecast_wf=forecast_wf.loc[
-                        (forecast_wf["WindSeed"] == wind_seed) & (forecast_wf["wind_forecast_class"] == wind_forecast_class) & (forecast_wf["controller_class"] == controller_class), 
-                        ["data_type", "time", "feature", "value", "turbine_id"]],
-                    true_wf=true_wf.loc[
-                        (true_wf["WindSeed"] == wind_seed) & (true_wf["wind_forecast_class"] == wind_forecast_class) & (true_wf["controller_class"] == controller_class), 
-                        ["data_type", "time", "feature", "value", "turbine_id"]]
-                )
-                import seaborn as sns
-                import matplotlib.pyplot as plt
-                import polars as pl
-                fig, ax = plt.subplots(1, 1)
-                #  & (true_wf["time"].between(forecast_wf["time"].min(), forecast_wf["time"].max(), closed="both"))
-                sns.lineplot(data=true_wf.loc[
-                        (true_wf["WindSeed"] == wind_seed) & (true_wf["wind_forecast_class"] == wind_forecast_class) & (true_wf["controller_class"] == controller_class), 
-                        ["data_type", "time", "feature", "value", "turbine_id"]]\
-                                        .loc[(true_wf["feature"] == "nc"), :],
-                                 x="time", y="value", ax=ax, style="data_type", hue="turbine_id")
-            
-                 
             
             if ((case_families.index("baseline_controllers") in args.case_ids)):
                 mpc_df = agg_df.iloc[agg_df.index.get_level_values("CaseFamily") != "baseline_controllers"]
