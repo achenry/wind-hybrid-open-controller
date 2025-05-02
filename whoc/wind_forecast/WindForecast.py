@@ -2939,15 +2939,19 @@ if __name__ == "__main__":
             if args.rerun_validation or not os.path.exists(save_path):
                 validation_to_run.append((forecaster, cg, save_path))
                 logging.info(f"Rerunning validation {forecaster_name, prediction_timedelta, save_path}")
-                logging.info(f"Removing existing file {save_path}.")
-                # TODO also delete existing files if not rerun_validation but existing files have different number of time steps
-                # if len(glob.glob(forecast_path)):
-                #     forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
-                #                     .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
-                    # check that requested splits and time steps are available
-                    # if (forecast_df.select(pl.col("continuity_group").unique().len()).item() >= args.max_splits)
+                
                 if os.path.exists(save_path):
+                    logging.info(f"Removing existing file {save_path}.")
                     os.remove(save_path)
+            # elif os.path.exists(save_path):
+            #     # TODO also delete existing files if not rerun_validation but existing files have different number of time steps
+            #     forecast_df = pl.scan_csv(save_path, glob=True, try_parse_dates=True)\
+            #                     .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
+                # if (n_forecasted_timestamps := forecast_df.select(pl.col("time").n_unique()).collect().item()) < (n_true_timestamps := test_data.select(pl.col("time").n_unique()).item() - 1):
+                #     validation_to_run.append((forecaster, cg, save_path))
+                #     logging.info(f"Rerunning validation {forecaster_name, prediction_timedelta, save_path} since saved number of timestamps is only {n_forecasted_timestamps} whereas number in test data is {n_true_timestamps}.")
+                    # logging.info(f"Removing existing file {save_path}.")
+                    # os.remove.exists(save_path)
             
     if args.multiprocessor:
         
@@ -3020,7 +3024,7 @@ if __name__ == "__main__":
             forecast_path = os.path.join(save_dir, "forecast_*.csv")
             agg_metric_path = os.path.join(save_dir, "agg_metrics.csv")       
             
-            if args.rerun_validation or not os.path.exists(agg_metric_path) or True:
+            if args.rerun_validation or not os.path.exists(agg_metric_path):
                 logging.info(f"Loading forecast_df from {forecast_path}.")
                 forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
                             .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
