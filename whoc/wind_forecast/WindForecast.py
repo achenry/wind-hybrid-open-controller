@@ -5,10 +5,13 @@ from collections.abc import Iterable
 from collections import defaultdict
 from dataclasses import dataclass
 import os
+import joblib
 import datetime
 from datetime import timedelta
 import yaml
 import time
+import sqlite3  
+import optuna
 import re
 import argparse
 from concurrent.futures import ProcessPoolExecutor
@@ -100,6 +103,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 #ARIMA packages
 import statsmodels.api as sm
 from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.tsa.statespace.sarimax import SARIMAX
 from scipy.stats import boxcox
 from scipy.special import inv_boxcox
 
@@ -129,12 +133,14 @@ class WindForecast:
     #     raise NotImplementedError()
 
     def __post_init__(self):
-        assert (self.context_timedelta[0] % self.measurements_timedelta).total_seconds() == 0, "context_timedelta must be a multiple of measurements_timedelta"
+        if isinstance(self.context_timedelta, list):
+            self.context_timedelta = self.context_timedelta[0]
+        assert (self.context_timedelta % self.measurements_timedelta).total_seconds() == 0, "context_timedelta must be a multiple of measurements_timedelta"
         assert (self.prediction_timedelta % self.measurements_timedelta).total_seconds() == 0, "prediction_timedelta must be a multiple of measurements_timedelta" 
         
         self.train_first = False
         
-        self.n_context = int(self.context_timedelta[0] / self.measurements_timedelta)
+        self.n_context = int(self.context_timedelta / self.measurements_timedelta)
         self.n_prediction = int(self.prediction_timedelta / self.measurements_timedelta) # number of simulation time steps in a prediction horizon
         
         if self.controller_timedelta:
@@ -296,6 +302,7 @@ class WindForecast:
     # def tune_hyperparameters_single(self, historic_measurements, scaler, feat_type, tid, study_name, seed, restart_tuning, backend, storage_dir, n_trials=1):
     def tune_hyperparameters_single(self, seed, storage, 
                                     config,
+                                    historic_measurements,
                                     n_trials_per_worker=1,
                                     worker_id=0,
                                     multiprocessor=None,
@@ -353,7 +360,7 @@ class WindForecast:
                     logging.info(f"Worker 1: Creating/loading Optuna study '{self.study_name}' with pruner: {type(pruner).__name__}")
                     study = create_study(study_name=self.study_name,
                                             storage=storage,
-                                            direction="maximize",
+                                            direction="minimize",
                                             load_if_exists=True,
                                             sampler=TPESampler(seed=seed),
                                             pruner=pruner) # maximize negative mse ie minimize mse
@@ -416,7 +423,7 @@ class WindForecast:
             # max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
             max_workers = mp.cpu_count()
             logging.info(f"Worker {worker_id}: Participating in Optuna study {self.study_name} with {max_workers} workers")
-            objective_fn = partial(self._tuning_objective, multiprocessor=multiprocessor, limit_train_val=limit_train_val)
+            objective_fn = partial(self._tuning_objective, historic_measurements=historic_measurements, multiprocessor=multiprocessor, limit_train_val=limit_train_val)
         
         if multiprocessor == "mpi":
             study = comm.bcast(study, root=0)
@@ -425,7 +432,7 @@ class WindForecast:
         try:
             study.optimize(objective_fn,
                            n_trials=n_trials_per_worker, 
-                           show_progress_bar=(worker_id==1))
+                           show_progress_bar=(worker_id==1), n_jobs=1)
         except Exception as e:
             logging.error(f"Worker {worker_id}: Failed during study optimization: {str(e)}", exc_info=True)
             raise
@@ -492,7 +499,29 @@ class WindForecast:
         tid = re.search(self.turbine_signature, output).group()
         Xy_path = os.path.join(self.model_save_dir, f"Xy_{self.study_name}_{split}_{output}.dat")
         
-        input_turbine_indices = self.cluster_turbines[self.tid2idx_mapping[tid]]
+        if isinstance(self, ARIMAForecast):
+        # If the model is ARIMA
+            if isinstance(measurements, list):  
+                historic_measurements = []
+                for df in measurements:
+                    if output in df.columns:  
+                        historic_measurements.append(df[output].to_numpy())  # Extract the values for the column
+                    else:
+                        raise ValueError(f"Column '{output}' not found in DataFrame.")
+            elif isinstance(measurements, pd.DataFrame):  # Handle case where measurements is a single DataFrame
+                if output in measurements.columns:
+                    historic_measurements = measurements[output].to_numpy() 
+                else:
+                    raise ValueError(f"Column '{output}' not found in the DataFrame.")
+            else:
+                raise TypeError(f"Unexpected type for measurements: {type(measurements)}. Expected list of DataFrames or single DataFrame.")
+            
+            return historic_measurements
+        
+        if hasattr(self, "cluster_turbines"):
+            input_turbine_indices = self.cluster_turbines[self.tid2idx_mapping[tid]]
+        else:
+            input_turbine_indices = [self.tid2idx_mapping[tid]]
         output_idx = input_turbine_indices.index(self.tid2idx_mapping[tid])
             
         if reload or not os.path.exists(Xy_path): 
@@ -558,7 +587,7 @@ class WindForecast:
             # logging.info(f"Returning None from _get_output_data for Xy_path {Xy_path}")
             return None
     
-    def set_tuned_params(self, storage, study_name):
+    def set_tuned_params(self, storage, study_name, data: pl.DataFrame):
         """_summary_
 
         Args:
@@ -570,16 +599,39 @@ class WindForecast:
             Exception: _description_
             Exception: _description_
         """
-        try:
-            study_id = storage.get_study_id_from_name(study_name)
-            for output in self.outputs:
-                self.model[output] = self.create_model(**storage.get_best_trial(study_id).params)
-        except KeyError:
-            logging.error(f"Optuna study {study_name} not found. Please run tuning.py first. Using default parameters for now.")
-            for output in self.outputs:
-                self.model[output] = self.create_model(**{k: v for k, v in self.kwargs.items() if k in self.model[output].get_params()})
-        # self.model[output].set_params(**storage.get_best_trial(study_id).params)
-        # storage.get_all_studies()[0]._study_id
+        #try:
+            #study_id = storage.get_study_id_from_name(study_name)
+        if not hasattr(self, "data") or not self.data:
+            logging.info("Data not found. Calling define_data()...")
+            self.define_data(data)
+        for output in self.outputs:
+            feature_type, turbine_id = output.split("_", 1)
+            try:
+                study = optuna.load_study(study_name=self.study_name, storage=storage)
+                best_params = study.best_trial.params
+                self.model[output] = self.create_model(p=best_params["p"], d=best_params["d"], q=best_params["q"], turbine_id=turbine_id, feature_type=feature_type)
+                logging.info(f"Models stored in self.model: {self.model}")
+                model_path = os.path.join(self.model_save_dir, f"{output}.pkl")
+                joblib.dump(self.model[output], model_path)
+                logging.info(f"Saved model for {output} to {model_path}")
+
+
+                #self.model[output] = self.create_model(**storage.get_best_trial(study_id).params)
+            except KeyError:
+                logging.error(f"Optuna study {study_name} not found. Please run tuning.py first. Using default parameters for now.")
+                #for output in self.outputs:
+                default_params = {
+                    k: v for k, v in self.kwargs.items()
+                    if k in ["p", "d", "q"]
+                }
+                self.model[output] = self.create_model(
+                    **default_params,
+                    turbine_id=turbine_id,
+                    feature_type=feature_type
+                )
+                    #self.model[output] = self.create_model(**{k: v for k, v in self.kwargs.items() if k in self.model[output].get_params()})
+            # self.model[output].set_params(**storage.get_best_trial(study_id).params)
+            # storage.get_all_studies()[0]._study_id
         
     def predict_sample(self, historic_measurements: Union[pd.DataFrame, pl.DataFrame], n_samples: int):
         """_summary_
@@ -1163,7 +1215,7 @@ class SVRForecast(WindForecast):
         self.n_prediction_interval = self.n_prediction # for SVR, we consider measurments prediction_timedelta apart
         self.prediction_interval = self.n_prediction_interval * self.measurements_timedelta
         self.n_context = int(self.context_timedelta / self.prediction_interval)
-        self.n_prediction = 1
+        # self.n_prediction = 1
         
         # if self.max_n_samples is None:
         #     self.max_n_samples = (self.n_context + self.n_prediction) * 1000
@@ -2100,32 +2152,257 @@ class ARIMAForecast(WindForecast):
     """Wind speed forecasting using ARIMA model"""
     is_probabilistic = False
 
-    def __post_init__(self):
+    def __post_init__(self, model_save_dir=None, study_name=None):
         print("ARIMAForecast initialized")
         super().__post_init__()
         self.models = {}
+        self.data = None
         self.fitted = False
-        self.boxcox_params = {}
+        #self.boxcox_params = {}
+        self.boxcox_params = {"horz": {}, "vert": {}}  
+        self.persistence_fallback = {}  
+        self.model = {"horz": {}, "vert": {}}          # prepare for both
+        #self.model = {}
+        self.scaler = {}
+        self.storage = 'sqlite:///C:/Users/20202629/Desktop/Internship/wind-forecasting/examples/optuna/tuning_arima_windfarm_debug.db'
+        if not hasattr(self, "study_name"):
+            self.study_name = "arima_ws_vert_all_20250429_123701" #"tuning_arima_windfarm_debug" 
+        self.study = self.create_or_load_study(self.study_name)
+        self.model_config["experiment"]["log_dir"] = "C:/Users/20202629/Desktop/Internship/wind-forecasting/examples/optuna"
+        base_log_dir = "C:/Users/20202629/Desktop/Internship/wind-forecasting/examples/optuna"
+        self.model_save_dir_horz = os.path.join(base_log_dir, "arima_ws_horz_all_20250429_123701", "models")
+        self.model_save_dir_vert = os.path.join(base_log_dir, "arima_ws_vert_all_20250429_123701", "models")
+        #self.model_save_dir = os.path.join(self.model_config["experiment"]["log_dir"], self.study_name, "models")
+        self.model = {} # trained models from local directory
+        #if self.model_save_dir:
+        #    self.load_models(self.model_save_dir)
+        self.load_models(self.model_save_dir_horz, "horz")
+        self.load_models(self.model_save_dir_vert, "vert")
+        os.makedirs(self.model_save_dir_horz, exist_ok=True)
+        os.makedirs(self.model_save_dir_vert, exist_ok=True)
+        self.n_prediction_interval = 1
+
+    def _prepare_arrays(self, training_inputs, feat_type, tid, output_idx):
+        # ARIMA assumes training_inputs is already the target time series (X is empty and y is next value)
+        y = training_inputs[:, output_idx]
+        X = None  
+        return X, y
+
+    def load_models(self, model_save_dir, mode):
+        """Load ARIMA models from the specified directory."""
+        if mode not in self.model:
+            self.model[mode] = {}
+        if mode not in self.boxcox_params:
+            self.boxcox_params[mode] = {}
+
+        for fname in os.listdir(model_save_dir):
+            if fname.endswith(".pkl") and fname != "boxcox_params.pkl":
+                key = fname.replace(".pkl", "")
+                path = os.path.join(model_save_dir, fname)
+                self.model[mode][key] = joblib.load(path)
+        boxcox_path = os.path.join(model_save_dir, "boxcox_params.pkl")
+        if os.path.exists(boxcox_path):
+            with open(boxcox_path, "rb") as f:
+                self.boxcox_params[mode] = pickle.load(f)
+        else:
+            self.boxcox_params = {}
+        self.fitted = True
+                
+    def create_or_load_study(self, study_name):
+        try:
+            # Attempt to load the study with the provided study_name
+            study = optuna.load_study(study_name=study_name, storage=self.storage)
+            print(f"Study '{study_name}' loaded successfully.")
+        except KeyError:
+            # If study doesn't exist, create a new study with the same name
+            print(f"Study '{study_name}' not found. Creating a new one.")
+            study = optuna.create_study(study_name=study_name, storage=self.storage)
+            print(f"Study '{study_name}' created successfully.")
+        return study
+
+    def get_params(self, trial):
+        """Retrieve hyperparameters for the current trial."""
+        
+        p = trial.suggest_int('p', 1, 5)  # AR parameter
+        d = trial.suggest_int('d', 0, 2)  # Differencing order
+        q = trial.suggest_int('q', 1, 5)  # MA parameter
+
+        # Return a dictionary of the parameters to be used by the ARIMA model
+        return {"p": p, "d": d, "q": q}
+
+    def _tuning_objective(self, trial, historic_measurements: Union[pl.DataFrame, pd.DataFrame], multiprocessor=None, limit_train_val=None, turbine_ids=None):
+        """Objective function for tuning the ARIMA model."""
+
+        # obtain the hyperparameters from get_params
+        params = self.get_params(trial)
+        p, d, q = params["p"], params["d"], params["q"]
+
+        rmse_results = []
+
+        for series_name, ts_vert in historic_measurements.items():
+            try:
+                turbine_id = series_name.split("_")[-1]
+
+                if ts_vert is None or len(ts_vert) < 2:
+                    logging.warning(f"Skipping turbine {turbine_id}: Not enough data points.")
+                    continue
+                ts_vert_transformed = self.boxcox_transform(ts_vert, series_name)
+                #model_horz = sm.tsa.ARIMA(ts_horz_transformed, order=(p, d, q)).fit()
+                model_vert = SARIMAX(ts_vert_transformed, order=(p, d, q)).fit()
+
+
+                forecast_vert = model_vert.forecast(steps=30)
+                forecast_vert_original = self.inverse_boxcox(forecast_vert, series_name)
+
+                actual = ts_vert[-30:]
+
+                rmse = np.sqrt(mean_squared_error(actual, forecast_vert_original))
+                rmse_results.append(rmse)
+
+            except Exception as e:
+                logging.warning(f"Error fitting ARIMA for horizontal wind speed on turbine {turbine_id}: {e}")
+                continue
+        if rmse_results:
+            return np.mean(rmse_results)  # Minimize RMSE
+        else:
+            return float("inf")  # Return a large value if no valid results
+
+
+        # if turbine_ids is None:
+        #     if isinstance(historic_measurements, (pd.Series, pl.Series)):
+        #         turbine_ids = [historic_measurements.name.split("_")[-1]]
+        #     else:
+        #         raise ValueError("Cannot infer turbine_ids: historic_measurements must be a Series.")
+        # store_params = [] 
+
+        # for turbine_id in turbine_ids:
+        #     # Prepare data for the turbine (horizontal and vertical wind speeds)
+        #     ts_horz = historic_measurements  # historic_measurements is already a Series
+        #     ts_horz_transformed = self.boxcox_transform(ts_horz, f"ws_horz_{turbine_id}")
+
+        #     #if ts_horz.dropna().shape[0] < 2 or ts_vert.dropna().shape[0] < 2:
+        #     if ts_horz.len() < 2:
+        #         logging.warning(f"Skipping turbine {turbine_id}: Not enough data points.")
+        #         continue
+
+        #     try:
+        #         model_horz = sm.tsa.ARIMA(ts_horz_transformed, order=(p, d, q)).fit()
+        #         forecast_horz = model_horz.forecast(steps=30)  # Forecast for next 30 time steps
+        #         forecast_horz_original = self.inverse_boxcox(forecast_horz, f"ws_horz_{turbine_id}")
+        #     except Exception as e:
+        #         logging.warning(f"Error fitting ARIMA for horizontal wind speed on turbine {turbine_id}: {e}")
+        #         continue
+            
+        #     horz_data = ts_horz[-30:]
+
+        #     horz_rmse = np.sqrt(mean_squared_error(horz_data, forecast_horz_original))
+
+        #     store_params.append(horz_rmse)
+
+        # if len(store_params) > 0:
+        #     return np.mean(store_params)
+        # else:
+        #     return float("inf") # data is not valid
+    
+    def define_data(self, data: pl.DataFrame):
+        """Store data as turbine-specific Pandas Series in a dictionary."""
+        self.historic_measurements = data
+        self.data = {}
+        time_sorted = data.sort("time")
+        for col in time_sorted.columns:
+            if col.startswith("ws_horz_") or col.startswith("ws_vert_"):
+                        self.data[col] = time_sorted.select(["time", col]).to_pandas().set_index("time")[col]
+
+
+    def create_model(self, turbine_id, feature_type, p, d, q):
+        """Create and return an ARIMA model based on hyperparameters."""
+        key = f"{feature_type}_{turbine_id}"
+        if self.data is None or key not in self.data:
+            raise ValueError(f"Data for {key} not found. Make sure define_data() has been called with proper structure.")
+        ts = self.data[key]
+        ts_transformed = self.boxcox_transform(ts, key)
+        #model = sm.tsa.ARIMA(ts_transformed, order=(p, d, q)).fit()
+        model = SARIMAX(ts_transformed, order=(p, d, q)).fit()
+
+        return model
 
     def boxcox_transform(self, ts, feature_key):
         """Apply Box-Cox transformation to the data."""
         shift_val = 0
+        if isinstance(ts, pl.Series):
+            ts = ts.filter(~ts.is_null())  # Pandas specific NaN handling
+        elif isinstance(ts, np.ndarray):
+            ts = ts[~np.isnan(ts)]  # NumPy specific NaN handling
+       
+        if len(ts) == 0 or len(ts.unique()) == 1:
+            # Handle empty or constant array case
+            logging.warning(f"Box-Cox skipped: constant or empty data for '{feature_key}'. Using persistence fallback.")
+            
+            # Check if ts is a NumPy array or Pandas Series and access the last element
+            #last_value = ts[-1] if isinstance(ts, np.ndarray) else ts.iloc[-1]
+            last_value = ts[-1] if isinstance(ts, np.ndarray) else ts[-1]
+            
+            #self.boxcox_params[feature_key] = {"lambda": None, "shift": 0, "persistence": last_value if ts.size > 0 else np.nan}
+            self.boxcox_params[feature_key] = {"lambda": None, "shift": 0, "persistence": last_value if ts.len() > 0 else np.nan}
+
+            return ts  # Still return something usable
+        
+        if len(ts) < 10:
+            logging.warning(f"Too few samples ({len(ts)}), skipping Box-Cox for '{feature_key}'. Returning original series.")
+            self.boxcox_params[feature_key] = {"lambda": None, "shift": 0, "persistence": ts.iloc[-1] if isinstance(ts, pd.Series) else ts[-1]}
+            return ts
+
         if ts.min() <= 0:
             shift_val = abs(ts.min()) + 1
             ts = ts + shift_val
-        ts_transformed, lmbda = boxcox(ts)
-        self.boxcox_params[feature_key] = {"lambda": lmbda, "shift": shift_val}
-        return ts_transformed
+
+        try:
+            ts_transformed, lmbda = boxcox(ts)
+            self.boxcox_params[feature_key] = {"lambda": lmbda, "shift": shift_val}
+            return ts_transformed
+        except ValueError as e:
+            logging.warning(f"Box-Cox failed for '{feature_key}' with error: {e}. Using persistence fallback.")
+            
+            # Check if ts is a NumPy array or Pandas Series and access the last element
+            #last_value = ts[-1] if isinstance(ts, np.ndarray) else ts.iloc[-1]
+            last_value = ts[-1] if isinstance(ts, np.ndarray) else ts.iloc[-1]
+
+            
+            #self.boxcox_params[feature_key] = {"lambda": None, "shift": 0, "persistence": last_value if ts.size > 0 else np.nan}
+            self.boxcox_params[feature_key] = {"lambda": None, "shift": 0, "persistence": last_value if len(ts) > 0 else np.nan}
+
+            return ts
+
+    def save_boxcox_params(self, path=None):
+        """Save Box-Cox parameters to file."""
+        if not hasattr(self, "boxcox_params"):
+            raise AttributeError("Box-Cox parameters not found.")
+        path = path or os.path.join(self.model_save_dir, "boxcox_params.pkl")
+        with open(path, "wb") as f:
+            pickle.dump(self.boxcox_params, f)
+
+    def load_boxcox_params(self, path=None):
+        """Load Box-Cox parameters from file."""
+        path = path or os.path.join(self.model_save_dir, "boxcox_params.pkl")
+        with open(path, "rb") as f:
+            self.boxcox_params = pickle.load(f)
+
     
     def inverse_boxcox(self, ts_transformed, feature_key):
         """Apply inverse Box-Cox transformation to the data."""
         params = self.boxcox_params[feature_key]
-        shift_val = params["shift"]
-        lmbda = params["lambda"]
+        lmbda = params.get("lambda")
+        shift_val = params.get("shift", 0)
+
+        if lmbda is None:
+            # Box-Cox was skipped, so just return persistence fallback
+            persistence_value = params.get("persistence", np.nan)
+            return np.full_like(ts_transformed, persistence_value, dtype=np.float64)
+
         ts_original = inv_boxcox(ts_transformed, lmbda) - shift_val
         return ts_original
 
-    def train(self, historic_measurements: pl.DataFrame, turbine_ids=None):
+    def train(self, historic_measurements: pl.DataFrame, turbine_ids=None, p=1, d=0, q=0):
         print(">>> ARIMAForecast.train() called")
         if turbine_ids is None:
             turbine_ids = [
@@ -2140,22 +2417,61 @@ class ARIMAForecast(WindForecast):
             # prepare vertical and horizontal wind speed 
             turbine_df_horz = historic_measurements.select(pl.col("time"), pl.col(f"ws_horz_{turbine_id}")).sort("time").unique(subset=["time"])
             turbine_df_vert = historic_measurements.select(pl.col("time"), pl.col(f"ws_vert_{turbine_id}")).sort("time").unique(subset=["time"])
+            ts_horz = turbine_df_horz.to_pandas().set_index("time")[f"ws_horz_{turbine_id}"]
+            ts_vert = turbine_df_vert.to_pandas().set_index("time")[f"ws_vert_{turbine_id}"]
+            # Check for enough data
+            if ts_horz.dropna().shape[0] < 2 or ts_vert.dropna().shape[0] < 2:
+                logging.warning(
+                    f"Skipping turbine {turbine_id}: Not enough data points for ARIMA (horz: {ts_horz.dropna().shape[0]}, vert: {ts_vert.dropna().shape[0]})."
+                )
+                continue
+            self.persistence_fallback[f"ws_horz_{turbine_id}"] = ts_horz.iloc[-1]
+            self.persistence_fallback[f"ws_vert_{turbine_id}"] = ts_vert.iloc[-1]
+
 
             # ARIMA prediction for both horizontal and vertical
-            ts_horz = turbine_df_horz.to_pandas().set_index("time")[f"ws_horz_{turbine_id}"]
-            ts_horz = self.boxcox_transform(ts_horz, f"ws_horz_{turbine_id}")
-            model_horz = sm.tsa.ARIMA(ts_horz, order=(1, 1, 1)).fit()
+            #ts_horz = turbine_df_horz.to_pandas().set_index("time")[f"ws_horz_{turbine_id}"]
+            print(ts_horz.min())
+            ts_horz_transformed = self.boxcox_transform(ts_horz, f"ws_horz_{turbine_id}")
 
-            ts_vert = turbine_df_vert.to_pandas().set_index("time")[f"ws_vert_{turbine_id}"]
-            ts_vert = self.boxcox_transform(ts_vert, f"ws_vert_{turbine_id}")
-            model_vert = sm.tsa.ARIMA(ts_vert, order=(1, 0, 0)).fit()
-            
+            #model_horz = sm.tsa.ARIMA(ts_horz_transformed, order=(1, 1, 1)).fit()
+            model_horz = SARIMAX(ts_horz_transformed, order=(p, d, q)).fit()
+
+
+            #ts_vert = turbine_df_vert.to_pandas().set_index("time")[f"ws_vert_{turbine_id}"]
+            ts_vert_transformed = self.boxcox_transform(ts_vert, f"ws_vert_{turbine_id}")
+            #model_vert = sm.tsa.ARIMA(ts_vert_transformed, order=(1, 0, 0)).fit()
+            model_vert = SARIMAX(ts_vert_transformed, order=(p, d, q)).fit()
             self.models[turbine_id] = {"ws_horz": model_horz, "ws_vert": model_vert}
             self.fitted = True
+
+    def train_all_outputs(self, outputs, scale, multiprocessor, retrain_models=True, scaler_params=None):
+        if not hasattr(self, "historic_measurements") or self.historic_measurements is None:
+            raise ValueError("data must be set on the instance before training.")
+
+        turbine_ids = [col.split("_")[-1] for col in outputs if col.startswith("ws_horz_")]
+
+        if multiprocessor is not None:
+            if multiprocessor == "mpi":
+                comm_size = MPI.COMM_WORLD.Get_size()
+                executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+            elif multiprocessor == "cf":
+                max_workers = mp.cpu_count()
+                executor = ProcessPoolExecutor(max_workers=max_workers)
+
+            with executor as ex:
+                if multiprocessor == "mpi":
+                    ex.max_workers = comm_size
+
+                ex.map(lambda tid: self.train(self.historic_measurements, turbine_ids=[tid]), turbine_ids)
+        else:
+            self.train(self.historic_measurements, turbine_ids=turbine_ids)
+
     
     def model_items(self):
             """Returns the list of turbine IDs for which models are trained."""
-            return self.models.keys()
+            #return self.models.keys() manual hyperparameter tuning
+            return self.model.keys()
     
     def reset(self):
         pass
@@ -2178,37 +2494,83 @@ class ARIMAForecast(WindForecast):
         forecast_df = pl.DataFrame({"time": forecast_times})
         turbine_forecasts = []
         long_forecasts = []
+        turbine_ids = sorted(k for k in self.model["horz"] if k.startswith("ws_horz_"))
 
-
-        for turbine_id in self.model_items():
+        for turbine_id in turbine_ids:
             # historic data
-            turbine_df_horz = historic_measurements.select(pl.col("time"), pl.col(f"ws_horz_{turbine_id}")).sort("time").unique(subset=["time"])
-            turbine_df_vert = historic_measurements.select(pl.col("time"), pl.col(f"ws_vert_{turbine_id}")).sort("time").unique(subset=["time"])
+            key_horz = turbine_id
+            key_vert = turbine_id.replace("ws_horz_", "ws_vert_")
+
+            turbine_df_horz = historic_measurements.select(pl.col("time"), pl.col(key_horz)).sort("time").unique(subset=["time"])
+            turbine_df_vert = historic_measurements.select(pl.col("time"), pl.col(key_vert)).sort("time").unique(subset=["time"])
+            raw_series_horz = turbine_df_horz.select(key_horz).to_pandas()[key_horz]
+            raw_series_vert = turbine_df_vert.select(key_vert).to_pandas()[key_vert]
+            raw_series_horz.index = pd.to_datetime(turbine_df_horz.select("time").to_pandas()["time"])
+            raw_series_vert.index = pd.to_datetime(turbine_df_vert.select("time").to_pandas()["time"])
+            series_horz_transformed = self.boxcox_transform(raw_series_horz, key_horz)
+            series_vert_transformed = self.boxcox_transform(raw_series_vert, key_vert)
 
             sufficient_data = turbine_df_horz.height >= self.n_context and turbine_df_vert.height >= self.n_context
 
             if not sufficient_data: #Persistence will be used
                 logging.info(f"Not enough data for turbine {turbine_id} at time {current_time}, falling back to persistence.")
-                value_horz = turbine_df_horz.select(pl.col(f"ws_horz_{turbine_id}")).last().item()
-                value_vert = turbine_df_vert.select(pl.col(f"ws_vert_{turbine_id}")).last().item()
+                value_horz = turbine_df_horz.select(pl.col(key_horz)).last().item()
+                value_vert = turbine_df_vert.select(pl.col(key_vert)).last().item()
 
                 forecast_horz_original = np.full(horizon, value_horz)
                 forecast_vert_original = np.full(horizon, value_vert)
             else:  # ARIMA forecast will be used
-                # horizontal wind speed
-                model_horz = self.models[turbine_id]["ws_horz"]
-                forecast_horz = model_horz.forecast(steps=horizon)
-                forecast_horz_original = self.inverse_boxcox(forecast_horz, f"ws_horz_{turbine_id}")
+                # key_horz = f"ws_horz_{turbine_id}"
+                # model_horz = self.models[turbine_id]["ws_horz"] manually setting hyperparams
+                model_horz = self.model["horz"].get(key_horz)
+                updated_model_horz = model_horz.append(series_horz_transformed, refit=False)
+            
+                if key_horz not in self.boxcox_params["horz"]:
+                    logging.warning(f"No Box-Cox params for {key_horz}, falling back to persistence.")
+                    value_horz = self.persistence_fallback.get(key_horz, np.nan)
+                    forecast_horz_original = np.full(horizon, value_horz)
+                else:
+                    forecast_horz = model_horz.forecast(steps=horizon)
+                    forecast_horz_test = updated_model_horz.forecast(steps=horizon)
 
-                # vertical wind speed
-                model_vert = self.models[turbine_id]["ws_vert"]
-                forecast_vert = model_vert.forecast(steps=horizon)
-                forecast_vert_original = self.inverse_boxcox(forecast_vert, f"ws_vert_{turbine_id}")
+                    forecast_horz_original = self.inverse_boxcox(forecast_horz, key_horz)
+                    forecast_horz_original_test = self.inverse_boxcox(forecast_horz_test, key_horz)
+
+                    if np.isnan(forecast_horz_original).any():
+                        logging.warning(f"NaNs in forecast for {key_horz}, falling back to persistence.")
+                        value_horz = self.persistence_fallback.get(key_horz, np.nan)
+                        forecast_horz_original = np.full(horizon, value_horz)
+
+                # Vertical
+                #key_vert = f"ws_vert_{turbine_id}"
+                #model_vert = self.models[turbine_id]["ws_vert"]
+                model_vert = self.model["vert"].get(key_vert)
+                updated_model_vert = model_vert.append(series_vert_transformed, refit=False)
+
+                if key_vert not in self.boxcox_params["vert"]:
+                    logging.warning(f"No Box-Cox params for {key_vert}, falling back to persistence.")
+                    value_vert = self.persistence_fallback.get(key_vert, np.nan)
+                    forecast_vert_original = np.full(horizon, value_vert)
+                else:
+                    forecast_vert = model_vert.forecast(steps=horizon)
+                    forecast_vert_test = updated_model_vert.forecast(steps=horizon)
+                    forecast_vert_original = self.inverse_boxcox(forecast_vert, key_vert)
+                    forecast_vert_original_test = self.inverse_boxcox(forecast_vert_test, key_vert)
+                    if np.isnan(forecast_vert_original).any():
+                        logging.warning(f"NaNs in forecast for {key_vert}, falling back to persistence.")
+                        value_vert = self.persistence_fallback.get(key_vert, np.nan)
+                        forecast_vert_original = np.full(horizon, value_vert)
+
+            #turbine_df = pl.DataFrame({
+            #"time": forecast_times,
+            #f"ws_horz_{turbine_id}": forecast_horz_original,
+            #f"ws_vert_{turbine_id}": forecast_vert_original
+            #})
 
             turbine_df = pl.DataFrame({
             "time": forecast_times,
-            f"ws_horz_{turbine_id}": forecast_horz_original,
-            f"ws_vert_{turbine_id}": forecast_vert_original
+            f"ws_horz_{turbine_id}": forecast_horz_original_test,
+            f"ws_vert_{turbine_id}": forecast_vert_original_test
             })
         
             turbine_forecasts.append(turbine_df)
@@ -2218,7 +2580,7 @@ class ARIMAForecast(WindForecast):
                     "turbine_id": [turbine_id] * horizon,
                     "time": forecast_times,
                     "feature": ["ws_horz"] * horizon,
-                    "value": forecast_horz_original,
+                    "value": forecast_horz_original_test,
                     "data_type": ["Forecast"] * horizon
                 })
 
@@ -2226,23 +2588,22 @@ class ARIMAForecast(WindForecast):
                     "turbine_id": [turbine_id] * horizon,
                     "time": forecast_times,
                     "feature": ["ws_vert"] * horizon,
-                    "value": forecast_vert_original,
+                    "value": forecast_vert_original_test,
                     "data_type": ["Forecast"] * horizon
                 })
 
                 long_forecasts.extend([df_horz, df_vert])
 
         forecast_df = reduce(lambda df1, df2: df1.join(df2, on="time", how="left"), turbine_forecasts, forecast_df)
+        # naming issue
+        forecast_df = forecast_df.rename({col: col.replace("ws_horz_", "", 1) if col != "time" else col for col in forecast_df.columns})
+
 
         if return_long_format:
             return forecast_df.sort("time"), pl.concat(long_forecasts).sort(["turbine_id", "time", "feature"])
         else:
             return forecast_df.sort("time")
 
-           #forecast_df = pd.DataFrame({"time": forecast_times, target_col: forecast})
-           #forecast_frames.append(pl.from_pandas(forecast_df))
-        
-       #return pl.concat(forecast_frames, how="diagonal")
 
 def plot_wind_ts(data_df, save_path, turbine_ids="all", include_filtered_wind_dir=True, controller_timedelta=None, legend_loc="best", single_plot=False, fig=None, ax=None, case_label=None):
     #TODO only plot some turbines, not ones with overlapping yaw offsets, eg single column on farm
@@ -2307,7 +2668,8 @@ def transform_wind(inp_df, added_wm=None, added_wd=None):
 def make_predictions(forecaster, test_data, prediction_type, single_cg):
     
     forecasts = []
-    
+    outputs = forecaster._get_ws_cols(test_data)
+
     logging.info("Getting timestamps at which controller will call forecaster.")
     controller_times = test_data.gather_every(forecaster.n_controller).select(pl.col("time"))
     
@@ -2355,7 +2717,12 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg):
             # if current_time - start >= forecaster.context_timedelta:
             logging.info(f"Predicting future wind field using {forecaster.__class__.__name__} at time {current_time}/{end} of split {splits[d]}/{n_splits-1}.")
             if not forecaster.fitted:
-                forecaster.train(ds.filter(pl.col("time") <= current_time))
+                forecaster.historic_measurements = ds.filter(pl.col("time") <= start)  # or current_time
+                forecaster.train_all_outputs(
+                    outputs=outputs,        
+                    scale=True,
+                    multiprocessor=None     
+                )             
                 df = ds.filter(pl.col("time").is_between(start, end, closed="both"))
                 df = df.filter((pl.col("time") - start) >= context_timedelta)
 

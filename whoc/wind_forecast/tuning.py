@@ -1,4 +1,4 @@
-from whoc.wind_forecast.WindForecast import SVRForecast, generate_wind_field_df
+from whoc.wind_forecast.WindForecast import SVRForecast, generate_wind_field_df, ARIMAForecast
 from wind_forecasting.preprocessing.data_module import DataModule
 from gluonts.dataset.split import slice_data_entry
 import numpy as np
@@ -7,13 +7,16 @@ import pandas as pd
 import argparse
 import yaml
 import os
+import sqlite3
 import logging 
 from floris import FlorisModel
 import psutil
 import re
 import random
+import optuna
 from wind_forecasting.utils.optuna_db_utils import setup_optuna_storage
 from wind_forecasting.run_scripts.tuning import generate_df_setup_params
+from datetime import datetime
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -66,7 +69,7 @@ if __name__ == "__main__":
     
     
     parser = argparse.ArgumentParser(prog="WindFarmForecasting")
-    parser.add_argument("-md", "--model", type=str, choices=["svr", "kf", "preview", "informer", "autoformer", "spacetimeformer"], required=True)
+    parser.add_argument("-md", "--model", type=str, choices=["svr", "kf", "preview", "informer", "autoformer", "spacetimeformer", "arima"], required=True)
     parser.add_argument("-mcnf", "--model_config", type=str)
     parser.add_argument("-dcnf", "--data_config", type=str)
     parser.add_argument("-m", "--multiprocessor", choices=["mpi", "cf", None], default=None)
@@ -79,6 +82,8 @@ if __name__ == "__main__":
     parser.add_argument("-s", "--seed", type=int, help="Seed for random number generator", default=42)
     parser.add_argument("-rt", "--restart_tuning", action="store_true")
     parser.add_argument("-rd", "--reload_data", action="store_true", help="Whether to reload the train/validation data from the source, or to use existing .dat files.")
+    parser.add_argument("--tune", action="store_true", help="Run hyperparameter tuning")
+
     # parser.add_argument('--cores', required=False, default=None, help='Comma-separated list or range of core IDs (e.g., "0-9" or "10,11,12")')
     # pretrained_filename = "/Users/ahenry/Documents/toolboxes/wind_forecasting/logging/wf_forecasting/lznjshyo/checkpoints/epoch=0-step=50.ckpt"
     args = parser.parse_args()
@@ -105,6 +110,16 @@ if __name__ == "__main__":
     turbine_signature = data_config["turbine_signature"][0] if len(data_config["turbine_signature"]) == 1 else "\\d+"
      
     fmodel = FlorisModel(data_config["farm_input_path"])
+
+    storage_url = f"sqlite:///{model_config['optuna']['storage']['sqlite_path']}"
+    study_name = f"{args.model}_ws_vert_all_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+    study = optuna.create_study(
+        study_name = study_name,
+        storage=storage_url,
+        direction=model_config['optuna']['direction'],
+        load_if_exists=False,
+    )
     
     if RUN_ONCE:
         logging.info("Creating datasets")
@@ -146,6 +161,24 @@ if __name__ == "__main__":
                             tid2idx_mapping=tid2idx_mapping,
                             turbine_signature=turbine_signature,
                             use_tuned_params=False)
+        
+    elif args.model == "arima":
+        forecaster = ARIMAForecast(measurements_timedelta=pd.Timedelta(model_config["dataset"]["resample_freq"]),
+                            controller_timedelta=None,
+                            prediction_timedelta=data_module.prediction_length*pd.Timedelta(model_config["dataset"]["resample_freq"]),
+                            context_timedelta=data_module.context_length*pd.Timedelta(model_config["dataset"]["resample_freq"]),
+                            fmodel=fmodel,
+                            true_wind_field=None,
+                            model_config=model_config,
+                            kwargs=dict(p=1, d=1, q=1, seasonal_order=(1, 1, 1, 12), use_trained_models=False),
+                            tid2idx_mapping=tid2idx_mapping,
+                            turbine_signature=turbine_signature,
+                            use_tuned_params=False)
+
+
+
+
+
         # original_save_dir = forecaster.model_save_dir
         # forecaster.model_save_dir = os.environ["TMPDIR"]
     # Use the WORKER_RANK variable set explicitly in the Slurm script's nohup block
@@ -214,7 +247,7 @@ if __name__ == "__main__":
     if args.multiprocessor == "mpi":
         optuna_storage = comm.bcast(optuna_storage, root=0)
         
-    if worker_id > 0:
+    if worker_id >= 0:
         
         # Parse the core argument (e.g., "0-9" or "10,11,12")
         # if args.cores:
@@ -236,22 +269,49 @@ if __name__ == "__main__":
         #{"type": "hyperband", "min_resource": 2, "max_resource": 5, "reduction_factor": 3, "percentile": 25}
         if args.multiprocessor:
             logging.info(f"Using multiprocessor {args.multiprocessor}")
-        forecaster.tune_hyperparameters_single(storage=optuna_storage,
-                                                n_trials_per_worker=model_config["optuna"]["n_trials_per_worker"], 
-                                                seed=args.seed,
-                                                config=model_config,
-                                                worker_id=0 if RUN_ONCE and (worker_id == 0) else worker_id,
-                                                multiprocessor=args.multiprocessor,
-                                                limit_train_val=args.limit_train_val)
-                                        #  trial_protection_callback=handle_trial_with_oom_protection)
+
+        #        historic_measurements = train_dataset["ws_horz_1"]
+    
+        historic_measurements = {
+            col: train_dataset[col]
+            for col in train_dataset.columns
+            if col.startswith("ws_vert")
+        }
+
+        logging.info(f"Tuning hyperparameters for all horizontal wind speeds: {list(historic_measurements.keys())}")
+
+        if args.tune:
+            forecaster.tune_hyperparameters_single(historic_measurements=historic_measurements, 
+                                                    storage=optuna_storage,
+                                                    n_trials_per_worker=model_config["optuna"]["n_trials_per_worker"], 
+                                                    seed=args.seed,
+                                                    config=model_config,
+                                                    worker_id=0 if RUN_ONCE and (worker_id == 0) else worker_id,
+                                                    multiprocessor=args.multiprocessor,
+                                                    limit_train_val=args.limit_train_val)
+                                            #  trial_protection_callback=handle_trial_with_oom_protection)
 
         # %% TRAINING MODEL
-        logging.info("Training model using best hyperparameters.")
-        forecaster.set_tuned_params(storage=optuna_storage, study_name=forecaster.study_name)
-        forecaster.train_all_outputs(outputs=data_module.target_cols, scale=False, 
-                                     multiprocessor=args.multiprocessor, 
-                                     retrain_models=True,
-                                     scaler_params=scaler_params)
+        if args.model == "svr":
+            logging.info("Training model using best hyperparameters.")
+            forecaster.set_tuned_params(storage=optuna_storage, study_name=forecaster.study_name)
+            forecaster.train_all_outputs(outputs=data_module.target_cols, scale=False, 
+                                        multiprocessor=args.multiprocessor, 
+                                        retrain_models=True,
+                                        scaler_params=scaler_params)
         
+        # %% ARIMA TRAINING
+        if args.model == "arima":
+            logging.info("Training ARIMA model using best hyperparameters.")
+            forecaster.set_tuned_params(storage=optuna_storage, study_name=study_name, data=train_dataset)
+            forecaster.train_all_outputs(outputs=data_module.target_cols, 
+                scale=False,
+                multiprocessor=args.multiprocessor, 
+                retrain_models=True,
+                scaler_params=scaler_params)
+        
+        boxcox_path = os.path.join(forecaster.model_save_dir, "boxcox_params.pkl")
+        forecaster.save_boxcox_params(boxcox_path)
+        logging.info(f"Saved Box-Cox parameters to {boxcox_path}")
         # %% After training completes
         logging.info("Optuna hyperparameter tuning completed.")
