@@ -225,22 +225,24 @@ if __name__ == "__main__":
             if args.multiprocessor is not None:
                 if args.multiprocessor == "mpi":
                     comm_size = comm.Get_size()
-                    executor = MPICommExecutor(comm, root=0)
+                    executor = MPICommExecutor(comm, root=0, max_workers=comm_size)
                 elif args.multiprocessor == "cf":
-                    executor = ProcessPoolExecutor()
+                    executor = ProcessPoolExecutor(max_workers=mp.cpu_count())
                 with executor as run_simulations_exec:
-                    if args.multiprocessor == "mpi":
-                        run_simulations_exec.max_workers = comm_size
+                    # if args.multiprocessor == "mpi":
+                    #     run_simulations_exec.max_workers = comm_size
                         
                     # for MPIPool executor, (waiting as if shutdown() were called with wait set to True)
 
                     # if args.reaggregate_simulations is true, or for any case family where doesn't time_series_results_all.csv exist, 
                     # read the time-series csv files for all case families, case names, and wind seeds
+                    input_regex = "(?<=time_series_results_).+(?=_seed_\\d+.csv)"
                     read_futures = [run_simulations_exec.submit(
                                                     read_time_series_data, 
                                                     results_path=os.path.join(args.save_dir, case_families[i], fn),
-                                                    input_dict_path=os.path.join(args.save_dir, case_families[i], 
-                                                                                   f"input_config_{re.search('(?<=time_series_results_).+(?=_seed_\\d+.csv)', fn).group()}.pkl"))
+                                                    input_dict_path=os.path.join(
+                                                        args.save_dir, case_families[i], 
+                                                            f"input_config_{re.search(input_regex, fn).group()}.pkl"))
                         for i in args.case_ids 
                         for fn in case_family_case_names[case_families[i]]
                         if args.reaggregate_simulations or not os.path.exists(os.path.join(args.save_dir, case_families[i], "time_series_results_all.csv"))
