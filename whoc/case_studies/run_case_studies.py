@@ -116,13 +116,13 @@ if __name__ == "__main__":
                                         multiprocessor=args.multiprocessor, 
                                         whoc_config=whoc_config, base_model_config=model_config)
         
-    # else:
-    #     input_dicts, wind_field_config, wind_field_ts = None, None, None
+    else:
+        input_dicts, wind_field_config, wind_field_ts = None, None, None
         
-    # if args.multiprocessor == "mpi":
-    #     input_dicts = comm.bcast(input_dicts, root=0)
-    #     wind_field_config = comm.bcast(wind_field_config, root=0)
-    #     wind_field_ts = comm.bcast(wind_field_ts, root=0)
+    if args.multiprocessor == "mpi":
+        input_dicts = comm.bcast(input_dicts, root=0)
+        wind_field_config = comm.bcast(wind_field_config, root=0)
+        wind_field_ts = comm.bcast(wind_field_ts, root=0)
     
         logging.info(f"Resetting args.n_seeds to {len(wind_field_ts)}")
         args.n_seeds = len(wind_field_ts)
@@ -140,7 +140,7 @@ if __name__ == "__main__":
                 max_workers = num_visible_gpus
             else:
                 logging.warning(f"CUDA_VISIBLE_DEVICES is set but no valid GPU indices found. Setting max_workers to mp.cpu_count()={mp.cpu_count()}.")
-                max_workers = MPI.COMM_WORLD.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
+                max_workers = comm.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
         except Exception as e:
             logging.warning(f"Error parsing CUDA_VISIBLE_DEVICES: {e}")
         
@@ -148,15 +148,15 @@ if __name__ == "__main__":
         gpu_cycler = cycle(visible_gpus)
         
     else:
-        max_workers = MPI.COMM_WORLD.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
+        max_workers = comm.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
         gpu_cycler = None
         
     if args.run_simulations: 
         if args.multiprocessor is not None:
                     
             if args.multiprocessor == "mpi":
-                comm_size = MPI.COMM_WORLD.Get_size()
-                executor = MPICommExecutor(MPI.COMM_WORLD, root=0, max_workers=max_workers)
+                comm_size = comm.Get_size()
+                executor = MPICommExecutor(comm, root=0, max_workers=max_workers)
             elif args.multiprocessor == "cf":
                 executor = ProcessPoolExecutor(max_workers=max_workers,
                                                mp_context=mp.get_context("spawn"))
@@ -224,8 +224,8 @@ if __name__ == "__main__":
             # if using multiprocessing
             if args.multiprocessor is not None:
                 if args.multiprocessor == "mpi":
-                    comm_size = MPI.COMM_WORLD.Get_size()
-                    executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+                    comm_size = comm.Get_size()
+                    executor = MPICommExecutor(comm, root=0)
                 elif args.multiprocessor == "cf":
                     executor = ProcessPoolExecutor()
                 with executor as run_simulations_exec:
