@@ -2346,6 +2346,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
         logging.info(f"Resetting forecaster state.")
         forecaster.reset(assigned_gpu=assigned_gpu)
         save_length = 0
+        n_saved = 0
         for c, current_row in enumerate(split_controller_times.iter_rows(named=True)):
             
             current_time = current_row["time"]
@@ -2390,12 +2391,13 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                     with open(sp, mode="w") as fp:
                         forecasts.write_csv(fp, include_header=True)
                     logging.info(f"File {sp} has size {os.path.getsize(sp)} after first write.")
-                elif os.path.exists(sp):
+                else:
                     logging.info(f"File {sp} has size {os.path.getsize(sp)} before appending.")
                     with open(sp, mode="a") as fp:
                         forecasts.write_csv(fp, include_header=False)
                     logging.info(f"File {sp} has size {os.path.getsize(sp)} after appending.")
                 
+                n_saved += 1
                 forecasts = []
                 save_length = 0
                 ram_used = virtual_memory().percent
