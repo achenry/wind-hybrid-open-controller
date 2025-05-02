@@ -320,10 +320,11 @@ if __name__ == "__main__":
                     # if reaggregate_simulations, or if the aggregated time series data doesn't exist for this case family, read the csv files for that case family
                     if args.reaggregate_simulations or not os.path.exists(os.path.join(args.save_dir, case_families[i], "time_series_results_all.csv")):
                         for fn in case_family_case_names[case_families[i]]:
+                            input_regex = "(?<=time_series_results_).+(?=_seed_\\d+.csv)"
                             new_case_family_time_series_df.append(
                                 read_time_series_data(results_path=os.path.join(args.save_dir, case_families[i], fn),
                                                       input_dict_path=os.path.join(args.save_dir, case_families[i], 
-                                                                                   f"input_config_{re.search('(?<=time_series_results_).+(?=_seed_\\d+.csv)', fn).group()}.pkl")))
+                                                                                   f"input_config_{re.search(input_regex, fn).group()}.pkl")))
 
                     # if any new time series data has been read, add it to the new_time_series_df list and save the aggregated time-series data
                     if new_case_family_time_series_df:
