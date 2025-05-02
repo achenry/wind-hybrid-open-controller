@@ -2944,7 +2944,8 @@ if __name__ == "__main__":
                 #                     .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
                     # check that requested splits and time steps are available
                     # if (forecast_df.select(pl.col("continuity_group").unique().len()).item() >= args.max_splits)
-                os.remove(save_path)
+                if os.path.exists(save_path):
+                    os.remove(save_path)
             
     if args.multiprocessor:
         
