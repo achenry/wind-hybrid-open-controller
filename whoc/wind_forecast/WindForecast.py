@@ -1962,19 +1962,25 @@ class MLForecast(WindForecast):
     
     def _generate_test_data(self, historic_measurements: pl.DataFrame):
         # resample data to frequency model was trained on
-            
+        current_time = historic_measurements.select(pl.col("time").last()).item()
         # Convert freq string to Timedelta for comparison and calculations
         # Ensure self.data_module.freq is treated as a string before conversion
         data_module_freq_td = pd.Timedelta(str(self.data_module.freq))
         if data_module_freq_td != self.measurements_timedelta:
             if self.measurements_timedelta < data_module_freq_td:
-                historic_measurements = historic_measurements.with_columns(
-                    time=pl.col("time").dt.round(data_module_freq_td) # Use Timedelta here
-                    + pl.duration(seconds=historic_measurements.select(pl.col("time").last().dt.second() % data_module_freq_td.total_seconds()).item()))\
-                    .group_by("time").agg(cs.numeric().mean()).sort("time")
-            else:
+                # historic_measurements = historic_measurements.rolling(index_column="time", closed="both", 
+                #                                                       period=data_module_freq_td, 
+                #                                                       offset=(historic_measurements.select(pl.col("time").last() - pl.col("time").first()).item() % (data_module_freq_td))+(data_module_freq_td))\
+                #                                                           .agg(cs.numeric().mean())
+                historic_measurements = historic_measurements.with_columns(pl.col("time").dt.round(data_module_freq_td))
+                last_rounded_time = historic_measurements.select(pl.col("time").last()).item()
+                historic_measurements = historic_measurements.with_columns(time=pl.col("time") + (current_time - last_rounded_time))\
+                                                             .group_by("time", maintain_order=True)\
+                                                             .agg(cs.numeric().mean())
+            else: # TODO this needs to be time shifted as above
                 historic_measurements = historic_measurements.upsample(time_column="time", every=data_module_freq_td).fill_null(strategy="forward") # Use Timedelta here
         
+        assert historic_measurements.select(pl.col("time").last()).item() == current_time
         historic_measurements = historic_measurements.with_columns(cs.numeric().cast(pl.Float32))
         # test_data must be iterable where each item generated is a dict with keys start, target, item_id, and feat_dynamic_real
         # this should include measurements at all turbines
@@ -2352,10 +2358,14 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
             elif prediction_type == "sample":
                 raise NotImplementedError()
             
-            forecasts.append(
-                pred.with_columns(test_idx=pl.lit(test_idx), continuity_group=pl.lit(splits[d]), time=pl.col("time").cast(pl.Datetime(time_unit="ns"))).with_columns(cs.numeric().cast(pl.Float32))\
+            pred = pred.with_columns(
+                test_idx=pl.lit(test_idx).cast(pl.Int32), 
+                continuity_group=pl.lit(splits[d]).cast(pl.Int32), 
+                time=pl.col("time").cast(pl.Datetime(time_unit="ns")))\
+                    .with_columns(cs.numeric().cast(pl.Float32))\
                     .filter(pl.col("time").is_in(test_data_time))
-            )
+            
+            forecasts.append(pred)
             
             save_length += pred.select(pl.len()).item()
             
@@ -2651,13 +2661,6 @@ if __name__ == "__main__":
          comm = MPI.COMM_WORLD
          rank = comm.Get_rank()
 
-
-    # save_dir = "/Users/ahenry/Documents/toolboxes/wind_forecasting/logging/validation_results/MLForecast_informer"
-    # forecast_path = os.path.join(save_dir, f"forecast*.csv")
-    # forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
-    #             .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
-    # forecast_df.select(pl.col('continuity_group').unique())
-
     RUN_ONCE = (args.multiprocessor == "mpi" and rank == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
     
     TRANSFORM_WIND = {"added_wm": args.added_wind_mag, "added_wd": args.added_wind_dir}
@@ -2697,6 +2700,8 @@ if __name__ == "__main__":
                 f"^sd_ws_horz_{turbine_signature}$", f"^sd_ws_vert_{turbine_signature}$")
     
     fmodel = FlorisModel(data_config["farm_input_path"])
+    
+    validation_save_dir = os.path.join(args.save_dir, "validation_results")
     
     logging.info("Creating datasets")
     
@@ -2919,7 +2924,7 @@ if __name__ == "__main__":
     for f, forecaster in enumerate(forecasters):
         prediction_timedelta = forecaster.prediction_timedelta.total_seconds()
         forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.model_key.capitalize()}Forecast"
-        save_dir = os.path.join(args.save_dir, "validation_results", 
+        save_dir = os.path.join(validation_save_dir, 
                                 forecaster_name,
                                 str(int(prediction_timedelta)))
         os.makedirs(save_dir, exist_ok=True)
@@ -2945,14 +2950,15 @@ if __name__ == "__main__":
     for forecaster in forecasters:
         prediction_timedelta = int(forecaster.prediction_timedelta.total_seconds())
         forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.model_key.capitalize()}Forecast"
-        save_dir = os.path.join(args.save_dir, "validation_results", 
+        save_dir = os.path.join(validation_save_dir, 
                             forecaster_name,
                             str(prediction_timedelta))
         
         for c, cg in enumerate(continuity_groups):
-            if args.rerun_validation or not os.path.exists(forecast_paths[c]):
-                validation_to_run.append((forecaster, cg, os.path.join(save_dir, f"forecast_{cg}.csv")))
-                logging.info(f"Rerunning validation {validation_to_run[-1]}")
+            save_path = os.path.join(save_dir, f"forecast_{cg}.csv")
+            if args.rerun_validation or not os.path.exists(save_path):
+                validation_to_run.append((forecaster, cg, save_path))
+                logging.info(f"Rerunning validation {forecaster_name, prediction_timedelta, save_path}")
             
     if args.multiprocessor:
         
@@ -2982,9 +2988,10 @@ if __name__ == "__main__":
         results = []
         for forecaster, cg, save_path in validation_to_run:
             make_predictions(
-                forecaster=forecaster, test_data=test_data,
-                prediction_type=args.prediction_type, single_cg=False,
-                save_path=lambda cg: forecast_paths[continuity_groups.index(cg)],
+                forecaster=forecaster, test_data=test_data.filter(pl.col("continuity_group") == cg),
+                prediction_type=args.prediction_type, single_cg=True,
+                # save_path=lambda cg: forecast_paths[continuity_groups.index(cg)],
+                save_path=save_path,
                 assigned_gpu=next(gpu_cycler) if gpu_cycler else None,
                 ram_limit=args.ram_limit)
         
@@ -2995,7 +3002,7 @@ if __name__ == "__main__":
         for forecaster in forecasters:
             prediction_timedelta = int(forecaster.prediction_timedelta.total_seconds())
             forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.model_key.capitalize()}Forecast"
-            save_dir = os.path.join(args.save_dir, "validation_results", 
+            save_dir = os.path.join(validation_save_dir, 
                                 forecaster_name,
                                 str(prediction_timedelta))
             
@@ -3017,14 +3024,14 @@ if __name__ == "__main__":
         for f, forecaster in enumerate(forecasters):
             prediction_timedelta = forecaster.prediction_timedelta.total_seconds()
             forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.model_key.capitalize()}Forecast"
-            save_dir = os.path.join(args.save_dir, "validation_results", 
+            save_dir = os.path.join(validation_save_dir, 
                                     forecaster_name,
                                     str(int(prediction_timedelta)))
             
             forecast_path = os.path.join(save_dir, "forecast_*.csv")
             agg_metric_path = os.path.join(save_dir, "agg_metrics.csv")       
             
-            if args.rerun_validation or not os.path.exists(agg_metric_path):
+            if args.rerun_validation or not os.path.exists(agg_metric_path) or True:
                 logging.info(f"Loading forecast_df from {forecast_path}.")
                 forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
                             .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
@@ -3049,7 +3056,7 @@ if __name__ == "__main__":
         
         turbine_ids = ["5", "74", "75"]
         
-        true_long_path = os.path.join(args.save_dir, "validation_results", "true_long_df.csv")
+        true_long_path = os.path.join(validation_save_dir, "true_long_df.csv")
         if args.rerun_validation or not os.path.exists(true_long_path):
             test_data.unpivot(index=["time", "continuity_group"], variable_name="feature", value_name="value")\
                                          .with_columns(turbine_id=pl.col("feature").str.extract(f"(_)({forecaster.turbine_signature})$", group_index=2),
@@ -3066,7 +3073,7 @@ if __name__ == "__main__":
         for f, forecaster in enumerate(forecasters):
             forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.model_key.capitalize()}Forecast"
             prediction_timedelta = int(forecaster.prediction_timedelta.total_seconds())
-            save_dir = os.path.join(args.save_dir, "validation_results", 
+            save_dir = os.path.join(validation_save_dir, 
                                     forecaster_name,
                                     str(prediction_timedelta))
             if args.prediction_type == "distribution" and forecaster.is_probabilistic:
@@ -3114,7 +3121,6 @@ if __name__ == "__main__":
         cg = 9
         mean_cols = [f"{feat_type}_{tid}" for feat_type in ["loc_ws_horz", "loc_ws_vert"] for tid in data_module.target_suffixes]
         point_cols = [f"{feat_type}_{tid}" for feat_type in ["ws_horz", "ws_vert"] for tid in data_module.target_suffixes]
-        save_dir = os.path.join(args.save_dir, "validation_results")
         PLOT_ALL = False
         if PLOT_ALL:
             forecast_fig = WindForecast.plot_forecast(
@@ -3122,7 +3128,7 @@ if __name__ == "__main__":
                 true_long,
                 continuity_groups=[cg], turbine_ids=turbine_ids,
                 label=f"_all_forecasters_{data_config['config_label']}",
-                fig_dir=save_dir, include_turbine_legend=True,
+                fig_dir=validation_save_dir, include_turbine_legend=True,
                 feature_types=["ws_horz", "ws_vert"],
                 feature_labels=["$u$ Wind Speed (m/s)", "$v$ Wind Speed (m/s)"],
                 prediction_type="distribution",
@@ -3139,15 +3145,13 @@ if __name__ == "__main__":
             
             totals_agg_df = agg_df.filter((pl.col("test_idx")==-1) & (pl.col("turbine_id") == "all"))\
                                 .group_by(["forecaster", "metric", "prediction_timedelta"]).agg(pl.col("score").mean())
-                                
-            save_dir = os.path.join(args.save_dir, "validation_results")
                                     
             # generate scatterplot of metric vs prediction time for different models (different colors) and different metrics (different_styles) (crps, picp, pinaw, cwc, mse, mae)
             if True:
                 plot_score_vs_prediction_dt(totals_agg_df, 
                                             metrics=plotting_metrics,
                                             ax_indices=ax_indices,
-                                            fig_dir=save_dir)
+                                            fig_dir=validation_save_dir)
 
             # best_prediction_dt = agg_df.groupby(["metric", "prediction_timedelta"])["score"].mean().idxmax()
             # generate grouped barcharpt of metrics (crps, picp, pinaw, cwc, mse, mae) grouped together vs model on x axis for best prediction time
@@ -3161,6 +3165,6 @@ if __name__ == "__main__":
                                         metrics=plotting_metrics,
                                         ax_indices=ax_indices,
                                         prediction_intervals=totals_agg_df.select(pl.col("prediction_timedelta").unique()).to_numpy().flatten(),
-                                        fig_dir=save_dir)
+                                        fig_dir=validation_save_dir)
             
             print("here")
