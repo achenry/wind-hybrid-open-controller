@@ -2704,7 +2704,7 @@ if __name__ == "__main__":
     
     fmodel = FlorisModel(data_config["farm_input_path"])
     
-    validation_save_dir = os.path.join(args.save_dir, "validation_results_tmp")
+    validation_save_dir = os.path.join(args.save_dir, "validation_results")
     
     logging.info("Creating datasets")
     
@@ -2923,32 +2923,7 @@ if __name__ == "__main__":
                 forecasters.append(forecaster)
     
     continuity_groups = test_data.select(pl.col("continuity_group").unique()).to_numpy().flatten()
-    
-    for f, forecaster in enumerate(forecasters):
-        prediction_timedelta = forecaster.prediction_timedelta.total_seconds()
-        forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.model_key.capitalize()}Forecast"
-        save_dir = os.path.join(validation_save_dir, 
-                                forecaster_name,
-                                str(int(prediction_timedelta)))
-        os.makedirs(save_dir, exist_ok=True)
-        
-        forecast_paths = [os.path.join(save_dir, f"forecast_{cg}.csv") for cg in continuity_groups]
-        forecast_path = os.path.join(save_dir, f"forecast_*.csv")
-        
-        # if len(glob.glob(forecast_path)):
-        #     forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
-        #                     .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
-            # check that requested splits and time steps are available
-            # if (forecast_df.select(pl.col("continuity_group").unique().len()).item() >= args.max_splits)
                         
-        if args.rerun_validation or not all(os.path.exists(fp) for fp in forecast_paths):
-            # TODO also delete existing files if not rerun_validation but existing files have different number of time steps
-            if args.rerun_validation:
-                for f in glob.glob(forecast_path):
-                    logging.info(f"Removing existing file {f}.")
-                    os.remove(f)
-    
-    
     validation_to_run = []
     for forecaster in forecasters:
         prediction_timedelta = int(forecaster.prediction_timedelta.total_seconds())
@@ -2956,12 +2931,20 @@ if __name__ == "__main__":
         save_dir = os.path.join(validation_save_dir, 
                             forecaster_name,
                             str(prediction_timedelta))
-        
+        os.makedirs(save_dir, exist_ok=True)
         for c, cg in enumerate(continuity_groups):
             save_path = os.path.join(save_dir, f"forecast_{cg}.csv")
             if args.rerun_validation or not os.path.exists(save_path):
                 validation_to_run.append((forecaster, cg, save_path))
                 logging.info(f"Rerunning validation {forecaster_name, prediction_timedelta, save_path}")
+                logging.info(f"Removing existing file {save_path}.")
+                # TODO also delete existing files if not rerun_validation but existing files have different number of time steps
+                # if len(glob.glob(forecast_path)):
+                #     forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
+                #                     .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
+                    # check that requested splits and time steps are available
+                    # if (forecast_df.select(pl.col("continuity_group").unique().len()).item() >= args.max_splits)
+                os.remove(save_path)
             
     if args.multiprocessor:
         
