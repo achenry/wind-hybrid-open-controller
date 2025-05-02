@@ -1879,6 +1879,9 @@ class MLForecast(WindForecast):
         self.model_prediction_timedelta = self.data_module.prediction_length * pd.Timedelta(self.data_module.freq)
         assert self.model_prediction_timedelta >= self.prediction_timedelta, f"model fetched from checkpoint {checkpoint_path} is tuned for shorter prediction timedelta {self.model_prediction_timedelta} than the given one {self.prediction_timedelta}!"
 
+        self.n_context = int(self.context_timedelta / self.measurements_timedelta) # number of simulation time steps in a context horizon
+        # self.n_prediction = int(self.prediction_timedelta / self.measurements_timedelta) # number of simulation time steps in a prediction horizon
+        
         # Prepare all arguments in a dictionary # TODO HIGH add limit_train_batches and batch_size to hparams
         estimator_kwargs = {
             "freq": self.data_module.freq,
@@ -2701,7 +2704,7 @@ if __name__ == "__main__":
     
     fmodel = FlorisModel(data_config["farm_input_path"])
     
-    validation_save_dir = os.path.join(args.save_dir, "validation_results")
+    validation_save_dir = os.path.join(args.save_dir, "validation_results_tmp")
     
     logging.info("Creating datasets")
     
