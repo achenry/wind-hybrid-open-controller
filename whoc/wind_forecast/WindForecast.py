@@ -2967,8 +2967,8 @@ if __name__ == "__main__":
             executor = MPICommExecutor(MPI.COMM_WORLD, root=0, max_workers=max_workers)
         elif args.multiprocessor == "cf":
             # max_workers = mp.cpu_count()
-            executor = ProcessPoolExecutor(max_workers=max_workers)
-                                            # mp_context=mp.get_context("spawn"))
+            executor = ProcessPoolExecutor(max_workers=max_workers,
+                                            mp_context=mp.get_context("spawn"))
         
         logging.info(f"Running generate_forecaster_results with multiprocessor {args.multiprocessor} with {max_workers} workers.")
         with executor as ex:
