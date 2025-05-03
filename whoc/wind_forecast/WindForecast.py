@@ -853,19 +853,20 @@ class WindForecast:
         logging.info(f"Saving plot_forecast to {fig_path}")
         fig.savefig(fig_path)
         
-        xlim_rng = ax.get_xlim()[1] - ax.get_xlim()[0]
+        xlim_rng = axs[-1, -1].get_xlim()[1] - ax.get_xlim()[0]
         time_rng = x_end - x_start
         new_time_range = timedelta(minutes=15)
         new_time_lim = (x_start, x_start + new_time_range)
-        new_xlim = (ax.get_xlim()[0], ax.get_xlim()[0] + (new_time_range/time_rng)*xlim_rng)
+        new_xlim = (axs[-1, -1].get_xlim()[0], axs[-1, -1].get_xlim()[0] + (new_time_range/time_rng)*xlim_rng)
         n_ticks = 5
         xdelta = int(np.round((new_time_range/n_ticks).total_seconds() / 30) * 30) / 60
         new_xticks = np.linspace(new_xlim[0], new_xlim[1], n_ticks)
         new_xticklabels = [i * xdelta for i in range(n_ticks)]
         
-        ax.set_xlim(new_xlim)
-        ax.set_xticks(new_xticks)
-        ax.set_xticklabels(new_xticklabels)
+        for ax in axes[-1, :]:
+            ax.set_xlim(new_xlim)
+            ax.set_xticks(new_xticks)
+            ax.set_xticklabels(new_xticklabels)
         # plt.autoscale(enable=True, axis='y', tight=True)
         fig_path = fig_path.replace(".png", "_reduced.png")
         logging.info(f"Saving reduced plot_forecast to {fig_path}")
@@ -2333,11 +2334,13 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
     
     test_idx = 0
     
+    forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.model_key.capitalize()}Forecast"
+    
     for d, ds in enumerate(test_data):
         
         start = ds.select(pl.col("time").first()).item()
         end = ds.select(pl.col("time").last()).item()
-        logging.info(f"Getting predictions for {splits[d]}th split starting at {start} and ending at {end} using {forecaster.__class__.__name__} with prediction_timedelta {forecaster.prediction_timedelta}.")
+        logging.info(f"Getting predictions for {splits[d]}th split starting at {start} and ending at {end} using {forecaster_name} with prediction_timedelta {forecaster.prediction_timedelta}.")
         forecasts = []
         # split_true_wf = true_wind_field.filter(pl.col("time").is_between(start, end, closed="both"))
         logging.info(f"Getting controller times for {splits[d]}th split.")
@@ -2353,7 +2356,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
             current_time = current_row["time"]
             
             # if current_time - start >= forecaster.context_timedelta:
-            logging.info(f"Predicting future wind field using {forecaster.__class__.__name__} at time {current_time}/{end} of split {splits[d]}.")
+            logging.info(f"Predicting future wind field using {forecaster_name} with prediction_timedelta {forecaster.prediction_timedelta} at time {current_time}/{end} of split {splits[d]}.")
             if prediction_type == "distribution" and forecaster.is_probabilistic:
                 pred = forecaster.predict_distr(
                     ds.filter(pl.col("time") <= current_time), current_time)
@@ -2943,7 +2946,7 @@ if __name__ == "__main__":
                 
                 if os.path.exists(save_path):
                     logging.info(f"Removing existing file {save_path}.")
-                    os.remove(save_path)
+                    # os.remove(save_path)
             # elif os.path.exists(save_path):
             #     # TODO also delete existing files if not rerun_validation but existing files have different number of time steps
             #     forecast_df = pl.scan_csv(save_path, glob=True, try_parse_dates=True)\
