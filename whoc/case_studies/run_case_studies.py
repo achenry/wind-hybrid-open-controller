@@ -500,7 +500,16 @@ if __name__ == "__main__":
                 # PLOT 2) Yaw angles/power for persistent vs. other forecasters for best lead times
                 best_forecaster_prediction_delta = forecasters_agg_df.groupby("wind_forecast_class", group_keys=False).apply(lambda x: x.sort_values(by=("FarmPowerMean", "mean"), ascending=False).head(10)) #[("FarmPowerMean", "mean")] 
                 best_perfect_prediction_delta = perfect_agg_df.groupby("wind_forecast_class", group_keys=False).apply(lambda x: x.sort_values(by=("FarmPowerMean", "mean"), ascending=False).head(10))
-                plotting_cases = [(forecaster_case_fam, df[1]._name[1]) for df in baseline_agg_df.iterrows()]
+                
+                
+                # find best performing forecasters
+                forecasters_agg_df.groupby("prediction_timedelta", group_keys=False).apply(lambda x: x.sort_values(by=("FarmPowerMean", "mean"), ascending=False).head(10))
+                
+                # plot forecasters, persistent, perfect for 60/300sec predictions
+                perfect_case_names = perfect_agg_df.loc[perfect_agg_df["prediction_timdelta"].isin(pd.unique(forecasters_agg_df["prediction_timedelta"]))].index.get_level_values("CaseName")
+                persistence_case_names = forecasters_agg_df.loc[forecasters_agg_df["wind_forecast_class"] == "PersistenceForecast", :].index.get_level_values("CaseName")
+                plotting_cases = [(forecaster_case_fam, df[1]._name[1]) for df in forecasters_agg_df.iterrows()] \
+                                 + [("baseline_controllers_perfect_forecaster_awaken", cn) for cn in perfect_case_names]
                 plot_simulations(
                         time_series_df, plotting_cases, args.save_dir, include_power=True, 
                         legend_loc="outer", single_plot=False) 
