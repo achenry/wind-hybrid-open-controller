@@ -2582,11 +2582,11 @@ def plot_score_vs_forecaster(agg_df, metrics, ax_indices, prediction_intervals, 
     
     ax = sns.catplot(agg_df.filter((pl.col("metric").is_in(metrics))),
                 kind="bar", col="prediction_timedelta", row=0,
-                hue="metric", x="forecaster", y="score")
+                hue="metric", x="forecaster", y="score", hue_order=metrics)
     
-    
-    new_xticks = [" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", label._text).group())) for label in ax.axes[0, p].get_xticklabels()]
+    new_xticks = [" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", label._text).group())) for label in ax.axes[0, 0].get_xticklabels()]
     new_xticks = ["".join(label.split(" ")) if all(l.isupper() or l.isspace() for l in label) else label for label in new_xticks]
+    
     for p in range(ax.axes.shape[1]):
         ax.axes[0, p].set_title(f"Prediction Length {re.search('(?<=prediction_timedelta = )(\\d+)', ax.axes[0, p].title.get_text()).group()} sec")
         ax.axes[0, p].set_ylabel("")
@@ -2607,7 +2607,7 @@ def plot_score_vs_forecaster(agg_df, metrics, ax_indices, prediction_intervals, 
     logging.info(f"Saving plot_score_vs_forecaster to {fig_path}")
     fig.savefig(fig_path)
         
-    return figs
+    return fig
 
 if __name__ == "__main__":
     
@@ -3069,7 +3069,7 @@ if __name__ == "__main__":
                         .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
         
         # plot continuity group with best rmse score
-        PLOT_INDIVIDUAL = True
+        PLOT_INDIVIDUAL = False
         forecasts_long = []
         for f, forecaster in enumerate(forecasters):
             forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.model_key.capitalize()}Forecast"
@@ -3139,12 +3139,12 @@ if __name__ == "__main__":
                 prediction_type="distribution",
                 multiple_forecasters=True)
         
-        PLOT_METRICS = False
+        PLOT_METRICS = True
         if PLOT_METRICS:
             logging.info("PLotting aggregate metrics for all forecasts.")
             plotting_metrics_dirs = [(met, direc) for met, direc in 
                                 zip(["MAE", "RMSE", "PINAW", "CWC", "CRPS", "PICP"], [0, 0, 1, 1, 1, 1]) 
-                                if met in pd.unique(agg_df["metric"])]
+                                if met in agg_df["metric"].unique()]
             plotting_metrics = [v[0] for v in plotting_metrics_dirs]
             ax_indices = [v[1] for v in plotting_metrics_dirs]
             # plt.close()
@@ -3167,7 +3167,7 @@ if __name__ == "__main__":
             # best_prediction_dt = totals_agg_df.filter(pl.col("metric").is_in(["RMSE", "MAE", "CWC", "CRPS", "PINAW"])).group_by("prediction_timedelta").agg(pl.col("score").mean()).select(pl.col("prediction_timedelta").sort_by("score").first()).item()
             # totals_agg_df.filter(pl.col("prediction_timedelta") == best_prediction_dt),
             if True:
-                plot_score_vs_forecaster(totals_agg_df.filter(pl.col("metric").is_in(["RMSE", "MAE", "CWC", "PINAW", "PICP"])),
+                plot_score_vs_forecaster(totals_agg_df.filter(pl.col("metric").is_in(["RMSE", "MAE", "CWC", "PINAW", "PICP", "CRPS"])),
                                         metrics=plotting_metrics,
                                         ax_indices=ax_indices,
                                         prediction_intervals=totals_agg_df.select(pl.col("prediction_timedelta").unique()).to_numpy().flatten(),

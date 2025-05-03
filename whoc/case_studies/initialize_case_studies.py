@@ -749,15 +749,13 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
     model_configs = {}
     input_dicts = []
     case_lists = []
-    case_name_lists = []
     n_cases_list = []
     lut_cases = set()
     input_filenames = []
     for case_study_key in case_study_keys:
         input_df = []
-        case_list, case_names = CaseGen_General(case_studies[case_study_key], namebase=case_study_key)
+        case_list, _ = CaseGen_General(case_studies[case_study_key], namebase=case_study_key)
         case_lists = case_lists + case_list
-        case_name_lists = case_name_lists + case_names
         n_cases_list.append(len(case_list))
         
         # Load default settings and make copies
@@ -984,7 +982,8 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             with open(inp_path, 'wb') as fp:
                 pickle.dump(inp, fp) # TODO this adds different stop times for each file
             written_input_files.add(inp_path)
-            
+    
+    input_dicts = sorted(input_dicts, key=lambda case: case["wind_case_idx"], reverse=True)
     return input_dicts, wind_field_config, wind_field_ts
 
 # 0, 1, 2, 3, 6
