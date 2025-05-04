@@ -205,17 +205,12 @@ case_studies = {
                                         ]},
         "yaw_limits": {"group": 0, "vals": ["-15,15"]},
         "uncertain": {"group": 0, "vals": [False]},
-        # "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
-        # "prediction_timedelta": {"group": 1, "vals": [300, 60]},
-        # "target_turbine_indices": {"group": 1, "vals": ["74,73", "4,"]},
-        # "model_config_path": {"group": 1, "vals": [
-        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred300_svr.yaml"),, 
-        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred60_svr.yaml")]},
-        "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
-        "prediction_timedelta": {"group": 1, "vals": [300]},
-        "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
+        "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
+        "prediction_timedelta": {"group": 1, "vals": [300, 60]},
+        "target_turbine_indices": {"group": 1, "vals": ["74,73", "4,"]},
         "model_config_path": {"group": 1, "vals": [
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred300.yaml")]},
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred300_svr.yaml"),, 
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred60_svr.yaml")]},
         "wind_forecast_class": {"group": 2, "vals": ["SVRForecast", "SpatialFilterForecast", "PersistenceForecast", "PerfectForecast"]},
     },
     "baseline_controllers_baseline_prob_forecasters_awaken": {

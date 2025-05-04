@@ -3023,7 +3023,7 @@ if __name__ == "__main__":
                 
                 if os.path.exists(save_path):
                     logging.info(f"Removing existing file {save_path}.")
-                    # os.remove(save_path)
+                    os.remove(save_path)
             # elif os.path.exists(save_path):
             #     # TODO also delete existing files if not rerun_validation but existing files have different number of time steps
             #     forecast_df = pl.scan_csv(save_path, glob=True, try_parse_dates=True)\
@@ -3092,7 +3092,6 @@ if __name__ == "__main__":
             })
             # logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('continuity_group').unique()).to_numpy().flatten()} continuity_groups.")
             
-    # TODO persistence should have a sampling time of 5 sec, or only make a prediction prediction_length ahead
     if RUN_ONCE:
         # Generate agg_metrics for each forecaster
         for f, forecaster in enumerate(forecasters):
@@ -3216,7 +3215,7 @@ if __name__ == "__main__":
                 prediction_type="distribution",
                 multiple_forecasters=True)
         
-        PLOT_METRICS = False
+        PLOT_METRICS = True
         if PLOT_METRICS:
             logging.info("Plotting aggregate metrics for all forecasts.")
             plotting_metrics_dirs = [(met, direc) for met, direc in 
