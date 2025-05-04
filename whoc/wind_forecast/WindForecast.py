@@ -651,7 +651,7 @@ class WindForecast:
     def plot_forecast(forecast_wf, true_wf, continuity_groups=None, feature_types=None, feature_labels=None, prediction_type="point", 
                       per_turbine_target=False, turbine_ids="all", label="", fig_dir="./", include_turbine_legend=False, multiple_forecasters=True,
                       use_common_timedelta=True):
-        # TODO why are stastical methods continuity groups so short!!
+        
         # hue command either differentiates forecasters or turbines. When turbine != all, the turbines are shown on different plots
         assert (multiple_forecasters and turbine_ids != "all") or (not multiple_forecasters and turbine_ids == "all")
         
@@ -780,11 +780,12 @@ class WindForecast:
             elif prediction_type == "point":
                 if turbine_ids == "all":
                     sns.lineplot(data=forecast_wf.filter(pl.col("feature") == feat), x="time", y="value", 
-                                 hue="turbine_id", style="data_type", dashes=[[4, 4]], marker="o", ax=axs[f], err_style="bars", sort=True)
+                                 hue="turbine_id", style="data_type", dashes=[[4, 4]], marker="o", ax=axs[f], err_style="bars")
                 else:
                     for t, tid in enumerate(turbine_ids):
                         sns.lineplot(data=forecast_wf.filter((pl.col("feature") == feat) & (pl.col("turbine_id") == tid)), 
-                                     x="time", y="value", style="data_type", dashes=[[4, 4]], marker="o", ax=axs[t, f], err_style="bars", sort=True)
+                                     x="time", y="value", style="data_type", dashes=[[4, 4]], marker="o", ax=axs[t, f], 
+                                     hue="forecaster" if (multiple_forecasters and "forecaster" in forecast_wf.columns) else None, err_style="bars")
                     
             elif prediction_type == "sample":
                 raise NotImplementedError()
@@ -853,7 +854,7 @@ class WindForecast:
         logging.info(f"Saving plot_forecast to {fig_path}")
         fig.savefig(fig_path)
         
-        xlim_rng = axs[-1, -1].get_xlim()[1] - ax.get_xlim()[0]
+        xlim_rng = axs[-1, -1].get_xlim()[1] - axs[-1, -1].get_xlim()[0]
         time_rng = x_end - x_start
         new_time_range = timedelta(minutes=15)
         new_time_lim = (x_start, x_start + new_time_range)
@@ -863,7 +864,7 @@ class WindForecast:
         new_xticks = np.linspace(new_xlim[0], new_xlim[1], n_ticks)
         new_xticklabels = [i * xdelta for i in range(n_ticks)]
         
-        for ax in axes[-1, :]:
+        for ax in axs[-1, :]:
             ax.set_xlim(new_xlim)
             ax.set_xticks(new_xticks)
             ax.set_xticklabels(new_xticklabels)
@@ -3069,7 +3070,7 @@ if __name__ == "__main__":
                         .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
         
         # plot continuity group with best rmse score
-        PLOT_INDIVIDUAL = False
+        PLOT_INDIVIDUAL = True
         forecasts_long = []
         for f, forecaster in enumerate(forecasters):
             forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.model_key.capitalize()}Forecast"
@@ -3122,7 +3123,7 @@ if __name__ == "__main__":
         cg = 9
         mean_cols = [f"{feat_type}_{tid}" for feat_type in ["loc_ws_horz", "loc_ws_vert"] for tid in data_module.target_suffixes]
         point_cols = [f"{feat_type}_{tid}" for feat_type in ["ws_horz", "ws_vert"] for tid in data_module.target_suffixes]
-        PLOT_ALL = False
+        PLOT_ALL = True
         if PLOT_ALL:
             logging.info("Concatenating forecasts together.")
             forecasts_long = pl.concat(forecasts_long, how="vertical")
@@ -3139,9 +3140,9 @@ if __name__ == "__main__":
                 prediction_type="distribution",
                 multiple_forecasters=True)
         
-        PLOT_METRICS = True
+        PLOT_METRICS = False
         if PLOT_METRICS:
-            logging.info("PLotting aggregate metrics for all forecasts.")
+            logging.info("Plotting aggregate metrics for all forecasts.")
             plotting_metrics_dirs = [(met, direc) for met, direc in 
                                 zip(["MAE", "RMSE", "PINAW", "CWC", "CRPS", "PICP"], [0, 0, 1, 1, 1, 1]) 
                                 if met in agg_df["metric"].unique()]
