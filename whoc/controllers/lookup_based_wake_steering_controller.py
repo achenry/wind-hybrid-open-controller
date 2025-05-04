@@ -503,7 +503,24 @@ class LookupBasedWakeSteeringController(ControllerBase):
                 target_yaw_offsets = self.wake_steering_interpolant(wd_inp, wm_inp)
             
             target_yaw_setpoints = np.mod(np.rint((wind_dirs - target_yaw_offsets) / self.yaw_increment) * self.yaw_increment, 360.0)
-        
+
+            # test_arr_new = [np.array([1, 1]), np.array([359, 1]), np.array([359, 359]), np.array([1, 359])]
+            # test_arr_current = [np.array([1, 1]), np.array([359, 1]), np.array([359, 359]), np.array([1, 359])]
+            # print("\n\n")
+            # for tys in test_arr_new:
+            #     for cys in test_arr_current:
+            #         setpoint_change = tys - cys
+            #         abs_setpoint_change = np.vstack([np.abs(setpoint_change), 360.0 - np.abs(setpoint_change)]) 
+            #         setpoint_change_idx = np.argmin(abs_setpoint_change, axis=0) # if == 0, need to change within 360 deg, otherwise if == 1 faster to cross 360/0 boundary
+            #         abs_setpoint_change = abs_setpoint_change[setpoint_change_idx, np.arange(self.n_turbines)]
+            #         dir_setpoint_change = np.sign(setpoint_change)
+            #         dir_setpoint_change[setpoint_change_idx == 1] = -dir_setpoint_change[setpoint_change_idx == 1]
+            #         # is_target_changing = (abs_setpoint_change > self.deadband_thr) & ~self.is_yawing
+            #         # new_yaw_setpoints[is_target_changing] = new_yaw_setpoints[is_target_changing] + dir_setpoint_change[is_target_changing] * abs_setpoint_change[is_target_changing]
+            #         nys = cys + dir_setpoint_change * abs_setpoint_change
+            #         print(f"current = {cys}, target = {tys}, new setpoints = {nys}")
+            #         print(f"abs_setpoint_change = {abs_setpoint_change}, dir_setpoint_change = {dir_setpoint_change}\n")
+            
             # change the turbine yaw setpoints that have surpassed the threshold difference AND are not already yawing towards a previous setpoint
             setpoint_change = target_yaw_setpoints - current_yaw_setpoints
             abs_setpoint_change = np.vstack([np.abs(setpoint_change), 360.0 - np.abs(setpoint_change)]) 
@@ -532,9 +549,19 @@ class LookupBasedWakeSteeringController(ControllerBase):
         # 	logging.info(f"LUT Controller current_setpoints = {current_yaw_setpoints}, \n previous_target_yaw_setpoints = {self.previous_target_yaw_setpoints}, \n target_setpoints={target_yaw_setpoints}")
         
         new_yaw_setpoints[reaching_setpoints_cond] = self.previous_target_yaw_setpoints[reaching_setpoints_cond].copy()
-
+        
+        # cys = np.array([0, 0.3])
+        # nys = np.array([-1, -1])
+        # # pys = np.mod(np.rint(nys / self.yaw_increment) * self.yaw_increment, 360)
+        # pys = np.rint(nys / self.yaw_increment) * self.yaw_increment
+        # lb, ub = cys - self.simulation_dt * self.yaw_rate, cys + self.simulation_dt * self.yaw_rate
+        # cys = np.mod(np.clip(nys, lb, ub), 360.0)
+        # nys = pys
+        # lb, ub = cys - self.simulation_dt * self.yaw_rate, cys + self.simulation_dt * self.yaw_rate
+        # cons_ys = np.mod(np.clip(nys, lb, ub), 360.0)
+        
         # stores target setpoints from prevoius compute_controls calls, update only those elements which are not already yawing towards a previous setpoint
-        self.previous_target_yaw_setpoints = np.mod(np.rint(new_yaw_setpoints / self.yaw_increment) * self.yaw_increment, 360)
+        self.previous_target_yaw_setpoints = np.rint(new_yaw_setpoints / self.yaw_increment) * self.yaw_increment
         
         lb, ub = current_yaw_setpoints - self.simulation_dt * self.yaw_rate, current_yaw_setpoints + self.simulation_dt * self.yaw_rate
         constrained_yaw_setpoints = np.mod(np.clip(new_yaw_setpoints, lb, ub), 360.0)
@@ -550,7 +577,7 @@ class LookupBasedWakeSteeringController(ControllerBase):
         
         # self.init_sol = {"states": list(constrained_yaw_setpoints / self.yaw_norm_const)}
         # self.init_sol["control_inputs"] = (constrained_yaw_setpoints - self.controls_dict["yaw_angles"]) * (self.yaw_norm_const / (self.yaw_rate * self.controller_dt))
-        
+        self.controls_dict = {"yaw_angles": list(constrained_yaw_setpoints)} 
         if self.wind_forecast:
             # wf.filter(pl.col("time") < pl.col("time").first() + preview_forecast.controller_timedelta)
             if use_wind_forecast:
@@ -562,14 +589,7 @@ class LookupBasedWakeSteeringController(ControllerBase):
             else:
                 newest_predictions = None
             # print(newest_predictions)
-            self.controls_dict = {
-                "yaw_angles": list(constrained_yaw_setpoints),
-                "predicted_wind_speeds": newest_predictions
-                # "predicted_wind_speeds_vert": newest_predictions[self.mean_ws_vert_cols].values
-            }
-        else:
-            self.controls_dict = {"yaw_angles": list(constrained_yaw_setpoints)} 
-
+            self.controls_dict["predicted_wind_speeds"] = newest_predictions
             
         return None
 

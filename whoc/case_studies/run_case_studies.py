@@ -124,8 +124,8 @@ if __name__ == "__main__":
     #     wind_field_config = comm.bcast(wind_field_config, root=0)
     #     wind_field_ts = comm.bcast(wind_field_ts, root=0)
     
-    #     logging.info(f"Resetting args.n_seeds to {len(wind_field_ts)}")
-    #     args.n_seeds = len(wind_field_ts)
+    logging.info(f"Resetting args.n_seeds to {len(wind_field_ts)}")
+    args.n_seeds = len(wind_field_ts)
             
     # if GPUs are available, use one CPU and one GPU per task
     if "CUDA_VISIBLE_DEVICES" in os.environ:
@@ -348,7 +348,8 @@ if __name__ == "__main__":
                             if res is not None:
                                 new_agg_df.append(res)
 
-                new_agg_df = pd.concat(new_agg_df)
+                # if new_agg_df:
+                #     new_agg_df = pd.concat(new_agg_df)
 
                 existing_agg_df = []
                 for i in args.case_ids:
@@ -361,7 +362,8 @@ if __name__ == "__main__":
                     if args.reaggregate_simulations or not os.path.exists(os.path.join(args.save_dir, case_families[i], "agg_results_all.csv")):
                         write_case_family_agg_data(case_families[i], new_agg_df, args.save_dir)
                 
-                agg_df = pd.concat(existing_agg_df + [new_agg_df])
+                all_agg_dfs = [df for df in existing_agg_df + new_agg_df if df.shape[0]]
+                agg_df = pd.concat(all_agg_dfs)
 
         elif RUN_ONCE:
             time_series_df = []
@@ -412,6 +414,79 @@ if __name__ == "__main__":
 
         if RUN_ONCE and PLOT:
             
+            if any(case_families.index(cf) in args.case_ids for cf in 
+                   ["baseline_controllers_informer_forecasters_awaken", "baseline_controllers_autoformer_forecasters_awaken",
+                    "baseline_controllers_spacetimeformer_forecasters_awaken", "baseline_controllers_tactis_forecasters_awaken",
+                    "baseline_controllers_baseline_det_forecasters_awaken", "baseline_controllers_baseline_prob_forecasters_awaken"]):
+                from whoc.wind_forecast.WindForecast import WindForecast
+                from wind_forecasting.preprocessing.data_inspector import DataInspector
+                # TODO HIGH only compare time after context_length, since SVR/ML assume persistence until then
+                # if case_families.index("baseline_controllers_ml_forecasters_awaken") in args.case_ids:
+                #     forecaster_case_fam = "baseline_controllers_ml_forecasters_awaken"
+                # elif case_families.index("baseline_controllers_baseline_det_forecasters_awaken") in args.case_ids:
+                #     forecaster_case_fam = "baseline_controllers_baseline_det_forecasters_awaken"
+                # elif case_families.index("baseline_controllers_baseline_det_forecasters_awaken") in args.case_ids:
+                #     forecaster_case_fam = "baseline_controllers_baseline_det_forecasters_awaken"
+                
+                cfs = ["baseline_controllers_informer_forecasters_awaken", "baseline_controllers_autoformer_forecasters_awaken",
+                    "baseline_controllers_spacetimeformer_forecasters_awaken", "baseline_controllers_tactis_forecasters_awaken", 
+                    "baseline_controllers_baseline_det_forecasters_awaken", "baseline_controllers_baseline_prob_forecasters_awaken"]
+                
+                baseline_time_df = time_series_df.loc[time_series_df.index.get_level_values("CaseFamily").isin(cfs), :] #.reset_index(level="CaseFamily", drop=True)
+                baseline_agg_df = agg_df.loc[agg_df.index.get_level_values("CaseFamily").isin(cfs), :] #.reset_index(level="CaseFamily", drop=True)
+                
+                config_cols = ["controller_class", "wind_forecast_class", "prediction_timedelta", "uncertain", "model_key"]
+                
+                for (case_family, case_name), _ in baseline_agg_df.iterrows():
+                # for case_name, _ in baseline_time_df.iterrows():    
+                    # input_fn = [fn for fn in os.listdir(os.path.join(args.save_dir, case_family)) if "input_config" in fn and case_name in fn][0]
+                    input_fn = f"input_config_case_{case_name}.pkl"
+                    with open(os.path.join(args.save_dir, case_family, input_fn), mode='rb') as fp:
+                        input_config = pickle.load(fp)
+                        
+                    full_config = {**input_config["controller"], **input_config["wind_forecast"]}
+                    for col in config_cols:
+                        baseline_time_df.loc[(baseline_time_df.index.get_level_values("CaseFamily") == case_family) & 
+                                            (baseline_time_df.index.get_level_values("CaseName") == case_name), col] = full_config[col]
+                        baseline_agg_df.loc[(baseline_agg_df.index.get_level_values("CaseFamily") == case_family) & 
+                                            (baseline_agg_df.index.get_level_values("CaseName") == case_name), col] = full_config[col]
+                
+                ml_cond = baseline_agg_df["wind_forecast_class"] == "MLForecast"
+                baseline_agg_df.loc[ml_cond, "wind_forecast_class"] = (baseline_agg_df.loc[ml_cond, "model_key"].str.capitalize() + "Forecast").values
+               
+                # Filter data for the two forecast types
+                forecasters_agg_df = baseline_agg_df.loc[baseline_agg_df["wind_forecast_class"] != "PerfectForecast", :]
+                perfect_agg_df = baseline_agg_df.loc[baseline_agg_df["wind_forecast_class"] == "PerfectForecast", :]
+                controllers = pd.unique(perfect_agg_df["controller_class"])
+                
+                # PLOT 0) Farm power of perfect forecaster vs prediction timedela for different controllers
+                # controller_labels = {"GreedyController": "Greedy", "LookupBasedWakeSteeringController": "LUT"}
+                controller_labels = {"LookupBasedWakeSteeringController": "LUT"}
+                plot_agg_metrics_vs_forecaster(baseline_agg_df,
+                                               save_dir=args.save_dir, label="all_forecasters_",
+                                               controller_labels=controller_labels)
+                
+                # PLOT 1) Farm power of perfect forecaster vs prediction timedela for different controllers
+                # plot_power_vs_prediction_time(baseline_agg_df, args.save_dir, "all_forecasters_")
+                
+                # PLOT 2) Yaw angles/power for persistent vs. other forecasters for best lead times
+                best_forecaster_prediction_delta = forecasters_agg_df.groupby("wind_forecast_class", group_keys=False).apply(lambda x: x.sort_values(by=("FarmPowerMean", "mean"), ascending=False).head(10)) #[("FarmPowerMean", "mean")] 
+                best_perfect_prediction_delta = perfect_agg_df.groupby("wind_forecast_class", group_keys=False).apply(lambda x: x.sort_values(by=("FarmPowerMean", "mean"), ascending=False).head(10))
+                
+                
+                # find best performing forecasters
+                forecasters_agg_df.groupby("prediction_timedelta", group_keys=False).apply(lambda x: x.sort_values(by=("FarmPowerMean", "mean"), ascending=False).head(10))
+                
+                # plot forecasters, persistent, perfect for 60/300sec predictions
+                perfect_case_names = perfect_agg_df.loc[perfect_agg_df["prediction_timedelta"].isin(pd.unique(forecasters_agg_df["prediction_timedelta"]))].index.get_level_values("CaseName")
+                persistence_case_names = forecasters_agg_df.loc[forecasters_agg_df["wind_forecast_class"] == "PersistenceForecast", :].index.get_level_values("CaseName")
+                plotting_cases = [(df[1]._name[0], df[1]._name[1]) for df in forecasters_agg_df.iterrows()] \
+                                 + [("baseline_controllers_perfect_forecaster_awaken", cn) for cn in perfect_case_names]
+                plot_simulations(
+                        time_series_df, plotting_cases, args.save_dir, include_power=True, 
+                        legend_loc="outer", single_plot=False) 
+            
+            
             if (case_families.index("baseline_controllers_perfect_forecaster_awaken") in args.case_ids
                 or case_families.index("baseline_controllers_perfect_forecaster_flasc") in args.case_ids):
                 if case_families.index("baseline_controllers_perfect_forecaster_awaken") in args.case_ids:
@@ -446,74 +521,7 @@ if __name__ == "__main__":
                 plot_df = plot_df.set_index(["controller_class", "prediction_timedelta"])
                 plot_df["power_ratio"] = (plot_df[("FarmPowerMean", "mean")] / perfect_agg_df.set_index(["controller_class", "prediction_timedelta"])[("FarmPowerMean", "mean")]) * 100
                 plot_df = plot_df.reset_index()
-                # plot_power_increase_vs_prediction_time(plot_df, args.save_dir)
-
-            
-            if any(case_families.index(cf) in args.case_ids for cf in 
-                   ["baseline_controllers_informer_forecasters_awaken", "baseline_controllers_autoformer_forecasters_awaken",
-                    "baseline_controllers_spacetimeformer_forecasters_awaken", "baseline_controllers_tactis_forecasters_awaken",
-                    "baseline_controllers_baseline_det_forecasters_awaken", "baseline_controllers_baseline_prob_forecasters_awaken"]):
-                from whoc.wind_forecast.WindForecast import WindForecast
-                from wind_forecasting.preprocessing.data_inspector import DataInspector
-                # TODO HIGH only compare time after context_length, since SVR/ML assume persistence until then
-                # if case_families.index("baseline_controllers_ml_forecasters_awaken") in args.case_ids:
-                #     forecaster_case_fam = "baseline_controllers_ml_forecasters_awaken"
-                # elif case_families.index("baseline_controllers_baseline_det_forecasters_awaken") in args.case_ids:
-                #     forecaster_case_fam = "baseline_controllers_baseline_det_forecasters_awaken"
-                # elif case_families.index("baseline_controllers_baseline_det_forecasters_awaken") in args.case_ids:
-                #     forecaster_case_fam = "baseline_controllers_baseline_det_forecasters_awaken"
-                
-                cfs = ["baseline_controllers_informer_forecasters_awaken", "baseline_controllers_autoformer_forecasters_awaken",
-                    "baseline_controllers_spacetimeformer_forecasters_awaken", "baseline_controllers_tactis_forecasters_awaken", 
-                    "baseline_controllers_baseline_det_forecasters_awaken", "baseline_controllers_baseline_prob_forecasters_awaken"]
-                
-                baseline_time_df = time_series_df.loc[time_series_df.index.get_level_values("CaseFamily").isin(cfs), :] #.reset_index(level="CaseFamily", drop=True)
-                baseline_agg_df = agg_df.loc[agg_df.index.get_level_values("CaseFamily").isin(cfs), :] #.reset_index(level="CaseFamily", drop=True)
-                
-                config_cols = ["controller_class", "wind_forecast_class", "prediction_timedelta", "uncertain"]
-                
-                for (case_family, case_name), _ in baseline_agg_df.iterrows():
-                # for case_name, _ in baseline_time_df.iterrows():    
-                    # input_fn = [fn for fn in os.listdir(os.path.join(args.save_dir, case_family)) if "input_config" in fn and case_name in fn][0]
-                    input_fn = f"input_config_case_{case_name}.pkl"
-                    with open(os.path.join(args.save_dir, case_family, input_fn), mode='rb') as fp:
-                        input_config = pickle.load(fp)
-                        
-                    full_config = {**input_config["controller"], **input_config["wind_forecast"]}
-                    for col in config_cols:
-                        baseline_time_df.loc[(baseline_time_df.index.get_level_values("CaseFamily") == case_family) & 
-                                            (baseline_time_df.index.get_level_values("CaseName") == case_name), col] = full_config[col]
-                        baseline_agg_df.loc[(baseline_agg_df.index.get_level_values("CaseFamily") == case_family) & 
-                                            (baseline_agg_df.index.get_level_values("CaseName") == case_name), col] = full_config[col]
-
-                # Filter data for the two forecast types
-                forecasters_agg_df = baseline_agg_df.loc[baseline_agg_df["wind_forecast_class"] != "PerfectForecast", :]
-                perfect_agg_df = baseline_agg_df.loc[baseline_agg_df["wind_forecast_class"] == "PerfectForecast", :]
-                controllers = pd.unique(perfect_agg_df["controller_class"])
-                
-                # PLOT 0) Farm power of perfect forecaster vs prediction timedela for different controllers
-                plot_agg_metrics_vs_forecaster(baseline_agg_df, args.save_dir, "all_forecasters_")
-                
-                # PLOT 1) Farm power of perfect forecaster vs prediction timedela for different controllers
-                plot_power_vs_prediction_time(baseline_agg_df, args.save_dir, "all_forecasters_")
-                
-                # PLOT 2) Yaw angles/power for persistent vs. other forecasters for best lead times
-                best_forecaster_prediction_delta = forecasters_agg_df.groupby("wind_forecast_class", group_keys=False).apply(lambda x: x.sort_values(by=("FarmPowerMean", "mean"), ascending=False).head(10)) #[("FarmPowerMean", "mean")] 
-                best_perfect_prediction_delta = perfect_agg_df.groupby("wind_forecast_class", group_keys=False).apply(lambda x: x.sort_values(by=("FarmPowerMean", "mean"), ascending=False).head(10))
-                
-                
-                # find best performing forecasters
-                forecasters_agg_df.groupby("prediction_timedelta", group_keys=False).apply(lambda x: x.sort_values(by=("FarmPowerMean", "mean"), ascending=False).head(10))
-                
-                # plot forecasters, persistent, perfect for 60/300sec predictions
-                perfect_case_names = perfect_agg_df.loc[perfect_agg_df["prediction_timdelta"].isin(pd.unique(forecasters_agg_df["prediction_timedelta"]))].index.get_level_values("CaseName")
-                persistence_case_names = forecasters_agg_df.loc[forecasters_agg_df["wind_forecast_class"] == "PersistenceForecast", :].index.get_level_values("CaseName")
-                plotting_cases = [(forecaster_case_fam, df[1]._name[1]) for df in forecasters_agg_df.iterrows()] \
-                                 + [("baseline_controllers_perfect_forecaster_awaken", cn) for cn in perfect_case_names]
-                plot_simulations(
-                        time_series_df, plotting_cases, args.save_dir, include_power=True, 
-                        legend_loc="outer", single_plot=False) 
-                
+                # plot_power_increase_vs_prediction_time(plot_df, args.save_dir)    
             
             if ((case_families.index("baseline_controllers") in args.case_ids)):
                 mpc_df = agg_df.iloc[agg_df.index.get_level_values("CaseFamily") != "baseline_controllers"]
