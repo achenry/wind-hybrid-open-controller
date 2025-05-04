@@ -48,6 +48,8 @@ class GreedyController(ControllerBase):
         
         self.ws_horz_cols = self.mean_ws_horz_cols = [f"ws_horz_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.idx2tid_mapping))]
         self.ws_vert_cols = self.mean_ws_vert_cols = [f"ws_vert_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.idx2tid_mapping))]
+        self.nd_sin_cols = [f"nd_sin_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.tid2idx_mapping))]
+        self.nd_cos_cols = [f"nd_cos_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.tid2idx_mapping))]
         
         self.historic_measurements = None 
         # self.historic_measurements = pd.DataFrame(columns=["time"] 
@@ -161,11 +163,11 @@ class GreedyController(ControllerBase):
         if self.wind_dir_use_filt or self.wind_forecast:
             if self.historic_measurements is not None:
                 self.historic_measurements = pl.concat([self.historic_measurements, 
-                                                        pl.from_pandas(current_measurements[["time"] + self.ws_horz_cols + self.ws_vert_cols])], how="vertical")\
+                                                        pl.from_pandas(current_measurements[["time"] + self.ws_horz_cols + self.ws_vert_cols + self.nd_cos_cols + self.nd_sin_cols])], how="vertical")\
                                                             .tail(max(int(np.ceil(self.wind_dir_lpf_time_const // self.simulation_dt) * 50), 
                                                                       self.wind_forecast.n_context))
             else:
-                self.historic_measurements = pl.from_pandas(current_measurements[["time"] + self.ws_horz_cols + self.ws_vert_cols])
+                self.historic_measurements = pl.from_pandas(current_measurements[["time"] + self.ws_horz_cols + self.ws_vert_cols + self.nd_cos_cols + self.nd_sin_cols])
                 
         # NOTE: this is run every simulation_dt, not every controller_dt, because the yaw angle may be moving gradually towards the correct setpoint
         

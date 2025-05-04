@@ -2635,8 +2635,8 @@ def plot_score_vs_prediction_dt(agg_df, metrics, ax_indices, fig_dir):
     ax.set_xticks(agg_df.select(pl.col("prediction_timedelta").unique()).to_numpy().flatten())
     new_labels = [" ".join(re.findall("[A-Z][^A-Z]*", re.search("(\\w+)(?=Forecast)(\\w+)", label).group())) 
                   if ("Forecast" in label) else (label.capitalize() if not label[0].isupper() else label).replace("_", " ") for label in l]
-    
-    new_labels = ["".join(label.split(" ")) if all(l.isupper() or l.isspace() for l in label) else label for label in new_labels]
+    new_labels[new_labels.index("S V R Forecast")] = "SVR Forecast" # TODO automate this with re replace etc
+    # new_labels = ["".join(label.split(" ")) if all(label[l].isupper() for l in range(0, len(label)-1, 2) if (label[l+1].isspace() or (l+1 == len(label)-1))) else label for label in new_labels]
     
     l1, l2 = new_labels[:new_labels.index("Metric")], new_labels[new_labels.index("Metric"):]
     h1, h2 = h[:new_labels.index("Metric")], h[new_labels.index("Metric"):]
@@ -3145,7 +3145,7 @@ if __name__ == "__main__":
                         .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
         
         # plot continuity group with best rmse score
-        PLOT_INDIVIDUAL = True
+        PLOT_INDIVIDUAL = False
         forecasts_long = []
         for f, forecaster in enumerate(forecasters):
             forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.model_key.capitalize()}Forecast"
@@ -3215,7 +3215,7 @@ if __name__ == "__main__":
                 prediction_type="distribution",
                 multiple_forecasters=True)
         
-        PLOT_METRICS = True
+        PLOT_METRICS = False
         if PLOT_METRICS:
             logging.info("Plotting aggregate metrics for all forecasts.")
             plotting_metrics_dirs = [(met, direc) for met, direc in 
@@ -3229,7 +3229,7 @@ if __name__ == "__main__":
                                 .group_by(["forecaster", "metric", "prediction_timedelta"]).agg(pl.col("score").mean())
                                     
             # generate scatterplot of metric vs prediction time for different models (different colors) and different metrics (different_styles) (crps, picp, pinaw, cwc, mse, mae)
-            if True:
+            if False:
                 plot_score_vs_prediction_dt(totals_agg_df, 
                                             metrics=plotting_metrics,
                                             ax_indices=ax_indices,

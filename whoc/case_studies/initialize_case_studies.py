@@ -103,7 +103,7 @@ case_studies = {
         "wind_forecast_class": {"group": 1, "vals": ["PerfectForecast", "PerfectForecast"]},
         "prediction_timedelta": {"group": 2, "vals": [60, 120, 180]} #240, 300, 360, 420, 480, 540, 600, 660, 720, 780, 840, 900, 960, 1020, 1080]},
         },
-    "baseline_controllers_informer_forecasters_awaken": {
+    "baseline_controllers_informer_forecasters_awaken_tmp": {
         "n_horizon": {"group": 0, "vals": [0]},
         "controller_dt": {"group": 0, "vals": [5]},
         "use_filtered_wind_dir": {"group": 0, "vals": [True]},
@@ -114,18 +114,18 @@ case_studies = {
         "lut_path": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4_lut.csv",]},
         "yaw_limits": {"group": 0, "vals": ["-15,15"]},
         "wind_forecast_class": {"group": 0, "vals": ["MLForecast"]},
-        "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController", "GreedyController"]},
-        # "model_config_path": {"group": 1, "vals": [
-        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred300.yaml"), 
-        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred300.yaml"), 
-        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred60.yaml")]},
+        "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController"]},
         "model_config_path": {"group": 1, "vals": [
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred300.yaml"), 
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred300.yaml"), 
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred60.yaml")]},
-        "prediction_timedelta": {"group": 1, "vals": [300, 300, 60]},
-        "uncertain": {"group": 1, "vals": [True, False, False]},
-        "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73", "4,"]},
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred60.yaml"),
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred300.yaml"), 
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred300.yaml")]},
+        # "model_config_path": {"group": 1, "vals": [
+        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred60.yaml"),
+        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred300.yaml"), 
+        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred300.yaml")]},
+        "prediction_timedelta": {"group": 1, "vals": [60, 300, 300]},
+        "uncertain": {"group": 1, "vals": [False, True, False]},
+        "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73", "74,73"]},
         "model_key": {"group": 2, "vals": ["informer"]} # 
     },
     "baseline_controllers_autoformer_forecasters_awaken": {
@@ -991,7 +991,7 @@ case_families = [
      "gradient_type", "n_wind_preview_samples", # 9, 10
      "generate_sample_figures", "baseline_controllers_3", # 11, 12
      "cost_func_tuning_small", "sr_solve", # 13, 14
-     "baseline_controllers_informer_forecasters_awaken", "baseline_controllers_autoformer_forecasters_awaken", # 15, 16
+     "baseline_controllers_informer_forecasters_awaken_tmp", "baseline_controllers_autoformer_forecasters_awaken", # 15, 16
      "baseline_controllers_spacetimeformer_forecasters_awaken", "baseline_controllers_tactis_forecasters_awaken", # 17, 18
      "baseline_controllers_baseline_det_forecasters_awaken", "baseline_controllers_baseline_prob_forecasters_awaken", # 19, 20
      "baseline_controllers_perfect_forecaster_flasc", "baseline_controllers_perfect_forecaster_awaken", # 21, 22
