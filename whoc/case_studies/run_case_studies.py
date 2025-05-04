@@ -115,17 +115,19 @@ if __name__ == "__main__":
                                         wf_source=args.wf_source,
                                         multiprocessor=args.multiprocessor, 
                                         whoc_config=whoc_config, base_model_config=model_config)
+        logging.info(f"Resetting args.n_seeds to {len(wind_field_ts)}")
+        args.n_seeds = len(wind_field_ts)
         
-    else:
-        input_dicts, wind_field_config, wind_field_ts = None, None, None
+    # else:
+    #     input_dicts, wind_field_config, wind_field_ts = None, None, None
         
-    if args.multiprocessor == "mpi":
-        input_dicts = comm.bcast(input_dicts, root=0)
-        wind_field_config = comm.bcast(wind_field_config, root=0)
-        wind_field_ts = comm.bcast(wind_field_ts, root=0)
+    # if args.multiprocessor == "mpi":
+    #     input_dicts = comm.bcast(input_dicts, root=0)
+    #     wind_field_config = comm.bcast(wind_field_config, root=0)
+    #     wind_field_ts = comm.bcast(wind_field_ts, root=0)
     
-    logging.info(f"Resetting args.n_seeds to {len(wind_field_ts)}")
-    args.n_seeds = len(wind_field_ts)
+    # 
+    
             
     # if GPUs are available, use one CPU and one GPU per task
     if "CUDA_VISIBLE_DEVICES" in os.environ:
