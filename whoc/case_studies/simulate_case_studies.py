@@ -39,6 +39,32 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     save_path = os.path.join(results_dir, fn)
     temp_save_path = os.path.join(results_dir, fn.replace(".csv", "_temp.csv"))
     
+    # Load a FLORIS object for power calculations
+    fi = ControlledFlorisModel(t0=kwargs["wind_field_ts"].select(pl.col("time").first()).item(),
+                               yaw_limits=simulation_input_dict["controller"]["yaw_limits"],
+                                offline_probability=simulation_input_dict["controller"]["offline_probability"],
+                                simulation_dt=simulation_input_dict["simulation_dt"],
+                                yaw_rate=simulation_input_dict["controller"]["yaw_rate"],
+                                config_path=simulation_input_dict["controller"]["floris_input_file"],
+                                target_turbine_indices=simulation_input_dict["controller"]["target_turbine_indices"] or "all",
+                                uncertain=simulation_input_dict["controller"]["uncertain"],
+                                turbine_signature=kwargs["turbine_signature"],
+                                tid2idx_mapping=kwargs["tid2idx_mapping"])
+     
+    if simulation_input_dict["controller"]["target_turbine_indices"] != "all":
+        fi_full = ControlledFlorisModel(t0=kwargs["wind_field_ts"].select(pl.col("time").first()).item(),
+                                    yaw_limits=simulation_input_dict["controller"]["yaw_limits"],
+                                        offline_probability=simulation_input_dict["controller"]["offline_probability"],
+                                        simulation_dt=simulation_input_dict["simulation_dt"],
+                                        yaw_rate=simulation_input_dict["controller"]["yaw_rate"],
+                                        config_path=simulation_input_dict["controller"]["floris_input_file"],
+                                        target_turbine_indices="all",
+                                        uncertain=simulation_input_dict["controller"]["uncertain"],
+                                        turbine_signature=kwargs["turbine_signature"],
+                                        tid2idx_mapping=kwargs["tid2idx_mapping"])
+    else:
+        fi_full = fi
+    
     if not kwargs["tid2idx_mapping"]:
         kwargs["tid2idx_mapping"] = {i: i for i in np.arange(fi_full.n_turbines)}
     idx2tid_mapping = dict([(v, k) for k, v in kwargs["tid2idx_mapping"].items()])
@@ -68,34 +94,12 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         n_turbines = len([col for col in results_df if col.startswith("TurbineYawAngle_")])
         simulation_input_dict["controller"]["initial_conditions"]["yaw"] = \
             results_df.iloc[-1][[f"TurbineYawAngle_{idx2tid_mapping[simulation_input_dict['controller']['target_turbine_indices'][i]]}" for i in range(n_turbines)]].values
-    
+    else:
+        t = 0
+        k = 0
     
     logging.info(f"Running instance of {controller_class.__name__} - {kwargs['case_name']} with wind seed {kwargs['wind_case_idx']}")
-    # Load a FLORIS object for power calculations
-    fi = ControlledFlorisModel(t0=kwargs["wind_field_ts"].select(pl.col("time").first()).item(),
-                               yaw_limits=simulation_input_dict["controller"]["yaw_limits"],
-                                offline_probability=simulation_input_dict["controller"]["offline_probability"],
-                                simulation_dt=simulation_input_dict["simulation_dt"],
-                                yaw_rate=simulation_input_dict["controller"]["yaw_rate"],
-                                config_path=simulation_input_dict["controller"]["floris_input_file"],
-                                target_turbine_indices=simulation_input_dict["controller"]["target_turbine_indices"] or "all",
-                                uncertain=simulation_input_dict["controller"]["uncertain"],
-                                turbine_signature=kwargs["turbine_signature"],
-                                tid2idx_mapping=kwargs["tid2idx_mapping"])
-     
-    if simulation_input_dict["controller"]["target_turbine_indices"] != "all":
-        fi_full = ControlledFlorisModel(t0=kwargs["wind_field_ts"].select(pl.col("time").first()).item(),
-                                    yaw_limits=simulation_input_dict["controller"]["yaw_limits"],
-                                        offline_probability=simulation_input_dict["controller"]["offline_probability"],
-                                        simulation_dt=simulation_input_dict["simulation_dt"],
-                                        yaw_rate=simulation_input_dict["controller"]["yaw_rate"],
-                                        config_path=simulation_input_dict["controller"]["floris_input_file"],
-                                        target_turbine_indices="all",
-                                        uncertain=simulation_input_dict["controller"]["uncertain"],
-                                        turbine_signature=kwargs["turbine_signature"],
-                                        tid2idx_mapping=kwargs["tid2idx_mapping"])
-    else:
-        fi_full = fi
+
     
     kwargs["wind_field_config"]["preview_dt"] = int(simulation_input_dict["controller"]["controller_dt"] / simulation_input_dict["simulation_dt"]) 
     kwargs["wind_field_config"]["n_preview_steps"] = simulation_input_dict["controller"]["n_horizon"] * int(simulation_input_dict["controller"]["controller_dt"] / simulation_input_dict["simulation_dt"])
