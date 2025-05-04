@@ -1813,65 +1813,135 @@ class MLForecast(WindForecast):
             if checkpoint_model_config is None:
                 raise Exception(f"Critical: 'model_config' dictionary not found within loaded hyperparameters in {checkpoint_path}. Check saving logic.")
 
+            # Get ALL required __init__ params for the specific LightningModule
             module_sig = inspect.signature(lightning_module_class.__init__)
-            required_module_params = {
+            required_params = {
                 param.name for param in module_sig.parameters.values()
                 if param.default == inspect.Parameter.empty and param.name != 'self'
             }
-            
-            init_args = {
-                'model_config': checkpoint_model_config,
-                **{k: hparams.get(k, self.model_config["model"][self.model_key].get(k)) for k in required_module_params if k != 'model_config'}
-            }
-            
-            logging.info(f"Instantiating model via load_from_checkpoint using hybrid args...")
-            logging.debug(f"Final init_args for load_from_checkpoint: {init_args}")
-            
-            missing_init_args = required_module_params - set(init_args.keys())
-            if missing_init_args:
-                logging.error(f"Constructed init_args are missing required arguments for {lightning_module_class.__name__}.__init__: {missing_init_args}")
-                logging.error(f"Available init_args keys: {list(init_args.keys())}")
-                raise ValueError(f"Incomplete arguments for model instantiation. Missing: {missing_init_args}")
 
-            for key, val in init_args.items():
-                if (key not in ['model_config', 'initial_stage']) and (key not in hparams) and (key in required_module_params):
-                    logging.warning(f"Hyperparameter '{key}' not found in checkpoint, using default value from config: {val}")
+            # Construct init_args primarily from hparams
+            init_args = {}
+            missing_from_hparams = []
+            for param_name in required_params:
+                if param_name in hparams:
+                    init_args[param_name] = hparams[param_name]
+                else:
+                    # Fallback logic (should ideally not be needed for core params)
+                    # Check model-specific config first
+                    fallback_value = self.model_config["model"].get(self.model_key, {}).get(param_name)
+                    if fallback_value is not None:
+                        init_args[param_name] = fallback_value
+                        logging.warning(f"Hyperparameter '{param_name}' not found in checkpoint hparams, using fallback from current model config: {fallback_value}")
+                        missing_from_hparams.append(f"{param_name} (used model fallback)")
+                    else:
+                         # Check trainer config next
+                         fallback_value_trainer = self.model_config["trainer"].get(param_name)
+                         if fallback_value_trainer is not None:
+                             init_args[param_name] = fallback_value_trainer
+                             logging.warning(f"Hyperparameter '{param_name}' not found in checkpoint hparams or model config, using fallback from current trainer config: {fallback_value_trainer}")
+                             missing_from_hparams.append(f"{param_name} (used trainer fallback)")
+                         else:
+                             # Check dataset config last (for things like context_length, prediction_length if not in hparams)
+                             fallback_value_dataset = self.model_config["dataset"].get(param_name)
+                             if fallback_value_dataset is not None:
+                                 init_args[param_name] = fallback_value_dataset
+                                 logging.warning(f"Hyperparameter '{param_name}' not found in checkpoint hparams, model, or trainer config, using fallback from current dataset config: {fallback_value_dataset}")
+                                 missing_from_hparams.append(f"{param_name} (used dataset fallback)")
+                             else:
+                                 missing_from_hparams.append(f"{param_name} (MISSING!)")
+
+
+            if any("MISSING!" in item for item in missing_from_hparams):
+                 logging.error(f"Critical hyperparameters missing from checkpoint hparams and no fallback found: {[item for item in missing_from_hparams if 'MISSING!' in item]}")
+                 logging.error(f"Available hparams keys: {list(hparams.keys())}")
+                 raise ValueError(f"Cannot instantiate model due to missing hyperparameters: {[item for item in missing_from_hparams if 'MISSING!' in item]}")
+            elif missing_from_hparams:
+                 logging.warning(f"Used fallback values for some hyperparameters not found in checkpoint: {missing_from_hparams}")
+
+
+            # Ensure model_config is the one from the checkpoint's hparams
+            # (it should have been added in the loop above if it was required)
+            if 'model_config' not in init_args or init_args['model_config'] is None:
+                 # If model_config wasn't required by __init__ but we need it later, get it from hparams
+                 init_args['model_config'] = hparams.get('model_config')
+                 if init_args['model_config'] is None:
+                     raise ValueError("Critical: 'model_config' not found in checkpoint hparams.")
+
+            logging.info(f"Prepared init_args for {lightning_module_class.__name__} from hparams and fallbacks.")
+            logging.debug(f"Final init_args before stage setting: {init_args}")
 
         except KeyError as e:
-            logging.error(f"Missing hyperparameter key: {str(e)}", exc_info=False)
+            logging.error(f"Missing hyperparameter key during init_args construction: {str(e)}", exc_info=False)
             raise e
         except Exception as e:
             logging.error(f"Error preparing hyperparameters for re-instantiation: {str(e)}", exc_info=True)
             raise RuntimeError(f"Error preparing hyperparameters: {str(e)}") from e
-        
+
         # NOTE if ml method is tuned for given context length, we use that context length for that model
-        
-        freq = pd.Timedelta(checkpoint_model_config.get("freq", self.model_config["dataset"]["resample_freq"]))
-        self.data_module = DataModule(data_path=self.model_config["dataset"]["data_path"], 
+
+        # Use the model_config loaded from the checkpoint hparams for consistency
+        checkpoint_model_config = init_args['model_config']
+        freq_str = checkpoint_model_config.get("freq", self.model_config["dataset"]["resample_freq"])
+        freq = pd.Timedelta(freq_str) # Convert freq string to Timedelta
+
+        # Ensure context/prediction lengths are sourced correctly (prefer hparams/init_args)
+        context_length_val = init_args.get("context_length", checkpoint_model_config.get("context_length"))
+        prediction_length_val = init_args.get("prediction_length", checkpoint_model_config.get("prediction_length"))
+
+        if context_length_val is None or prediction_length_val is None:
+             raise ValueError("Could not determine context_length or prediction_length from checkpoint hparams or config.")
+
+        self.data_module = DataModule(data_path=self.model_config["dataset"]["data_path"],
                                       n_splits=self.model_config["dataset"]["n_splits"],
-                                      continuity_groups=None, 
+                                      continuity_groups=None,
                                       train_split=(1.0 - self.model_config["dataset"]["val_split"] - self.model_config["dataset"]["test_split"]),
-                                      val_split=self.model_config["dataset"]["val_split"], 
-                                      test_split=self.model_config["dataset"]["test_split"], 
-                                      prediction_length=(checkpoint_model_config["prediction_length"] * freq).total_seconds(), # Use SECONDS here
-                                      context_length=(checkpoint_model_config["context_length"] * freq).total_seconds(), # Use SECONDS here
-                                      target_prefixes=["ws_horz", "ws_vert"], 
+                                      val_split=self.model_config["dataset"]["val_split"],
+                                      test_split=self.model_config["dataset"]["test_split"],
+                                      # Use lengths determined above, converted to seconds
+                                      prediction_length=(prediction_length_val * freq).total_seconds(),
+                                      context_length=(context_length_val * freq).total_seconds(),
+                                      target_prefixes=["ws_horz", "ws_vert"],
                                       feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
-                                      freq=checkpoint_model_config.get("freq", self.model_config["dataset"]["resample_freq"]), # Use original freq string
-                                      normalized=True,
+                                      freq=freq_str, # Use original freq string
+                                      normalized=True, # Assume True based on previous context, adjust if needed
                                       target_suffixes=self.model_config["dataset"]["target_turbine_ids"],
                                       per_turbine_target=self.model_config["dataset"]["per_turbine_target"], dtype=None,
                                       normalization_consts_path=self.model_config["dataset"]["normalization_consts_path"])
         self.data_module.get_dataset_info()
         self.scaler_params = self.data_module.compute_scaler_params()
-        logging.info("Re-initialized DataModule and recomputed scaler_params.")
-        
-        correct_stage = 2
+        logging.info("Re-initialized DataModule and recomputed scaler_params based on checkpoint/config.")
+
+        # Determine correct stage based on checkpoint epoch
         if self.model_key == "tactis":
-            init_args["stage"] = 2
-        # Instantiate the model using the extracted arguments
+            checkpoint_epoch = checkpoint.get('epoch')
+            # Ensure stage2_start_epoch is retrieved from hparams within init_args now
+            stage2_start_epoch = init_args.get('stage2_start_epoch')
+
+            if checkpoint_epoch is None or stage2_start_epoch is None:
+                 logging.warning("Could not determine stage from checkpoint epoch or hparams. Defaulting to Stage 2 for TACTiS loading.")
+                 correct_stage = 2 # Default assumption if info missing
+            elif checkpoint_epoch >= stage2_start_epoch:
+                 correct_stage = 2
+                 logging.info(f"Checkpoint epoch ({checkpoint_epoch}) >= stage2_start_epoch ({stage2_start_epoch}). Setting TACTiS stage to 2 for loading.")
+            else:
+                 correct_stage = 1
+                 logging.info(f"Checkpoint epoch ({checkpoint_epoch}) < stage2_start_epoch ({stage2_start_epoch}). Setting TACTiS stage to 1 for loading.")
+
+            init_args["stage"] = correct_stage # Set the stage in init_args BEFORE loading
+
+        # Instantiate the model using load_from_checkpoint, passing the correctly determined stage
         try:
-            model = lightning_module_class.load_from_checkpoint(checkpoint_path, strict=False, **init_args)
+            # Pass the init_args (which includes the correct stage) to load_from_checkpoint
+            # Use strict=False to ignore the save_hyperparameters error internally,
+            # as we've already ensured the model is configured correctly via init_args.
+            model = lightning_module_class.load_from_checkpoint(
+                checkpoint_path,
+                strict=False, # Allow loading even if save_hyperparameters fails internally
+                **init_args
+            )
+            logging.info(f"Successfully loaded model from checkpoint {checkpoint_path} using init_args including stage {correct_stage if self.model_key == 'tactis' else 'N/A'}.")
+
         except Exception as e:
             logging.error(f"Error during LightningModule re-instantiation: {e}", exc_info=True)
             raise Exception(e)
@@ -2157,14 +2227,16 @@ class MLForecast(WindForecast):
         else:
             return_pl = True
             
-        # normalize historic measurements
+        # normalize historic measurements ONLY IF NOT TACTIS @boujuan DEBUG
         feature_types = list(self.scaler_params["min_"].keys())
         
         if historic_measurements.select(pl.len()).item() >= self.n_context:
-            historic_measurements = historic_measurements.with_columns([
-                    (cs.starts_with(feat_type) * self.scaler_params["scale_"][feat_type]) + self.scaler_params["min_"][feat_type]
-                                                            for feat_type in feature_types])
-                
+            if self.model_key != 'tactis':
+                historic_measurements = historic_measurements.with_columns([
+                        (cs.starts_with(feat_type) * self.scaler_params["scale_"][feat_type]) + self.scaler_params["min_"][feat_type]
+                                                                for feat_type in feature_types])
+            else:
+                pass
             test_data = self._generate_test_data(historic_measurements)
             logging.info(f"Using {torch.cuda.device_count()} GPU devices: {self.device} at {current_time} to make predictions for {self.model_key} with prediction_timedelta {self.prediction_timedelta}.")
             
@@ -2214,14 +2286,18 @@ class MLForecast(WindForecast):
                     }
                 ).sort(by=["time"])
 
-            # denormalize data
-            pred_df = pred_df.with_columns([
-                    (cs.starts_with(f"loc_{feat_type}") - self.scaler_params["min_"][feat_type]) / self.scaler_params["scale_"][feat_type]
-                                                            for feat_type in feature_types])\
-                             .with_columns([
-                    cs.starts_with(f"sd_{feat_type}") / self.scaler_params["scale_"][feat_type]
-                                                            for feat_type in feature_types])                                   
-            pred_df = pred_df.filter(pl.col("time") <= (current_time + self.prediction_timedelta)) 
+            # denormalize data ONLY IF NOT TACTIS @boujuan DEBUG
+            if self.model_key != 'tactis':
+                pred_df = pred_df.with_columns([
+                        (cs.starts_with(f"loc_{feat_type}") - self.scaler_params["min_"][feat_type]) / self.scaler_params["scale_"][feat_type]
+                                                                for feat_type in feature_types])\
+                                 .with_columns([
+                        cs.starts_with(f"sd_{feat_type}") / self.scaler_params["scale_"][feat_type]
+                                                                for feat_type in feature_types])
+            else:
+                pass
+                                                       
+            pred_df = pred_df.filter(pl.col("time") <= (current_time + self.prediction_timedelta))
             # check if the data that trained the model differs from the frequency of historic_measurments
             # Convert freq string to Timedelta for comparison and calculations
             data_module_freq_td = pd.Timedelta(str(self.data_module.freq))
