@@ -71,6 +71,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         
     stoptime = simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"] - simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() - (simulation_input_dict["controller"]["n_horizon"] * simulation_input_dict["controller"]["controller_dt"])
     
+    load_from_checkpoint = not kwargs["rerun_simulations"] and os.path.exists(temp_save_path)
     if not kwargs["rerun_simulations"] and os.path.exists(save_path):
         results_df = pd.read_csv(save_path, low_memory=False)
         # check if this saved df completed successfully
@@ -86,7 +87,8 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
             
         t = 0
         k = 0
-    elif not kwargs["rerun_simulations"] and os.path.exists(temp_save_path):
+    elif load_from_checkpoint:
+        logging.info(f"Loading from checkpoint {temp_save_path}")
         # TODO HIGH set t, k to value after last in file, see how ctrl_dict is set in step, don't start save arrs with nans
         results_df = pd.read_csv(temp_save_path, low_memory=False)
         t = results_df.iloc[-1]["time"]
