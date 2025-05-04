@@ -1899,27 +1899,6 @@ class MLForecast(WindForecast):
             )
             logging.info(f"Successfully loaded model from checkpoint {checkpoint_path} using init_args including stage {correct_stage if self.model_key == 'tactis' else 'N/A'}.")
 
-            # --- Roo Debug Log 1: Check Internal Scaler ---
-            try:
-                # Access the underlying TACTiS2Model's scaler if model_key is tactis
-                if self.model_key == 'tactis':
-                    internal_scaler = model.model.scaler
-                    print(f"DEBUG: TACTiS-2 Internal Scaler Type: {type(internal_scaler)}")
-                    # Check for specific scaler types like MeanScaler or NOPScaler from GluonTS
-                    if hasattr(internal_scaler, 'loc_') and hasattr(internal_scaler, 'scale_'):
-                         print(f"DEBUG: TACTiS-2 Internal Scaler loc: {internal_scaler.loc_}")
-                         print(f"DEBUG: TACTiS-2 Internal Scaler scale: {internal_scaler.scale_}")
-                    elif type(internal_scaler).__name__ == 'NOPScaler':
-                         print("DEBUG: TACTiS-2 Internal Scaler is NOPScaler (no scaling).")
-                    else:
-                         print("DEBUG: TACTiS-2 Internal Scaler found, but loc_/scale_ attributes missing or type unknown.")
-                else:
-                    print(f"DEBUG: Model key is '{self.model_key}', not checking for TACTiS internal scaler.")
-            except AttributeError:
-                print(f"DEBUG: Could not access internal scaler (self.model.model.scaler). Model structure might differ for {self.model_key}.")
-            except Exception as e:
-                print(f"DEBUG: Error accessing internal scaler: {e}")
-            # --- End Roo Debug Log 1 ---
         except Exception as e:
             logging.error(f"Error during LightningModule re-instantiation: {e}", exc_info=True)
             raise Exception(e)
@@ -2201,36 +2180,11 @@ class MLForecast(WindForecast):
         
         if historic_measurements.select(pl.len()).item() >= self.n_context:
             if self.model_key != 'tactis':
-                # --- Roo Debug Log 2a: Data Range BEFORE External Scaling ---
-                try:
-                    # Select only numeric columns used for scaling/model input
-                    numeric_cols = [col for col in historic_measurements.columns if col.startswith(tuple(feature_types))]
-                    if numeric_cols:
-                        numeric_data = historic_measurements.select(numeric_cols).to_numpy()
-                        print(f"DEBUG (predict_distr): Data range BEFORE external scaling: min={numeric_data.min():.4f}, max={numeric_data.max():.4f}, mean={numeric_data.mean():.4f}")
-                    else:
-                        print("DEBUG (predict_distr): No numeric columns found to check range before scaling.")
-                except Exception as e:
-                    print(f"DEBUG (predict_distr): Error checking range before scaling: {e}")
-                # --- End Roo Debug Log 2a ---
                 historic_measurements = historic_measurements.with_columns([
                         (cs.starts_with(feat_type) * self.scaler_params["scale_"][feat_type]) + self.scaler_params["min_"][feat_type]
                                                                 for feat_type in feature_types])
-                # --- Roo Debug Log 2b: Data Range AFTER External Scaling ---
-                try:
-                    # Select only numeric columns used for scaling/model input
-                    numeric_cols_after = [col for col in historic_measurements.columns if col.startswith(tuple(feature_types))]
-                    if numeric_cols_after:
-                        numeric_data_after = historic_measurements.select(numeric_cols_after).to_numpy()
-                        print(f"DEBUG (predict_distr): Data range AFTER external scaling (before _generate_test_data): min={numeric_data_after.min():.4f}, max={numeric_data_after.max():.4f}, mean={numeric_data_after.mean():.4f}")
-                    else:
-                        print("DEBUG (predict_distr): No numeric columns found to check range after scaling.")
-                except Exception as e:
-                    print(f"DEBUG (predict_distr): Error checking range after scaling: {e}")
-                # --- End Roo Debug Log 2b ---
             else:
-                 print(f"DEBUG (predict_distr): Skipping external scaling for TACTiS model.")
-                
+                pass
             test_data = self._generate_test_data(historic_measurements)
             logging.info(f"Using {torch.cuda.device_count()} GPU devices: {self.device} at {current_time} to make predictions for {self.model_key} with prediction_timedelta {self.prediction_timedelta}.")
             
@@ -2244,18 +2198,6 @@ class MLForecast(WindForecast):
                 # logging.info(f"pred_list[0] is on device {pred_list[0].samples.device}")
                 
                 if self.model_key == 'tactis':
-                    # --- Roo Debug Log 3: Raw Sample Range (TACTiS) ---
-                    try:
-                        # Assuming pred_list contains SampleForecast objects for TACTiS
-                        # Log range from the first forecast object's samples
-                        if pred_list:
-                            first_forecast_samples = pred_list[0].samples # This is a numpy array
-                            print(f"DEBUG (predict_distr): TACTiS raw sample range (first forecast obj): min={np.min(first_forecast_samples):.4f}, max={np.max(first_forecast_samples):.4f}, mean={np.mean(first_forecast_samples):.4f}, shape={first_forecast_samples.shape}")
-                        else:
-                            print("DEBUG (predict_distr): TACTiS pred_list is empty, cannot check sample range.")
-                    except Exception as e:
-                        print(f"DEBUG (predict_distr): Error checking TACTiS sample range: {e}")
-                    # --- End Roo Debug Log 3 ---
                     for p in range(len(pred_list)):
                         pred_list[p].distribution = types.SimpleNamespace()
                         # logging.info(f"TACTiS samples are stored on device {pred_list[p].samples.get_device()}")
@@ -2293,7 +2235,6 @@ class MLForecast(WindForecast):
 
             # denormalize data ONLY IF NOT TACTIS @boujuan DEBUG
             if self.model_key != 'tactis':
-                print(f"DEBUG (predict_distr): Applying external inverse scaling for {self.model_key} model.")
                 pred_df = pred_df.with_columns([
                         (cs.starts_with(f"loc_{feat_type}") - self.scaler_params["min_"][feat_type]) / self.scaler_params["scale_"][feat_type]
                                                                 for feat_type in feature_types])\
@@ -2301,7 +2242,7 @@ class MLForecast(WindForecast):
                         cs.starts_with(f"sd_{feat_type}") / self.scaler_params["scale_"][feat_type]
                                                                 for feat_type in feature_types])
             else:
-                 print(f"DEBUG (predict_distr): Skipping external inverse scaling for TACTiS model.")
+                pass
                                                        
             pred_df = pred_df.filter(pl.col("time") <= (current_time + self.prediction_timedelta))
             # check if the data that trained the model differs from the frequency of historic_measurments
