@@ -28,8 +28,9 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     if simulation_input_dict["controller"]["uncertain"] and not wind_forecast_class.is_probabilistic:
         logging.info(f"Can't run with uncertain flag for {wind_forecast_class.__name__}, setting uncertainty off.")
         simulation_input_dict["controller"]["uncertain"] = simulation_input_dict["controller"]["uncertain"] and wind_forecast_class.is_probabilistic
+        study_name = kwargs['study_name']
         input_df = pd.read_csv(os.path.join(results_dir, f"case_descriptions.csv"))
-        input_df.loc[input_df['case_name'] == kwargs['case_name'], 'uncertain'] = False
+        input_df.loc[input_df['study_name'] == study_name, 'uncertain'] = False
         #input_df.loc[int(kwargs['case_name']), "uncertain"] = False
         #input_df.to_csv(os.path.join(results_dir, f"case_descriptions.csv"))
         input_df.to_csv(os.path.join(results_dir, "case_descriptions.csv"), index=False)
@@ -38,7 +39,9 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         # kwargs['case_name'] = re.sub("uncertain_True", "uncertain_False", kwargs['case_name'])
         # move(os.path.join(results_dir, f"input_config_case_{old_case_name}.pkl"), os.path.join(results_dir, f"input_config_case_{kwargs['case_name']}.pkl"))
     
-    fn = f"time_series_results_case_{kwargs['case_name']}_seed_{kwargs['wind_case_idx']}.csv"
+    #fn = f"time_series_results_case_{kwargs['case_name']}_seed_{kwargs['wind_case_idx']}.csv"
+    fn = f"time_series_results_case_{study_name}_seed_{kwargs['wind_case_idx']}.csv"
+
     save_path = os.path.join(results_dir, fn)
     temp_save_path = os.path.join(results_dir, fn.replace(".csv", "_temp.csv"))
     
