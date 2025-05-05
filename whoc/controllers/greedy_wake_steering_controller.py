@@ -48,6 +48,8 @@ class GreedyController(ControllerBase):
         
         self.ws_horz_cols = self.mean_ws_horz_cols = [f"ws_horz_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.idx2tid_mapping))]
         self.ws_vert_cols = self.mean_ws_vert_cols = [f"ws_vert_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.idx2tid_mapping))]
+        self.nd_sin_cols = [f"nd_sin_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.tid2idx_mapping))]
+        self.nd_cos_cols = [f"nd_cos_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.tid2idx_mapping))]
         
         self.historic_measurements = None 
         # self.historic_measurements = pd.DataFrame(columns=["time"] 
@@ -161,11 +163,11 @@ class GreedyController(ControllerBase):
         if self.wind_dir_use_filt or self.wind_forecast:
             if self.historic_measurements is not None:
                 self.historic_measurements = pl.concat([self.historic_measurements, 
-                                                        pl.from_pandas(current_measurements[["time"] + self.ws_horz_cols + self.ws_vert_cols])], how="vertical")\
+                                                        pl.from_pandas(current_measurements[["time"] + self.ws_horz_cols + self.ws_vert_cols + self.nd_cos_cols + self.nd_sin_cols])], how="vertical")\
                                                             .tail(max(int(np.ceil(self.wind_dir_lpf_time_const // self.simulation_dt) * 50), 
                                                                       self.wind_forecast.n_context))
             else:
-                self.historic_measurements = pl.from_pandas(current_measurements[["time"] + self.ws_horz_cols + self.ws_vert_cols])
+                self.historic_measurements = pl.from_pandas(current_measurements[["time"] + self.ws_horz_cols + self.ws_vert_cols + self.nd_cos_cols + self.nd_sin_cols])
                 
         # NOTE: this is run every simulation_dt, not every controller_dt, because the yaw angle may be moving gradually towards the correct setpoint
         
@@ -261,7 +263,7 @@ class GreedyController(ControllerBase):
         new_yaw_setpoints[reaching_setpoints_cond] = self.previous_target_yaw_setpoints[reaching_setpoints_cond].copy()
         
         # stores target setpoints from prevoius compute_controls calls, update only those elements which are not already yawing towards a previous setpoint
-        self.previous_target_yaw_setpoints = np.mod(np.rint(new_yaw_setpoints / self.yaw_increment) * self.yaw_increment, 360)
+        self.previous_target_yaw_setpoints = np.rint(new_yaw_setpoints / self.yaw_increment) * self.yaw_increment
         
         lb, ub = current_yaw_setpoints - self.simulation_dt * self.yaw_rate, current_yaw_setpoints + self.simulation_dt * self.yaw_rate
         constrained_yaw_setpoints = np.mod(np.clip(new_yaw_setpoints, lb, ub), 360.0)
@@ -272,6 +274,7 @@ class GreedyController(ControllerBase):
         # self.init_sol = {"states": list(constrained_yaw_setpoints / self.yaw_norm_const)}
         # self.init_sol["control_inputs"] = (constrained_yaw_setpoints - self.controls_dict["yaw_angles"]) * (self.yaw_norm_const / (self.yaw_rate * self.controller_dt))
 
+        self.controls_dict = {"yaw_angles": list(constrained_yaw_setpoints)} 
         if self.wind_forecast:
             if use_wind_forecast:
                 # newest_predictions = forecasted_wind_field.filter(pl.col("time") <= self.current_time + self.prediction_timedelta_stored)\
@@ -280,13 +283,5 @@ class GreedyController(ControllerBase):
                                                         .with_columns(cs.numeric().cast(pl.Float32), pl.col("time").cast(pl.Datetime(time_unit="us")))
             else:
                 newest_predictions = None
-            self.controls_dict = {"yaw_angles": list(constrained_yaw_setpoints),
-                                  "predicted_wind_speeds": newest_predictions
-                                    # "predicted_time":  newest_predictions["time"].values,
-                                    # "predicted_wind_speeds_horz": newest_predictions[self.mean_ws_horz_cols].values,
-                                    # "predicted_wind_speeds_vert": newest_predictions[self.mean_ws_horz_cols].values
-                                    }
-        else:
-            self.controls_dict = {"yaw_angles": list(constrained_yaw_setpoints)} 
-
+            self.controls_dict["predicted_wind_speeds"] = newest_predictions
         return None

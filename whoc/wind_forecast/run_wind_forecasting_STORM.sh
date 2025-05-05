@@ -2,11 +2,11 @@
 
 #SBATCH --partition=all_gpu.p          # Partition for H100/A100 GPUs (adjust if needed)
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=4         # Requesting 1 task for 1 GPU
+#SBATCH --ntasks-per-node=1         # Requesting 1 task for 1 GPU
 #SBATCH --cpus-per-task=32          # CPUs per task (adjust based on inference needs)
 #SBATCH --mem-per-cpu=8192          # Memory per CPU (Total Mem = 1 * 16 * 8192 = 128GB)
-#SBATCH --gres=gpu:H100:4           # Request 1 H100 GPU (Matches ntasks-per-node)
-#SBATCH --time=1-00:00              # Time limit (e.g., 1 hour for inference)
+#SBATCH --gres=gpu:H100:1           # Request 1 H100 GPU (Matches ntasks-per-node)
+#SBATCH --time=0-06:00              # Time limit (e.g., 1 hour for inference)
 #SBATCH --job-name=whoc_infer_storm
 #SBATCH --output=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/whoc_infer_%j.out
 #SBATCH --error=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/whoc_infer_%j.err
@@ -24,10 +24,14 @@ export WHOC_SCRIPT_DIR="${WHOC_DIR}/whoc/wind_forecast"
 # --- Input Arguments ---
 # Example Usage: sbatch run_wind_forecasting_STORM.sh tactis \
 #                       /user/taed7566/Forecasting/wind-forecasting/config/training/training_inputs_juan_flasc.yaml \
-#                       /user/taed7566/Forecasting/wind-forecasting/config/preprocessing/preprocessing_inputs_flasc.yaml
+#                       /user/taed7566/Forecasting/wind-forecasting/config/preprocessing/preprocessing_inputs_flasc.yaml \
+#                       /path/to/your/checkpoint.ckpt \
+#                       30 # max_steps
 export MODELS=${1:-"tactis"}
 export MODEL_CONFIG_PATH_ARG=${2:-"${WF_DIR}/config/training/training_inputs_juan_flasc_test_storm.yaml"}
 export DATA_CONFIG_PATH_ARG=${3:-"${WF_DIR}/config/preprocessing/preprocessing_inputs_flasc_STORM.yaml"}
+export CHECKPOINT_ARG=${4:-"best"} # Default to 'best' if not provided
+export MAX_STEPS_ARG=${5:-1080}    # Default to original value if not provided
 
 # --- Create Logging Directories ---
 mkdir -p ${LOG_DIR}/slurm_logs
@@ -119,13 +123,13 @@ python WindForecast.py \
     --data_config "${DATA_CONFIG_PATH_ABS}" \
     --simulation_timestep 60 \
     --save_dir "${LOG_DIR}/inference_results/${SLURM_JOB_ID}" \
-    --checkpoint best \
+    --checkpoint "${CHECKPOINT_ARG}" \
     --prediction_type distribution \
     --use_tuned_params \
     --use_trained_models \
     --rerun_validation \
     --max_splits 1 \
-    --max_steps 1080 \
+    --max_steps ${MAX_STEPS_ARG} \
     --multiprocessor cf \
     --plot
 

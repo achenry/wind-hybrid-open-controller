@@ -114,18 +114,18 @@ case_studies = {
         "lut_path": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4_lut.csv",]},
         "yaw_limits": {"group": 0, "vals": ["-15,15"]},
         "wind_forecast_class": {"group": 0, "vals": ["MLForecast"]},
-        "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController", "GreedyController"]},
+        "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController"]},
         # "model_config_path": {"group": 1, "vals": [
+        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred60.yaml"),
         #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred300.yaml"), 
-        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred300.yaml"), 
-        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred60.yaml")]},
+        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred300.yaml")]},
         "model_config_path": {"group": 1, "vals": [
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred60.yaml"),
             os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred300.yaml"), 
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred300.yaml"), 
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred60.yaml")]},
-        "prediction_timedelta": {"group": 1, "vals": [300, 300, 60]},
-        "uncertain": {"group": 1, "vals": [True, False, False]},
-        "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73", "4,"]},
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred300.yaml")]},
+        "prediction_timedelta": {"group": 1, "vals": [60, 300, 300]},
+        "uncertain": {"group": 1, "vals": [False, True, False]},
+        "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73", "74,73"]},
         "model_key": {"group": 2, "vals": ["informer"]} # 
     },
     "baseline_controllers_autoformer_forecasters_awaken": {
@@ -205,17 +205,12 @@ case_studies = {
                                         ]},
         "yaw_limits": {"group": 0, "vals": ["-15,15"]},
         "uncertain": {"group": 0, "vals": [False]},
-        # "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
-        # "prediction_timedelta": {"group": 1, "vals": [300, 60]},
-        # "target_turbine_indices": {"group": 1, "vals": ["74,73", "4,"]},
-        # "model_config_path": {"group": 1, "vals": [
-        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred300_svr.yaml"),, 
-        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred60_svr.yaml")]},
-        "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
-        "prediction_timedelta": {"group": 1, "vals": [300]},
-        "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
+        "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
+        "prediction_timedelta": {"group": 1, "vals": [300, 60]},
+        "target_turbine_indices": {"group": 1, "vals": ["74,73", "4,"]},
         "model_config_path": {"group": 1, "vals": [
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred300.yaml")]},
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred300_svr.yaml"),
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred60_svr.yaml")]},
         "wind_forecast_class": {"group": 2, "vals": ["SVRForecast", "SpatialFilterForecast", "PersistenceForecast", "PerfectForecast"]},
     },
     "baseline_controllers_baseline_prob_forecasters_awaken": {
@@ -749,15 +744,13 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
     model_configs = {}
     input_dicts = []
     case_lists = []
-    case_name_lists = []
     n_cases_list = []
     lut_cases = set()
     input_filenames = []
     for case_study_key in case_study_keys:
         input_df = []
-        case_list, case_names = CaseGen_General(case_studies[case_study_key], namebase=case_study_key)
+        case_list, _ = CaseGen_General(case_studies[case_study_key], namebase=case_study_key)
         case_lists = case_lists + case_list
-        case_name_lists = case_name_lists + case_names
         n_cases_list.append(len(case_list))
         
         # Load default settings and make copies
@@ -984,7 +977,8 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             with open(inp_path, 'wb') as fp:
                 pickle.dump(inp, fp) # TODO this adds different stop times for each file
             written_input_files.add(inp_path)
-            
+    
+    input_dicts = sorted(input_dicts, key=lambda case: case["wind_case_idx"], reverse=True)
     return input_dicts, wind_field_config, wind_field_ts
 
 # 0, 1, 2, 3, 6
