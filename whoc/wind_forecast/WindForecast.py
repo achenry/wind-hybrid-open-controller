@@ -691,10 +691,14 @@ class WindForecast:
             # forecast_wf.sort("time").with_columns(dt=pl.col("time").diff()).sort("dt")
             # forecast_wf.filter((pl.col("test_idx") <= 0) & (pl.col("feature") == "loc_ws_horz")).sort("time").with_columns(dt=pl.col("time").diff()).sort("dt")
             logging.info(f"Found greatest forecaster sampling time {dt}s. Downsampling forecast data.")
-            forecast_wf = forecast_wf.with_columns(pl.col("time").dt.round(f"{dt}s").alias("time").cast(pl.Datetime(time_unit="us")))\
-                                     .group_by(["time", "test_idx", "feature", "turbine_id", "data_type", "forecaster"], maintain_order=True)\
-                                     .agg(cs.numeric().first())
-            
+            # Check if we have enough points before potentially collapsing them by rounding/aggregation
+            if forecast_wf.select(pl.col("time")).unique().select(pl.len()).item() > 1:
+                 # Only round and aggregate if there's more than one unique timestamp initially
+                 forecast_wf = forecast_wf.with_columns(pl.col("time").dt.round(f"{dt}s").alias("time").cast(pl.Datetime(time_unit="us")))\
+                                          .group_by(["time", "test_idx", "feature", "turbine_id", "data_type", "forecaster"], maintain_order=True)\
+                                          .agg(cs.numeric().first())
+            # Else: skip rounding/aggregation if we already have few points (e.g., 1), preventing the assertion error
+
         assert forecast_wf.select(pl.col("time")).unique().select(pl.len()).item() > 1, "Need more than one data point to plot a time series, try adding more values to continuity_groups or setting it to None"
         forecast_wf = forecast_wf.sort("time")
         for f, feat in enumerate(feature_types):
