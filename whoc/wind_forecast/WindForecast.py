@@ -100,6 +100,9 @@ from scipy.stats import multivariate_normal as mvn
 from scipy.stats import boxcox
 from scipy.special import inv_boxcox
 
+from functools import reduce
+from itertools import chain
+
 
 import logging 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -719,7 +722,8 @@ class WindForecast:
         assert (multiple_forecasters and turbine_ids != "all") or (not multiple_forecasters and turbine_ids == "all")
         
         if isinstance(forecast_wf, pd.DataFrame):
-            forecast_wf = pl.DataFrame(forecast_wf)
+            forecast_wf = forecast_wf.collect()
+            #forecast_wf = pl.DataFrame(forecast_wf)
             
         if isinstance(true_wf, pd.DataFrame):
             true_wf = pl.DataFrame(true_wf)
@@ -2360,7 +2364,7 @@ class ARIMAForecast(WindForecast):
         if not hasattr(self, "study_name"):
             self.study_name = "arima_ws_vert_all_20250429_123701" #"tuning_arima_windfarm_debug" 
         self.study = self.create_or_load_study(self.study_name)
-        self.model_config["experiment"]["log_dir"] = "C:/Users/20202629/Desktop/Internship/wind-forecasting/examples/optuna"
+        #self.model_config["experiment"]["log_dir"] = "C:/Users/20202629/Desktop/Internship/wind-forecasting/examples/optuna"
         base_log_dir = "C:/Users/20202629/Desktop/Internship/wind-forecasting/examples/optuna"
         self.model_save_dir_horz = os.path.join(base_log_dir, "arima_ws_horz_all_20250429_123701", "models")
         self.model_save_dir_vert = os.path.join(base_log_dir, "arima_ws_vert_all_20250429_123701", "models")
@@ -2896,7 +2900,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                                                  .filter((pl.col("time") - start) >= context_timedelta)
         n_controller_times = split_controller_times.select(pl.len()).item()                                                 
         logging.info(f"Resetting forecaster state.")
-        forecaster.reset(assigned_gpu=assigned_gpu)
+        forecaster.reset() # assigned_gpu=assigned_gpu
         save_length = 0
         n_saved = 0
         for c, current_row in enumerate(split_controller_times.iter_rows(named=True)):
@@ -2976,52 +2980,69 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
     #     ax[0].plot(df["time"], df["mean_p_0"] + 1*np.sqrt(df["covariance_p_0"]), 
     #         alpha=0.2, color=color
     #     )
-            pred = pred.with_columns(
+            if isinstance(pred, tuple):  # Check if it returned a tuple
+                pred_df, long_format_df = pred  # Unpack the tuple
+            else:
+                pred_df = pred
+            pred_df = pred_df.with_columns(
                 test_idx=pl.lit(test_idx).cast(pl.Int32), 
                 continuity_group=pl.lit(splits[d]).cast(pl.Int32), 
                 time=pl.col("time").cast(pl.Datetime(time_unit="ns")))\
                     .with_columns(cs.numeric().cast(pl.Float32))\
                     .filter(pl.col("time").is_in(test_data_time))
             
-            forecasts.append(pred)
+            forecasts.append(pred_df)
             
-            save_length += pred.select(pl.len()).item()
+            save_length += pred_df.select(pl.len()).item()
             
             ram_used = virtual_memory().percent
             
             if  (final := ((c == n_controller_times - 1) and (d == n_splits - 1))) or ((ram_used > ram_limit) and (save_length > 500)):
-                # sub_save_path = save_path.replace(".csv", f"_{splits[d]}_{n_saved}.csv")
-                if callable(save_path):
-                    sp = save_path(splits[d])
-                else:
-                    sp = save_path
-                logging.info(f"Used {ram_used}% RAM. Saving sub parquet of length {save_length} to {sp}.")
-                
+                sp = save_path(splits[d]) if callable(save_path) else save_path
                 forecasts = pl.concat(forecasts, how="diagonal")
+                include_header = not os.path.exists(sp)
+                logging.info(f"Used {ram_used}% RAM. Saving sub parquet of length {save_length} to {sp}.")
+                write_forecasts_to_csv(forecasts, sp, include_header)
+
+                # # sub_save_path = save_path.replace(".csv", f"_{splits[d]}_{n_saved}.csv")
+                # if callable(save_path):
+                #     sp = save_path(splits[d])
+                # else:
+                #     sp = save_path
+                # logging.info(f"Used {ram_used}% RAM. Saving sub parquet of length {save_length} to {sp}.")
+                
+                # forecasts = pl.concat(forecasts, how="diagonal")
                     
-                # logging.info(f"diagonal concat for {save_path} columns = {forecasts.columns}")
-                logging.info(f"Writing {'final' if final else 'intermediary'} result to file {sp}.")
-                if not os.path.exists(sp):
-                    with open(sp, mode="w") as fp:
-                        forecasts.write_csv(fp, include_header=True)
-                    logging.info(f"File {sp} has size {os.path.getsize(sp)} after first write.")
-                else:
-                    logging.info(f"File {sp} has size {os.path.getsize(sp)} before appending.")
-                    with open(sp, mode="a") as fp:
-                        forecasts.write_csv(fp, include_header=False)
-                    logging.info(f"File {sp} has size {os.path.getsize(sp)} after appending.")
+                # # logging.info(f"diagonal concat for {save_path} columns = {forecasts.columns}")
+                # logging.info(f"Writing {'final' if final else 'intermediary'} result to file {sp}.")
+                # if not os.path.exists(sp):
+                #     with open(sp, mode="w") as fp:
+                #         forecasts.write_csv(fp, include_header=True)
+                #     logging.info(f"File {sp} has size {os.path.getsize(sp)} after first write.")
+                # else:
+                #     logging.info(f"File {sp} has size {os.path.getsize(sp)} before appending.")
+                #     with open(sp, mode="a") as fp:
+                #         forecasts.write_csv(fp, include_header=False)
+                #     logging.info(f"File {sp} has size {os.path.getsize(sp)} after appending.")
                 
                 n_saved += 1
                 forecasts = []
                 save_length = 0
-                ram_used = virtual_memory().percent
+               #ram_used = virtual_memory().percent
                 logging.info(f"Used {ram_used}% RAM after saving {sp}.")
             
             test_idx += 1
         # until here
         if len(forecasts) == 0 and n_saved == 0:
             raise Exception(f"{d}th dataset in data does not have sufficient data points, with {ds.select(pl.len()).item()}, to collect predictions after context_timedelta {forecaster.context_timedelta}")
-    
+
+def write_forecasts_to_csv(forecasts_df, path, include_header):
+    mode = "wb" if include_header else "ab"
+    with open(path, mode) as f:
+        forecasts_df.write_csv(f, include_header=include_header)
+    logging.info(f"Written {'new' if include_header else 'appended'} CSV to {path}. Size: {os.path.getsize(path)} bytes.")
+
+
 def generate_wind_field_df(datasets, target_cols, feat_dynamic_real_cols):
     full_target = np.concatenate([ds[FieldName.TARGET] for ds in datasets], axis=-1)
     full_feat_dynamic_reals = np.concatenate([ds[FieldName.FEAT_DYNAMIC_REAL] for ds in datasets], axis=-1)[:, :full_target.shape[1]]
@@ -3583,7 +3604,7 @@ if __name__ == "__main__":
                                         tid2idx_mapping=tid2idx_mapping,
                                         turbine_signature=turbine_signature,
                                         use_tuned_params=False,
-                                        model_config=model_config,
+                                        #model_config=model_config,
                                         kwargs={})
             forecasters.append(forecaster)
     
@@ -3706,7 +3727,7 @@ if __name__ == "__main__":
                                             prediction_timedelta=pl.lit(res["prediction_timedelta"]))
             for res in results], how="vertical")
         
-        turbine_ids = ["5", "74", "75"]
+        turbine_ids = ["5", "6"]
         
         true_long_path = os.path.join(validation_save_dir, "true_long_df.csv")
         if args.rerun_validation or not os.path.exists(true_long_path):
@@ -3804,7 +3825,7 @@ if __name__ == "__main__":
                                     & (pl.col("turbine_id").is_in(turbine_ids)))\
                 .group_by("continuity_group").agg(pl.col("score").mean()).select(pl.all().sort_by("score").first()).select("continuity_group").item()
             plot_distr = forecaster.is_probabilistic and args.prediction_type == "distribution"
-            best_cg = 9
+            #best_cg = 9
             if PLOT_INDIVIDUAL:
                 forecast_fig = WindForecast.plot_forecast(forecasts_long[-1], true_long, 
                                                 continuity_groups=[best_cg], turbine_ids=turbine_ids, 
@@ -3818,7 +3839,7 @@ if __name__ == "__main__":
         
         # plot combined
         # cg = agg_df.select(pl.col("continuity_group").first()).item()
-        cg = 9
+        # cg = 9
         mean_cols = [f"{feat_type}_{tid}" for feat_type in ["loc_ws_horz", "loc_ws_vert"] for tid in data_module.target_suffixes]
         point_cols = [f"{feat_type}_{tid}" for feat_type in ["ws_horz", "ws_vert"] for tid in data_module.target_suffixes]
         PLOT_ALL = False
