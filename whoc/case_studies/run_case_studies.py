@@ -366,8 +366,10 @@ if __name__ == "__main__":
                             if res is not None:
                                 new_agg_df.append(res)
 
-                # if new_agg_df:
-                #     new_agg_df = pd.concat(new_agg_df)
+                if len(new_agg_df):
+                    new_agg_df = pd.concat(new_agg_df)
+                else:
+                    new_agg_df = pd.DataFrame()
 
                 existing_agg_df = []
                 for i in args.case_ids:
@@ -380,7 +382,7 @@ if __name__ == "__main__":
                     if args.reaggregate_simulations or not os.path.exists(os.path.join(args.save_dir, case_families[i], "agg_results_all.csv")):
                         write_case_family_agg_data(case_families[i], new_agg_df, args.save_dir)
                 
-                all_agg_dfs = [df for df in existing_agg_df + new_agg_df if df.shape[0]]
+                all_agg_dfs = [df for df in existing_agg_df + [new_agg_df] if df.shape[0]]
                 agg_df = pd.concat(all_agg_dfs)
 
         elif RUN_ONCE:
@@ -550,9 +552,9 @@ if __name__ == "__main__":
                 
                 
                 # PLOT 2) Farm power ratio of other forecasters relative to perfect forecaster vs prediction timedela for different controllers (diff plots)
-                plot_df = plot_df.set_index(["controller_class", "prediction_timedelta"])
-                plot_df["power_ratio"] = (plot_df[("FarmPowerMean", "mean")] / perfect_agg_df.set_index(["controller_class", "prediction_timedelta"])[("FarmPowerMean", "mean")]) * 100
-                plot_df = plot_df.reset_index()
+                # plot_df = plot_df.set_index(["controller_class", "prediction_timedelta"])
+                # plot_df["power_ratio"] = (plot_df[("FarmPowerMean", "mean")] / perfect_agg_df.set_index(["controller_class", "prediction_timedelta"])[("FarmPowerMean", "mean")]) * 100
+                # plot_df = plot_df.reset_index()
                 # plot_power_increase_vs_prediction_time(plot_df, args.save_dir)    
             
             if ((case_families.index("baseline_controllers") in args.case_ids)):

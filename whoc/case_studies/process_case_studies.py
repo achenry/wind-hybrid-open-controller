@@ -137,7 +137,7 @@ def plot_power_vs_prediction_time(agg_df, save_dir, label):
         
     x_vals = np.sort(pd.unique(plot_df["prediction_timedelta"]))
     xlim = (x_vals.min(), x_vals.max())
-    fig, ax = plt.subplots(1, len(controllers), sharey=True)
+    fig, ax = plt.subplots(1, len(controllers), sharey=False)
     ax = np.atleast_1d(ax)
     for c, ctrl in enumerate(controllers):
         sns.lineplot(plot_df.loc[plot_df["controller_class"] == ctrl, :], 
@@ -268,10 +268,20 @@ def read_time_series_data(results_path, input_dict_path):
         else:
             df = pd.read_csv(results_path, index_col=[0,1])
         logging.info(f"Read {results_path}")
+        
+        if "CaseName" not in df.index.names:
+            df = df.reset_index()
+            df["CaseName"] = re.search("(?<=case_)\\d+", os.path.basename(results_path)).group()
+        if "CaseFamily" not in df.index.names:
+            df["CaseFamily"] = os.path.basename(os.path.dirname(results_path))
+        if "WindSeed" not in df.columns:
+            df["WindSeed"] = re.search("(?<=seed_)\\d+", os.path.basename(results_path)).group()
+        df = df.set_index(["CaseFamily", "CaseName"])
+            # df.to_csv(results_path, index=False, header=True)
         # df = df.set_index(["CaseFamily", "CaseName"])
-        # if "Time" not in df.columns:
-        #     df["Time"] = np.arange(df.shape[0]) - 1
-        #     df.to_csv(results_path, index=False, header=True)
+        if "Time" not in df.columns:
+            df["Time"] = np.arange(df.shape[0]) - 1
+            df.to_csv(results_path, index=False, header=True)
                
     except pd.errors.DtypeWarning as w:
         logging.info(f"DtypeWarning with combined time series file {results_path}: {w}")
