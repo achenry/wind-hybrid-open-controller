@@ -51,7 +51,7 @@ case_studies = {
                                     "controller_dt": {"group": 0, "vals": [60]},
                                     "use_filtered_wind_dir": {"group": 0, "vals": [True]},
                                     "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
-                                    "simulation_dt": {"group": 0, "vals": [30]},
+                                    "simulation_dt": {"group": 0, "vals": [60]},
                                     "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/smarteole_farm.yaml"]},
                                     "uncertain": {"group": 2, "vals": [False]},
                                     "wind_forecast_class": {"group": 3, "vals": ["PerfectForecast"]}, #, ", "KalmanFilterForecast", "SpatialFilterForecast"]},
