@@ -639,7 +639,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                                  per_turbine_target=False, as_lazyframe=False, dtype=pl.Float32)
 
         # TODO REMOVE AND RENAME after sims have run!!!
-        data_module.train_ready_data_path = data_module.train_ready_data_path.replace(".parquet", "_new.parquet")
+        # data_module.train_ready_data_path = data_module.train_ready_data_path.replace(".parquet", "_new.parquet")
         if not os.path.exists(data_module.train_ready_data_path):
             data_module.generate_datasets()
             reload = True
