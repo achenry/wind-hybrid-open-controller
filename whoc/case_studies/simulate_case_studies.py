@@ -178,37 +178,53 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         simulation_dir[simulation_dir > 360] = np.mod(simulation_dir[simulation_dir > 360], 360.) 
         
         # filter wind field
-        fc = 0.0011 # TODO what should this be for wind speed
+        fc_dir = 0.0011
+        fc_mag = 0.0011
         n_lpf = 1
         ts_len = len(simulation_dir)
         fs = (0.5 / simulation_input_dict["simulation_dt"]) * np.array([i for i in range(1, int(ts_len / 2))]) / (ts_len / 2)
         
-        tf_mag_lpf = butterworth_LPF_TFmag(fs, fc, n_lpf)
+        tf_dir_lpf = butterworth_LPF_TFmag(fs, fc_dir, n_lpf)
+        tf_mag_lpf = butterworth_LPF_TFmag(fs, fc_mag, n_lpf)
 
         # FFT of raw wind direction time series
         freq_vec_dir = np.fft.fft(simulation_dir)
+        freq_vec_mag = np.fft.fft(simulation_mag)
 
         # Apply LPF magnitude
-        freq_vec_dir[1:int(ts_len / 2)] *= tf_mag_lpf
+        freq_vec_dir[1:int(ts_len / 2)] *= tf_dir_lpf
+        freq_vec_mag[1:int(ts_len / 2)] *= tf_mag_lpf
         
         if ts_len % 2 == 0:
-            freq_vec_dir[int(ts_len / 2)] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc, n_lpf), 0]))
-            freq_vec_dir[int(ts_len / 2) + 1:] *= np.flip(tf_mag_lpf)
+            freq_vec_dir[int(ts_len / 2)] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc_dir, n_lpf), 0]))
+            freq_vec_dir[int(ts_len / 2) + 1:] *= np.flip(tf_dir_lpf)
+            freq_vec_mag[int(ts_len / 2)] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc_mag, n_lpf), 0]))
+            freq_vec_mag[int(ts_len / 2) + 1:] *= np.flip(tf_mag_lpf)
         else:
-            freq_vec_dir[int(ts_len / 2):int(ts_len / 2)+2] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc, n_lpf), 0]))
-            freq_vec_dir[int(ts_len / 2) + 2:] *= np.flip(tf_mag_lpf)
+            freq_vec_dir[int(ts_len / 2):int(ts_len / 2)+2] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc_dir, n_lpf), 0]))
+            freq_vec_dir[int(ts_len / 2) + 2:] *= np.flip(tf_dir_lpf)
+            freq_vec_mag[int(ts_len / 2):int(ts_len / 2)+2] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc_mag, n_lpf), 0]))
+            freq_vec_mag[int(ts_len / 2) + 2:] *= np.flip(tf_mag_lpf)
+
+        # START TEST
+        # new_simulation_dir = np.real(np.fft.ifft(freq_vec_dir))
+        # new_simulation_mag = np.real(np.fft.ifft(freq_vec_mag))
+        # import matplotlib.pyplot as plt
+        # fig, axs = plt.subplots(2, 1, figsize=(10,6), sharex=True)
+        # axs[0].plot(simulation_dir,label="Raw Wind Direction")
+        # axs[0].plot(new_simulation_dir,linewidth=2.0,color='r',label="Low-Frequency Wind Direction")
+        # axs[0].legend()
+        # axs[1].plot(simulation_mag,label="Raw Wind Magnitude")
+        # axs[1].plot(new_simulation_mag,linewidth=2.0,color='r',label="Low-Frequency Wind Magnitude")
+        # axs[1].legend()
+        # plt.grid()
+        # END TEST
 
         # time series of low-frequency wind direction
         simulation_dir = np.real(np.fft.ifft(freq_vec_dir))
+        simulation_mag = np.real(np.fft.ifft(freq_vec_mag))
         
-        # START TEST
-        # import matplotlib.pyplot as plt
-        # plt.figure(figsize=(10,6))
-        # plt.plot(simulation_dir,label="Raw Wind Direction")
-        # plt.plot(new_simulation_dir,linewidth=2.0,color='r',label="Low-Frequency Wind Direction")
-        # plt.grid()
-        # plt.legend()
-        # END TEST
+
         
     else:
         simulation_mag = kwargs["wind_field_ts"].select("FreestreamWindMag").to_numpy()
@@ -513,7 +529,7 @@ def write_df(case_family, case_name, wind_case_idx, wf_source, wind_field_ts,
         # results_data = results_data.merge(predicted_wind_speeds_ts, on=["CaseFamily", "CaseName", "WindSeed", "Time"], how="outer")
         predicted_wind_speeds_ts = predicted_wind_speeds_ts.to_pandas()
         results_data = results_data.merge(predicted_wind_speeds_ts, on=["Time"], how="outer")
-        results_data[["CaseFamily", "CaseName", "WindSeed"]] = results_data[["CaseFamily", "CaseName", "WindSeed"]].ffill()
+        # results_data[["CaseFamily", "CaseName", "WindSeed"]] = results_data[["CaseFamily", "CaseName", "WindSeed"]].ffill()
         # results_data.loc[results_data["Time"] >= predicted_wind_speeds_ts["Time"].iloc[0], predicted_wind_speeds_ts.drop(columns=["Time"]).columns] = predicted_wind_speeds_ts.drop(columns=["Time"])
         del predicted_wind_speeds_ts
     
