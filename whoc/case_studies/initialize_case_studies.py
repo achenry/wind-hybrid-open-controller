@@ -53,7 +53,7 @@ case_studies = {
                                     "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
                                     "simulation_dt": {"group": 0, "vals": [60]},
                                     "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/smarteole_farm.yaml"]},
-                                    "uncertain": {"group": 2, "vals": [True]},
+                                    "uncertain": {"group": 2, "vals": [False]},
                                     "wind_forecast_class": {"group": 3, "vals": ["PersistenceForecast"]}, #, ", "KalmanFilterForecast", "SpatialFilterForecast"]},
                                     "study_name": {"group": 3, "vals": ["svr_aoifemac_flasc"]},
                                     "prediction_timedelta": {"group": 4, "vals": [60, 120, 180, 240, 300]}, #, 120, 180]},
