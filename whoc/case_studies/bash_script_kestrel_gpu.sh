@@ -1,8 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=full_floris_case_studies.py
-#SBATCH --time=24:00:00
+#SBATCH --time=96:00:00
 #SBATCH --nodes=1
-##SBATCH --partition=debug
 #SBATCH --ntasks-per-node=4
 #SBATCH --gres=gpu:4
 #SBATCH --mem-per-cpu=85G
@@ -17,18 +16,12 @@ mamba activate wind_forecasting_env
 export CASE_IDX=$1
 export CUDA_VISIBLE_DEVICES=$(seq -s, 0 $(($SLURM_NTASKS_PER_NODE-1)))
 
-# Calculate start and end cores (assuming i is 1-based)
-start_core=$(( ($i - 1) * $SLURM_NTASKS_PER_NODE ))
-end_core=$(( $i * $SLURM_NTASKS_PER_NODE - 1 ))
-
 # Create the range string
-CORES="${start_core}-${end_core}"
-echo "Using CPUs ${CORES} out of available {$SLURM_NTASKS_PER_NODE}"
 echo "Using GPUs ${CUDA_VISIBLE_DEVICES}"
 
 # taskset -c $start_core-$end_core 
-python run_case_studies.py $CASE_IDX --exclude_prediction --multiprocessor cf -rs --ram_limit 75 --wf_source scada \
-       -st 1380 -ns 1 -sd /projects/ssc/ahenry/whoc/floris_case_studies/ \
+python run_case_studies.py $CASE_IDX --exclude_prediction --multiprocessor cf -rs -rrs --ram_limit 75 --wf_source scada \
+        -sd /projects/ssc/ahenry/whoc/floris_case_studies/ \
        -wcnf $HOME/toolboxes/wind_forecasting_env/wind-hybrid-open-controller/examples/hercules_input_001.yaml \
        -dcnf $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/preprocessing/preprocessing_inputs_kestrel_awaken_new.yaml \
-       -mcnf $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred60.yaml
+       -mcnf $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred60.yaml -st auto -ns 10 
