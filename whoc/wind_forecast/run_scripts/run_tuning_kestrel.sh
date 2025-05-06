@@ -18,6 +18,7 @@
 export NTASKS_PER_TUNER=13
 export MODEL=$1
 NTUNERS=$((SLURM_NTASKS / NTASKS_PER_TUNER)) # cast to int
+cd ..
 
 # Print environment info
 echo "SLURM_JOB_ID=${SLURM_JOB_ID}"
