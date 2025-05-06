@@ -66,13 +66,13 @@ case_studies = {
                                     "simulation_dt": {"group": 0, "vals": [1]},
                                     "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]},
-                                    "target_turbine_indices": {"group": 1, "vals": ["74,73", "4,"]},
-                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
-                                    "prediction_timedelta": {"group": 1, "vals": [300, 60]},
+                                    "target_turbine_indices": {"group": 1, "vals": ["74,73"]}, #, "4,"]},
+                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]}, #, "GreedyController"]},
+                                    "prediction_timedelta": {"group": 1, "vals": [300]},#, 60]},
                                     # "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
                                     # "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
-                                    "uncertain": {"group": 3, "vals": [True, False, False, False]},
-                                    "wind_forecast_class": {"group": 3, "vals": ["KalmanFilterForecast", "KalmanFilterForecast", "PersistenceForecast", "SpatialFilterForecast"]}, # "MLForecast"
+                                    "uncertain": {"group": 3, "vals": [False, False, False, False]},
+                                    "wind_forecast_class": {"group": 3, "vals": ["KalmanFilterForecast", "PersistenceForecast", "SpatialFilterForecast", "SVRForecast", "PerfectForecast"]}, # "MLForecast"
                                     # "model_key": {"group": 3, "vals": ["informer"]},
                                     # "wind_forecast_class": {"group": 3, "vals": ["MLForecast"]},
     },
