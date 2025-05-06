@@ -88,7 +88,7 @@ case_studies = {
         "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73"]},
         "uncertain": {"group": 1, "vals": [False, False]},
         "wind_forecast_class": {"group": 0, "vals": ["PerfectForecast"]},
-        "prediction_timedelta": {"group": 2, "vals": [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 360, 420, 480, 540, 600]},
+        "prediction_timedelta": {"group": 2, "vals": [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 360, 420, 480, 540, 600, 660, 720, 780, 840, 900]},
         },
     "baseline_controllers_perfect_forecaster_flasc": {
         "controller_dt": {"group": 0, "vals": [5]},
@@ -901,7 +901,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
 
         input_df = pd.concat(input_df, ignore_index=True, axis=0)
         os.makedirs(os.path.join(save_dir, case_study_key), exist_ok=True)
-        input_df.to_csv(os.path.join(save_dir, case_study_key, "case_descriptions.csv"), index=False)
+        input_df.to_csv(os.path.join(save_dir, case_study_key, "case_descriptions.csv"), index=True)
         
     # TEMP change the filenames of old simulations to new
     if False:
