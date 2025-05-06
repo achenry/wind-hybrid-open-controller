@@ -7,6 +7,7 @@ from memory_profiler import profile
 import re
 from psutil import virtual_memory
 from shutil import move
+from filelock import FileLock
 
 from whoc.interfaces.controlled_floris_interface import ControlledFlorisModel
 from whoc.wind_field.WindField import first_ord_filter
@@ -26,15 +27,19 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     print(f"Results dir: {results_dir}")
     os.makedirs(results_dir, exist_ok=True)
     case_name = kwargs["case_name"]
+    case_file_path = os.path.join(results_dir, "case_descriptions.csv")
+    lock = FileLock(case_file_path + ".lock")
 
     if simulation_input_dict["controller"]["uncertain"] and not wind_forecast_class.is_probabilistic:
         logging.info(f"Can't run with uncertain flag for {wind_forecast_class.__name__}, setting uncertainty off.")
         simulation_input_dict["controller"]["uncertain"] = simulation_input_dict["controller"]["uncertain"] and wind_forecast_class.is_probabilistic
-        input_df = pd.read_csv(os.path.join(results_dir, f"case_descriptions.csv"))
-        input_df.loc[input_df['study_name'] == case_name, 'uncertain'] = False
-        #input_df.loc[int(kwargs['case_name']), "uncertain"] = False
-        #input_df.to_csv(os.path.join(results_dir, f"case_descriptions.csv"))
-        input_df.to_csv(os.path.join(results_dir, "case_descriptions.csv"), index=False)
+        with lock:
+            try:
+                input_df = pd.read_csv(case_file_path)
+                input_df.loc[input_df['study_name'] == case_name, 'uncertain'] = False
+                input_df.to_csv(case_file_path, index=False)
+            except pd.errors.EmptyDataError:
+                logging.warning(f"case_descriptions.csv is empty, unable to set uncertain flag to False.")
 
         # old_case_name = kwargs['case_name']
         # kwargs['case_name'] = re.sub("uncertain_True", "uncertain_False", kwargs['case_name'])
