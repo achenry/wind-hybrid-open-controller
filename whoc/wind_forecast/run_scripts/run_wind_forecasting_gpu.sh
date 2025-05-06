@@ -3,10 +3,11 @@
 #SBATCH --account=ssc
 #SBATCH --output=%j_%x.out
 #SBATCH --nodes=1
-#SBATCH --time=24:00:00
-#SBATCH --partition=debug
-#SBATCH --ntasks-per-node=4
-#SBATCH --gres=gpu:4
+#SBATCH --time=12:00:00
+##SBATCH --time=01:00:00
+##SBATCH --partition=debug
+#SBATCH --ntasks-per-node=1
+#SBATCH --gres=gpu:1
 #SBATCH --mem-per-cpu=85G
 # salloc --partition=debug --gres=gpu:2 --ntasks-per-node=2 --time=01:00:00 --mem-per-cpu=85G --account=ssc
 
@@ -54,4 +55,4 @@ export CUDA_VISIBLE_DEVICES=$(seq -s, 0 $(($SLURM_NTASKS_PER_NODE-1)))
 #echo "Using GPUs ${CUDA_VISIBLE_DEVICES}"
 
 # taskset -c $start_core-$end_core 
-python ../run_forecaster_validation.py --model ${MODELS} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --simulation_timestep 1 --save_dir /projects/ssc/ahenry/wind_forecasting/logging --checkpoint best --multiprocessor cf --prediction_type distribution --use_tuned_params --use_trained_models --rerun_validation --max_splits 1 --max_steps 1080
+python ../run_forecaster_validation.py --model ${MODELS} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --simulation_timestep 1 --save_dir /projects/ssc/ahenry/wind_forecasting/logging --checkpoint best --multiprocessor cf --prediction_type distribution --use_tuned_params --use_trained_models --rerun_validation --max_splits 10 # --max_steps 1080
