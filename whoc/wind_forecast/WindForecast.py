@@ -1884,7 +1884,11 @@ class MLForecast(WindForecast):
         estimator_params = [param.name for param in estimator_sig.parameters.values()]
         
         # Add model-specific arguments
-        estimator_kwargs.update({k: v for k, v in checkpoint_hparams["init_args"]["model_config"].items() if k in estimator_params})
+        model_config_source = checkpoint_hparams["init_args"]["model_config"]
+        if model_config_source:
+             estimator_kwargs.update({k: v for k, v in model_config_source.items() if k in estimator_params})
+        else:
+             logging.warning(f"Could not find 'model_config' in checkpoint hparams or instance config for model {self.model_key}.")
         
         # Add distr_output only if the model is NOT tactis
         if self.model_key != "tactis":
