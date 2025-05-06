@@ -164,10 +164,10 @@ def plot_agg_metrics_vs_forecaster(agg_df, save_dir, label, controller_labels, a
     plot_df = agg_df.copy()
     plot_df["prediction_timedelta"] = plot_df["prediction_timedelta"].dt.total_seconds()
     # plot_df[("FarmPowerMean", "mean")] = plot_df[("FarmPowerMean", "mean")] / 1e6
-    plot_df = plot_df[[("controller_class", ""), ("wind_forecast_class", ""), ("prediction_timedelta", "")] + agg_metrics]
+    plot_df = plot_df[[("controller_class", ""), ("wind_forecast_class", ""), ("prediction_timedelta", ""), ("uncertain", "")] + agg_metrics]
     plot_df.columns = plot_df.columns.droplevel(1)
     reduced_agg_metrics = [m if not isinstance(m, tuple) else m[0] for m in agg_metrics]
-    plot_df = pd.melt(plot_df, id_vars=["controller_class", "wind_forecast_class", "prediction_timedelta"], value_vars=reduced_agg_metrics)
+    plot_df = pd.melt(plot_df, id_vars=["controller_class", "wind_forecast_class", "prediction_timedelta", "uncertain"], value_vars=reduced_agg_metrics)
     plot_df = plot_df.loc[plot_df["controller_class"].isin(controllers)]
     # fig, ax = plt.subplots(1, len(controllers), sharey=True)
     # fig = plt.figure()
@@ -176,29 +176,36 @@ def plot_agg_metrics_vs_forecaster(agg_df, save_dir, label, controller_labels, a
     
     for v, var in enumerate(reduced_agg_metrics):
         for c, ctrl in enumerate(controllers):
+            persistent_cond = (plot_df["controller_class"] == ctrl.replace("True", "False")) & (plot_df["variable"] == var) # fetch static case for persistent
+            base_val = plot_df.loc[(plot_df["wind_forecast_class"] == "PersistenceForecast") & persistent_cond, "value"].iloc[0]
             cond = (plot_df["controller_class"] == ctrl) & (plot_df["variable"] == var)
-            base_val = plot_df.loc[(plot_df["wind_forecast_class"] == "PersistenceForecast") & cond, "value"].iloc[0]
-            plot_df.loc[cond, "value"] = 100 * (plot_df.loc[cond, "value"] - base_val) / base_val
+            plot_df.loc[(plot_df["wind_forecast_class"] != "PersistenceForecast") & cond, "value"] = 100 * (plot_df.loc[cond, "value"] - base_val) / base_val
 
     # plot_df.loc[(plot_df["controller_class"] == ctrl) & (plot_df["variable"] == "YawAngleChangeAbsMean"), "value"] = plot_df.loc[(plot_df["controller_class"] == ctrl) & (plot_df["variable"] == "YawAngleChangeAbsMean"), "value"] / 100
     
     ax = sns.catplot(plot_df.loc[((plot_df["wind_forecast_class"] != "PersistenceForecast")), :], kind="bar",
-                x="wind_forecast_class", y="value", col="variable", hue="controller_class", sharey=False)
+                x="wind_forecast_class", y="value", col="variable", hue="controller_class", 
+                sharey=False, errorbar=('pi', 100))
     
     for v, var in enumerate(reduced_agg_metrics):
         for f, fcst in enumerate(ax.axes[0, v].get_xticklabels()):
             for c, ctrl in enumerate(controllers):
                 cond = (plot_df["controller_class"] == ctrl) & (plot_df["wind_forecast_class"] == fcst.get_text()) & (plot_df["variable"] == var)
-                print_val = val = plot_df.loc[cond, 'value'].iloc[0]
-                x = fcst._x - 0.2
-                y = val + (0.02 * max(1, 100*np.round(abs(val)/100))) if val > 0 else val - (0.06 * max(1, 100*np.round(abs(val)/100)))
+                # print_val = val = plot_df.loc[cond, 'value'].mean()
                 
-                if abs(print_val) < 1.0:
-                    ax.axes[0, v].annotate(text=f"{print_val:.1g}%", xy=(x, y))
-                else:
-                    ax.axes[0, v].annotate(text=f"{print_val:.2g}%", xy=(x, y))
+                # x = fcst._x - (0.4 if c == 0 else 0.0)
+                
+                # # y = val + (0.01 * max(1, 100*np.round(abs(val)/100))) if val > 0 else val - (0.05 * max(1, 100*np.round(abs(val)/100)))
+                # y = val + 0.02 * abs(val) if val > 0 else val - 0.2 * abs(val)
+                
+                # if abs(print_val) < 1.0:
+                #     ax.axes[0, v].annotate(text=f"{print_val:.1g}%", xy=(x, y))
+                # elif abs(print_val) >= 100:
+                #     ax.axes[0, v].annotate(text=f"{print_val:.3g}%", xy=(x, y))
+                # else:
+                #     ax.axes[0, v].annotate(text=f"{print_val:.2g}%", xy=(x, y))
         
-        ax.axes[0, v].set_yticklabels([])
+        # ax.axes[0, v].set_yticklabels([])
         ax.axes[0, v].set_ylabel("")
         ax.axes[0, v].set_xlabel("Forecaster")
         # ax[c].set_title(f"{controller_labels[ctrl]} Mean Farm Power (MW)")
@@ -215,12 +222,6 @@ def plot_agg_metrics_vs_forecaster(agg_df, save_dir, label, controller_labels, a
 
         ax.axes[0, v].set_xticklabels(x_vals)
         ax.axes[0, v].tick_params("x", rotation=35)
-    # ax.ax.legend([], [], frameon=False)
-    
-        # ax._legend.set_visible(False)
-    # plt.gcf().canvas.draw()
-    ax.axes[0, 0].set_ylim((-90, 20))
-    ax.axes[0, 1].set_ylim((-90, 20))
     
     for c, ctrl in enumerate(controllers):
         ax.legend.get_texts()[c].set_text(controller_labels[ax.legend.get_texts()[c]._text])
@@ -228,13 +229,11 @@ def plot_agg_metrics_vs_forecaster(agg_df, save_dir, label, controller_labels, a
     fig = plt.gcf()
     fig.set_size_inches((15, 8))
     plt.tight_layout()
-    fig.subplots_adjust(right=0.85)
+    fig.subplots_adjust(right=0.825)
     ax.legend.set_title("")
     ax.legend.set_loc("upper right")
-    ax.legend.set_bbox_to_anchor((0.0, 0.0, 0.95, 0.9))
+    ax.legend.set_bbox_to_anchor((0.0, 0.0, 1.0, 0.9))
     
-    
-
     fig.savefig(os.path.join(save_dir, f"{label}_power_vs_forecaster.png"))
 
 def read_case_family_time_series_data(case_family, save_dir):
@@ -270,7 +269,10 @@ def read_time_series_data(results_path, input_dict_path):
             df = pd.read_csv(results_path, index_col=[0,1])
         logging.info(f"Read {results_path}")
         # df = df.set_index(["CaseFamily", "CaseName"])
-        
+        # if "Time" not in df.columns:
+        #     df["Time"] = np.arange(df.shape[0]) - 1
+        #     df.to_csv(results_path, index=False, header=True)
+               
     except pd.errors.DtypeWarning as w:
         logging.info(f"DtypeWarning with combined time series file {results_path}: {w}")
         warnings.simplefilter('ignore', pd.errors.DtypeWarning)
