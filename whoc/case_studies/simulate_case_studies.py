@@ -117,45 +117,6 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
             v = kwargs["wind_field_ts"].select([f"ws_vert_{idx2tid_mapping[i]}" for i in sorted_tids]).select(pl.all().first()).to_numpy()[0, :]
             simulation_input_dict["controller"]["initial_conditions"]["yaw"] = 180.0 + np.rad2deg(np.arctan2(u, v))
      
-    # pl.DataFrame(kwargs["wind_field_ts"])
-    # simulation_input_dict["wind_forecast"]["measurement_layout"] = np.vstack([fi.env.layout_x, fi.env.layout_y]).T
-    if wind_forecast_class:
-        wind_forecast = wind_forecast_class(true_wind_field=kwargs["wind_field_ts"] if wind_forecast_class.__name__ == "PerfectForecast" else None,
-                                            fmodel=fi_full.env, 
-                                            tid2idx_mapping=kwargs["tid2idx_mapping"],
-                                            turbine_signature=kwargs["turbine_signature"],
-                                            use_tuned_params=kwargs["use_tuned_params"],
-                                            **{k: v for k, v in simulation_input_dict["wind_forecast"].items() if "timedelta" in k},
-                                            kwargs={k: v for k, v in simulation_input_dict["wind_forecast"].items() if "timedelta" not in k})
-        wind_forecast.reset(assigned_gpu=assigned_gpu)
-    else:
-        wind_forecast = None
-    ctrl = controller_class(fi, wind_forecast=wind_forecast, simulation_input_dict=simulation_input_dict, **kwargs)
-    
-    yaw_angles_ts = [[ctrl.yaw_IC] * ctrl.n_turbines if isinstance(ctrl.yaw_IC, float) else ctrl.yaw_IC] if k == 0 else []
-    # init_yaw_angles_ts = []
-    turbine_powers_ts = [[np.nan] * ctrl.n_turbines] if k == 0 else []
-    turbine_wind_mag_ts = [[np.nan] * ctrl.n_turbines] if k == 0 else []
-    turbine_wind_dir_ts = [[np.nan] * ctrl.n_turbines] if k == 0 else []
-    turbine_offline_status_ts = [[False] * ctrl.n_turbines] if k == 0 else []
-    
-    if wind_forecast_class:
-        predicted_wind_speeds_ts = []
-    
-    convergence_time_ts = [np.nan] if k == 0 else []
-
-    opt_cost_ts = [np.nan] if k == 0 else []
-    opt_cost_terms_ts = [[np.nan] * 2] if k == 0 else []
-    
-    if hasattr(ctrl, "state_cons_activated"):
-        lower_state_cons_activated_ts = [np.nan] if k == 0 else []
-        upper_state_cons_activated_ts = [np.nan] if k == 0 else []
-    else:
-        lower_state_cons_activated_ts = upper_state_cons_activated_ts = None
-
-    n_future_steps = int(ctrl.controller_dt // simulation_input_dict["simulation_dt"]) - 1
-    
-    
     # input to floris should be from first in target_turbine_indices (most upstream one), or mean over whole farm if no target_turbine_indices
     if kwargs["wf_source"] == "scada":
         if simulation_input_dict["controller"]["target_turbine_indices"] == "all":
@@ -177,7 +138,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         simulation_dir[simulation_dir < 0] = 360. + simulation_dir[simulation_dir < 0]
         simulation_dir[simulation_dir > 360] = np.mod(simulation_dir[simulation_dir > 360], 360.) 
         
-        # filter wind field
+        # filter wind field NOTE TODO this is not the wind field that PerfectForecast is returning...
         fc_dir = 0.0011
         fc_mag = 0.0011
         n_lpf = 1
@@ -224,14 +185,53 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         simulation_dir = np.real(np.fft.ifft(freq_vec_dir))
         simulation_mag = np.real(np.fft.ifft(freq_vec_mag))
         
-
+        # kwargs["wind_field_ts"]
         
     else:
         simulation_mag = kwargs["wind_field_ts"].select("FreestreamWindMag").to_numpy()
         simulation_dir = kwargs["wind_field_ts"].select("FreestreamWindDir").to_numpy()
         simulation_u = simulation_mag * np.sin(np.deg2rad(180 + simulation_dir))
         simulation_v = simulation_mag * np.cos(np.deg2rad(180 + simulation_dir))
-        
+     
+        # pl.DataFrame(kwargs["wind_field_ts"])
+    # simulation_input_dict["wind_forecast"]["measurement_layout"] = np.vstack([fi.env.layout_x, fi.env.layout_y]).T
+    if wind_forecast_class:
+        wind_forecast = wind_forecast_class(true_wind_field=kwargs["wind_field_ts"] if wind_forecast_class.__name__ == "PerfectForecast" else None,
+                                            fmodel=fi_full.env, 
+                                            tid2idx_mapping=kwargs["tid2idx_mapping"],
+                                            turbine_signature=kwargs["turbine_signature"],
+                                            use_tuned_params=kwargs["use_tuned_params"],
+                                            **{k: v for k, v in simulation_input_dict["wind_forecast"].items() if "timedelta" in k},
+                                            kwargs={k: v for k, v in simulation_input_dict["wind_forecast"].items() if "timedelta" not in k})
+        wind_forecast.reset(assigned_gpu=assigned_gpu)
+    else:
+        wind_forecast = None
+    ctrl = controller_class(fi, wind_forecast=wind_forecast, simulation_input_dict=simulation_input_dict, **kwargs)
+    
+    yaw_angles_ts = [[ctrl.yaw_IC] * ctrl.n_turbines if isinstance(ctrl.yaw_IC, float) else ctrl.yaw_IC] if k == 0 else []
+    # init_yaw_angles_ts = []
+    turbine_powers_ts = [[np.nan] * ctrl.n_turbines] if k == 0 else []
+    turbine_wind_mag_ts = [[np.nan] * ctrl.n_turbines] if k == 0 else []
+    turbine_wind_dir_ts = [[np.nan] * ctrl.n_turbines] if k == 0 else []
+    turbine_offline_status_ts = [[False] * ctrl.n_turbines] if k == 0 else []
+    
+    if wind_forecast_class:
+        predicted_wind_speeds_ts = []
+    
+    convergence_time_ts = [np.nan] if k == 0 else []
+
+    opt_cost_ts = [np.nan] if k == 0 else []
+    opt_cost_terms_ts = [[np.nan] * 2] if k == 0 else []
+    
+    if hasattr(ctrl, "state_cons_activated"):
+        lower_state_cons_activated_ts = [np.nan] if k == 0 else []
+        upper_state_cons_activated_ts = [np.nan] if k == 0 else []
+    else:
+        lower_state_cons_activated_ts = upper_state_cons_activated_ts = None
+
+    n_future_steps = int(ctrl.controller_dt // simulation_input_dict["simulation_dt"]) - 1
+    
+       
     # recompute controls and step floris forward by ctrl.controller_dt
     while t < stoptime:
 
