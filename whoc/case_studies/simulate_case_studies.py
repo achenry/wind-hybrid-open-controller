@@ -321,7 +321,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     
         # if RAM is running low, write existing data to dataframe and continue
         # turn data into arrays, pandas dataframe, and export to csv
-        if (final := (t>=stoptime)) or ((ram_used := virtual_memory().percent) > kwargs["ram_limit"]) or (len(turbine_powers_ts) >= int(3600 / simulation_input_dict["simulation_dt"])):
+        if (final := (t>=stoptime)) or ((ram_used := virtual_memory().percent) > kwargs["ram_limit"]) or (len(turbine_powers_ts) >= int(200 / simulation_input_dict["simulation_dt"])):
             logging.info(f"Used {ram_used}% RAM.")
             # turn data into arrays, pandas dataframe, and export to csv
             write_df(case_family=kwargs["case_family"],
@@ -523,7 +523,9 @@ def write_df(case_family, case_name, wind_case_idx, wf_source, wind_field_ts,
     logging.info(f"Writing {'final' if final else 'intermediary'} result to file.")
     if final and os.path.exists(save_path):
         results_data = pd.concat([pd.read_csv(save_path, index_col=None),
-                                  results_data], axis=0).groupby("Time").last()
+                                  results_data], axis=0).groupby("Time").last().reset_index(drop=False)
+        # set case family and case_name first, then time etc.
+        results_data = results_data.iloc[:, [1, 2, 0] + list(range(3, len(results_data.columns)))]
         results_data.to_csv(save_path, mode="w", header=True, index=False)
     elif os.path.exists(save_path):
         results_data.to_csv(save_path, mode="a", header=False, index=False)

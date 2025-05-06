@@ -121,7 +121,8 @@ if __name__ == "__main__":
     # else:
     #     input_dicts, wind_field_config, wind_field_ts = None, None, None
         
-    # if args.multiprocessor == "mpi":
+    if args.multiprocessor == "mpi":
+        comm.Barrier()
     #     input_dicts = comm.bcast(input_dicts, root=0)
     #     wind_field_config = comm.bcast(wind_field_config, root=0)
     #     wind_field_ts = comm.bcast(wind_field_ts, root=0)
@@ -272,18 +273,26 @@ if __name__ == "__main__":
                     
                     time_series_df = pd.concat(existing_time_series_df + new_time_series_df)
                     
+                    unique_seeds = time_series_df.groupby(["CaseFamily", "CaseName"], level=0)["WindSeed"].unique().values
+                    common_seeds = set(unique_seeds[0])
+                    for sds in unique_seeds[1:]:
+                        common_seeds.intersection_update(sds)
+                    
                     # if args.reaggregate_simulations is true, or for any case family where doesn't agg_results_all.csv exist, compute the aggregate stats for each case families and case name, over all wind seeds
-                    futures = [run_simulations_exec.submit(aggregate_time_series_data,
-                                                             time_series_df=time_series_df.iloc[(time_series_df.index.get_level_values("CaseFamily") == case_families[i]) & (time_series_df.index.get_level_values("CaseName") == case_name), :],
-                                                                input_dict_path=os.path.join(args.save_dir, case_families[i], f"input_config_case_{case_name}.pkl"),
-                                                                n_seeds=args.n_seeds)
-                        for i in args.case_ids
-                        for case_name in pd.unique(time_series_df.iloc[(time_series_df.index.get_level_values("CaseFamily") == case_families[i])].index.get_level_values("CaseName"))
-                        # for case_name in [re.findall(r"(?<=case_)(.*)(?=_seed)", fn)[0] for fn in case_family_case_names[case_families[i]]]
-                        if args.reaggregate_simulations or not os.path.exists(os.path.join(args.save_dir, case_families[i], 
-                                                                                           "agg_results_all.csv"))
-                    ]
-
+                    futures = []
+                    for i in args.case_ids:
+                        if args.reaggregate_simulations or not os.path.exists(os.path.join(args.save_dir, case_families[i], "agg_results_all.csv")):
+                            case_family_df = time_series_df.iloc[time_series_df.index.get_level_values("CaseFamily") == case_families[i], :]
+                            for case_name in pd.unique(time_series_df.iloc[(time_series_df.index.get_level_values("CaseFamily") == case_families[i])].index.get_level_values("CaseName")):
+                                case_name_df = case_family_df.iloc[(case_family_df.index.get_level_values("CaseName") == case_name), :]
+                                case_name_df = case_name_df.loc[case_name_df["WindSeed"].isin(common_seeds), :]
+                                futures.append(
+                                    run_simulations_exec.submit(
+                                        aggregate_time_series_data,
+                                            time_series_df=case_name_df,
+                                            input_dict_path=os.path.join(args.save_dir, case_families[i], f"input_config_case_{case_name}.pkl"),
+                                            n_seeds=args.n_seeds))
+                                
                     new_agg_df = [fut.result() for fut in futures]
                     new_agg_df = [df for df in new_agg_df if df is not None]
                     if len(new_agg_df):
@@ -335,6 +344,12 @@ if __name__ == "__main__":
                 
                 time_series_df = pd.concat(existing_time_series_df + new_time_series_df)
                 
+                unique_seeds = time_series_df.groupby(["CaseFamily", "CaseName"], level=0)["WindSeed"].unique().values
+                common_seeds = set(unique_seeds[0])
+                for sds in unique_seeds[1:]:
+                    common_seeds.intersection_update(sds)
+                    
+                
                 new_agg_df = []
                 for i in args.case_ids:
                     if args.reaggregate_simulations or not os.path.exists(os.path.join(args.save_dir, case_families[i], "agg_results_all.csv")):
@@ -342,6 +357,7 @@ if __name__ == "__main__":
                         case_family_df = time_series_df.iloc[time_series_df.index.get_level_values("CaseFamily") == case_families[i], :]
                         for case_name in pd.unique(case_family_df.index.get_level_values("CaseName")):
                             case_name_df = case_family_df.iloc[case_family_df.index.get_level_values("CaseName") == case_name, :]
+                            case_name_df = case_name_df.loc[case_name_df["WindSeed"].isin(common_seeds), :]
                             res = aggregate_time_series_data(
                                                             time_series_df=case_name_df,
                                                             input_dict_path=os.path.join(args.save_dir, case_families[i], f"input_config_case_{case_name}.pkl"),
@@ -463,9 +479,23 @@ if __name__ == "__main__":
                 
                 # PLOT 0) Farm power of perfect forecaster vs prediction timedela for different controllers
                 # controller_labels = {"GreedyController": "Greedy", "LookupBasedWakeSteeringController": "LUT"}
-                controller_labels = {"LookupBasedWakeSteeringController": "LUT"}
-                plot_agg_metrics_vs_forecaster(baseline_agg_df,
-                                               save_dir=args.save_dir, label="all_forecasters_",
+                controller_labels = {
+                    "GreedyControllerFalse": "Greedy",
+                    "LookupBasedWakeSteeringControllerFalse": "Static LUT",
+                    "LookupBasedWakeSteeringControllerTrue": "Dynamic LUT"
+                }
+                ml_baseline_agg_df = baseline_agg_df.loc[(~baseline_agg_df["model_key"].isnull()) | (baseline_agg_df["wind_forecast_class"] == "PersistenceForecast"), :]
+                ml_baseline_agg_df["controller_class"] = ml_baseline_agg_df["controller_class"] + ml_baseline_agg_df["uncertain"].astype(str)
+                ml_baseline_agg_df = ml_baseline_agg_df.sort_values("controller_class")
+                plot_agg_metrics_vs_forecaster(ml_baseline_agg_df,
+                                               save_dir=args.save_dir, label="ml_forecasters_",
+                                               controller_labels=controller_labels)
+                
+                other_baseline_agg_df = baseline_agg_df.loc[baseline_agg_df["model_key"].isnull(), :]
+                other_baseline_agg_df["controller_class"] = other_baseline_agg_df["controller_class"] + other_baseline_agg_df["uncertain"].astype(str)
+                other_baseline_agg_df = other_baseline_agg_df.sort_values("controller_class")
+                plot_agg_metrics_vs_forecaster(other_baseline_agg_df,
+                                               save_dir=args.save_dir, label="stat_forecasters_",
                                                controller_labels=controller_labels)
                 
                 # PLOT 1) Farm power of perfect forecaster vs prediction timedela for different controllers
