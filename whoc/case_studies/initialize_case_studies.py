@@ -72,7 +72,7 @@ case_studies = {
                                     # "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
                                     # "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
                                     "uncertain": {"group": 3, "vals": [False, False, False, False]},
-                                    "wind_forecast_class": {"group": 3, "vals": ["KalmanFilterForecast", "PersistenceForecast", "SpatialFilterForecast", "SVRForecast", "PerfectForecast"]}, # "MLForecast"
+                                    "wind_forecast_class": {"group": 3, "vals": ["PerfectForecast", "KalmanFilterForecast", "PersistenceForecast", "SpatialFilterForecast", "SVRForecast"]}, # "MLForecast"
                                     # "model_key": {"group": 3, "vals": ["informer"]},
                                     # "wind_forecast_class": {"group": 3, "vals": ["MLForecast"]},
     },
@@ -637,7 +637,9 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                                  target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                                  freq=f"{simulation_dt}s", target_suffixes=base_model_config["dataset"]["target_turbine_ids"],
                                  per_turbine_target=False, as_lazyframe=False, dtype=pl.Float32)
-    
+
+        # TODO REMOVE AND RENAME after sims have run!!!
+        data_module.train_ready_data_path = data_module.train_ready_data_path.replace(".parquet", "_new.parquet")
         if not os.path.exists(data_module.train_ready_data_path):
             data_module.generate_datasets()
             reload = True

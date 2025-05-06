@@ -537,6 +537,13 @@ def write_df(case_family, case_name, wind_case_idx, wf_source, wind_field_ts,
         #     # results_data = results_data.dropna(subset=[f"TrueTurbineWindSpeedHorz_{idx2tid_mapping[i]}" for i in range(fi_full.n_turbines)])
         #     results_data = results_data.iloc[:-int(simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() / simulation_input_dict["simulation_dt"])]
     
+    # TESTING START
+    # import matplotlib.pyplot as plt
+    # fig, ax = plt.subplots(1, 1)
+    # ax.plot(results_data["Time"], results_data["TurbineYawAngle_74"], label="74")
+    # ax.plot(results_data["Time"], results_data["TurbineYawAngle_75"], label="75")
+    # TESTING END
+    
     logging.info(f"Writing {'final' if final else 'intermediary'} result to file.")
     if final and os.path.exists(save_path):
         results_data = pd.concat([pd.read_csv(save_path, index_col=None),
