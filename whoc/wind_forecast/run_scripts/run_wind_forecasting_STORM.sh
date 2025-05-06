@@ -19,7 +19,7 @@ export BASE_DIR="/user/taed7566/Forecasting"
 export WHOC_DIR="${BASE_DIR}/wind-hybrid-open-controller"
 export WF_DIR="${BASE_DIR}/wind-forecasting"
 export LOG_DIR="${WF_DIR}/logs"
-export WHOC_SCRIPT_DIR="${WHOC_DIR}/whoc/wind_forecast"
+export WHOC_SCRIPT_DIR="${WHOC_DIR}/whoc/wind_forecast/run_scripts"
 
 # --- Input Arguments ---
 # Example Usage: sbatch run_wind_forecasting_STORM.sh tactis \
@@ -117,7 +117,7 @@ echo "Resolved Data Config Path: ${DATA_CONFIG_PATH_ABS}"
 export CUDA_VISIBLE_DEVICES=0
 echo "Using GPU ${CUDA_VISIBLE_DEVICES}"
 
-python WindForecast.py \
+python run_forecaster_validation.py \
     --model ${MODELS} \
     --model_config "${MODEL_CONFIG_PATH_ABS}" \
     --data_config "${DATA_CONFIG_PATH_ABS}" \

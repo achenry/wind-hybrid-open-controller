@@ -20,6 +20,7 @@
 #export NTASKS_PER_TUNER=16
 export NTASKS_PER_TUNER=12
 NTUNERS=$((SLURM_NTASKS / NTASKS_PER_TUNER))
+cd ..
 # NUM_WORKERS_PER_CPU=1
 
 # Print environment info

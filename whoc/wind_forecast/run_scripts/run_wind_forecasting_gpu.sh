@@ -55,4 +55,4 @@ export CUDA_VISIBLE_DEVICES=$(seq -s, 0 $(($SLURM_NTASKS_PER_NODE-1)))
 #echo "Using GPUs ${CUDA_VISIBLE_DEVICES}"
 
 # taskset -c $start_core-$end_core 
-python WindForecast.py --model ${MODELS} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --simulation_timestep 1 --save_dir /projects/ssc/ahenry/wind_forecasting/logging --checkpoint best --multiprocessor cf --prediction_type distribution --use_tuned_params --use_trained_models --max_splits 10 # --rerun_validation --max_steps 2160
+python ../run_forecaster_validation.py --model ${MODELS} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --simulation_timestep 1 --save_dir /projects/ssc/ahenry/wind_forecasting/logging --checkpoint best --multiprocessor cf --prediction_type distribution --use_tuned_params --use_trained_models --rerun_validation --max_splits 10 # --max_steps 1080

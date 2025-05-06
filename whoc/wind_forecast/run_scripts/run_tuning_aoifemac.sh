@@ -18,6 +18,7 @@ date +"%Y-%m-%d %H:%M:%S"
 # conda init
 source activate base
 conda activate wind_forecasting_env
+cd ..
 python tuning.py \
             --model_config $MODEL_CONFIG \
             --data_config $DATA_CONFIG \
