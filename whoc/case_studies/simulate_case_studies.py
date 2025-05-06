@@ -76,7 +76,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     if load_from_final:
         results_df = pd.read_csv(save_path, low_memory=False)
         # check if this saved df completed successfully
-        if results_df["Time"].iloc[-1] == stoptime - simulation_input_dict["controller"]["controller_dt"] + simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds():
+        if results_df["Time"].iloc[-1] == stoptime - simulation_input_dict["simulation_dt"]: #simulation_input_dict["controller"]["controller_dt"] + simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds():
             logging.info(f"Loaded existing {fn} since rerun_simulations argument is false")
             return
         
