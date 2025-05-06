@@ -1079,8 +1079,10 @@ def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, 
                                         seed_df[turbine_power_cols[:t]].sum(axis=1)  / 1e6,
                                         label=f"T{tid} power, {1}".format(t + 1, case_label))
                     else:
-                        ax[next_ax_idx].fill_between(seed_df["Time"], seed_df[turbine_power_cols[:t+1]].sum(axis=1) / 1e6, 
-                                        seed_df[turbine_power_cols[:t]].sum(axis=1)  / 1e6,
+                        ax[next_ax_idx].fill_between(
+                            seed_df["Time"], 
+                            seed_df[turbine_power_cols[:t+1]].sum(axis=1) / 1e6, 
+                            seed_df[turbine_power_cols[:t]].sum(axis=1)  / 1e6,
                             color=color, label=f"T{tid} power".format(t + 1))
         
         if include_power:
