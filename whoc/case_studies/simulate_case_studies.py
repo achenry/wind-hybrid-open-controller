@@ -72,7 +72,8 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     stoptime = simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"] - simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() - (simulation_input_dict["controller"]["n_horizon"] * simulation_input_dict["controller"]["controller_dt"])
     
     load_from_checkpoint = not kwargs["rerun_simulations"] and os.path.exists(temp_save_path)
-    if not kwargs["rerun_simulations"] and os.path.exists(save_path):
+    load_from_final = not kwargs["rerun_simulations"] and os.path.exists(save_path)
+    if load_from_final:
         results_df = pd.read_csv(save_path, low_memory=False)
         # check if this saved df completed successfully
         if results_df["Time"].iloc[-1] == stoptime - simulation_input_dict["controller"]["controller_dt"] + simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds():
@@ -321,7 +322,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     
         # if RAM is running low, write existing data to dataframe and continue
         # turn data into arrays, pandas dataframe, and export to csv
-        if (final := (t>=stoptime)) or ((ram_used := virtual_memory().percent) > kwargs["ram_limit"]) or (len(turbine_powers_ts) >= int(200 / simulation_input_dict["simulation_dt"])):
+        if (final := (t>=stoptime)) or ((ram_used := virtual_memory().percent) > kwargs["ram_limit"]) or (len(turbine_powers_ts) >= int(3600 / simulation_input_dict["simulation_dt"])):
             logging.info(f"Used {ram_used}% RAM.")
             # turn data into arrays, pandas dataframe, and export to csv
             write_df(case_family=kwargs["case_family"],
