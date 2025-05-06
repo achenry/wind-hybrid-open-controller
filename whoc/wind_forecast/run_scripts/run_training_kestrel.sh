@@ -50,6 +50,7 @@ export WORKER_SEED=0
 export WORKER_SEED=0 # TODO does nothing atm
 echo "=== STARTING TRAINING ==="
 date +"%Y-%m-%d %H:%M:%S"
+cd ..
 python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} \
 		--multiprocessor cf --seed ${WORKER_SEED} --limit_train_val 0.1 --mode train
 

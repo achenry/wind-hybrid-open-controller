@@ -40,9 +40,7 @@ module load mamba
 mamba activate wind_forecasting_env
 
 #mpirun -np $SLURM_NTASKS 
-python WindForecast.py --ram_limit 65 --model ${MODELS} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --simulation_timestep 1 --save_dir /projects/ssc/ahenry/wind_forecasting/logging --prediction_type distribution --use_tuned_params --use_trained_models --multiprocessor cf --max_splits 10 # --rerun_validation
-
-#python WindForecast.py --model ${MODELS} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --simulation_timestep 1 \
-#                                                --save_dir /projects/ssc/ahenry/wind_forecasting/logging  --max_splits 10 --prediction_type distribution \
-#                                                --use_tuned_params --use_trained_models --rerun_validation
+python ../run_forecaster_validation.py --ram_limit 65 --model ${MODELS} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --simulation_timestep 1 \
+						--save_dir /projects/ssc/ahenry/wind_forecasting/logging --multiprocessor cf --prediction_type distribution \
+						--use_tuned_params --use_trained_models --max_splits 10 --rerun_validation
 

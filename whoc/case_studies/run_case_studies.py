@@ -33,7 +33,12 @@ from whoc.case_studies.process_case_studies import (read_time_series_data, write
                                                     plot_cost_function_pareto_curve, plot_yaw_offset_wind_direction, plot_parameter_sweep, plot_power_increase_vs_prediction_time,
                                                     plot_power_vs_prediction_time, plot_agg_metrics_vs_forecaster)
 try:
-    from whoc.wind_forecast.WindForecast import PerfectForecast, PersistenceForecast, MLForecast, SVRForecast, KalmanFilterForecast, SpatialFilterForecast
+    from whoc.wind_forecast.perfect_forecast import PerfectForecast
+    from whoc.wind_forecast.persistence_forecast import PersistenceForecast
+    from whoc.wind_forecast.ml_forecast import MLForecast
+    from whoc.wind_forecast.svr_forecast import SVRForecast
+    from whoc.wind_forecast.kalman_filter_forecast import KalmanFilterForecast
+    from whoc.wind_forecast.spatial_filter_forecast import SpatialFilterForecast
 except ModuleNotFoundError:
     logging.warning("Cannot import wind forecast classes in current environment.")
 # np.seterr("raise")
@@ -88,7 +93,6 @@ if __name__ == "__main__":
             with open(args.data_config, 'r') as file:
                 data_config  = yaml.safe_load(file)
             
-            # TODO make sure this is mapping to target turbine indices, we want the TurbineYawAngle/Power/OfflineStatus to contain the target_turbine_indices
             if len(data_config["turbine_signature"]) == 1:
                 tid2idx_mapping = {str(k): i for i, k in enumerate(data_config["turbine_mapping"][0].keys())}
             else:
@@ -96,7 +100,6 @@ if __name__ == "__main__":
             
             turbine_signature = data_config["turbine_signature"][0] if len(data_config["turbine_signature"]) == 1 else "\\d+"
             
-    
         else:
             model_config = None
             data_config = None
@@ -118,18 +121,8 @@ if __name__ == "__main__":
         logging.info(f"Resetting args.n_seeds to {len(wind_field_ts)}")
         args.n_seeds = len(wind_field_ts)
         
-    # else:
-    #     input_dicts, wind_field_config, wind_field_ts = None, None, None
-        
     if args.multiprocessor == "mpi":
         comm.Barrier()
-    #     input_dicts = comm.bcast(input_dicts, root=0)
-    #     wind_field_config = comm.bcast(wind_field_config, root=0)
-    #     wind_field_ts = comm.bcast(wind_field_ts, root=0)
-    
-    # 
-    
-            
     # if GPUs are available, use one CPU and one GPU per task
     if "CUDA_VISIBLE_DEVICES" in os.environ:
         cuda_devices = os.environ["CUDA_VISIBLE_DEVICES"] # Note: must 'export' variable within nohup to find on Kestrel
@@ -232,9 +225,6 @@ if __name__ == "__main__":
                 elif args.multiprocessor == "cf":
                     executor = ProcessPoolExecutor(max_workers=mp.cpu_count())
                 with executor as run_simulations_exec:
-                    # if args.multiprocessor == "mpi":
-                    #     run_simulations_exec.max_workers = comm_size
-                        
                     # for MPIPool executor, (waiting as if shutdown() were called with wait set to True)
 
                     # if args.reaggregate_simulations is true, or for any case family where doesn't time_series_results_all.csv exist, 
@@ -438,7 +428,7 @@ if __name__ == "__main__":
                    ["baseline_controllers_informer_forecasters_awaken", "baseline_controllers_autoformer_forecasters_awaken",
                     "baseline_controllers_spacetimeformer_forecasters_awaken", "baseline_controllers_tactis_forecasters_awaken",
                     "baseline_controllers_baseline_det_forecasters_awaken", "baseline_controllers_baseline_prob_forecasters_awaken"]):
-                from whoc.wind_forecast.WindForecast import WindForecast
+                from whoc.wind_forecast.run_forecaster_validation import WindForecast
                 from wind_forecasting.preprocessing.data_inspector import DataInspector
                 # TODO HIGH only compare time after context_length, since SVR/ML assume persistence until then
                 # if case_families.index("baseline_controllers_ml_forecasters_awaken") in args.case_ids:

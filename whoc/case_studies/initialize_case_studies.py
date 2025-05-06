@@ -9,14 +9,10 @@ from itertools import product
 from functools import partial
 from memory_profiler import profile
 from wind_forecasting.preprocessing.data_module import DataModule
-from whoc.wind_forecast.WindForecast import generate_wind_field_df
+from whoc.wind_forecast.run_forecaster_validation import generate_wind_field_df
 import gc
 import re
-from wind_forecasting.utils.optuna_db_utils import setup_optuna_storage
-from wind_forecasting.run_scripts.tuning import generate_df_setup_params
 from wind_forecasting import __file__ as wind_forecasting_file
-#from line_profiler import profile
-# from datetime import timedelta
 
 import pandas as pd
 import polars as pl
@@ -32,11 +28,6 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 if sys.platform == "linux":
     N_COST_FUNC_TUNINGS = 21
-    # if os.getlogin() == "ahenry":
-    #     # Kestrel
-    #     STORAGE_DIR = "/projects/ssc/ahenry/whoc/floris_case_studies"
-    # elif os.getlogin() == "aohe7145":
-    #     STORAGE_DIR = "/projects/aohe7145/toolboxes/wind-hybrid-open-controller/whoc/floris_case_studies"
 elif sys.platform == "darwin":
     N_COST_FUNC_TUNINGS = 21
     # STORAGE_DIR = "/Users/ahenry/Documents/toolboxes/wind-hybrid-open-controller/examples/floris_case_studies"
@@ -71,8 +62,8 @@ case_studies = {
                                     "prediction_timedelta": {"group": 1, "vals": [300]},#, 60]},
                                     # "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
                                     # "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
-                                    "uncertain": {"group": 3, "vals": [False, False, False, False]},
-                                    "wind_forecast_class": {"group": 3, "vals": ["PerfectForecast", "KalmanFilterForecast", "PersistenceForecast", "SpatialFilterForecast", "SVRForecast"]}, # "MLForecast"
+                                    "uncertain": {"group": 3, "vals": [False]}, #, False, False, False]},
+                                    "wind_forecast_class": {"group": 3, "vals": ["PerfectForecast"]}, #, "KalmanFilterForecast", "PersistenceForecast", "SpatialFilterForecast", "SVRForecast"]}, # "MLForecast"
                                     # "model_key": {"group": 3, "vals": ["informer"]},
                                     # "wind_forecast_class": {"group": 3, "vals": ["MLForecast"]},
     },
@@ -639,7 +630,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                                  per_turbine_target=False, as_lazyframe=False, dtype=pl.Float32)
 
         # TODO REMOVE AND RENAME after sims have run!!!
-        data_module.train_ready_data_path = data_module.train_ready_data_path.replace(".parquet", "_new.parquet")
+        # data_module.train_ready_data_path = data_module.train_ready_data_path.replace(".parquet", "_new.parquet")
         if not os.path.exists(data_module.train_ready_data_path):
             data_module.generate_datasets()
             reload = True
