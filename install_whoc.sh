@@ -1,7 +1,7 @@
 ssh ahenry@kestrel.hpc.nrel.gov
 ml mamba
-mamba create --prefix=/projects/ssc/ahenry/conda/envs/whoc --y
-mamba activate whoc
+conda create --prefix=/projects/ssc/ahenry/conda/envs/whoc --y
+conda activate whoc
 # conda create --prefix=/projects/aohe7145/software/anaconda/envs/whoc python=3.12.4 --y
 # conda activate whoc
 
@@ -18,7 +18,7 @@ python -m pip install -e hercules
 python -m pip install -e moa_python
 
 # mamba install memory_profiler # matplotlib openmpi
-module load intel impi
+module load intel #impi
 mamba install -c conda-forge mpi4py pyoptsparse pandas pyyaml memory_profiler seaborn polars --y
 #conda install -c nrel nrel-pysam
 
