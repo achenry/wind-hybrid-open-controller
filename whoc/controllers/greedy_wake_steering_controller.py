@@ -216,8 +216,8 @@ class GreedyController(ControllerBase):
                             forecasted_wind_field], how="diagonal")\
                              .select(pl.col("time"), cs.numeric().interpolate_by("time"))
                     else:
-                        wind = pl.concat([hist_meas.select(self.mean_ws_horz_cols + self.mean_ws_vert_cols), 
-                                            forecasted_wind_field.select(self.mean_ws_horz_cols + self.mean_ws_vert_cols)
+                        wind = pl.concat([hist_meas.select(["time"] + self.mean_ws_horz_cols + self.mean_ws_vert_cols), 
+                                            forecasted_wind_field.select(["time"] + self.mean_ws_horz_cols + self.mean_ws_vert_cols)
                                             ], how="vertical")
                         
                     assert wind.select((pl.col("time").diff().slice(1) == sim_timedelta).all()).item() and (wind.select(pl.col("time").last()).item() == single_forecasted_wind_field.select(pl.col("time").last()).item()), "DataFrame passed to low pass filter must be continuous, with sampling time equal to simulation timestep, and must end on last forecasted value."
