@@ -68,8 +68,9 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     if not kwargs["tid2idx_mapping"]:
         kwargs["tid2idx_mapping"] = {i: i for i in np.arange(fi_full.n_turbines)}
     idx2tid_mapping = dict([(v, k) for k, v in kwargs["tid2idx_mapping"].items()])
-        
-    stoptime = simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"] - simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() - (simulation_input_dict["controller"]["n_horizon"] * simulation_input_dict["controller"]["controller_dt"])
+    
+    TRUNCATE_STEPS = 300 if kwargs["wf_source"] == "scada" else 0
+    stoptime = simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"] - TRUNCATE_STEPS - simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() - (simulation_input_dict["controller"]["n_horizon"] * simulation_input_dict["controller"]["controller_dt"])
     
     load_from_checkpoint = not kwargs["rerun_simulations"] and os.path.exists(temp_save_path)
     load_from_final = not kwargs["rerun_simulations"] and os.path.exists(save_path)
@@ -102,7 +103,6 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         k = 0
     
     logging.info(f"Running instance of {controller_class.__name__} - {kwargs['case_name']} with wind seed {kwargs['wind_case_idx']}")
-
     
     kwargs["wind_field_config"]["preview_dt"] = int(simulation_input_dict["controller"]["controller_dt"] / simulation_input_dict["simulation_dt"]) 
     kwargs["wind_field_config"]["n_preview_steps"] = simulation_input_dict["controller"]["n_horizon"] * int(simulation_input_dict["controller"]["controller_dt"] / simulation_input_dict["simulation_dt"])
@@ -132,58 +132,63 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
                 # use mean
                 simulation_u = kwargs["wind_field_ts"].select([f"ws_horz_{idx2tid_mapping[t_idx]}" for t_idx in simulation_input_dict["controller"]["target_turbine_indices"]]).select(pl.mean_horizontal(pl.all())).to_numpy()[:, 0]
                 simulation_v = kwargs["wind_field_ts"].select([f"ws_vert_{idx2tid_mapping[t_idx]}" for t_idx in simulation_input_dict["controller"]["target_turbine_indices"]]).select(pl.mean_horizontal(pl.all())).to_numpy()[:, 0]
-            
+        
+        # filter wind field NOTE TODO this is not the wind field that PerfectForecast is returning...
+        # fc_dir = 0.0011
+        fc_mag = 0.0011
+        n_lpf = 1
+        ts_len = len(simulation_u)
+        fs = (0.5 / simulation_input_dict["simulation_dt"]) * np.array([i for i in range(1, int(ts_len / 2))]) / (ts_len / 2)
+        
+        # tf_dir_lpf = butterworth_LPF_TFmag(fs, fc_dir, n_lpf)
+        tf_mag_lpf = butterworth_LPF_TFmag(fs, fc_mag, n_lpf)
+
+        # FFT of raw wind direction time series
+        # freq_vec_dir = np.fft.fft(simulation_dir)
+        freq_vec_u = np.fft.fft(simulation_u)
+        freq_vec_v = np.fft.fft(simulation_v)
+
+        # Apply LPF magnitude
+        # freq_vec_dir[1:int(ts_len / 2)] *= tf_dir_lpf
+        freq_vec_u[1:int(ts_len / 2)] *= tf_mag_lpf
+        freq_vec_v[1:int(ts_len / 2)] *= tf_mag_lpf
+        
+        if ts_len % 2 == 0:
+            freq_vec_u[int(ts_len / 2)] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc_mag, n_lpf), 0]))
+            freq_vec_u[int(ts_len / 2) + 1:] *= np.flip(tf_mag_lpf)
+            freq_vec_v[int(ts_len / 2)] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc_mag, n_lpf), 0]))
+            freq_vec_v[int(ts_len / 2) + 1:] *= np.flip(tf_mag_lpf)
+        else:
+            freq_vec_u[int(ts_len / 2):int(ts_len / 2)+2] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc_mag, n_lpf), 0]))
+            freq_vec_u[int(ts_len / 2) + 2:] *= np.flip(tf_mag_lpf)
+            freq_vec_v[int(ts_len / 2):int(ts_len / 2)+2] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc_mag, n_lpf), 0]))
+            freq_vec_v[int(ts_len / 2) + 2:] *= np.flip(tf_mag_lpf)
+
+        # START TEST
+        # new_simulation_u = np.real(np.fft.ifft(freq_vec_u))[TRUNCATE_STEPS:-TRUNCATE_STEPS]
+        # new_simulation_v = np.real(np.fft.ifft(freq_vec_v))[TRUNCATE_STEPS:-TRUNCATE_STEPS]
+        # import matplotlib.pyplot as plt
+        # fig, axs = plt.subplots(2, 1, figsize=(10,6), sharex=True)
+        # axs[0].plot(simulation_u,label="Raw Wind U")
+        # axs[0].plot(new_simulation_u,linewidth=2.0,color='r',label="Low-Frequency Wind U")
+        # axs[0].legend()
+        # axs[1].plot(simulation_v,label="Raw Wind V")
+        # axs[1].plot(new_simulation_v,linewidth=2.0,color='r',label="Low-Frequency Wind V")
+        # axs[1].legend()
+        # plt.grid()
+        # END TEST
+        
+        # time series of low-frequency wind direction
+        simulation_u = np.real(np.fft.ifft(freq_vec_u))[TRUNCATE_STEPS:-TRUNCATE_STEPS]
+        simulation_v = np.real(np.fft.ifft(freq_vec_v))[TRUNCATE_STEPS:-TRUNCATE_STEPS]
+        stoptime = int(len(simulation_u) // simulation_input_dict["simulation_dt"])
+        
         simulation_mag = (simulation_u**2 + simulation_v**2)**0.5
         simulation_dir = 180.0 + np.rad2deg(np.arctan2(simulation_u, simulation_v))
         simulation_dir[simulation_dir < 0] = 360. + simulation_dir[simulation_dir < 0]
         simulation_dir[simulation_dir > 360] = np.mod(simulation_dir[simulation_dir > 360], 360.) 
-        
-        # filter wind field NOTE TODO this is not the wind field that PerfectForecast is returning...
-        fc_dir = 0.0011
-        fc_mag = 0.0011
-        n_lpf = 1
-        ts_len = len(simulation_dir)
-        fs = (0.5 / simulation_input_dict["simulation_dt"]) * np.array([i for i in range(1, int(ts_len / 2))]) / (ts_len / 2)
-        
-        tf_dir_lpf = butterworth_LPF_TFmag(fs, fc_dir, n_lpf)
-        tf_mag_lpf = butterworth_LPF_TFmag(fs, fc_mag, n_lpf)
 
-        # FFT of raw wind direction time series
-        freq_vec_dir = np.fft.fft(simulation_dir)
-        freq_vec_mag = np.fft.fft(simulation_mag)
 
-        # Apply LPF magnitude
-        freq_vec_dir[1:int(ts_len / 2)] *= tf_dir_lpf
-        freq_vec_mag[1:int(ts_len / 2)] *= tf_mag_lpf
-        
-        if ts_len % 2 == 0:
-            freq_vec_dir[int(ts_len / 2)] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc_dir, n_lpf), 0]))
-            freq_vec_dir[int(ts_len / 2) + 1:] *= np.flip(tf_dir_lpf)
-            freq_vec_mag[int(ts_len / 2)] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc_mag, n_lpf), 0]))
-            freq_vec_mag[int(ts_len / 2) + 1:] *= np.flip(tf_mag_lpf)
-        else:
-            freq_vec_dir[int(ts_len / 2):int(ts_len / 2)+2] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc_dir, n_lpf), 0]))
-            freq_vec_dir[int(ts_len / 2) + 2:] *= np.flip(tf_dir_lpf)
-            freq_vec_mag[int(ts_len / 2):int(ts_len / 2)+2] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc_mag, n_lpf), 0]))
-            freq_vec_mag[int(ts_len / 2) + 2:] *= np.flip(tf_mag_lpf)
-
-        # START TEST
-        # new_simulation_dir = np.real(np.fft.ifft(freq_vec_dir))
-        # new_simulation_mag = np.real(np.fft.ifft(freq_vec_mag))
-        # import matplotlib.pyplot as plt
-        # fig, axs = plt.subplots(2, 1, figsize=(10,6), sharex=True)
-        # axs[0].plot(simulation_dir,label="Raw Wind Direction")
-        # axs[0].plot(new_simulation_dir,linewidth=2.0,color='r',label="Low-Frequency Wind Direction")
-        # axs[0].legend()
-        # axs[1].plot(simulation_mag,label="Raw Wind Magnitude")
-        # axs[1].plot(new_simulation_mag,linewidth=2.0,color='r',label="Low-Frequency Wind Magnitude")
-        # axs[1].legend()
-        # plt.grid()
-        # END TEST
-
-        # time series of low-frequency wind direction
-        simulation_dir = np.real(np.fft.ifft(freq_vec_dir))
-        simulation_mag = np.real(np.fft.ifft(freq_vec_mag))
         
         # kwargs["wind_field_ts"]
         
@@ -442,6 +447,9 @@ def write_df(case_family, case_name, wind_case_idx, wf_source, wind_field_ts,
         filtered_fs_wind_dir = np.insert(first_ord_filter(fs_wind_dir[~np.isnan(fs_wind_dir)], 
                                         alpha=np.exp(-(1 / simulation_input_dict["controller"]["wind_dir_lpf_time_const"]) * simulation_input_dict["simulation_dt"])),
                                                         0, np.nan)
+        filtered_fs_wind_mag = np.insert(first_ord_filter(fs_wind_mag[~np.isnan(fs_wind_mag)], 
+                                        alpha=np.exp(-(1 / simulation_input_dict["controller"]["wind_mag_lpf_time_const"]) * simulation_input_dict["simulation_dt"])),
+                                                        0, np.nan)
         
     start_step = max(0, start_step)
     
@@ -453,6 +461,7 @@ def write_df(case_family, case_name, wind_case_idx, wf_source, wind_field_ts,
         "FreestreamWindMag": fs_wind_mag,
         "FreestreamWindDir": fs_wind_dir,
         "FilteredFreestreamWindDir": filtered_fs_wind_dir,
+        "FilteredFreestreamWindMag": filtered_fs_wind_mag,
         # **{
         #     f"InitTurbineYawAngle_{idx2tid_mapping[i]}": init_yaw_angles_ts[:, i] for i in range(ctrl.n_turbines)
         # }, 
@@ -542,6 +551,11 @@ def write_df(case_family, case_name, wind_case_idx, wf_source, wind_field_ts,
     # fig, ax = plt.subplots(1, 1)
     # ax.plot(results_data["Time"], results_data["TurbineYawAngle_74"], label="74")
     # ax.plot(results_data["Time"], results_data["TurbineYawAngle_75"], label="75")
+    # ax.plot(results_data["Time"], results_data["FreestreamWindDir"], label="Raw wind dir.")
+    # ax.plot(results_data["Time"], results_data["FreestreamWindMag"], label="Raw wind mag.")
+    # ax.plot(results_data["Time"], results_data["FilteredFreestreamWindDir"], label="Filtered wind dir.")
+    # ax.plot(results_data["Time"], results_data["FilteredFreestreamWindMag"], label="Filtered wind mag.")
+    # ax.legend()
     # TESTING END
     
     logging.info(f"Writing {'final' if final else 'intermediary'} result to file.")
