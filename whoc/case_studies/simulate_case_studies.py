@@ -429,9 +429,9 @@ def write_df(case_family, case_name, wind_case_idx, wf_source, wind_field_ts,
     start_step = max(0, start_step)
     
     results_data = {
-        "CaseFamily": [case_family] * yaw_angles_ts.shape[0], 
-        "CaseName": [case_name] * yaw_angles_ts.shape[0],
-        "WindSeed": [wind_case_idx] * yaw_angles_ts.shape[0],
+        # "CaseFamily": [case_family] * yaw_angles_ts.shape[0], 
+        # "CaseName": [case_name] * yaw_angles_ts.shape[0],
+        # "WindSeed": [wind_case_idx] * yaw_angles_ts.shape[0],
         "Time": start_time + (np.arange(0, yaw_angles_ts.shape[0]) * simulation_input_dict["simulation_dt"]),
         "FreestreamWindMag": fs_wind_mag,
         "FreestreamWindDir": fs_wind_dir,
