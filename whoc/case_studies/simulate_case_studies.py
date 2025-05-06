@@ -25,11 +25,11 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     results_dir = os.path.join(kwargs["save_dir"], kwargs['case_family'])
     print(f"Results dir: {results_dir}")
     os.makedirs(results_dir, exist_ok=True)
-    
+    case_name = kwargs["case_name"]
+
     if simulation_input_dict["controller"]["uncertain"] and not wind_forecast_class.is_probabilistic:
         logging.info(f"Can't run with uncertain flag for {wind_forecast_class.__name__}, setting uncertainty off.")
         simulation_input_dict["controller"]["uncertain"] = simulation_input_dict["controller"]["uncertain"] and wind_forecast_class.is_probabilistic
-        case_name = kwargs["case_name"]
         input_df = pd.read_csv(os.path.join(results_dir, f"case_descriptions.csv"))
         input_df.loc[input_df['study_name'] == case_name, 'uncertain'] = False
         #input_df.loc[int(kwargs['case_name']), "uncertain"] = False
