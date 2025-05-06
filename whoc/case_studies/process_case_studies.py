@@ -269,6 +269,8 @@ def read_time_series_data(results_path, input_dict_path):
             df = pd.read_csv(results_path, index_col=[0,1])
         logging.info(f"Read {results_path}")
         
+        df.reset_index(inplace=True)
+        
         if "CaseName" not in df.index.names:
             df = df.reset_index()
             df["CaseName"] = re.search("(?<=case_)\\d+", os.path.basename(results_path)).group()
