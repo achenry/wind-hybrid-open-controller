@@ -23,6 +23,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         os.environ['CUDA_VISIBLE_DEVICES'] = str(assigned_gpu)
     
     results_dir = os.path.join(kwargs["save_dir"], kwargs['case_family'])
+    print(f"Results dir: {results_dir}")
     os.makedirs(results_dir, exist_ok=True)
     
     if simulation_input_dict["controller"]["uncertain"] and not wind_forecast_class.is_probabilistic:

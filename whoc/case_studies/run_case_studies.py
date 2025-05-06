@@ -115,6 +115,7 @@ if __name__ == "__main__":
                                         wf_source=args.wf_source,
                                         multiprocessor=args.multiprocessor, 
                                         whoc_config=whoc_config, base_model_config=model_config)
+        print(f"initialized {len(input_dicts)} simulations")
         logging.info(f"Resetting args.n_seeds to {len(wind_field_ts)}")
         args.n_seeds = len(wind_field_ts)
         

@@ -902,6 +902,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         input_df = pd.concat(input_df, ignore_index=True, axis=0)
         os.makedirs(os.path.join(save_dir, case_study_key), exist_ok=True)
         input_df.to_csv(os.path.join(save_dir, case_study_key, "case_descriptions.csv"), index=False)
+        print(f"Input file saved to {os.path.join(save_dir, case_study_key, 'case_descriptions.csv')}")
         
     # TEMP change the filenames of old simulations to new
     if False:
