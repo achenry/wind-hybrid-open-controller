@@ -199,10 +199,10 @@ if __name__ == "__main__":
         else:
             reload = False
         
-        data_module.generate_splits(save=True, reload=reload, splits=["train", "val"])
-            
+    else:
+        reload = False
     # get max_splits longest datasets
-    data_module.generate_splits(save=True, reload=False, splits=["train", "val"])
+    data_module.generate_splits(save=True, reload=reload, splits=["train", "val"])
     
     if worker_id == 0 and (args.reload_data or reload):
         data_module.train_dataset = sorted(data_module.train_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)

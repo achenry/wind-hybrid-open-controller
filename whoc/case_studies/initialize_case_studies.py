@@ -66,13 +66,13 @@ case_studies = {
                                     "simulation_dt": {"group": 0, "vals": [1]},
                                     "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]},
-                                    "target_turbine_indices": {"group": 1, "vals": ["74,73", "4,"]},
-                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
-                                    "prediction_timedelta": {"group": 1, "vals": [300, 60]},
+                                    "target_turbine_indices": {"group": 1, "vals": ["74,73"]}, #, "4,"]},
+                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]}, #, "GreedyController"]},
+                                    "prediction_timedelta": {"group": 1, "vals": [300]},#, 60]},
                                     # "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
                                     # "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
-                                    "uncertain": {"group": 3, "vals": [True, False, False, False]},
-                                    "wind_forecast_class": {"group": 3, "vals": ["KalmanFilterForecast", "KalmanFilterForecast", "PersistenceForecast", "SpatialFilterForecast"]}, # "MLForecast"
+                                    "uncertain": {"group": 3, "vals": [False, False, False, False]},
+                                    "wind_forecast_class": {"group": 3, "vals": ["PerfectForecast", "KalmanFilterForecast", "PersistenceForecast", "SpatialFilterForecast", "SVRForecast"]}, # "MLForecast"
                                     # "model_key": {"group": 3, "vals": ["informer"]},
                                     # "wind_forecast_class": {"group": 3, "vals": ["MLForecast"]},
     },
@@ -88,7 +88,7 @@ case_studies = {
         "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73"]},
         "uncertain": {"group": 1, "vals": [False, False]},
         "wind_forecast_class": {"group": 0, "vals": ["PerfectForecast"]},
-        "prediction_timedelta": {"group": 2, "vals": [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 360, 420, 480, 540, 600]},
+        "prediction_timedelta": {"group": 2, "vals": [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 360, 420, 480, 540, 600, 660, 720, 780, 840, 900]},
         },
     "baseline_controllers_perfect_forecaster_flasc": {
         "controller_dt": {"group": 0, "vals": [5]},
@@ -637,7 +637,9 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                                  target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                                  freq=f"{simulation_dt}s", target_suffixes=base_model_config["dataset"]["target_turbine_ids"],
                                  per_turbine_target=False, as_lazyframe=False, dtype=pl.Float32)
-    
+
+        # TODO REMOVE AND RENAME after sims have run!!!
+        data_module.train_ready_data_path = data_module.train_ready_data_path.replace(".parquet", "_new.parquet")
         if not os.path.exists(data_module.train_ready_data_path):
             data_module.generate_datasets()
             reload = True
@@ -901,8 +903,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
 
         input_df = pd.concat(input_df, ignore_index=True, axis=0)
         os.makedirs(os.path.join(save_dir, case_study_key), exist_ok=True)
-        input_df.to_csv(os.path.join(save_dir, case_study_key, "case_descriptions.csv"), index=False)
-        print(f"Input file saved to {os.path.join(save_dir, case_study_key, 'case_descriptions.csv')}")
+        input_df.to_csv(os.path.join(save_dir, case_study_key, "case_descriptions.csv"), index=True)
         
     # TEMP change the filenames of old simulations to new
     if False:

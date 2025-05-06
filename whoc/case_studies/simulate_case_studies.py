@@ -84,10 +84,11 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     stoptime = simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"] - simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() - (simulation_input_dict["controller"]["n_horizon"] * simulation_input_dict["controller"]["controller_dt"])
     
     load_from_checkpoint = not kwargs["rerun_simulations"] and os.path.exists(temp_save_path)
-    if not kwargs["rerun_simulations"] and os.path.exists(save_path):
+    load_from_final = not kwargs["rerun_simulations"] and os.path.exists(save_path)
+    if load_from_final:
         results_df = pd.read_csv(save_path, low_memory=False)
         # check if this saved df completed successfully
-        if results_df["Time"].iloc[-1] == stoptime - simulation_input_dict["controller"]["controller_dt"] + simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds():
+        if results_df["Time"].iloc[-1] == stoptime - simulation_input_dict["simulation_dt"]: #simulation_input_dict["controller"]["controller_dt"] + simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds():
             logging.info(f"Loaded existing {fn} since rerun_simulations argument is false")
             return
         
@@ -128,7 +129,83 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
             v = kwargs["wind_field_ts"].select([f"ws_vert_{idx2tid_mapping[i]}" for i in sorted_tids]).select(pl.all().first()).to_numpy()[0, :]
             simulation_input_dict["controller"]["initial_conditions"]["yaw"] = 180.0 + np.rad2deg(np.arctan2(u, v))
      
-    # pl.DataFrame(kwargs["wind_field_ts"])
+    # input to floris should be from first in target_turbine_indices (most upstream one), or mean over whole farm if no target_turbine_indices
+    if kwargs["wf_source"] == "scada":
+        if simulation_input_dict["controller"]["target_turbine_indices"] == "all":
+            simulation_u = kwargs["wind_field_ts"].select([f"ws_horz_{idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(idx2tid_mapping))]).select(pl.mean_horizontal(pl.all()))
+            simulation_v = kwargs["wind_field_ts"].select([f"ws_vert_{idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(idx2tid_mapping))]).select(pl.mean_horizontal(pl.all()))
+        else:
+            use_upstream_wind = True
+            if use_upstream_wind:
+                upstream_tidx = simulation_input_dict["controller"]["target_turbine_indices"][0]
+                simulation_u = kwargs["wind_field_ts"].select(f"ws_horz_{idx2tid_mapping[upstream_tidx]}").to_numpy()[:, 0]
+                simulation_v = kwargs["wind_field_ts"].select(f"ws_vert_{idx2tid_mapping[upstream_tidx]}").to_numpy()[:, 0]
+            else:
+                # use mean
+                simulation_u = kwargs["wind_field_ts"].select([f"ws_horz_{idx2tid_mapping[t_idx]}" for t_idx in simulation_input_dict["controller"]["target_turbine_indices"]]).select(pl.mean_horizontal(pl.all())).to_numpy()[:, 0]
+                simulation_v = kwargs["wind_field_ts"].select([f"ws_vert_{idx2tid_mapping[t_idx]}" for t_idx in simulation_input_dict["controller"]["target_turbine_indices"]]).select(pl.mean_horizontal(pl.all())).to_numpy()[:, 0]
+            
+        simulation_mag = (simulation_u**2 + simulation_v**2)**0.5
+        simulation_dir = 180.0 + np.rad2deg(np.arctan2(simulation_u, simulation_v))
+        simulation_dir[simulation_dir < 0] = 360. + simulation_dir[simulation_dir < 0]
+        simulation_dir[simulation_dir > 360] = np.mod(simulation_dir[simulation_dir > 360], 360.) 
+        
+        # filter wind field NOTE TODO this is not the wind field that PerfectForecast is returning...
+        fc_dir = 0.0011
+        fc_mag = 0.0011
+        n_lpf = 1
+        ts_len = len(simulation_dir)
+        fs = (0.5 / simulation_input_dict["simulation_dt"]) * np.array([i for i in range(1, int(ts_len / 2))]) / (ts_len / 2)
+        
+        tf_dir_lpf = butterworth_LPF_TFmag(fs, fc_dir, n_lpf)
+        tf_mag_lpf = butterworth_LPF_TFmag(fs, fc_mag, n_lpf)
+
+        # FFT of raw wind direction time series
+        freq_vec_dir = np.fft.fft(simulation_dir)
+        freq_vec_mag = np.fft.fft(simulation_mag)
+
+        # Apply LPF magnitude
+        freq_vec_dir[1:int(ts_len / 2)] *= tf_dir_lpf
+        freq_vec_mag[1:int(ts_len / 2)] *= tf_mag_lpf
+        
+        if ts_len % 2 == 0:
+            freq_vec_dir[int(ts_len / 2)] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc_dir, n_lpf), 0]))
+            freq_vec_dir[int(ts_len / 2) + 1:] *= np.flip(tf_dir_lpf)
+            freq_vec_mag[int(ts_len / 2)] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc_mag, n_lpf), 0]))
+            freq_vec_mag[int(ts_len / 2) + 1:] *= np.flip(tf_mag_lpf)
+        else:
+            freq_vec_dir[int(ts_len / 2):int(ts_len / 2)+2] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc_dir, n_lpf), 0]))
+            freq_vec_dir[int(ts_len / 2) + 2:] *= np.flip(tf_dir_lpf)
+            freq_vec_mag[int(ts_len / 2):int(ts_len / 2)+2] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc_mag, n_lpf), 0]))
+            freq_vec_mag[int(ts_len / 2) + 2:] *= np.flip(tf_mag_lpf)
+
+        # START TEST
+        # new_simulation_dir = np.real(np.fft.ifft(freq_vec_dir))
+        # new_simulation_mag = np.real(np.fft.ifft(freq_vec_mag))
+        # import matplotlib.pyplot as plt
+        # fig, axs = plt.subplots(2, 1, figsize=(10,6), sharex=True)
+        # axs[0].plot(simulation_dir,label="Raw Wind Direction")
+        # axs[0].plot(new_simulation_dir,linewidth=2.0,color='r',label="Low-Frequency Wind Direction")
+        # axs[0].legend()
+        # axs[1].plot(simulation_mag,label="Raw Wind Magnitude")
+        # axs[1].plot(new_simulation_mag,linewidth=2.0,color='r',label="Low-Frequency Wind Magnitude")
+        # axs[1].legend()
+        # plt.grid()
+        # END TEST
+
+        # time series of low-frequency wind direction
+        simulation_dir = np.real(np.fft.ifft(freq_vec_dir))
+        simulation_mag = np.real(np.fft.ifft(freq_vec_mag))
+        
+        # kwargs["wind_field_ts"]
+        
+    else:
+        simulation_mag = kwargs["wind_field_ts"].select("FreestreamWindMag").to_numpy()
+        simulation_dir = kwargs["wind_field_ts"].select("FreestreamWindDir").to_numpy()
+        simulation_u = simulation_mag * np.sin(np.deg2rad(180 + simulation_dir))
+        simulation_v = simulation_mag * np.cos(np.deg2rad(180 + simulation_dir))
+     
+        # pl.DataFrame(kwargs["wind_field_ts"])
     # simulation_input_dict["wind_forecast"]["measurement_layout"] = np.vstack([fi.env.layout_x, fi.env.layout_y]).T
     if wind_forecast_class:
         wind_forecast = wind_forecast_class(true_wind_field=kwargs["wind_field_ts"] if wind_forecast_class.__name__ == "PerfectForecast" else None,
@@ -174,67 +251,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
 
     n_future_steps = int(ctrl.controller_dt // simulation_input_dict["simulation_dt"]) - 1
     
-    
-    # input to floris should be from first in target_turbine_indices (most upstream one), or mean over whole farm if no target_turbine_indices
-    if kwargs["wf_source"] == "scada":
-        if simulation_input_dict["controller"]["target_turbine_indices"] == "all":
-            simulation_u = kwargs["wind_field_ts"].select([f"ws_horz_{idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(idx2tid_mapping))]).select(pl.mean_horizontal(pl.all()))
-            simulation_v = kwargs["wind_field_ts"].select([f"ws_vert_{idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(idx2tid_mapping))]).select(pl.mean_horizontal(pl.all()))
-        else:
-            use_upstream_wind = True
-            if use_upstream_wind:
-                upstream_tidx = simulation_input_dict["controller"]["target_turbine_indices"][0]
-                simulation_u = kwargs["wind_field_ts"].select(f"ws_horz_{idx2tid_mapping[upstream_tidx]}").to_numpy()[:, 0]
-                simulation_v = kwargs["wind_field_ts"].select(f"ws_vert_{idx2tid_mapping[upstream_tidx]}").to_numpy()[:, 0]
-            else:
-                # use mean
-                simulation_u = kwargs["wind_field_ts"].select([f"ws_horz_{idx2tid_mapping[t_idx]}" for t_idx in simulation_input_dict["controller"]["target_turbine_indices"]]).select(pl.mean_horizontal(pl.all())).to_numpy()[:, 0]
-                simulation_v = kwargs["wind_field_ts"].select([f"ws_vert_{idx2tid_mapping[t_idx]}" for t_idx in simulation_input_dict["controller"]["target_turbine_indices"]]).select(pl.mean_horizontal(pl.all())).to_numpy()[:, 0]
-            
-        simulation_mag = (simulation_u**2 + simulation_v**2)**0.5
-        simulation_dir = 180.0 + np.rad2deg(np.arctan2(simulation_u, simulation_v))
-        simulation_dir[simulation_dir < 0] = 360. + simulation_dir[simulation_dir < 0]
-        simulation_dir[simulation_dir > 360] = np.mod(simulation_dir[simulation_dir > 360], 360.) 
-        
-        # filter wind field
-        fc = 0.0011 # TODO what should this be for wind speed
-        n_lpf = 1
-        ts_len = len(simulation_dir)
-        fs = (0.5 / simulation_input_dict["simulation_dt"]) * np.array([i for i in range(1, int(ts_len / 2))]) / (ts_len / 2)
-        
-        tf_mag_lpf = butterworth_LPF_TFmag(fs, fc, n_lpf)
-
-        # FFT of raw wind direction time series
-        freq_vec_dir = np.fft.fft(simulation_dir)
-
-        # Apply LPF magnitude
-        freq_vec_dir[1:int(ts_len / 2)] *= tf_mag_lpf
-        
-        if ts_len % 2 == 0:
-            freq_vec_dir[int(ts_len / 2)] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc, n_lpf), 0]))
-            freq_vec_dir[int(ts_len / 2) + 1:] *= np.flip(tf_mag_lpf)
-        else:
-            freq_vec_dir[int(ts_len / 2):int(ts_len / 2)+2] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc, n_lpf), 0]))
-            freq_vec_dir[int(ts_len / 2) + 2:] *= np.flip(tf_mag_lpf)
-
-        # time series of low-frequency wind direction
-        simulation_dir = np.real(np.fft.ifft(freq_vec_dir))
-        
-        # START TEST
-        # import matplotlib.pyplot as plt
-        # plt.figure(figsize=(10,6))
-        # plt.plot(simulation_dir,label="Raw Wind Direction")
-        # plt.plot(new_simulation_dir,linewidth=2.0,color='r',label="Low-Frequency Wind Direction")
-        # plt.grid()
-        # plt.legend()
-        # END TEST
-        
-    else:
-        simulation_mag = kwargs["wind_field_ts"].select("FreestreamWindMag").to_numpy()
-        simulation_dir = kwargs["wind_field_ts"].select("FreestreamWindDir").to_numpy()
-        simulation_u = simulation_mag * np.sin(np.deg2rad(180 + simulation_dir))
-        simulation_v = simulation_mag * np.cos(np.deg2rad(180 + simulation_dir))
-        
+       
     # recompute controls and step floris forward by ctrl.controller_dt
     while t < stoptime:
 
@@ -452,9 +469,9 @@ def write_df(case_family, case_name, wind_case_idx, wf_source, wind_field_ts,
     start_step = max(0, start_step)
     
     results_data = {
-        "CaseFamily": [case_family] * yaw_angles_ts.shape[0], 
-        "CaseName": [case_name] * yaw_angles_ts.shape[0],
-        "WindSeed": [wind_case_idx] * yaw_angles_ts.shape[0],
+        # "CaseFamily": [case_family] * yaw_angles_ts.shape[0], 
+        # "CaseName": [case_name] * yaw_angles_ts.shape[0],
+        # "WindSeed": [wind_case_idx] * yaw_angles_ts.shape[0],
         "Time": start_time + (np.arange(0, yaw_angles_ts.shape[0]) * simulation_input_dict["simulation_dt"]),
         "FreestreamWindMag": fs_wind_mag,
         "FreestreamWindDir": fs_wind_dir,
@@ -535,7 +552,7 @@ def write_df(case_family, case_name, wind_case_idx, wf_source, wind_field_ts,
         # results_data = results_data.merge(predicted_wind_speeds_ts, on=["CaseFamily", "CaseName", "WindSeed", "Time"], how="outer")
         predicted_wind_speeds_ts = predicted_wind_speeds_ts.to_pandas()
         results_data = results_data.merge(predicted_wind_speeds_ts, on=["Time"], how="outer")
-        results_data[["CaseFamily", "CaseName", "WindSeed"]] = results_data[["CaseFamily", "CaseName", "WindSeed"]].ffill()
+        # results_data[["CaseFamily", "CaseName", "WindSeed"]] = results_data[["CaseFamily", "CaseName", "WindSeed"]].ffill()
         # results_data.loc[results_data["Time"] >= predicted_wind_speeds_ts["Time"].iloc[0], predicted_wind_speeds_ts.drop(columns=["Time"]).columns] = predicted_wind_speeds_ts.drop(columns=["Time"])
         del predicted_wind_speeds_ts
     
@@ -543,10 +560,19 @@ def write_df(case_family, case_name, wind_case_idx, wf_source, wind_field_ts,
         #     # results_data = results_data.dropna(subset=[f"TrueTurbineWindSpeedHorz_{idx2tid_mapping[i]}" for i in range(fi_full.n_turbines)])
         #     results_data = results_data.iloc[:-int(simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() / simulation_input_dict["simulation_dt"])]
     
+    # TESTING START
+    # import matplotlib.pyplot as plt
+    # fig, ax = plt.subplots(1, 1)
+    # ax.plot(results_data["Time"], results_data["TurbineYawAngle_74"], label="74")
+    # ax.plot(results_data["Time"], results_data["TurbineYawAngle_75"], label="75")
+    # TESTING END
+    
     logging.info(f"Writing {'final' if final else 'intermediary'} result to file.")
     if final and os.path.exists(save_path):
         results_data = pd.concat([pd.read_csv(save_path, index_col=None),
-                                  results_data], axis=0).groupby("Time").last()
+                                  results_data], axis=0).groupby("Time").last().reset_index(drop=False)
+        # set case family and case_name first, then time etc.
+        results_data = results_data.iloc[:, [1, 2, 0] + list(range(3, len(results_data.columns)))]
         results_data.to_csv(save_path, mode="w", header=True, index=False)
     elif os.path.exists(save_path):
         results_data.to_csv(save_path, mode="a", header=False, index=False)
