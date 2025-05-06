@@ -355,9 +355,9 @@ if __name__ == "__main__":
                 for i in args.case_ids:
                     if args.reaggregate_simulations or not os.path.exists(os.path.join(args.save_dir, case_families[i], "agg_results_all.csv")):
                         # for case_name in set([re.findall(r"(?<=case_)(.*)(?=_seed)", fn)[0] for fn in case_family_case_names[case_families[i]]]):
-                        case_family_df = time_series_df.iloc[time_series_df.index.get_level_values("CaseFamily") == case_families[i], :]
+                        case_family_df = time_series_df.loc[time_series_df.index.get_level_values("CaseFamily") == case_families[i], :]
                         for case_name in pd.unique(case_family_df.index.get_level_values("CaseName")):
-                            case_name_df = case_family_df.iloc[case_family_df.index.get_level_values("CaseName") == case_name, :]
+                            case_name_df = case_family_df.loc[case_family_df.index.get_level_values("CaseName") == case_name, :]
                             case_name_df = case_name_df.loc[case_name_df["WindSeed"].isin(common_seeds), :]
                             res = aggregate_time_series_data(
                                                             time_series_df=case_name_df,
@@ -437,8 +437,8 @@ if __name__ == "__main__":
             
             if any(case_families.index(cf) in args.case_ids for cf in 
                    ["baseline_controllers_informer_forecasters_awaken", "baseline_controllers_autoformer_forecasters_awaken",
-                    "baseline_controllers_spacetimeformer_forecasters_awaken", "baseline_controllers_tactis_forecasters_awaken",
-                    "baseline_controllers_baseline_det_forecasters_awaken", "baseline_controllers_baseline_prob_forecasters_awaken"]):
+                    "baseline_controllers_preview_flasc_perfect", "baseline_controllers_perfect_forecaster_awaken",
+                    "baseline_controllers_forecasters_test_awaken", "baseline_controllers_perfect_forecaster_flasc"]):
                 from whoc.wind_forecast.WindForecast import WindForecast
                 from wind_forecasting.preprocessing.data_inspector import DataInspector
                 # TODO HIGH only compare time after context_length, since SVR/ML assume persistence until then
@@ -450,8 +450,8 @@ if __name__ == "__main__":
                 #     forecaster_case_fam = "baseline_controllers_baseline_det_forecasters_awaken"
                 
                 cfs = ["baseline_controllers_informer_forecasters_awaken", "baseline_controllers_autoformer_forecasters_awaken",
-                    "baseline_controllers_spacetimeformer_forecasters_awaken", "baseline_controllers_tactis_forecasters_awaken", 
-                    "baseline_controllers_baseline_det_forecasters_awaken", "baseline_controllers_baseline_prob_forecasters_awaken"]
+                    "baseline_controllers_preview_flasc_perfect", "baseline_controllers_perfect_forecaster_awaken", 
+                    "baseline_controllers_forecasters_test_awaken", "baseline_controllers_perfect_forecaster_flasc"]
                 
                 baseline_time_df = time_series_df.loc[time_series_df.index.get_level_values("CaseFamily").isin(cfs), :] #.reset_index(level="CaseFamily", drop=True)
                 baseline_agg_df = agg_df.loc[agg_df.index.get_level_values("CaseFamily").isin(cfs), :] #.reset_index(level="CaseFamily", drop=True)
