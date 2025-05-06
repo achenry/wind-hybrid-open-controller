@@ -4,7 +4,7 @@
 #SBATCH --output=%j_%x.out
 #SBATCH --nodes=1
 #SBATCH --mem=0
-#SBATCH --time=24:00:00
+#SBATCH --time=48:00:00
 ##SBATCH --partition=nvme
 #SBATCH --ntasks-per-node=104
 
@@ -23,7 +23,7 @@ echo "SLURM_NTASKS_PER_NODE=${SLURM_NTASKS_PER_NODE}"
 echo "=== ENVIRONMENT ==="
 module list
 
-export MODELS="kf persistence sf svr"
+export MODELS="kf svr" # "kf persistence sf svr"
 export MODEL_CONFIG_PATH="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred60_svr.yaml $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred300_svr.yaml"
 export DATA_CONFIG_PATH="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/preprocessing/preprocessing_inputs_kestrel_awaken_new.yaml"
 
@@ -40,9 +40,7 @@ module load mamba
 mamba activate wind_forecasting_env
 
 #mpirun -np $SLURM_NTASKS 
-python WindForecast.py --model ${MODELS} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --simulation_timestep 1 \
-						--save_dir /projects/ssc/ahenry/wind_forecasting/logging --multiprocessor cf --max_splits 10 --prediction_type distribution \
-						--use_tuned_params --use_trained_models --rerun_validation
+python WindForecast.py --ram_limit 65 --model ${MODELS} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --simulation_timestep 1 --save_dir /projects/ssc/ahenry/wind_forecasting/logging --prediction_type distribution --use_tuned_params --use_trained_models --multiprocessor cf --max_splits 10 # --rerun_validation
 
 #python WindForecast.py --model ${MODELS} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --simulation_timestep 1 \
 #                                                --save_dir /projects/ssc/ahenry/wind_forecasting/logging  --max_splits 10 --prediction_type distribution \
