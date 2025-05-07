@@ -521,7 +521,7 @@ if __name__ == "__main__":
                     
                 baseline_agg_df = agg_df.loc[agg_df.index.get_level_values("CaseFamily") == forecaster_case_fam, :] #.reset_index(level="CaseFamily", drop=True)
                 
-                config_cols = ["controller_class", "wind_forecast_class", "prediction_timedelta", "uncertain"]
+                config_cols = ["controller_class", "wind_forecast_class", "prediction_timedelta", "uncertain", "use_upstream_wind"]
                 
                 for (case_family, case_name), _ in baseline_agg_df.iterrows():
                 # for case_name, _ in baseline_time_df.iterrows():    
@@ -535,6 +535,8 @@ if __name__ == "__main__":
                         baseline_agg_df.loc[(baseline_agg_df.index.get_level_values("CaseFamily") == case_family) & 
                                             (baseline_agg_df.index.get_level_values("CaseName") == case_name), col] = full_config[col]
 
+                # baseline_agg_df[[("YawAngleChangeAbsMean", "mean"), ("FarmPowerMean", "mean"), ("controller_class", ""), ("use_upstream_wind", "")]]
+                
                 perfect_agg_df = baseline_agg_df.loc[baseline_agg_df["wind_forecast_class"] == "PerfectForecast", :]
                 controllers = pd.unique(perfect_agg_df["controller_class"])
                 
@@ -572,6 +574,8 @@ if __name__ == "__main__":
                                         ("baseline_controllers", "LUT"),
                                         ("baseline_controllers", "Greedy")
                         ]
+                    # plotting_cases = [("baseline_controllers_forecasters_test_awaken", 2),
+                    #                   ("baseline_controllers_forecasters_test_awaken", 3)]
                     plot_simulations(
                         time_series_df, plotting_cases, args.save_dir, include_power=True, legend_loc="outer", single_plot=False) 
 
