@@ -106,14 +106,14 @@ case_studies = {
         "yaw_limits": {"group": 0, "vals": ["-15,15"]},
         "wind_forecast_class": {"group": 0, "vals": ["MLForecast"]},
         "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController"]},
-        # "model_config_path": {"group": 1, "vals": [
-        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred60.yaml"),
-        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred300.yaml"), 
-        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred300.yaml")]},
         "model_config_path": {"group": 1, "vals": [
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred60.yaml"),
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred300.yaml"), 
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred300.yaml")]},
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred60.yaml"),
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred300.yaml"), 
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred300.yaml")]},
+        # "model_config_path": {"group": 1, "vals": [
+        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred60.yaml"),
+        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred300.yaml"), 
+        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred300.yaml")]},
         "prediction_timedelta": {"group": 1, "vals": [60, 300, 300]},
         "uncertain": {"group": 1, "vals": [False, True, False]},
         "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73", "74,73"]},
@@ -639,7 +639,9 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         
         # pull ws_horz, ws_vert, nacelle_direction, normalization_consts from awaken data and run for ML, SVR
         data_module.generate_splits(splits=["test"], save=True, reload=reload) # TODO should reload if context/prediction length has changed
+        
         wind_field_ts = generate_wind_field_df(data_module.test_dataset, data_module.target_cols, data_module.feat_dynamic_real_cols)
+        
         delattr(data_module, "test_dataset")
         
         wind_field_ts = wind_field_ts.partition_by("continuity_group")
@@ -944,6 +946,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
     for case_study_key in case_study_keys:
         allowed_input_files = set([fn for csk, _, _, fn in input_filenames if csk == case_study_key])
         allowed_ts_files = set([fn for csk, fn in ts_filenames if csk == case_study_key])
+        allowed_ts_files |= set([fn.replace(".csv", "_temp.csv") for fn in allowed_ts_files])
         # allowed_ts_files = set([
         #     f"time_series_results_case_{re.search('(?<=input_config_case_)(.*)(?=\\.pkl)', fn).group()}_seed_{wind_case_idx}.csv".replace("/", "_") 
         #     for csk, wind_case_idx, fn in input_filenames if csk == case_study_key])
