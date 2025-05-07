@@ -632,8 +632,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                                  freq=f"{simulation_dt}s", target_suffixes=base_model_config["dataset"]["target_turbine_ids"],
                                  per_turbine_target=False, as_lazyframe=False, dtype=pl.Float32)
 
-        # TODO REMOVE AND RENAME after sims have run!!!
-        data_module.train_ready_data_path = data_module.train_ready_data_path.replace(".parquet", "_new.parquet")
+        # data_module.train_ready_data_path = data_module.train_ready_data_path.replace(".parquet", "_new.parquet")
         if not os.path.exists(data_module.train_ready_data_path):
             data_module.generate_datasets()
             reload = True
@@ -737,12 +736,12 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         del data_module
         gc.collect()
     for case_family in case_families:
-        # such that every case for single seed is processed first TODO put this back
-        # for p, d in case_studies[case_family].items():
-        #     case_studies[case_family][p]["group"] += 1
-        # case_studies[case_family]["wind_case_idx"] = {"group": 0, "vals": [i for i in range(n_seeds)]}
+        # such that every case for single seed is processed first
+        for p, d in case_studies[case_family].items():
+            case_studies[case_family][p]["group"] += 1
+        case_studies[case_family]["wind_case_idx"] = {"group": 0, "vals": [i for i in range(n_seeds)]}
         
-        case_studies[case_family]["wind_case_idx"] = {"group": max(d["group"] for d in case_studies[case_family].values()) + 1, "vals": [i for i in range(n_seeds)]}
+        # case_studies[case_family]["wind_case_idx"] = {"group": max(d["group"] for d in case_studies[case_family].values()) + 1, "vals": [i for i in range(n_seeds)]}
 
     model_configs = {}
     input_dicts = []
