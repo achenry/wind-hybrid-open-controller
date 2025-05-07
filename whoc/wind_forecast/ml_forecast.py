@@ -89,6 +89,8 @@ class MLForecast(WindForecast):
         mode = "min"
         # log_dir = os.path.join(self.model_config["trainer"]["default_root_dir"], "lightning_logs")
         # "/Users/ahenry/Documents/toolboxes/wind_forecasting/logging/informer_aoifemac_awaken/wind_forecasting/z55orlbf/checkpoints/epoch=7-step=8000.ckpt"
+        
+        # "/Users/ahenry/Documents/toolboxes/wind_forecasting/logging/wind_forecasting_awaken_pred60_informer/20250506_152133_0_0/epoch=0-step=100-val_loss=0.15.ckpt"
         checkpoint_path = get_checkpoint(
             checkpoint=self.kwargs["model_checkpoint"], metric=metric, 
             mode=mode, 
@@ -188,10 +190,10 @@ class MLForecast(WindForecast):
         estimator_sig = inspect.signature(estimator_class.__init__)
         estimator_params = [param.name for param in estimator_sig.parameters.values()]
         
-        # Add model-specific arguments
+        # Add model-specific arguments. Note that some params, such as num_feat_dynamic_real, are changed within Model, and so can't be used for estimator class
         model_config_source = checkpoint_hparams["init_args"]["model_config"]
         if model_config_source:
-             estimator_kwargs.update({k: v for k, v in model_config_source.items() if k in estimator_params})
+             estimator_kwargs.update({k: v for k, v in model_config_source.items() if k in estimator_params and not hasattr(self.data_module, k)})
         else:
              logging.warning(f"Could not find 'model_config' in checkpoint hparams or instance config for model {self.model_key}.")
         
@@ -199,7 +201,9 @@ class MLForecast(WindForecast):
         if self.model_key != "tactis":
             estimator_kwargs["distr_output"] = distr_output_class(dim=self.data_module.num_target_vars, **self.model_config["model"]["distr_output"]["kwargs"])
         
+        logging.info(f"Using final estimator_kwargs:\n {estimator_kwargs}")
         estimator = estimator_class(**estimator_kwargs)
+        self.self_scaled = (estimator_kwargs["scaling"] == "False") or not estimator_kwargs["scaling"]
         
         transformation = estimator.create_transformation(use_lazyframe=False)
         
@@ -285,14 +289,14 @@ class MLForecast(WindForecast):
                                                       for pfx in self.data_module.feat_dynamic_real_prefixes])], how="vertical").to_numpy().T
                 } for t, turbine_id in enumerate(self.data_module.target_suffixes))
         else:
-            test_data = [{
+            test_data = ({
                     "start": pd.Period(historic_measurements.select(pl.col("time").first()).item(), freq=self.data_module.freq), 
                     "target": historic_measurements.select(self.data_module.target_cols).to_numpy().T, 
                     "feat_dynamic_real": pl.concat([
                         historic_measurements.select(self.data_module.feat_dynamic_real_cols),
                         historic_measurements.select([pl.col(col).last().repeat_by(int(self.model_prediction_timedelta.total_seconds() / data_module_freq_td.total_seconds())).explode() # Use Timedelta seconds
                                                       for col in self.data_module.feat_dynamic_real_cols])], how="vertical").to_numpy().T
-            }]
+            })
         return test_data
     
     def predict_sample(self, historic_measurements: Union[pd.DataFrame, pl.DataFrame], current_time, n_samples: int):
@@ -385,7 +389,7 @@ class MLForecast(WindForecast):
         feature_types = list(self.scaler_params["min_"].keys())
         
         if historic_measurements.select(pl.len()).item() >= self.n_context:
-            if self.model_key != 'tactis':
+            if self.self_scaled:
                 historic_measurements = historic_measurements.with_columns([
                         (cs.starts_with(feat_type) * self.scaler_params["scale_"][feat_type]) + self.scaler_params["min_"][feat_type]
                                                                 for feat_type in feature_types])
@@ -441,7 +445,7 @@ class MLForecast(WindForecast):
                 ).sort(by=["time"])
 
             # denormalize data ONLY IF NOT TACTIS @boujuan DEBUG
-            if self.model_key != 'tactis':
+            if self.self_scaled:
                 pred_df = pred_df.with_columns([
                         (cs.starts_with(f"loc_{feat_type}") - self.scaler_params["min_"][feat_type]) / self.scaler_params["scale_"][feat_type]
                                                                 for feat_type in feature_types])\
@@ -462,7 +466,7 @@ class MLForecast(WindForecast):
                                                 + pl.duration(seconds=pred_df.select(pl.col("time").last().dt.second() % data_module_freq_td.total_seconds()).item()))\
                                                                 .group_by("time").agg(cs.numeric().mean()).sort("time")
                 else:
-                    pred_df = pred_df.upsample(time_column="time", every=data_module_freq_td).fill_null(strategy="forward") # Use Timedelta here
+                    pred_df = pred_df.upsample(time_column="time", every=self.measurements_timedelta).fill_null(strategy="forward") # Use Timedelta here
         else:
             # not enough data points to train SVR, assume persistence
             logging.info(f"Not enough data points at time {current_time} to train ML, have {historic_measurements.select(pl.len()).item()} but require {self.n_context}, assuming persistence instead.")

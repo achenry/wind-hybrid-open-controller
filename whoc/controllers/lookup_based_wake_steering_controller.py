@@ -422,10 +422,10 @@ class LookupBasedWakeSteeringController(ControllerBase):
                     last_historic_time = hist_meas.select(pl.col("time").last()).item()
                     first_forecasted_time = forecasted_wind_field.select(pl.col("time").first()).item()
                     if (fcst_lead_timedelta := (first_forecasted_time - last_historic_time)) > (sim_timedelta := timedelta(seconds=self.simulation_dt)):
-                        full_forecasted_time = pl.DataFrame({"time": [last_historic_time + i * sim_timedelta for i in range(1, int(fcst_lead_timedelta / sim_timedelta))]}).with_columns(pl.col("time").cast(pl.Datetime(time_unit="ns")))
+                        missing_forecasted_time = pl.DataFrame({"time": [last_historic_time + i * sim_timedelta for i in range(1, int(fcst_lead_timedelta / sim_timedelta))]}).with_columns(pl.col("time").cast(pl.Datetime(time_unit="ns")))
                         wind = pl.concat([
                             hist_meas.select(["time"] + self.mean_ws_horz_cols + self.mean_ws_vert_cols),
-                            full_forecasted_time, 
+                            missing_forecasted_time, 
                             forecasted_wind_field], how="diagonal")\
                              .select(pl.col("time"), cs.numeric().interpolate_by("time"))
                     else:

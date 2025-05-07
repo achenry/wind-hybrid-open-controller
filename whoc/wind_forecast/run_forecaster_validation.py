@@ -33,31 +33,11 @@ from gluonts.evaluation import MultivariateEvaluator
 from gluonts.dataset.util import period_index
 from gluonts.dataset.split import split, slice_data_entry
 from gluonts.dataset.field_names import FieldName
-from gluonts.torch.distributions import LowRankMultivariateNormalOutput
-from gluonts.torch.model.estimator import PyTorchLightningEstimator
-from gluonts.torch.distributions import DistributionOutput
-from gluonts.model.forecast_generator import DistributionForecastGenerator, SampleForecastGenerator
-from gluonts.time_feature._base import second_of_minute, minute_of_hour, hour_of_day, day_of_year
-from gluonts.transform import ExpectedNumInstanceSampler, ValidationSplitSampler
-from gluonts.model.forecast import SampleForecast
-from gluonts.torch.model.forecast import DistributionForecast
 
-from pytorch_transformer_ts.informer.lightning_module import InformerLightningModule
-from pytorch_transformer_ts.informer.estimator import InformerEstimator
-from pytorch_transformer_ts.autoformer.estimator import AutoformerEstimator
-from pytorch_transformer_ts.autoformer.lightning_module import AutoformerLightningModule
-from pytorch_transformer_ts.spacetimeformer.estimator import SpacetimeformerEstimator
-from pytorch_transformer_ts.spacetimeformer.lightning_module import SpacetimeformerLightningModule
-from pytorch_transformer_ts.tactis_2.estimator import TACTiS2Estimator as TactisEstimator
-from pytorch_transformer_ts.tactis_2.lightning_module import TACTiS2LightningModule as TactisLightningModule
-
-from wind_forecasting.preprocessing.data_inspector import DataInspector
 from wind_forecasting.preprocessing.data_module import DataModule
 from wind_forecasting.postprocessing.probabilistic_metrics import continuous_ranked_probability_score_gaussian, pi_coverage_probability, pi_normalized_average_width, coverage_width_criterion 
-from wind_forecasting.run_scripts.testing import get_checkpoint, load_estimator_from_checkpoint
-from wind_forecasting.run_scripts.tuning import get_tuned_params, generate_df_setup_params
-from wind_forecasting.utils.optuna_db_utils import setup_optuna_storage
-from wind_forecasting.utils.optuna_visualization import launch_optuna_dashboard, log_optuna_visualizations_to_wandb
+
+from floris import FlorisModel
 
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -744,7 +724,7 @@ if __name__ == "__main__":
                 
                 if os.path.exists(save_path):
                     logging.info(f"Removing existing file {save_path}.")
-                    os.remove(save_path)
+                    # os.remove(save_path)
             # elif os.path.exists(save_path):
             #     # TODO also delete existing files if not rerun_validation but existing files have different number of time steps
             #     forecast_df = pl.scan_csv(save_path, glob=True, try_parse_dates=True)\
