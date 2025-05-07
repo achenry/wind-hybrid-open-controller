@@ -46,10 +46,10 @@ elif sys.platform == "win32" or sys.platform == "cygwin":  # Add Windows check
 # sequential_pyopt is best solver, stochastic is best preview type
 case_studies = {
     "baseline_controllers_preview_flasc_perfect": {
-                                    # "target_turbine_indices": {"group": 1, "vals": ["6,4", "6,"]},
-                                    # "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
-                                    "target_turbine_indices": {"group": 1, "vals": ["6,"]},
-                                    "controller_class": {"group": 1, "vals": ["GreedyController"]},        
+                                    "target_turbine_indices": {"group": 1, "vals": ["6,4", "6,"]},
+                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
+                                    # "target_turbine_indices": {"group": 1, "vals": ["6,"]},
+                                    # "controller_class": {"group": 1, "vals": ["GreedyController"]},        
                                     "controller_dt": {"group": 0, "vals": [60]},
                                     "use_filtered_wind_dir": {"group": 0, "vals": [True]},
                                     "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
