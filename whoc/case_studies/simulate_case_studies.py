@@ -82,7 +82,8 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     idx2tid_mapping = dict([(v, k) for k, v in kwargs["tid2idx_mapping"].items()])
         
     stoptime = simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"] - simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() - (simulation_input_dict["controller"]["n_horizon"] * simulation_input_dict["controller"]["controller_dt"])
-    
+    if stoptime < 0:
+        print(f"Simulation time {stoptime} is negative, exiting. Please check your inputs (prediction_timedelta, controller_dt, and n_horizon).")
     load_from_checkpoint = not kwargs["rerun_simulations"] and os.path.exists(temp_save_path)
     load_from_final = not kwargs["rerun_simulations"] and os.path.exists(save_path)
     if load_from_final:
