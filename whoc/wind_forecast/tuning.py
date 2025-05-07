@@ -179,9 +179,10 @@ if __name__ == "__main__":
     
         logging.info("Running tune_hyperparameters_single")
     
-    comm.Barrier()
+    
     if args.multiprocessor == "mpi":
         optuna_storage = comm.bcast(optuna_storage, root=0)
+        comm.Barrier()
     
     scaler_params = data_module.compute_scaler_params()
     
@@ -189,6 +190,7 @@ if __name__ == "__main__":
         
         if args.multiprocessor:
             logging.info(f"Using multiprocessor {args.multiprocessor}")
+            
         forecaster.tune_hyperparameters_single(storage=optuna_storage,
                                                 n_trials_per_worker=model_config["optuna"]["n_trials_per_worker"], 
                                                 seed=args.seed,
