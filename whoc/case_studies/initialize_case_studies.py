@@ -79,7 +79,7 @@ case_studies = {
         "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73"]},
         "uncertain": {"group": 1, "vals": [False, False]},
         "wind_forecast_class": {"group": 0, "vals": ["PerfectForecast"]},
-        "prediction_timedelta": {"group": 2, "vals": [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 360, 420, 480, 540, 600, 660, 720, 780, 840, 900]},
+        "prediction_timedelta": {"group": 2, "vals": [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360, 390, 420, 480, 510, 540, 570, 600]},
         },
     "baseline_controllers_perfect_forecaster_flasc": {
         "controller_dt": {"group": 0, "vals": [5]},
@@ -106,14 +106,14 @@ case_studies = {
         "yaw_limits": {"group": 0, "vals": ["-15,15"]},
         "wind_forecast_class": {"group": 0, "vals": ["MLForecast"]},
         "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController"]},
-        "model_config_path": {"group": 1, "vals": [
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred60.yaml"),
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred300.yaml"), 
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred300.yaml")]},
         # "model_config_path": {"group": 1, "vals": [
-        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred60.yaml"),
-        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred300.yaml"), 
-        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred300.yaml")]},
+        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred60.yaml"),
+        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred300.yaml"), 
+        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred300.yaml")]},
+        "model_config_path": {"group": 1, "vals": [
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred60.yaml"),
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred300.yaml"), 
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred300.yaml")]},
         "prediction_timedelta": {"group": 1, "vals": [60, 300, 300]},
         "uncertain": {"group": 1, "vals": [False, True, False]},
         "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73", "74,73"]},
