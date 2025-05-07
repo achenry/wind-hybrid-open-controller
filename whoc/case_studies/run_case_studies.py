@@ -352,20 +352,20 @@ if __name__ == "__main__":
                     common_seeds.intersection_update(sds)
 
                 #### TEST PLOT WIND DIRECTIONS
-                case7 = time_series_df.loc[time_series_df.index.get_level_values('CaseName') == '0']
-                case8 = time_series_df.loc[time_series_df.index.get_level_values('CaseName') == '1']
+                # case7 = time_series_df.loc[time_series_df.index.get_level_values('CaseName') == '0']
+                # case8 = time_series_df.loc[time_series_df.index.get_level_values('CaseName') == '1']
 
-                plt.figure(figsize=(12, 6))
-                plt.plot(case7['Time'], case7['PredictedTurbineWindSpeedVert_6'], label='Case 7', color='blue')
-                plt.plot(case8['Time'], case8['PredictedTurbineWindSpeedVert_6'], label='Case 8', color='orange', linestyle='dotted')
+                # plt.figure(figsize=(12, 6))
+                # plt.plot(case7['Time'], case7['PredictedTurbineWindSpeedVert_6'], label='Case 7', color='blue')
+                # plt.plot(case8['Time'], case8['PredictedTurbineWindSpeedVert_6'], label='Case 8', color='orange', linestyle='dotted')
 
-                plt.xlabel('Time')
-                plt.ylabel('Predicted Horizontal Wind Speed (Turbine 6)')
-                plt.title('Predicted Wind Speed vs Time for Turbine 6')
-                plt.legend()
-                plt.grid(True)
-                plt.tight_layout()
-                plt.show()
+                # plt.xlabel('Time')
+                # plt.ylabel('Predicted Horizontal Wind Speed (Turbine 6)')
+                # plt.title('Predicted Wind Speed vs Time for Turbine 6')
+                # plt.legend()
+                # plt.grid(True)
+                # plt.tight_layout()
+                # plt.show()
 
                 
                 new_agg_df = []
