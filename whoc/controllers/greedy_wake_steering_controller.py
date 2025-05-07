@@ -69,6 +69,7 @@ class GreedyController(ControllerBase):
         self.lpf_start_time = self.init_time + pd.Timedelta(seconds=simulation_input_dict["controller"]["lpf_start_time"])
         self.wind_dir_lpf_alpha = np.exp(-(1 / simulation_input_dict["controller"]["wind_dir_lpf_time_const"]) * simulation_input_dict["simulation_dt"])
         self.deadband_thr = simulation_input_dict["controller"]["deadband_thr"]
+        # self.deadband_thr = 0 
         self.wind_dir_use_filt = simulation_input_dict["controller"]["use_filtered_wind_dir"]
 
         self.rated_turbine_power = simulation_input_dict["controller"]["rated_turbine_power"]
@@ -220,13 +221,13 @@ class GreedyController(ControllerBase):
                     if (fcst_lead_timedelta := (first_forecasted_time - last_historic_time)) > (sim_timedelta := timedelta(seconds=self.simulation_dt)):
                         missing_forecasted_time = pl.DataFrame({"time": [last_historic_time + i * sim_timedelta for i in range(1, int(fcst_lead_timedelta / sim_timedelta))]}).with_columns(pl.col("time").cast(pl.Datetime(time_unit="ns")))
                         wind = pl.concat([
-                            hist_meas.select(["time"] + self.mean_ws_horz_cols + self.mean_ws_vert_cols),
+                            hist_meas.select(["time"] + self.target_mean_ws_horz_cols + self.target_mean_ws_vert_cols),
                             missing_forecasted_time, 
-                            forecasted_wind_field], how="diagonal")\
+                            forecasted_wind_field.select(["time"] + self.target_mean_ws_horz_cols + self.target_mean_ws_vert_cols)], how="diagonal")\
                              .select(pl.col("time"), cs.numeric().interpolate_by("time"))
                     else:
-                        wind = pl.concat([hist_meas.select(["time"] + self.mean_ws_horz_cols + self.mean_ws_vert_cols), 
-                                            forecasted_wind_field.select(["time"] + self.mean_ws_horz_cols + self.mean_ws_vert_cols)
+                        wind = pl.concat([hist_meas.select(["time"] + self.target_mean_ws_horz_cols + self.target_mean_ws_vert_cols), 
+                                            forecasted_wind_field.select(["time"] + self.target_mean_ws_horz_cols + self.target_mean_ws_vert_cols)
                                             ], how="vertical")
                         
                     assert wind.select((pl.col("time").diff().slice(1) == sim_timedelta).all()).item() and (wind.select(pl.col("time").last()).item() == single_forecasted_wind_field.select(pl.col("time").last()).item()), "DataFrame passed to low pass filter must be continuous, with sampling time equal to simulation timestep, and must end on last forecasted value."

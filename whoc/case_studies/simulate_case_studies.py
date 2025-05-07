@@ -73,7 +73,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     idx2tid_mapping = dict([(v, k) for k, v in kwargs["tid2idx_mapping"].items()])
     
     TRUNCATE_STEPS = 300 if kwargs["wf_source"] == "scada" else 0
-    stoptime = simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"] - 2*TRUNCATE_STEPS - simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() - (simulation_input_dict["controller"]["n_horizon"] * simulation_input_dict["controller"]["controller_dt"])
+    stoptime = simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"] - simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() - (simulation_input_dict["controller"]["n_horizon"] * simulation_input_dict["controller"]["controller_dt"]) # - 2*TRUNCATE_STEPS
     
     load_from_checkpoint = not kwargs["rerun_simulations"] and os.path.exists(temp_save_path)
     load_from_final = not kwargs["rerun_simulations"] and os.path.exists(save_path)
@@ -110,6 +110,10 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     kwargs["wind_field_config"]["preview_dt"] = int(simulation_input_dict["controller"]["controller_dt"] / simulation_input_dict["simulation_dt"]) 
     kwargs["wind_field_config"]["n_preview_steps"] = simulation_input_dict["controller"]["n_horizon"] * int(simulation_input_dict["controller"]["controller_dt"] / simulation_input_dict["simulation_dt"])
     kwargs["wind_field_config"]["time_series_dt"] = int(simulation_input_dict["controller"]["controller_dt"] // simulation_input_dict["simulation_dt"])
+    
+    # tgt_d = 140
+    # tgt_u, tgt_v = 10 * np.sin(np.deg2rad(tgt_d - 180)), 10 * np.cos(np.deg2rad(tgt_d - 180))
+    # kwargs["wind_field_ts"] = kwargs["wind_field_ts"].with_columns(ws_horz_75=pl.lit(tgt_u), ws_vert_75=pl.lit(tgt_v), ws_horz_74=pl.lit(tgt_u), ws_vert_74=pl.lit(tgt_v))
     
     if isinstance(simulation_input_dict["controller"]["initial_conditions"]["yaw"], str) and simulation_input_dict["controller"]["initial_conditions"]["yaw"] == "auto":
         if "FreestreamWindDir" in kwargs["wind_field_ts"].columns:
@@ -181,15 +185,23 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         # plt.grid()
         # END TEST
         
+        # save originals
+        all_freq_simulation_mag = ((simulation_u**2 + simulation_v**2)**0.5)#[TRUNCATE_STEPS:-TRUNCATE_STEPS]
+        all_freq_simulation_dir = (180.0 + np.rad2deg(np.arctan2(simulation_u, simulation_v)))#[TRUNCATE_STEPS:-TRUNCATE_STEPS]
+        all_freq_simulation_dir[all_freq_simulation_dir < 0] = 360. + all_freq_simulation_dir[all_freq_simulation_dir < 0]
+        all_freq_simulation_dir[all_freq_simulation_dir > 360] = np.mod(all_freq_simulation_dir[all_freq_simulation_dir > 360], 360.) 
+        
         # time series of low-frequency wind direction
-        simulation_u = np.real(np.fft.ifft(freq_vec_u))[TRUNCATE_STEPS:-TRUNCATE_STEPS]
-        simulation_v = np.real(np.fft.ifft(freq_vec_v))[TRUNCATE_STEPS:-TRUNCATE_STEPS]
+        simulation_u = np.real(np.fft.ifft(freq_vec_u))#[TRUNCATE_STEPS:-TRUNCATE_STEPS]
+        simulation_v = np.real(np.fft.ifft(freq_vec_v))#[TRUNCATE_STEPS:-TRUNCATE_STEPS]
         stoptime = int(len(simulation_u) // simulation_input_dict["simulation_dt"]) - simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() - (simulation_input_dict["controller"]["n_horizon"] * simulation_input_dict["controller"]["controller_dt"])
         
         simulation_mag = (simulation_u**2 + simulation_v**2)**0.5
         simulation_dir = 180.0 + np.rad2deg(np.arctan2(simulation_u, simulation_v))
         simulation_dir[simulation_dir < 0] = 360. + simulation_dir[simulation_dir < 0]
-        simulation_dir[simulation_dir > 360] = np.mod(simulation_dir[simulation_dir > 360], 360.) 
+        simulation_dir[simulation_dir > 360] = np.mod(simulation_dir[simulation_dir > 360], 360.)
+        
+        # kwargs["wind_field_ts"] = kwargs["wind_field_ts"].slice(TRUNCATE_STEPS, kwargs["wind_field_ts"].select(pl.len()).item() - (2*TRUNCATE_STEPS))
         
     else:
         simulation_mag = kwargs["wind_field_ts"].select("FreestreamWindMag").to_numpy()
@@ -349,10 +361,29 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         # turn data into arrays, pandas dataframe, and export to csv
         if (final := (t>=stoptime)) or ((ram_used := virtual_memory().percent) > kwargs["ram_limit"]) or (len(turbine_powers_ts) >= int(3600 / simulation_input_dict["simulation_dt"])):
             logging.info(f"Used {ram_used}% RAM.")
+            
+            # import matplotlib.pyplot as plt
+            # fig, ax = plt.subplots(2,1)
+            # w = kwargs["wind_field_ts"].filter(pl.col("time") <= ctrl.init_time + timedelta(seconds=t))
+            # d_us = (np.rad2deg(np.arctan2(w.select("ws_horz_75"), w.select("ws_vert_75"))) + 180.0).flatten()
+            # d_ds = (np.rad2deg(np.arctan2(w.select("ws_horz_74"), w.select("ws_vert_74"))) + 180.0).flatten()
+            # fd_us = first_ord_filter(d_us, alpha=np.exp(-(1 / simulation_input_dict["controller"]["wind_dir_lpf_time_const"]) * simulation_input_dict["simulation_dt"]))
+            # fd_ds = first_ord_filter(d_ds, alpha=np.exp(-(1 / simulation_input_dict["controller"]["wind_dir_lpf_time_const"]) * simulation_input_dict["simulation_dt"]))
+            # y_ds = np.vstack(yaw_angles_ts)[:, 0]
+            # y_us = np.vstack(yaw_angles_ts)[:, 1]
+            # ax[0].plot(d_ds, label="wind dir ds", color='red')
+            # ax[0].plot(fd_ds, label="filt wind dir ds", linestyle="--", color='red')
+            # ax[0].plot(y_ds, label="yaw ds", color='blue')
+            # ax[1].plot(d_us, label="wind dir us", color='red')
+            # ax[1].plot(fd_us, label="filt wind dir ds", linestyle="--", color='red')
+            # ax[1].plot(y_us, label="yaw us", color='blue')
+            # ax[0].legend()
+            # ax[1].legend()
+            
             # turn data into arrays, pandas dataframe, and export to csv
             write_df(wf_source=kwargs["wf_source"],
                     wind_field_ts=kwargs["wind_field_ts"],
-                    simulation_mag=simulation_mag, simulation_dir=simulation_dir,
+                    simulation_mag=all_freq_simulation_mag, simulation_dir=all_freq_simulation_dir,
                     fi_full=fi_full,
                     sorted_tids=fi.sorted_tids,
                     start_time=((k-len(turbine_powers_ts)) if not load_from_checkpoint else (k-len(turbine_powers_ts) - 1)) * simulation_input_dict["simulation_dt"],
@@ -553,9 +584,9 @@ def write_df(wf_source, wind_field_ts,
     # TESTING START
     # import matplotlib.pyplot as plt
     # fig, ax = plt.subplots(1, 1)
-    # ax.plot(results_data["Time"], results_data["TurbineYawAngle_5"], label="5")
-    # # ax.plot(results_data["Time"], results_data["TurbineYawAngle_74"], label="74")
-    # # ax.plot(results_data["Time"], results_data["TurbineYawAngle_75"], label="75")
+    # # ax.plot(results_data["Time"], results_data["TurbineYawAngle_5"], label="5")
+    # ax.plot(results_data["Time"], results_data["TurbineYawAngle_74"], label="74")
+    # ax.plot(results_data["Time"], results_data["TurbineYawAngle_75"], label="75")
     # ax.plot(results_data["Time"], results_data["FreestreamWindDir"], label="Raw wind dir.")
     # ax.plot(results_data["Time"], results_data["FreestreamWindMag"], label="Raw wind mag.")
     # ax.plot(results_data["Time"], results_data["FilteredFreestreamWindDir"], label="Filtered wind dir.")
