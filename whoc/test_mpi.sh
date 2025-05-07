@@ -11,11 +11,14 @@
 # salloc --account=ssc --time=01:00:00 --partition=debug --nodes=1 --ntasks-per-node=104
 module purge
 # module load mamba
-conda activate wind_forecasting_env
+conda activate test_env
+ml intel
+export PYTHONPATH=$(which python)
 # module load PrgEnv-intel # NOTE: DONT NEED THIS WHEN MPI4PY IS INSTALLED WITH MAMBA, SAME GOES FOR LIBRARY LINKING LINE BELOW, ALSO DONT MARK JOB AS EXCLUSIVE
 module list
+
 
 #export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/projects/ssc/ahenry/conda/envs/wind_forecasting_env/lib
 echo $SLURM_NTASKS
 
-srun python test_mpi.py
+srun $PYTHONPATH test_mpi.py
