@@ -156,6 +156,7 @@ def plot_agg_metrics_vs_forecaster(agg_df, save_dir, label, controller_labels, a
     
     metric_labels = {"FarmPowerMean": "Farm Power Change\nvs. Persistence (%)", "YawAngleChangeAbsMean": "Yaw Actuation Change\nvs. Persistence (%)"}
     # controllers = pd.unique(agg_df["controller_class"])
+    # controllers = controller_labels.keys() & set(pd.unique(agg_df["controller_class"]))
     controllers = list(controller_labels.keys())
     if agg_metrics is None:
         agg_metrics = [("FarmPowerMean", "mean"), ("YawAngleChangeAbsMean",  "mean")]
@@ -272,11 +273,11 @@ def read_time_series_data(results_path, input_dict_path):
         if "CaseName" not in df.index.names:
             df = df.reset_index()
             df["CaseName"] = re.search("(?<=case_)\\d+", os.path.basename(results_path)).group()
-        if "CaseFamily" not in df.index.names:
             df["CaseFamily"] = os.path.basename(os.path.dirname(results_path))
+            df = df.set_index(["CaseFamily", "CaseName"])
         if "WindSeed" not in df.columns:
             df["WindSeed"] = re.search("(?<=seed_)\\d+", os.path.basename(results_path)).group()
-        df = df.set_index(["CaseFamily", "CaseName"])
+        # 
             # df.to_csv(results_path, index=False, header=True)
         # df = df.set_index(["CaseFamily", "CaseName"])
         if "Time" not in df.columns:
