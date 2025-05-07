@@ -5,6 +5,7 @@ import re
 import argparse
 import csv
 from itertools import cycle
+import matplotlib.pyplot as plt
 
 from mpi4py import MPI
 from mpi4py.futures import MPICommExecutor
@@ -349,15 +350,31 @@ if __name__ == "__main__":
                 common_seeds = set(unique_seeds[0])
                 for sds in unique_seeds[1:]:
                     common_seeds.intersection_update(sds)
-                    
+
+                #### TEST PLOT WIND DIRECTIONS
+                case7 = time_series_df.loc[time_series_df.index.get_level_values('CaseName') == '0']
+                case8 = time_series_df.loc[time_series_df.index.get_level_values('CaseName') == '1']
+
+                plt.figure(figsize=(12, 6))
+                plt.plot(case7['Time'], case7['PredictedTurbineWindSpeedVert_6'], label='Case 7', color='blue')
+                plt.plot(case8['Time'], case8['PredictedTurbineWindSpeedVert_6'], label='Case 8', color='orange', linestyle='dotted')
+
+                plt.xlabel('Time')
+                plt.ylabel('Predicted Horizontal Wind Speed (Turbine 6)')
+                plt.title('Predicted Wind Speed vs Time for Turbine 6')
+                plt.legend()
+                plt.grid(True)
+                plt.tight_layout()
+                plt.show()
+
                 
                 new_agg_df = []
                 for i in args.case_ids:
                     if args.reaggregate_simulations or not os.path.exists(os.path.join(args.save_dir, case_families[i], "agg_results_all.csv")):
                         # for case_name in set([re.findall(r"(?<=case_)(.*)(?=_seed)", fn)[0] for fn in case_family_case_names[case_families[i]]]):
-                        case_family_df = time_series_df.loc[time_series_df.index.get_level_values("CaseFamily") == case_families[i], :]
+                        case_family_df = time_series_df.iloc[time_series_df.index.get_level_values("CaseFamily") == case_families[i], :]
                         for case_name in pd.unique(case_family_df.index.get_level_values("CaseName")):
-                            case_name_df = case_family_df.loc[case_family_df.index.get_level_values("CaseName") == case_name, :]
+                            case_name_df = case_family_df.iloc[case_family_df.index.get_level_values("CaseName") == case_name, :]
                             case_name_df = case_name_df.loc[case_name_df["WindSeed"].isin(common_seeds), :]
                             res = aggregate_time_series_data(
                                                             time_series_df=case_name_df,
@@ -487,19 +504,22 @@ if __name__ == "__main__":
                     "LookupBasedWakeSteeringControllerFalse": "Static LUT",
                     "LookupBasedWakeSteeringControllerTrue": "Dynamic LUT"
                 }
+                
+
+                ## UNCOMMENT THIS LATER!!!!
                 ml_baseline_agg_df = baseline_agg_df.loc[(~baseline_agg_df["model_key"].isnull()) | (baseline_agg_df["wind_forecast_class"] == "PersistenceForecast"), :]
                 ml_baseline_agg_df["controller_class"] = ml_baseline_agg_df["controller_class"] + ml_baseline_agg_df["uncertain"].astype(str)
                 ml_baseline_agg_df = ml_baseline_agg_df.sort_values("controller_class")
-                plot_agg_metrics_vs_forecaster(ml_baseline_agg_df,
-                                               save_dir=args.save_dir, label="ml_forecasters_",
-                                               controller_labels=controller_labels)
+                #plot_agg_metrics_vs_forecaster(ml_baseline_agg_df,
+                #                               save_dir=args.save_dir, label="ml_forecasters_",
+                #                               controller_labels=controller_labels)
                 
                 other_baseline_agg_df = baseline_agg_df.loc[baseline_agg_df["model_key"].isnull(), :]
                 other_baseline_agg_df["controller_class"] = other_baseline_agg_df["controller_class"] + other_baseline_agg_df["uncertain"].astype(str)
                 other_baseline_agg_df = other_baseline_agg_df.sort_values("controller_class")
-                plot_agg_metrics_vs_forecaster(other_baseline_agg_df,
-                                               save_dir=args.save_dir, label="stat_forecasters_",
-                                               controller_labels=controller_labels)
+                #plot_agg_metrics_vs_forecaster(other_baseline_agg_df,
+                #                               save_dir=args.save_dir, label="stat_forecasters_",
+                #                               controller_labels=controller_labels)
                 
                 # PLOT 1) Farm power of perfect forecaster vs prediction timedela for different controllers
                 # plot_power_vs_prediction_time(baseline_agg_df, args.save_dir, "all_forecasters_")
@@ -523,11 +543,11 @@ if __name__ == "__main__":
             
             
             if (case_families.index("baseline_controllers_perfect_forecaster_awaken") in args.case_ids
-                or case_families.index("baseline_controllers_perfect_forecaster_flasc") in args.case_ids):
+                or case_families.index("baseline_controllers_preview_flasc_perfect") in args.case_ids):
                 if case_families.index("baseline_controllers_perfect_forecaster_awaken") in args.case_ids:
                     forecaster_case_fam = "baseline_controllers_perfect_forecaster_awaken"
-                elif case_families.index("baseline_controllers_perfect_forecaster_flasc") in args.case_ids:
-                    forecaster_case_fam = "baseline_controllers_perfect_forecaster_flasc"
+                elif case_families.index("baseline_controllers_preview_flasc_perfect") in args.case_ids:
+                    forecaster_case_fam = "baseline_controllers_preview_flasc_perfect"
                     
                 baseline_agg_df = agg_df.loc[agg_df.index.get_level_values("CaseFamily") == forecaster_case_fam, :] #.reset_index(level="CaseFamily", drop=True)
                 
@@ -568,7 +588,7 @@ if __name__ == "__main__":
                 elif case_families.index("baseline_controllers_forecasters_test_awaken") in args.case_ids:
                     forecaster_case_fam = "baseline_controllers_forecasters_test_awaken"
                 
-                cfs = ["baseline_controllers_informer_forecasters_awaken", "baseline_controllers_autoformer_forecasters_awaken",
+                cfs = ["baseline_controllers_informer_forecasters_awaken", "baseline_controllers_preview_flasc_perfect",
                     "baseline_controllers_spacetimeformer_forecasters_awaken", "baseline_controllers_tactis_forecasters_awaken", 
                     "baseline_controllers_baseline_det_forecasters_awaken", "baseline_controllers_baseline_prob_forecasters_awaken"]
                 

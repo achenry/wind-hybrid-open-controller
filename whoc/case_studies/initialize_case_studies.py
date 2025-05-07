@@ -46,8 +46,10 @@ elif sys.platform == "win32" or sys.platform == "cygwin":  # Add Windows check
 # sequential_pyopt is best solver, stochastic is best preview type
 case_studies = {
     "baseline_controllers_preview_flasc_perfect": {
-                                    "target_turbine_indices": {"group": 1, "vals": ["6,4", "6,"]},
-                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},    
+                                    # "target_turbine_indices": {"group": 1, "vals": ["6,4", "6,"]},
+                                    # "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
+                                    "target_turbine_indices": {"group": 1, "vals": ["6,"]},
+                                    "controller_class": {"group": 1, "vals": ["GreedyController"]},        
                                     "controller_dt": {"group": 0, "vals": [60]},
                                     "use_filtered_wind_dir": {"group": 0, "vals": [True]},
                                     "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
@@ -56,7 +58,7 @@ case_studies = {
                                     "uncertain": {"group": 2, "vals": [False]},
                                     "wind_forecast_class": {"group": 3, "vals": ["PerfectForecast"]}, #, ", "KalmanFilterForecast", "SpatialFilterForecast"]},
                                     "study_name": {"group": 3, "vals": ["svr_aoifemac_flasc"]},
-                                    "prediction_timedelta": {"group": 4, "vals": [0, 60, 120, 180, 240, 300]}, #, 120, 180]},
+                                    "prediction_timedelta": {"group": 4, "vals": [60, 120]}, #, 120, 180]},
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]}
                                     },
     "baseline_controllers_forecasters_test_awaken": {
