@@ -731,7 +731,8 @@ def aggregate_time_series_data(time_series_df, input_dict_path, n_seeds):
         lpf_start_time = 180.0   
     for seed in case_seeds:
 
-        if time_series_df["Time"].max() > lpf_start_time:
+        #if time_series_df["Time"].max() > lpf_start_time:
+        if (time_series_df.loc[time_series_df["WindSeed"] == seed, "Time"] > lpf_start_time).any():
             seed_df = time_series_df.loc[(time_series_df["WindSeed"] == seed) & (time_series_df["Time"] >= lpf_start_time), :]
         else:
             seed_df = time_series_df.loc[(time_series_df["WindSeed"] == seed), :]

@@ -58,7 +58,7 @@ case_studies = {
                                     "uncertain": {"group": 2, "vals": [False]},
                                     "wind_forecast_class": {"group": 3, "vals": ["PerfectForecast"]}, #, ", "KalmanFilterForecast", "SpatialFilterForecast"]},
                                     "study_name": {"group": 3, "vals": ["svr_aoifemac_flasc"]},
-                                    "prediction_timedelta": {"group": 4, "vals": [0, 60, 120, 180, 240, 300, 360, 420, 480, 540, 600]}, #, 120, 180]},
+                                    "prediction_timedelta": {"group": 4, "vals": [0, 60, 120, 180, 240, 300, 360, 420, 480, 540, 600, 660, 720, 780, 840, 900]}, #, 120, 180]},
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]},
                                     "n_horizon": {"group": 0, "vals": [0]},
                                     },
