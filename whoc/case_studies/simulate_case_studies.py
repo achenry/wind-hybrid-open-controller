@@ -184,7 +184,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         # time series of low-frequency wind direction
         simulation_u = np.real(np.fft.ifft(freq_vec_u))[TRUNCATE_STEPS:-TRUNCATE_STEPS]
         simulation_v = np.real(np.fft.ifft(freq_vec_v))[TRUNCATE_STEPS:-TRUNCATE_STEPS]
-        stoptime = int(len(simulation_u) // simulation_input_dict["simulation_dt"])
+        stoptime = int(len(simulation_u) // simulation_input_dict["simulation_dt"]) - simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() - (simulation_input_dict["controller"]["n_horizon"] * simulation_input_dict["controller"]["controller_dt"])
         
         simulation_mag = (simulation_u**2 + simulation_v**2)**0.5
         simulation_dir = 180.0 + np.rad2deg(np.arctan2(simulation_u, simulation_v))
@@ -553,8 +553,9 @@ def write_df(wf_source, wind_field_ts,
     # TESTING START
     # import matplotlib.pyplot as plt
     # fig, ax = plt.subplots(1, 1)
-    # ax.plot(results_data["Time"], results_data["TurbineYawAngle_74"], label="74")
-    # ax.plot(results_data["Time"], results_data["TurbineYawAngle_75"], label="75")
+    # ax.plot(results_data["Time"], results_data["TurbineYawAngle_5"], label="5")
+    # # ax.plot(results_data["Time"], results_data["TurbineYawAngle_74"], label="74")
+    # # ax.plot(results_data["Time"], results_data["TurbineYawAngle_75"], label="75")
     # ax.plot(results_data["Time"], results_data["FreestreamWindDir"], label="Raw wind dir.")
     # ax.plot(results_data["Time"], results_data["FreestreamWindMag"], label="Raw wind mag.")
     # ax.plot(results_data["Time"], results_data["FilteredFreestreamWindDir"], label="Filtered wind dir.")
