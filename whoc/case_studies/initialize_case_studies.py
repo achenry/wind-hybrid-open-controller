@@ -57,11 +57,12 @@ case_studies = {
                                     "simulation_dt": {"group": 0, "vals": [1]},
                                     "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]},
-                                    # "target_turbine_indices": {"group": 1, "vals": ["4,"]},#, "4,"]},
-                                    # "controller_class": {"group": 1, "vals": ["GreedyController"]}, #, "GreedyController"]},
-                                    "target_turbine_indices": {"group": 1, "vals": ["74,73"]},#, "4,"]},
-                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]}, #, "GreedyController"]},
-                                    "prediction_timedelta": {"group": 0, "vals": [0]},
+                                    "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73"]},
+                                    "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController"]},
+                                    # "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
+                                    # "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
+                                    "use_upstream_wind": {"group": 4, "vals": [True, False]},
+                                    "prediction_timedelta": {"group": 1, "vals": [60, 300]},
                                     # "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
                                     # "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
                                     "uncertain": {"group": 3, "vals": [False]}, #, False, False, False]},
@@ -736,6 +737,11 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         del data_module
         gc.collect()
     for case_family in case_families:
+        # such that every case for single seed is processed first TODO put this back
+        # for p, d in case_studies[case_family].items():
+        #     case_studies[case_family][p]["group"] += 1
+        # case_studies[case_family]["wind_case_idx"] = {"group": 0, "vals": [i for i in range(n_seeds)]}
+        
         case_studies[case_family]["wind_case_idx"] = {"group": max(d["group"] for d in case_studies[case_family].values()) + 1, "vals": [i for i in range(n_seeds)]}
 
     model_configs = {}
