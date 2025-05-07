@@ -47,10 +47,16 @@ class GreedyController(ControllerBase):
         
         self.uncertain = simulation_input_dict["controller"]["uncertain"]
         
+        # [self.idx2tid_mapping[i] for i in self.sorted_tids]
+        self.target_mean_ws_horz_cols = [f"ws_horz_{self.idx2tid_mapping[t_idx]}" for t_idx in self.sorted_tids]
+        self.target_mean_ws_vert_cols = [f"ws_vert_{self.idx2tid_mapping[t_idx]}" for t_idx in self.sorted_tids]
         self.ws_horz_cols = self.mean_ws_horz_cols = [f"ws_horz_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.idx2tid_mapping))]
         self.ws_vert_cols = self.mean_ws_vert_cols = [f"ws_vert_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.idx2tid_mapping))]
         self.nd_sin_cols = [f"nd_sin_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.tid2idx_mapping))]
         self.nd_cos_cols = [f"nd_cos_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.tid2idx_mapping))]
+        
+        self.tgt_turbine_indices = list(self.tid2idx_mapping.values())
+        self.tgt_turbine_indices = [self.tgt_turbine_indices.index(i) for i in self.sorted_tids] 
         
         self.historic_measurements = None 
         # self.historic_measurements = pd.DataFrame(columns=["time"] 
@@ -123,8 +129,8 @@ class GreedyController(ControllerBase):
         else:
             current_row = self.wind_field_ts.filter(pl.col("time") == self.current_time)
             # self.wind_field_ts = self.wind_field_ts.filter(pl.col("time") > self.current_time)
-            current_ws_horz = current_row.select([f"ws_horz_{self.idx2tid_mapping[i]}" for i in self.sorted_tids]).to_numpy()[0, :]
-            current_ws_vert = current_row.select([f"ws_vert_{self.idx2tid_mapping[i]}" for i in self.sorted_tids]).to_numpy()[0, :]
+            current_ws_horz = current_row.select([f"ws_horz_{tid}" for tid in self.tid2idx_mapping]).to_numpy()[0, :]
+            current_ws_vert = current_row.select([f"ws_vert_{tid}" for tid in self.tid2idx_mapping]).to_numpy()[0, :]
             current_wind_directions = 180.0 + np.rad2deg(
                 np.arctan2(
                      current_ws_horz, 
@@ -138,10 +144,13 @@ class GreedyController(ControllerBase):
                 logging.info("Bad wind direction measurement received, reverting to previous measurement.")
         
         # pass greedy angles to all non target turbines
+        # tid2idx_mapping/idx2tid_mapping was used to form current_ws_horz/vert
+        # NOTE controlled floris interface returns values in terms of sorted_tids so controls_dict must be shaped like this
+        
         current_nd_cos = np.cos(np.deg2rad(current_wind_directions))
         current_nd_sin = np.sin(np.deg2rad(current_wind_directions))
-        current_nd_cos[self.sorted_tids] = np.cos(np.deg2rad(self.measurements_dict["yaw_angles"]))
-        current_nd_sin[self.sorted_tids] = np.sin(np.deg2rad(self.measurements_dict["yaw_angles"]))
+        current_nd_cos[self.tgt_turbine_indices] = np.cos(np.deg2rad(self.measurements_dict["yaw_angles"]))
+        current_nd_sin[self.tgt_turbine_indices] = np.sin(np.deg2rad(self.measurements_dict["yaw_angles"]))
         
         current_measurements = pl.DataFrame({
             "time": [self.current_time],
@@ -152,7 +161,7 @@ class GreedyController(ControllerBase):
         }).with_columns(pl.col("time").cast(pl.Datetime(time_unit="ns")), cs.numeric().cast(pl.Float32))
         
         # only get wind_dirs corresponding to target_turbine_ids
-        current_wind_directions = current_wind_directions[self.sorted_tids]
+        current_wind_directions = current_wind_directions[self.tgt_turbine_indices]
         
         if self.wind_dir_use_filt or self.wind_forecast:
             if self.historic_measurements is not None:
@@ -193,8 +202,8 @@ class GreedyController(ControllerBase):
             if self.current_time < self.lpf_start_time or not self.wind_dir_use_filt:
                 wind = single_forecasted_wind_field if use_wind_forecast else current_measurements.select("time", cs.starts_with("ws_"))
                 wind_dirs = 180.0 + np.rad2deg(np.arctan2(
-                    wind.select(self.mean_ws_horz_cols).to_numpy()[-1, self.sorted_tids], 
-                    wind.select(self.mean_ws_vert_cols).to_numpy()[-1, self.sorted_tids]))
+                    wind.select(self.target_mean_ws_horz_cols).to_numpy()[-1, :], 
+                    wind.select(self.target_mean_ws_vert_cols).to_numpy()[-1, :]))
                 
                 if self.verbose:
                     if self.wind_forecast:
@@ -226,18 +235,18 @@ class GreedyController(ControllerBase):
                     wind = self.historic_measurements
                     
                 wind_dirs = 180.0 + np.rad2deg(np.arctan2(
-                    wind.select(self.mean_ws_horz_cols).to_numpy(), 
-                    wind.select(self.mean_ws_vert_cols).to_numpy()))
+                    wind.select(self.target_mean_ws_horz_cols).to_numpy(), 
+                    wind.select(self.target_mean_ws_vert_cols).to_numpy()))
                 
                 if self.verbose:
                     if self.wind_forecast:
-                        logging.info(f"unfiltered forecasted wind directions = {wind_dirs[-1, self.sorted_tids]}")
+                        logging.info(f"unfiltered forecasted wind directions = {wind_dirs[-1, :]}")
                     else:
                         logging.info(f"unfiltered current wind directions = {current_wind_directions}")
                 
                 # filter the wind direction, only get wind_dirs corresponding to target_turbine_ids
                 wind_dirs = np.array([self._first_ord_filter(wind_dirs[:, i], self.wind_dir_lpf_alpha)
-                                                for i in self.sorted_tids]).T # [-int(self.controller_dt // self.simulation_dt), :]
+                                                for i in range(len(self.sorted_tids))]).T # [-int(self.controller_dt // self.simulation_dt), :]
                 wind_dirs = wind_dirs[-1, :]
                 if self.verbose:
                     if self.wind_forecast:
