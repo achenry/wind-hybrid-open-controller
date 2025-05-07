@@ -52,9 +52,7 @@ echo "=== STARTING TRAINING ==="
 date +"%Y-%m-%d %H:%M:%S"
 cd ..
 python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} \
-		--multiprocessor cf --seed ${WORKER_SEED} --limit_train_val 0.1 --mode train
+		--multiprocessor cf --seed ${WORKER_SEED} --mode train --reload_data # --limit_train_val 0.1
 
 date +"%Y-%m-%d %H:%M:%S"
 echo "=== TRAINING COMPLETED ==="
-
-
