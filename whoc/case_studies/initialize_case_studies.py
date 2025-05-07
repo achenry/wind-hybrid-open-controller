@@ -646,11 +646,11 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         
         wind_field_ts = wind_field_ts.partition_by("continuity_group")
         
-        wind_field_ts = sorted(wind_field_ts, reverse=True, key=lambda df: df.select(pl.col("time").last() - pl.col("time").first()).item())
+        wind_field_ts.sort(reverse=True, key=lambda df: df.select(pl.col("time").last() - pl.col("time").first()).item())
         if n_seeds != "auto":
+            # reverse the order to start with the shortest
             wind_field_ts = wind_field_ts[:n_seeds]
-            # wind_field_ts = wind_field_ts[143:144]
-            # n_seeds = 1
+            wind_field_ts.sort(reverse=False, key=lambda df: df.select(pl.col("time").last() - pl.col("time").first()).item())
             
         else:
             n_seeds = len(wind_field_ts)
@@ -974,7 +974,6 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                 pickle.dump(inp, fp) # TODO this adds different stop times for each file
             written_input_files.add(inp_path)
     
-    input_dicts = sorted(input_dicts, key=lambda case: case["wind_case_idx"], reverse=True)
     return input_dicts, wind_field_config, wind_field_ts
 
 # 0, 1, 2, 3, 6
