@@ -7,8 +7,6 @@ import polars as pl
 
 from whoc.wind_forecast.wind_forecast_base import WindForecast
 
-from floris import FlorisModel
-
 import logging 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 

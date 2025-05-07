@@ -540,7 +540,6 @@ if __name__ == "__main__":
                 # PLOT 1) Farm power of perfect forecaster vs prediction timedela for different controllers
                 plot_power_vs_prediction_time(perfect_agg_df, args.save_dir, "perfect_forecaster_")
                 
-                
                 # PLOT 2) Farm power ratio of other forecasters relative to perfect forecaster vs prediction timedela for different controllers (diff plots)
                 # plot_df = plot_df.set_index(["controller_class", "prediction_timedelta"])
                 # plot_df["power_ratio"] = (plot_df[("FarmPowerMean", "mean")] / perfect_agg_df.set_index(["controller_class", "prediction_timedelta"])[("FarmPowerMean", "mean")]) * 100
