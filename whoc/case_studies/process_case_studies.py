@@ -112,7 +112,7 @@ def plot_power_vs_prediction_time(agg_df, save_dir, label):
         n_greedy_turbines = len(greedy_input_config["controller"]["target_turbine_indices"])
         compute_df.loc[(compute_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")] = compute_df.loc[(compute_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")] / n_greedy_turbines
         
-        if 0 in compute_df["prediction_timedelta"]:
+        if (compute_df["prediction_timedelta"] == 0.0).any():
             plot_df.loc[(plot_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")] = 100 * (plot_df.loc[(plot_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")] - plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")].iloc[0]) / plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")].iloc[0]
     
     lut_compute_df = compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), :]
@@ -125,7 +125,7 @@ def plot_power_vs_prediction_time(agg_df, save_dir, label):
         n_lut_turbines = len(lut_input_config["controller"]["target_turbine_indices"])
         compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] = compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] / n_lut_turbines
 
-        if 0 in compute_df["prediction_timedelta"]:
+        if (compute_df["prediction_timedelta"] == 0.0).any():
             if greedy_compute_df.shape[0]:
                 compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] = 100 * (compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] - compute_df.loc[(compute_df["prediction_timedelta"] == 0) & (compute_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")].iloc[0]) / compute_df.loc[(compute_df["prediction_timedelta"] == 0) & (compute_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")].iloc[0]
             else:
@@ -145,7 +145,7 @@ def plot_power_vs_prediction_time(agg_df, save_dir, label):
         ax[c].set_ylabel("")
         ax[c].set_xlabel("Prediction Horizon (s)")
         # ax[c].set_title(f"{controller_labels[ctrl]} Mean Farm Power (MW)")
-        ax[c].set_title(f"{controller_labels[ctrl]} Mean Farm Power Gain (%)")
+        ax[c].set_title(f"{controller_labels[ctrl]} Mean Farm\nPower Gain (%)")
         ax[c].set_xlim(xlim)
         ax[c].set_xticks(x_vals[1::2])
         ax[c].tick_params("x", rotation=45)
