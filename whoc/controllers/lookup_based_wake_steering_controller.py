@@ -68,6 +68,7 @@ class LookupBasedWakeSteeringController(ControllerBase):
         self.wind_field_ts = kwargs["wind_field_ts"]
         # logging.info(f"id(wind_field_ts) in LUTController __init__ is {id(self.wind_field_ts)}")
         self.wf_source = kwargs["wf_source"]
+        self.use_upstream_wind = simulation_input_dict["controller"]["use_upstream_wind"]
         
         self.turbine_signature = kwargs["turbine_signature"]
         self.tid2idx_mapping = kwargs["tid2idx_mapping"]
@@ -384,8 +385,8 @@ class LookupBasedWakeSteeringController(ControllerBase):
         use_wind_forecast = False
         forecasted_wind_field = None
         single_forecasted_wind_field = None
-           
-        if (((self.current_time - self.init_time).total_seconds() % self.controller_dt) == 0.0):
+        
+        if (self.current_time >= self.lpf_start_time) and (((self.current_time - self.init_time).total_seconds() % self.controller_dt) == 0.0):
             if self.wind_forecast and self.wind_forecast.prediction_timedelta.total_seconds() > 0:
                 if self.uncertain:
                     forecasted_wind_field = self.wind_forecast.predict_distr(self.historic_measurements, self.current_time)
@@ -397,7 +398,9 @@ class LookupBasedWakeSteeringController(ControllerBase):
                 
                 use_wind_forecast = True
             
-            if self.current_time < self.lpf_start_time or (not self.wind_dir_use_filt and not self.wind_mag_use_filt):
+            # just hold initial yaw setpoints
+            if not (self.wind_dir_use_filt or self.wind_mag_use_filt):
+                #pass
                 wind = single_forecasted_wind_field if use_wind_forecast else current_measurements.select("time", cs.starts_with("ws_"))
                 
                 wind_dirs = 180.0 + np.rad2deg(np.arctan2(
@@ -502,10 +505,13 @@ class LookupBasedWakeSteeringController(ControllerBase):
                 wd_inp, wm_inp, wd_stddev_inp = wind_dirs.mean(), wind_mags.mean(), wind_dir_stddevs.mean() if self.uncertain else None
             else:
                 # feeds wind from feed just upstream turbine to LUT, could also do mean
+                # if self.use_upstream_wind:
                 upstream_turbine_idx = np.argsort(self.target_turbine_indices)[0]
                 if len(self.target_turbine_indices) > 2:
                     logging.warning("There are more than 2 target turbines under study, but only the upstream wind direction is being used.")
                 wd_inp, wm_inp, wd_stddev_inp = wind_dirs[upstream_turbine_idx], wind_mags[upstream_turbine_idx], wind_dir_stddevs[upstream_turbine_idx] if self.uncertain else None
+                # else:
+                #     wd_inp, wm_inp, wd_stddev_inp = wind_dirs.mean(), wind_mags.mean(), wind_dir_stddevs.mean() if self.uncertain else None
             if self.uncertain:
                 target_yaw_offsets = self.wake_steering_interpolant(
                     wd_inp, wm_inp, np.clip(wd_stddev_inp, self.wake_steering_interpolant.points[:, 2].min(), self.wake_steering_interpolant.points[:, 2].max()))
