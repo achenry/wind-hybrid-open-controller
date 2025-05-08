@@ -2,6 +2,7 @@ from typing import Union
 from dataclasses import dataclass
 from memory_profiler import profile
 
+import re
 import pandas as pd
 import polars as pl
 import polars.selectors as cs
@@ -69,12 +70,6 @@ class SpatialFilterForecast(WindForecast):
     def full_farm_directional_weighted_average(
         self,
         new_measurements: Union[pd.DataFrame, pl.DataFrame]
-        # data_in,
-        # wind_speeds,
-        # wind_directions,
-        # shift_distance,
-        # is_circular=False,
-        # is_bearing=False,
     ):
         """_summary_
         QUESTION
@@ -88,13 +83,6 @@ class SpatialFilterForecast(WindForecast):
             _type_: _description_
         """
 
-        # nTurbs = len(data_in.columns)
-        # turbine_list = np.arange(0, self.n_turbines)
-
-        # if is_bearing:  # Convert to RH CCW angle
-        #     wd_mean = SpatialFilterForecast.bearing2angle(wd_mean)
-        #     data_in = data_in.applymap(SpatialFilterForecast.bearing2angle)
-        # re.search("(?<=ws_horz_)\\d+", "ws_horz_1")
         turbine_ids = sorted(set(re.search("(?<=\\w_)\\d+$", col).group(0) for col in new_measurements.select(cs.starts_with("ws_")).columns), key=lambda tid: int(re.search("\\d+", tid).group(0)))
         ws_horz = new_measurements.select(cs.starts_with("ws_horz_"))\
                                   .rename(lambda old_col: re.search("(?<=\\w_)\\d+$", old_col).group(0))
