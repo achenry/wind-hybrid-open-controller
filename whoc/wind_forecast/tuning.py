@@ -133,12 +133,10 @@ if __name__ == "__main__":
             reload = True
         else:
             reload = False
-        
-    else:
-        reload = False
+            
+        data_module.generate_splits(save=True, reload=reload, splits=["train", "val"])
+
     # get max_splits longest datasets
-    data_module.generate_splits(save=True, reload=reload, splits=["train", "val"])
-    
     if worker_id == 0 and (args.reload_data or reload):
         data_module.train_dataset = sorted(data_module.train_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
         data_module.val_dataset = sorted(data_module.val_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
@@ -171,7 +169,7 @@ if __name__ == "__main__":
         logging.info(f"Initializing storage with restart_tuning={args.restart_tuning} on worker {worker_id}")
         
         db_setup_params = generate_df_setup_params(args.model, model_config)
-        optuna_storage = setup_optuna_storage(
+        optuna_storage, _ = setup_optuna_storage(
             db_setup_params=db_setup_params,
             restart_tuning=args.restart_tuning,
             rank=0 if (worker_id == 0) else worker_id
@@ -180,8 +178,10 @@ if __name__ == "__main__":
         logging.info("Running tune_hyperparameters_single")
     
     
-    if args.multiprocessor == "mpi":
+    elif args.multiprocessor == "mpi":
         optuna_storage = comm.bcast(optuna_storage, root=0)
+        
+    if args.multiprocessor == "mpi":
         comm.Barrier()
     
     scaler_params = data_module.compute_scaler_params()
