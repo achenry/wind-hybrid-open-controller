@@ -829,7 +829,7 @@ if __name__ == "__main__":
         agg_df = pl.concat([
             res["agg_metrics"].with_columns(forecaster=pl.lit(res["forecaster_name"]), 
                                             prediction_timedelta=pl.lit(res["prediction_timedelta"]))
-            for res in results], how="vertical")
+            for res in results], how="vertical_relaxed")
         
         turbine_ids = ["5", "74", "75"]
         best_cg = 9
