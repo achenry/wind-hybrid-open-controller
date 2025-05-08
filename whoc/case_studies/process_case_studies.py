@@ -117,7 +117,7 @@ def plot_power_vs_prediction_time(agg_df, save_dir, label):
     
     lut_compute_df = compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), :]
     if lut_compute_df.shape[0]:
-        case_family = greedy_compute_df.index.get_level_values("CaseFamily")[0]
+        case_family = lut_compute_df.index.get_level_values("CaseFamily")[0]
         case_name = lut_compute_df.index.get_level_values("CaseName")[0]
         input_fn = f"input_config_case_{case_name}.pkl"
         with open(os.path.join(save_dir, case_family, input_fn), mode='rb') as fp:
@@ -126,12 +126,15 @@ def plot_power_vs_prediction_time(agg_df, save_dir, label):
         compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] = compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] / n_lut_turbines
 
         if (compute_df["prediction_timedelta"] == 0.0).any():
-            if greedy_compute_df.shape[0]:
-                compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] = 100 * (compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] - compute_df.loc[(compute_df["prediction_timedelta"] == 0) & (compute_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")].iloc[0]) / compute_df.loc[(compute_df["prediction_timedelta"] == 0) & (compute_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")].iloc[0]
+            if lut_compute_df.shape[0]:
+                compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] = 100 * (compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] - compute_df.loc[(compute_df["prediction_timedelta"] == 0) & (compute_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")].iloc[0]) / compute_df.loc[(compute_df["prediction_timedelta"] == 0) & (compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")].iloc[0]
             else:
                 compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] = 100 * (compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] - compute_df.loc[(compute_df["prediction_timedelta"] == 0) & (compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")].iloc[0]) / compute_df.loc[(compute_df["prediction_timedelta"] == 0) & (compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")].iloc[0]
 
-            plot_df.loc[(plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] = 100 * (plot_df.loc[(plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] - plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")].iloc[0]) / plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")].iloc[0]
+            plot_df.loc[(plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] \
+                = 100 * (plot_df.loc[(plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] 
+                         - plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")].iloc[0]) \
+                             / plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")].iloc[0]
 
         compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), [("prediction_timedelta", ""), ("FarmPowerMean", "mean")]].reset_index(drop=True)
         
@@ -251,48 +254,45 @@ def write_case_family_time_series_data(case_family, new_time_series_df, save_dir
     new_time_series_df.loc[new_time_series_df.index.get_level_values("CaseFamily") == case_family, :].to_csv(all_ts_df_path)
 
 def read_time_series_data(results_path, input_dict_path):
-    # TODO fix scalability Greedy/LUT offline status at end for 25 turbines
           
     warnings.simplefilter('error', pd.errors.DtypeWarning)
-    try:
+    # try:
         # get column names 
-        with open(results_path, 'r', newline='') as fp:
-            csv_reader = csv.reader(fp)
-            columns = next(csv_reader)
-            columns = columns[3:] # remove index rows
-        bool_cols = [col for col in columns if "TurbineOfflineStatus" in col]
-        if bool_cols:
-            df = pd.read_csv(results_path, index_col=[0,1], dtype={col: object for col in bool_cols}) # necessary if contains NaNs
-            for col in bool_cols:
-                df.loc[(df[col] == "False") | (df[col].isna()), col] = False
-                df[col] = df[col].astype(bool)
-        else:
-            df = pd.read_csv(results_path, index_col=[0,1])
-        logging.info(f"Read {results_path}")
+        # with open(results_path, 'r', newline='') as fp:
+        #     csv_reader = csv.reader(fp)
+        #     columns = next(csv_reader)
+        #     columns = columns[3:] # remove index rows
+        # bool_cols = [col for col in columns if "TurbineOfflineStatus" in col]
+        # if bool_cols:
+        #     df = pd.read_csv(results_path, index_col=[0,1], dtype={col: object for col in bool_cols}) # necessary if contains NaNs
+        #     for col in bool_cols:
+        #         df.loc[(df[col] == "False") | (df[col].isna()), col] = False
+        #         df[col] = df[col].astype(bool)
+        # else:
+    df = pd.read_csv(results_path, low_memory=False)
+    logging.info(f"Read {results_path}")
         
-        if "CaseName" not in df.index.names:
-            df = df.reset_index()
-            df["CaseName"] = re.search("(?<=case_)\\d+", os.path.basename(results_path)).group()
-            df["CaseFamily"] = os.path.basename(os.path.dirname(results_path))
-            df = df.set_index(["CaseFamily", "CaseName"])
-        if "WindSeed" not in df.columns:
-            df["WindSeed"] = re.search("(?<=seed_)\\d+", os.path.basename(results_path)).group()
-        # 
-            # df.to_csv(results_path, index=False, header=True)
-        # df = df.set_index(["CaseFamily", "CaseName"])
-        if "Time" not in df.columns:
-            df["Time"] = np.arange(df.shape[0]) - 1
-            df.to_csv(results_path, index=False, header=True)
-               
-    except pd.errors.DtypeWarning as w:
-        logging.info(f"DtypeWarning with combined time series file {results_path}: {w}")
-        warnings.simplefilter('ignore', pd.errors.DtypeWarning)
-        bad_df = pd.read_csv(results_path, index_col=[0,1])
-        bad_cols = [bad_df.columns[int(s) - len(bad_df.index.names)] for s in re.findall(r"(?<=Columns \()(.*)(?=\))", w.args[0])[0].split(",")]
-        bad_df.loc[bad_df[bad_cols].isna().any(axis=1)][["Time", "CaseFamily", "CaseName"]].values
-        bad_df["Time"].max()
-    except pd.errors.EmptyDataError as e:
-        logging.info(f"Dataframe {results_path} not read correctly due to error {e}")
+    if "CaseName" not in df.index.names:
+        df = df.reset_index()
+        df["CaseName"] = re.search("(?<=case_)\\d+", os.path.basename(results_path)).group()
+        df["CaseFamily"] = os.path.basename(os.path.dirname(results_path))
+        df = df.set_index(["CaseFamily", "CaseName"])
+    if "WindSeed" not in df.columns:
+        df["WindSeed"] = re.search("(?<=seed_)\\d+", os.path.basename(results_path)).group()
+    
+    
+    if "Time" not in df.columns:
+        df["Time"] = np.arange(df.shape[0]) - 1
+        df.to_csv(results_path, index=False)
+    # except pd.errors.DtypeWarning as w:
+    #     logging.info(f"DtypeWarning with combined time series file {results_path}: {w}")
+    #     warnings.simplefilter('ignore', pd.errors.DtypeWarning)
+    #     bad_df = pd.read_csv(results_path, index_col=[0,1])
+    #     bad_cols = [bad_df.columns[int(s) - len(bad_df.index.names)] for s in re.findall(r"(?<=Columns \()(.*)(?=\))", w.args[0])[0].split(",")]
+    #     bad_df.loc[bad_df[bad_cols].isna().any(axis=1)][["Time", "CaseFamily", "CaseName"]].values
+    #     bad_df["Time"].max()
+    # except pd.errors.EmptyDataError as e:
+    #     logging.info(f"Dataframe {results_path} not read correctly due to error {e}")
     
     # TEMP
     # cn = df.index.get_level_values("CaseName")[0]
@@ -486,7 +486,7 @@ def plot_simulations(time_series_df, plotting_cases, save_dir, include_power=Tru
     for case_family in pd.unique(time_series_df.index.get_level_values("CaseFamily")):
         case_family_df = time_series_df.loc[(time_series_df.index.get_level_values("CaseFamily") == case_family), :]
         for case_name in pd.unique(case_family_df.index.get_level_values("CaseName")):
-            if (case_family, case_name) not in plotting_cases:
+            if (case_family, str(case_name)) not in plotting_cases:
                 continue
             case_name_df = case_family_df.loc[case_family_df.index.get_level_values("CaseName") == case_name, :].reset_index(drop=True)
             input_fn = [fn for fn in os.listdir(os.path.join(save_dir, case_family)) if "input_config" in fn and str(case_name) in fn][0]
@@ -716,7 +716,7 @@ def aggregate_time_series_data(time_series_df, input_dict_path, n_seeds):
 
     with open(input_dict_path, 'rb') as fp:
         input_config = pickle.load(fp)
-
+    
     stoptime = (np.ceil(input_config["hercules_comms"]["helics"]["config"]["stoptime"] / input_config["simulation_dt"]) * input_config["simulation_dt"]).astype(int)
     time_series_df = time_series_df.loc[time_series_df["Time"] < stoptime, :]
     time = pd.unique(time_series_df["Time"])
