@@ -737,7 +737,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         gc.collect()
     for case_family in case_families:
         # such that every case for single seed is processed first
-        for p, d in case_studies[case_family].items():
+        for p in case_studies[case_family]:
             case_studies[case_family][p]["group"] += 1
         case_studies[case_family]["wind_case_idx"] = {"group": 0, "vals": [i for i in range(n_seeds)]}
         
@@ -888,7 +888,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             
             if "case_names" not in case_lists[start_case_idx + c]:
                 # case_lists[start_case_idx + c]["case_names"] = str(len(input_df) - 1)
-                input_dicts[start_case_idx + c]["case_name"] = str(len(input_df) - 1)
+                input_dicts[start_case_idx + c]["case_name"] = str(c % int(len(case_list) / n_seeds))
             else:
                 input_dicts[start_case_idx + c]["case_name"] = case_lists[start_case_idx + c]["case_names"]
             
