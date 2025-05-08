@@ -262,7 +262,7 @@ if __name__ == "__main__":
                         _ = [fut.result() for fut in write_futures]
                     
                     time_series_df = pd.concat(existing_time_series_df + new_time_series_df)
-                    
+                    # time_series_df = time_series_df.loc[]
                     unique_seeds = time_series_df.groupby(["CaseFamily", "CaseName"], level=0)["WindSeed"].unique().values
                     common_seeds = set(unique_seeds[0])
                     for sds in unique_seeds[1:]:
@@ -338,8 +338,10 @@ if __name__ == "__main__":
                 common_seeds = set(unique_seeds[0])
                 for sds in unique_seeds[1:]:
                     common_seeds.intersection_update(sds)
-                    
-                
+                logging.info(f"Found {common_seeds} wind seeds common to all time series.")
+                # TODO remove these lines
+                # common_seeds = pd.unique(time_series_df["WindSeed"])
+                # time_series_df = time_series_df.loc[time_series_df.index.get_level_values("CaseName").isin([str(i) for i in range(0, 20)]) | time_series_df.index.get_level_values("CaseName").isin([str(i) for i in range(20, 35)])]
                 new_agg_df = []
                 for i in args.case_ids:
                     if args.reaggregate_simulations or not os.path.exists(os.path.join(args.save_dir, case_families[i], "agg_results_all.csv")):
@@ -542,6 +544,11 @@ if __name__ == "__main__":
                 
                 # PLOT 1) Farm power of perfect forecaster vs prediction timedela for different controllers
                 plot_power_vs_prediction_time(perfect_agg_df, args.save_dir, "perfect_forecaster_")
+                
+                plotting_cases = [("baseline_controllers_perfect_forecaster_awaken", str(baseline_agg_df.loc[(baseline_agg_df["controller_class"] == "GreedyController") & (baseline_agg_df["prediction_timedelta"] == pd.Timedelta(seconds=90))].index.get_level_values(1)[0])),
+                                    ("baseline_controllers_perfect_forecaster_awaken", str(baseline_agg_df.loc[(baseline_agg_df["controller_class"] == "LookupBasedWakeSteeringController") & (baseline_agg_df["prediction_timedelta"] == pd.Timedelta(seconds=90))].index.get_level_values(1)[0]))]
+                plot_simulations(
+                    time_series_df, plotting_cases, args.save_dir, include_power=True, legend_loc="outer", single_plot=False) 
                 
                 # PLOT 2) Farm power ratio of other forecasters relative to perfect forecaster vs prediction timedela for different controllers (diff plots)
                 # plot_df = plot_df.set_index(["controller_class", "prediction_timedelta"])
