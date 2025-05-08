@@ -724,7 +724,7 @@ if __name__ == "__main__":
                 
                 if os.path.exists(save_path):
                     logging.info(f"Removing existing file {save_path}.")
-                    # os.remove(save_path)
+                    os.remove(save_path)
             # elif os.path.exists(save_path):
             #     # TODO also delete existing files if not rerun_validation but existing files have different number of time steps
             #     forecast_df = pl.scan_csv(save_path, glob=True, try_parse_dates=True)\
