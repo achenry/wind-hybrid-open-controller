@@ -339,7 +339,7 @@ if __name__ == "__main__":
                 for sds in unique_seeds[1:]:
                     common_seeds.intersection_update(sds)
                 logging.info(f"Found {common_seeds} wind seeds common to all time series.")
-                # TODO remove these lines
+                
                 # common_seeds = pd.unique(time_series_df["WindSeed"])
                 # time_series_df = time_series_df.loc[time_series_df.index.get_level_values("CaseName").isin([str(i) for i in range(0, 20)]) | time_series_df.index.get_level_values("CaseName").isin([str(i) for i in range(20, 35)])]
                 new_agg_df = []
@@ -509,9 +509,11 @@ if __name__ == "__main__":
                 persistence_case_names = forecasters_agg_df.loc[forecasters_agg_df["wind_forecast_class"] == "PersistenceForecast", :].index.get_level_values("CaseName")
                 plotting_cases = [(df[1]._name[0], df[1]._name[1]) for df in forecasters_agg_df.iterrows()] \
                                  + [("baseline_controllers_perfect_forecaster_awaken", cn) for cn in perfect_case_names]
+                label_mapping = {"74": "LUT Ds", "75": "LUT Us", "5": "Greedy"}
+                
                 plot_simulations(
                         time_series_df, plotting_cases, args.save_dir, include_power=True, 
-                        legend_loc="outer", single_plot=False) 
+                        legend_loc="outer", single_plot=False, label_mapping=label_mapping) 
             
             
             if (case_families.index("baseline_controllers_perfect_forecaster_awaken") in args.case_ids
@@ -542,13 +544,16 @@ if __name__ == "__main__":
                 perfect_agg_df = baseline_agg_df.loc[baseline_agg_df["wind_forecast_class"] == "PerfectForecast", :]
                 controllers = pd.unique(perfect_agg_df["controller_class"])
                 
+                # perfect_agg_df.sort_values(("FarmPowerMean", "mean"))[[("prediction_timedelta", ""), ("controller_class", ""), ("FarmPowerMean", "mean"), ("YawAngleChangeAbsMean", "mean")]].reset_index(drop=True)
                 # PLOT 1) Farm power of perfect forecaster vs prediction timedela for different controllers
                 plot_power_vs_prediction_time(perfect_agg_df, args.save_dir, "perfect_forecaster_")
                 
-                plotting_cases = [("baseline_controllers_perfect_forecaster_awaken", str(baseline_agg_df.loc[(baseline_agg_df["controller_class"] == "GreedyController") & (baseline_agg_df["prediction_timedelta"] == pd.Timedelta(seconds=90))].index.get_level_values(1)[0])),
-                                    ("baseline_controllers_perfect_forecaster_awaken", str(baseline_agg_df.loc[(baseline_agg_df["controller_class"] == "LookupBasedWakeSteeringController") & (baseline_agg_df["prediction_timedelta"] == pd.Timedelta(seconds=90))].index.get_level_values(1)[0]))]
+                plotting_cases = [("baseline_controllers_perfect_forecaster_awaken", str(baseline_agg_df.loc[(baseline_agg_df["controller_class"] == "GreedyController") & (baseline_agg_df["prediction_timedelta"] == pd.Timedelta(seconds=600))].index.get_level_values(1)[0])),
+                                    ("baseline_controllers_perfect_forecaster_awaken", str(baseline_agg_df.loc[(baseline_agg_df["controller_class"] == "LookupBasedWakeSteeringController") & (baseline_agg_df["prediction_timedelta"] == pd.Timedelta(seconds=600))].index.get_level_values(1)[0]))]
+                label_mapping = {"74": "LUT Ds", "75": "LUT Us", "5": "Greedy"}
                 plot_simulations(
-                    time_series_df, plotting_cases, args.save_dir, include_power=True, legend_loc="outer", single_plot=False) 
+                    time_series_df, plotting_cases, args.save_dir, include_power=True, 
+                    legend_loc="outer", single_plot=False, label_mapping=label_mapping) 
                 
                 # PLOT 2) Farm power ratio of other forecasters relative to perfect forecaster vs prediction timedela for different controllers (diff plots)
                 # plot_df = plot_df.set_index(["controller_class", "prediction_timedelta"])
@@ -584,7 +589,8 @@ if __name__ == "__main__":
                     # plotting_cases = [("baseline_controllers_forecasters_test_awaken", 2),
                     #                   ("baseline_controllers_forecasters_test_awaken", 3)]
                     plot_simulations(
-                        time_series_df, plotting_cases, args.save_dir, include_power=True, legend_loc="outer", single_plot=False) 
+                        time_series_df, plotting_cases, args.save_dir, include_power=True, 
+                        legend_loc="outer", single_plot=False) 
 
             if ((case_families.index("baseline_controllers") in args.case_ids)) and (case_families.index("cost_func_tuning") in args.case_ids):
                 
