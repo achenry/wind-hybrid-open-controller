@@ -1048,11 +1048,13 @@ def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, 
         fig, ax = plt.subplots(int(include_yaw + include_power), 1, sharex=True)
     
     ax = np.atleast_1d(ax)
-    # data_df = data_df.dropna(axis=1, how="all")
+    data_df = data_df.dropna(axis=1, how="all")
+    # data_df = data_df.drop(columns=["TurbineWindMag_5", "TurbineWindDir_5", "TurbinePower_5", "TurbineYawAngle_5", "TurbineYawAngleChange_5", "TurbineOfflineStatus_5"])
+    # data_df = data_df.dropna(subset=turbine_wind_direction_cols+turbine_power_cols+yaw_angle_cols)
     turbine_wind_direction_cols = sorted([col for col in data_df.columns if "TurbineWindDir_" in col], key=lambda s: int(s.split("_")[-1]))
     turbine_power_cols = sorted([col for col in data_df.columns if "TurbinePower_" in col], key=lambda s: int(s.split("_")[-1]))
     yaw_angle_cols = sorted([col for col in data_df.columns if "TurbineYawAngle_" == col[:len("TurbineYawAngle_")]], key=lambda s: int(s.split("_")[-1]))
-    data_df = data_df.dropna(subset=turbine_wind_direction_cols+turbine_power_cols+yaw_angle_cols)
+    
     case_seeds = sorted(pd.unique(data_df["WindSeed"]))
     plot_seed = case_seeds[0]
     
@@ -1063,9 +1065,9 @@ def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, 
         
         if include_yaw:
             ax_idx = 0
-            sns.lineplot(data=seed_df, x="Time", y="FreestreamWindDir", label="Wind dir.", color="black", ax=ax[ax_idx])
+            sns.lineplot(data=seed_df, x="Time", y="FreestreamWindDir", label="Wind dir.", color="black", ax=ax[ax_idx], alpha=0.25)
             if include_filtered_wind_dir:
-                sns.lineplot(data=seed_df, x="Time", y="FilteredFreestreamWindDir", label="Filtered wind dir.", color="black", linestyle="--", ax=ax[ax_idx])
+                sns.lineplot(data=seed_df, x="Time", y="FilteredFreestreamWindDir", label="Filtered wind dir.", color="black", linestyle="--", ax=ax[ax_idx], alpha=0.25)
             
         # Direction
         # for t, (wind_dir_col, power_col, yaw_col) in enumerate(zip(turbine_wind_direction_cols, turbine_power_cols, yaw_angle_cols)):
