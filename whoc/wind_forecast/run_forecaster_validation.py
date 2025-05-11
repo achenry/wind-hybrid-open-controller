@@ -197,7 +197,8 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                 logging.info(f"Used {ram_used}% RAM. Saving sub parquet of length {save_length} to {sp}.")
                 
                 forecasts = pl.concat(forecasts, how="diagonal")
-                    
+                
+                # TODO change this to temp write then move
                 # logging.info(f"diagonal concat for {save_path} columns = {forecasts.columns}")
                 logging.info(f"Writing {'final' if final else 'intermediary'} result to file {sp}.")
                 if not os.path.exists(sp):
@@ -460,8 +461,8 @@ if __name__ == "__main__":
             model_configs.append(yaml.safe_load(file))
     
     
-    prediction_timedelta = [pd.Timedelta(seconds=mncf["dataset"]["prediction_length"]) for mncf in model_configs]
-    context_timedelta = [pd.Timedelta(seconds=mncf["dataset"]["context_length"]) for mncf in model_configs]
+    prediction_timedeltas = [pd.Timedelta(seconds=mncf["dataset"]["prediction_length"]) for mncf in model_configs]
+    context_timedeltas = [pd.Timedelta(seconds=mncf["dataset"]["context_length"]) for mncf in model_configs]
     measurements_timedelta = pd.Timedelta(seconds=args.simulation_timestep)
     
     # measurements_timedelta = pd.Timedelta(model_config["dataset"]["resample_freq"])
@@ -491,7 +492,7 @@ if __name__ == "__main__":
     logging.info("Creating datasets")
     
     # NOTE the dataset parts of the configs should be the same, other than context and prediction length
-    base_model_config = model_configs[np.argsort([ctd + ptd for ctd, ptd in zip(context_timedelta, prediction_timedelta)])[-1]]
+    base_model_config = model_configs[np.argsort([ctd + ptd for ctd, ptd in zip(context_timedeltas, prediction_timedeltas)])[-1]]
     data_module = DataModule(data_path=base_model_config["dataset"]["data_path"], 
                              normalization_consts_path=base_model_config["dataset"]["normalization_consts_path"],
                              normalized=False, 
@@ -524,7 +525,7 @@ if __name__ == "__main__":
         test_data = data_module.test_dataset
     
     if args.max_steps:
-        assert args.max_steps >= int((max(context_timedelta) + max(prediction_timedelta)) / measurements_timedelta), f"max_steps, if provided, must allow for context_timedelta + max(prediction_timedelta) = {int((max(context_timedelta) + max(prediction_timedelta)) / measurements_timedelta)}"
+        assert args.max_steps >= int((max(context_timedeltas) + max(prediction_timedelta)) / measurements_timedelta), f"max_steps, if provided, must allow for context_timedelta + max(prediction_timedelta) = {int((max(context_timedelta) + max(prediction_timedelta)) / measurements_timedelta)}"
         test_data = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in test_data]
     
     logging.info("Generating dataframe.")
@@ -724,7 +725,7 @@ if __name__ == "__main__":
                 
                 if os.path.exists(save_path):
                     logging.info(f"Removing existing file {save_path}.")
-                    # os.remove(save_path)
+                    os.remove(save_path)
             # elif os.path.exists(save_path):
             #     # TODO also delete existing files if not rerun_validation but existing files have different number of time steps
             #     forecast_df = pl.scan_csv(save_path, glob=True, try_parse_dates=True)\
@@ -804,7 +805,7 @@ if __name__ == "__main__":
             
             forecast_path = os.path.join(save_dir, "forecast_*.csv")
             agg_metric_path = os.path.join(save_dir, "agg_metrics.csv")       
-            
+            # TODO won't reload if agg_metric_path doesn't contain all cgs
             if args.rerun_validation or not os.path.exists(agg_metric_path):
                 logging.info(f"Loading forecast_df from {forecast_path}.")
                 forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
@@ -846,7 +847,7 @@ if __name__ == "__main__":
                         .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
         
         # plot continuity group with best rmse score
-        PLOT_INDIVIDUAL = False
+        PLOT_INDIVIDUAL = True
         forecasts_long = []
         for f, forecaster in enumerate(forecasters):
             forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.model_key.capitalize()}Forecast"
@@ -887,19 +888,22 @@ if __name__ == "__main__":
             
             if PLOT_INDIVIDUAL and (args.rerun_validation or len(glob.glob(f"{save_dir}/*.png")) < 2):
                 forecast_fig = WindForecast.plot_forecast(forecasts_long[-1], true_long, 
-                                                continuity_groups=[best_cg], turbine_ids=turbine_ids, 
+                                                continuity_groups=[best_cg], 
+                                                turbine_ids=turbine_ids, 
+                                                turbine_labels=["Greedy", "LUT Ds", "LUT Us"],
                                                 label=f"_{forecaster.__class__.__name__}_{data_config['config_label']}", 
                                                 fig_dir=save_dir, include_turbine_legend=True,
                                                 feature_types=["ws_horz", "ws_vert"],
                                                 feature_labels=["$u$ Wind Speed (m/s)", "$v$ Wind Speed (m/s)"],
-                                                prediction_type="distribution" if plot_distr else "point")
+                                                prediction_type="distribution" if plot_distr else "point",
+                                                dt=30)
         
         # plot combined
         # cg = agg_df.select(pl.col("continuity_group").first()).item()
         cg = 9
         mean_cols = [f"{feat_type}_{tid}" for feat_type in ["loc_ws_horz", "loc_ws_vert"] for tid in data_module.target_suffixes]
         point_cols = [f"{feat_type}_{tid}" for feat_type in ["ws_horz", "ws_vert"] for tid in data_module.target_suffixes]
-        PLOT_ALL = True
+        PLOT_ALL = False
         if PLOT_ALL:
             logging.info("Concatenating forecasts together.")
             forecasts_long = pl.concat(forecasts_long, how="vertical")
@@ -908,15 +912,18 @@ if __name__ == "__main__":
             forecast_fig = WindForecast.plot_forecast(
                 forecasts_long.with_columns(pl.col("feature").str.replace("^(ws_)", "loc_ws_")),
                 true_long,
-                continuity_groups=[cg], turbine_ids=turbine_ids,
+                continuity_groups=[cg], 
+                turbine_ids=turbine_ids,
+                turbine_labels=["Greedy", "LUT Ds", "LUT Us"],
                 label=f"_all_forecasters_{data_config['config_label']}",
                 fig_dir=validation_save_dir, include_turbine_legend=True,
                 feature_types=["ws_horz", "ws_vert"],
                 feature_labels=["$u$ Wind Speed (m/s)", "$v$ Wind Speed (m/s)"],
                 prediction_type="distribution",
-                multiple_forecasters=True)
+                multiple_forecasters=True,
+                dt=30)
         
-        PLOT_METRICS = False
+        PLOT_METRICS = True
         if PLOT_METRICS:
             logging.info("Plotting aggregate metrics for all forecasts.")
             plotting_metrics_dirs = [(met, direc) for met, direc in 
