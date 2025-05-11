@@ -5,7 +5,7 @@
 ##SBATCH --nodes=4
 #SBATCH --time=24:00:00
 #SBATCH --nodes=1
-##SBATCH --time=00:20:00
+##SBATCH --time=01:00:00
 ##SBATCH --partition=debug
 ##SBATCH --partition=nvme
 #SBATCH --ntasks-per-node=104
@@ -46,13 +46,12 @@ mamba activate wind_forecasting_env
 module load PrgEnv-intel
 
 # TODO NOTE process gets stuck after writing these .dat files, so run this python first, then the loop
-export WORKER_SEED=0
 export WORKER_SEED=0 # TODO does nothing atm
 echo "=== STARTING TRAINING ==="
 date +"%Y-%m-%d %H:%M:%S"
 cd ..
 python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} \
-		--multiprocessor cf --seed ${WORKER_SEED} --mode train --reload_data # --limit_train_val 0.1
+		--multiprocessor cf --seed ${WORKER_SEED} --mode train #--limit_train_val 0.25
 
 date +"%Y-%m-%d %H:%M:%S"
 echo "=== TRAINING COMPLETED ==="
