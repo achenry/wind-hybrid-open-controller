@@ -140,7 +140,7 @@ def plot_power_vs_prediction_time(agg_df, save_dir, label):
         
     x_vals = np.sort(pd.unique(plot_df["prediction_timedelta"]))
     xlim = (x_vals.min(), x_vals.max())
-    fig, ax = plt.subplots(1, len(controllers), sharey=False)
+    fig, ax = plt.subplots(1, len(controllers), sharey=False, figsize=(15.11, 7.94))
     ax = np.atleast_1d(ax)
     for c, ctrl in enumerate(controllers):
         sns.lineplot(plot_df.loc[plot_df["controller_class"] == ctrl, :], 
@@ -478,7 +478,9 @@ def generate_outputs(agg_results_df, save_dir):
     with open(os.path.join(save_dir, "comparison_time_series_results_table.tex"), "w") as fp:
             fp.write(compare_results_latex)
 
-def plot_simulations(time_series_df, plotting_cases, save_dir, include_power=True, legend_loc="best", single_plot=False):
+def plot_simulations(time_series_df, plotting_cases, save_dir, 
+                     include_power=True, legend_loc="best", single_plot=False,
+                     label_mapping=None):
     
     if single_plot:
         yaw_power_ts_fig, yaw_power_ts_ax = plt.subplots(int(1 + include_power), 1, sharex=True) # 1 subplot of yaw, another for power
@@ -495,10 +497,12 @@ def plot_simulations(time_series_df, plotting_cases, save_dir, include_power=Tru
                 input_config =  pickle.load(fp)
             if single_plot:
                 fig, _ = plot_yaw_power_ts(case_name_df, os.path.join(save_dir, case_family, f"yaw_power_ts_{case_name}.png"), include_power=include_power, legend_loc=legend_loc,
-                                        controller_dt=None, include_filtered_wind_dir=(case_family=="baseline_controllers"), single_plot=single_plot, fig=yaw_power_ts_fig, ax=yaw_power_ts_ax, case_label=case_name)
+                                        controller_dt=None, include_filtered_wind_dir=(case_family=="baseline_controllers"), single_plot=single_plot, fig=yaw_power_ts_fig, 
+                                        ax=yaw_power_ts_ax, case_label=case_name, label_mapping=label_mapping)
             else:
                 fig, _ = plot_yaw_power_ts(case_name_df, os.path.join(save_dir, case_family, f"yaw_power_ts_{case_name}.png"), include_power=include_power, legend_loc=legend_loc,
-                                        controller_dt=None, include_filtered_wind_dir=(case_family=="baseline_controllers_3"), single_plot=single_plot, case_label=case_name)
+                                        controller_dt=None, include_filtered_wind_dir=(case_family=="baseline_controllers_3"), single_plot=single_plot, case_label=case_name,
+                                        label_mapping=label_mapping)
                                     #    controller_dt=input_config["controller"]["dt"])
 
     if False:
@@ -1033,7 +1037,9 @@ def plot_yaw_offset_wind_direction(data_dfs, case_names, case_labels, lut_path, 
     # fig.show()
     return fig, ax
 
-def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, include_filtered_wind_dir=True, controller_dt=None, legend_loc="best", single_plot=False, fig=None, ax=None, case_label=None):
+def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, include_filtered_wind_dir=True, 
+                      controller_dt=None, legend_loc="best", single_plot=False, fig=None, ax=None, case_label=None,
+                      label_mapping=None):
     
     colors = sns.color_palette("Paired")
     colors = [colors[1], colors[3], colors[5]]
@@ -1042,7 +1048,7 @@ def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, 
         fig, ax = plt.subplots(int(include_yaw + include_power), 1, sharex=True)
     
     ax = np.atleast_1d(ax)
-    data_df = data_df.dropna(axis=1, how="all")
+    # data_df = data_df.dropna(axis=1, how="all")
     turbine_wind_direction_cols = sorted([col for col in data_df.columns if "TurbineWindDir_" in col], key=lambda s: int(s.split("_")[-1]))
     turbine_power_cols = sorted([col for col in data_df.columns if "TurbinePower_" in col], key=lambda s: int(s.split("_")[-1]))
     yaw_angle_cols = sorted([col for col in data_df.columns if "TurbineYawAngle_" == col[:len("TurbineYawAngle_")]], key=lambda s: int(s.split("_")[-1]))
@@ -1068,10 +1074,14 @@ def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, 
             if include_yaw:
                 ax_idx = 0
                 tid = re.search("(?<=TurbineYawAngle_).*$", yaw_col).group(0)
-                if single_plot:
-                    sns.lineplot(data=seed_df, x="Time", y=yaw_col, label=f"T{tid} yaw setpoint, {1}".format(t + 1, case_label), linestyle=":", ax=ax[ax_idx])
+                if label_mapping:
+                    tid = label_mapping[tid]
                 else:
-                    sns.lineplot(data=seed_df, x="Time", y=yaw_col, color=color, label=f"T{tid} yaw setpoint".format(t + 1), linestyle=":", ax=ax[ax_idx])
+                    tid = f"T{tid}"
+                if single_plot:
+                    sns.lineplot(data=seed_df, x="Time", y=yaw_col, label=f"{tid} yaw setpoint, {1}".format(t + 1, case_label), linestyle=":", ax=ax[ax_idx])
+                else:
+                    sns.lineplot(data=seed_df, x="Time", y=yaw_col, color=color, label=f"{tid} yaw setpoint".format(t + 1), linestyle=":", ax=ax[ax_idx])
                 ax[ax_idx].set(ylabel="")
                 
                 if controller_dt is not None:
@@ -1081,20 +1091,20 @@ def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, 
                 next_ax_idx = (1 if include_yaw else 0)
                 if t == 0:
                     if single_plot:
-                        ax[next_ax_idx].fill_between(seed_df["Time"], seed_df[power_col] / 1e6, label=f"T{tid} power, {1}".format(t + 1, case_label))
+                        ax[next_ax_idx].fill_between(seed_df["Time"], seed_df[power_col] / 1e6, label=f"{tid} power, {1}".format(t + 1, case_label))
                     else:
-                        ax[next_ax_idx].fill_between(seed_df["Time"], seed_df[power_col] / 1e6, color=color, label=f"T{tid} power".format(t + 1))
+                        ax[next_ax_idx].fill_between(seed_df["Time"], seed_df[power_col] / 1e6, color=color, label=f"{tid} power".format(t + 1))
                 else:
                     if single_plot:
                         ax[next_ax_idx].fill_between(seed_df["Time"], seed_df[turbine_power_cols[:t+1]].sum(axis=1) / 1e6, 
                                         seed_df[turbine_power_cols[:t]].sum(axis=1)  / 1e6,
-                                        label=f"T{tid} power, {1}".format(t + 1, case_label))
+                                        label=f"{tid} power, {1}".format(t + 1, case_label))
                     else:
                         ax[next_ax_idx].fill_between(
                             seed_df["Time"], 
                             seed_df[turbine_power_cols[:t+1]].sum(axis=1) / 1e6, 
                             seed_df[turbine_power_cols[:t]].sum(axis=1)  / 1e6,
-                            color=color, label=f"T{tid} power".format(t + 1))
+                            color=color, label=f"{tid} power".format(t + 1))
         
         if include_power:
             next_ax_idx = (1 if include_yaw else 0)

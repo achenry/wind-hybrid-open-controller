@@ -41,6 +41,17 @@ from optuna.trial import TrialState # Added for checking trial status
 
 from floris import FlorisModel
 
+
+factor = 1.5
+# factor = 3.0 # single column
+plt.rc('font', size=12*factor)          # controls default text sizes
+plt.rc('axes', titlesize=20*factor)     # fontsize of the axes title
+plt.rc('axes', labelsize=15*factor)     # fontsize of the x and y labels
+plt.rc('xtick', labelsize=12*factor)    # fontsize of the xtick labels
+plt.rc('ytick', labelsize=12*factor)    # fontsize of the ytick labels
+plt.rc('legend', fontsize=12*factor)    # legend fontsize
+plt.rc('legend', title_fontsize=14*factor)  # legend title fontsize
+
 import logging 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -595,8 +606,8 @@ class WindForecast:
         
     @staticmethod
     def plot_forecast(forecast_wf, true_wf, continuity_groups=None, feature_types=None, feature_labels=None, prediction_type="point", 
-                      per_turbine_target=False, turbine_ids="all", label="", fig_dir="./", include_turbine_legend=False, multiple_forecasters=True,
-                      use_common_timedelta=True):
+                      per_turbine_target=False, turbine_ids="all", turbine_labels=None, label="", fig_dir="./", include_turbine_legend=False, multiple_forecasters=True,
+                      use_common_timedelta=True, dt=None):
         
         # hue command either differentiates forecasters or turbines. When turbine != all, the turbines are shown on different plots
         assert (multiple_forecasters and turbine_ids != "all") or (not multiple_forecasters and turbine_ids == "all")
@@ -629,9 +640,10 @@ class WindForecast:
             forecast_wf = forecast_wf.collect()
         
         if use_common_timedelta:
-            dt =  forecast_wf.sort("time").group_by(["continuity_group", "test_idx", "forecaster", "turbine_id", "feature"], maintain_order=True).agg(pl.col("time").diff().slice(1).max().alias("dt")).select("dt").max().item()
-            if dt is not None:
-                dt = int(dt.total_seconds())
+            if dt is None:
+                dt =  forecast_wf.sort("time").group_by(["continuity_group", "forecaster", "turbine_id", "feature"], maintain_order=True).agg(pl.col("time").diff().slice(1).max().alias("dt")).select("dt").max().item()
+                if dt is not None:
+                    dt = int(dt.total_seconds())
             # dt = 30
             # forecast_wf.sort("time").group_by(["continuity_group", "forecaster", "turbine_id", "feature"], maintain_order=True).agg(pl.col("time").diff().slice(1).max().alias("dt")).select("dt").max().item().total_seconds()
             # forecast_wf.sort("time").with_columns(dt=pl.col("time").diff()).sort("dt")
@@ -647,19 +659,20 @@ class WindForecast:
             if turbine_ids == "all":
                 sns.lineplot(data=true_wf.filter(
                                 (pl.col("feature") == feat) & (pl.col("time").is_between(forecast_wf.select(pl.col("time").min()).item(), forecast_wf.select(pl.col("time").max()).item(), closed="both"))), 
-                                    x="time", y="value", ax=axs[0, f], style="data_type", hue="turbine_id", alpha=0.25)
+                                    x="time", y="value", ax=axs[0, f], hue="turbine_id", alpha=0.25)
+                true_line_handle = axs[f].lines
             else:
                 for t, tid in enumerate(turbine_ids):
                     sns.lineplot(data=true_wf.filter(
                                     (pl.col("feature") == feat) & (pl.col("turbine_id") == tid) & (pl.col("time").is_between(forecast_wf.select(pl.col("time").min()).item(), forecast_wf.select(pl.col("time").max()).item(), closed="both"))), 
-                                        x="time", y="value", ax=axs[t, f], style="data_type", color="black", alpha=0.25)
-            
+                                        x="time", y="value", ax=axs[t, f], color="black", alpha=0.25)
+                    true_line_handle = axs[t, f].lines
             if prediction_type == "distribution":
                 if per_turbine_target:
                     # TODO test
                     if turbine_ids == "all":
                         sns.lineplot(data=forecast_wf.filter((pl.col("feature") == f"loc_{feat}")), 
-                                        x="time", y="value", ax=axs[0, f], style="data_type", dashes=[[4, 4]], marker="o",
+                                        x="time", y="value", ax=axs[0, f], dashes=[[4, 4]], marker="o", linestyle="--",
                                         hue="forecaster" if (multiple_forecasters and "forecaster" in forecast_wf.columns) else None, err_style="bars")
                         
                         axs[0, f].fill_between(
@@ -671,7 +684,7 @@ class WindForecast:
                     else:
                         for t, tid in enumerate(turbine_ids):
                             sns.lineplot(data=forecast_wf.filter((pl.col("feature") == f"loc_{feat}") & (pl.col("turbine_id") == tid)), 
-                                        x="time", y="value", ax=axs[t, f], style="data_type", dashes=[[4, 4]], marker="o",
+                                        x="time", y="value", ax=axs[t, f], dashes=[[4, 4]], marker="o", linestyle="--",
                                         hue="forecaster" if (multiple_forecasters and "forecaster" in forecast_wf.columns) else None, err_style="bars")
                             # forecaster_df = forecaster_df.sort("time", "test_idx").group_by(["time", "feature", "turbine_id"], maintain_order=True).agg(pl.col("value").first())
                             axs[t, f].fill_between(
@@ -683,11 +696,11 @@ class WindForecast:
                 else:
                     if turbine_ids == "all":
                         sns.lineplot(data=forecast_wf.filter(pl.col("feature") == f"loc_{feat}"), 
-                                    x="time", y="value", hue="turbine_id", style="data_type", ax=axs[0, f], dashes=[[4, 4]], marker="o", err_style="bars")
+                                    x="time", y="value", hue="turbine_id", ax=axs[0, f], dashes=[[4, 4]], marker="o", linestyle="--", err_style="bars")
                     else:
                         for t, tid in enumerate(turbine_ids):
                             sns.lineplot(data=forecast_wf.filter((pl.col("feature") == f"loc_{feat}") & (pl.col("turbine_id") == tid)), 
-                                    x="time", y="value",  style="data_type", ax=axs[t, f], dashes=[[4, 4]], marker="o",
+                                    x="time", y="value", ax=axs[t, f], dashes=[[4, 4]], marker="o", linestyle="--",
                                     hue="forecaster" if (multiple_forecasters and "forecaster" in forecast_wf.columns) else None, err_style="bars")
                     
                     for t, tid in enumerate(forecast_wf["turbine_id"].unique(maintain_order=True)):
@@ -726,11 +739,11 @@ class WindForecast:
             elif prediction_type == "point":
                 if turbine_ids == "all":
                     sns.lineplot(data=forecast_wf.filter(pl.col("feature") == feat), x="time", y="value", 
-                                 hue="turbine_id", style="data_type", dashes=[[4, 4]], marker="o", ax=axs[f], err_style="bars")
+                                 hue="turbine_id", dashes=[[4, 4]], marker="o", linestyle="--", ax=axs[f], err_style="bars")
                 else:
                     for t, tid in enumerate(turbine_ids):
                         sns.lineplot(data=forecast_wf.filter((pl.col("feature") == feat) & (pl.col("turbine_id") == tid)), 
-                                     x="time", y="value", style="data_type", dashes=[[4, 4]], marker="o", ax=axs[t, f], 
+                                     x="time", y="value", dashes=[[4, 4]], marker="o", linestyle="--", ax=axs[t, f], 
                                      hue="forecaster" if (multiple_forecasters and "forecaster" in forecast_wf.columns) else None, err_style="bars")
                     
             elif prediction_type == "sample":
@@ -761,12 +774,16 @@ class WindForecast:
         
         if turbine_ids != "all":
             for t, tid in enumerate(turbine_ids):
-                axs[t, 0].set_ylabel(f"Turbine {tid}")
+                if turbine_labels:
+                    axs[t, 0].set_ylabel(turbine_labels[t])
+                else:
+                    axs[t, 0].set_ylabel(f"Turbine {tid}")
         
         
         axs[0, -1].legend([], [], frameon=False)
         h, l = axs[0, -1].get_legend_handles_labels()
-        labels_1 = ["True"] #, "Forecast"] # removing data type
+        # labels_1 = ["True"] #, "Forecast"] # removing data type
+        leg1 = axs[0, -1].legend(true_line_handle, ["True"], loc='upper left', bbox_to_anchor=(1.01, 1), frameon=False)
         
         if turbine_ids == "all" and include_turbine_legend:
             labels_2 = ["turbine_id"] + sorted(list(forecast_wf.select(pl.col("turbine_id").unique()).to_numpy().flatten()))
@@ -785,9 +802,9 @@ class WindForecast:
         else:
             second_legend = False
         
-        labels_1 = [label for label in labels_1 if label in l]
-        handles_1 = [h[l.index(label)] for label in labels_1]
-        leg1 = axs[0, -1].legend(handles_1, labels_1, loc='upper left', bbox_to_anchor=(1.01, 1), frameon=False)
+        # labels_1 = [label for label in labels_1 if label in l]
+        # handles_1 = [h[l.index(label)] for label in labels_1]
+        # leg1 = axs[0, -1].legend(handles_1, labels_1, loc='upper left', bbox_to_anchor=(1.01, 1), frameon=False)
         
         if second_legend:
             leg2 = axs[0, -1].legend(handles_2, labels_2, loc='upper left', bbox_to_anchor=(1.01, 0.6), frameon=False)
@@ -808,7 +825,7 @@ class WindForecast:
         n_ticks = 5
         xdelta = int(np.round((new_time_range/n_ticks).total_seconds() / 30) * 30) / 60
         new_xticks = np.linspace(new_xlim[0], new_xlim[1], n_ticks)
-        new_xticklabels = [i * xdelta for i in range(n_ticks)]
+        new_xticklabels = [int(i * xdelta) for i in range(n_ticks)]
         
         for ax in axs[-1, :]:
             ax.set_xlim(new_xlim)
