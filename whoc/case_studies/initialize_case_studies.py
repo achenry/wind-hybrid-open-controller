@@ -37,8 +37,8 @@ elif sys.platform == "win32" or sys.platform == "cygwin":  # Add Windows check
 # sequential_pyopt is best solver, stochastic is best preview type
 case_studies = {
     "baseline_controllers_preview_flasc_perfect": {
-                                    "target_turbine_indices": {"group": 1, "vals": ["6,4", "6,"]},
-                                    "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController"]}, #"LookupBasedWakeSteeringController", 
+                                    "target_turbine_indices": {"group": 1, "vals": ["6,"]}, #, "6,""6,4"
+                                    "controller_class": {"group": 1, "vals": ["GreedyController"]}, #"LookupBasedWakeSteeringController", 
                                     # "target_turbine_indices": {"group": 1, "vals": ["6,"]},
                                     # "controller_class": {"group": 1, "vals": ["GreedyController"]},        
                                     "controller_dt": {"group": 0, "vals": [60]},
@@ -46,10 +46,10 @@ case_studies = {
                                     "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
                                     "simulation_dt": {"group": 0, "vals": [60]},
                                     "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/smarteole_farm.yaml"]},
-                                    "uncertain": {"group": 3, "vals": [False, False]},
-                                    "wind_forecast_class": {"group": 3, "vals": ["PersistenceForecast", "ARIMAForecast"]}, #, ", "KalmanFilterForecast", "SpatialFilterForecast"]},
+                                    "uncertain": {"group": 3, "vals": [False]}, # , False
+                                    "wind_forecast_class": {"group": 3, "vals": ["PersistenceForecast"]}, #"PersistenceForecast", , ", "KalmanFilterForecast", "SpatialFilterForecast"]},
                                     "study_name": {"group": 3, "vals": ["svr_aoifemac_flasc"]},
-                                    "prediction_timedelta": {"group": 4, "vals": [420]}, #, 120, 180]},
+                                    "prediction_timedelta": {"group": 4, "vals": [480]}, #, 120, 180]},
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]},
                                     "n_horizon": {"group": 0, "vals": [0]},
                                     },

@@ -75,7 +75,7 @@ class ARIMAForecast(WindForecast):
         # if self.study_name is None:
         #     self.study_name = "default_study_name"
         if self.study_name is None:
-            self.study_name = 'arima_LUT_prediction_timedelta_420'
+            self.study_name = 'arima_Greedy_prediction_timedelta_480'
         # if not hasattr(self, "study_name"):
         #     self.study_name = f"{args.model}_ws_vert_all_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             #self.study_name = "arima_ws_vert_all_20250429_123701" #"tuning_arima_windfarm_debug" 
@@ -391,7 +391,7 @@ class ARIMAForecast(WindForecast):
             #return self.models.keys() manual hyperparameter tuning
             return self.model.keys()
     
-    def reset(self):
+    def reset(self, **kwargs):
         pass
        
     def predict_point(self, historic_measurements, current_time=None, return_long_format=True):
