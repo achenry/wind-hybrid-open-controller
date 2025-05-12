@@ -34,7 +34,7 @@ from whoc.case_studies.process_case_studies import (read_time_series_data, write
                                                     plot_cost_function_pareto_curve, plot_yaw_offset_wind_direction, plot_parameter_sweep, plot_power_increase_vs_prediction_time,
                                                     plot_power_vs_prediction_time, plot_agg_metrics_vs_forecaster)
 try:
-    from whoc.wind_forecast.WindForecast import PerfectForecast, PersistenceForecast, MLForecast, SVRForecast, KalmanFilterForecast, SpatialFilterForecast
+    from whoc.wind_forecast.WindForecast import PerfectForecast, PersistenceForecast, MLForecast, SVRForecast, KalmanFilterForecast, SpatialFilterForecast, ARIMAForecast
 except ModuleNotFoundError:
     logging.warning("Cannot import wind forecast classes in current environment.")
 # np.seterr("raise")
@@ -510,16 +510,16 @@ if __name__ == "__main__":
                 ml_baseline_agg_df = baseline_agg_df.loc[(~baseline_agg_df["model_key"].isnull()) | (baseline_agg_df["wind_forecast_class"] == "PersistenceForecast"), :]
                 ml_baseline_agg_df["controller_class"] = ml_baseline_agg_df["controller_class"] + ml_baseline_agg_df["uncertain"].astype(str)
                 ml_baseline_agg_df = ml_baseline_agg_df.sort_values("controller_class")
-                #plot_agg_metrics_vs_forecaster(ml_baseline_agg_df,
-                #                               save_dir=args.save_dir, label="ml_forecasters_",
-                #                               controller_labels=controller_labels)
+                plot_agg_metrics_vs_forecaster(ml_baseline_agg_df,
+                                               save_dir=args.save_dir, label="ml_forecasters_",
+                                               controller_labels=controller_labels)
                 
                 other_baseline_agg_df = baseline_agg_df.loc[baseline_agg_df["model_key"].isnull(), :]
                 other_baseline_agg_df["controller_class"] = other_baseline_agg_df["controller_class"] + other_baseline_agg_df["uncertain"].astype(str)
                 other_baseline_agg_df = other_baseline_agg_df.sort_values("controller_class")
-                #plot_agg_metrics_vs_forecaster(other_baseline_agg_df,
-                #                               save_dir=args.save_dir, label="stat_forecasters_",
-                #                               controller_labels=controller_labels)
+                plot_agg_metrics_vs_forecaster(other_baseline_agg_df,
+                                               save_dir=args.save_dir, label="stat_forecasters_",
+                                               controller_labels=controller_labels)
                 
                 # PLOT 1) Farm power of perfect forecaster vs prediction timedela for different controllers
                 # plot_power_vs_prediction_time(baseline_agg_df, args.save_dir, "all_forecasters_")

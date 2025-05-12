@@ -166,11 +166,12 @@ if __name__ == "__main__":
     elif args.model == "arima":
         forecaster = ARIMAForecast(measurements_timedelta=pd.Timedelta(model_config["dataset"]["resample_freq"]),
                             controller_timedelta=None,
+                            study_name=study_name,
                             prediction_timedelta=data_module.prediction_length*pd.Timedelta(model_config["dataset"]["resample_freq"]),
                             context_timedelta=data_module.context_length*pd.Timedelta(model_config["dataset"]["resample_freq"]),
                             fmodel=fmodel,
                             true_wind_field=None,
-                            model_config=model_config,
+                            #model_config=model_config,
                             kwargs=dict(p=1, d=1, q=1, seasonal_order=(1, 1, 1, 12), use_trained_models=False),
                             tid2idx_mapping=tid2idx_mapping,
                             turbine_signature=turbine_signature,
@@ -236,7 +237,7 @@ if __name__ == "__main__":
         logging.info(f"Initializing storage with restart_tuning={args.restart_tuning} on worker {worker_id}")
         
         db_setup_params = generate_df_setup_params(args.model, model_config)
-        optuna_storage = setup_optuna_storage(
+        optuna_storage, _ = setup_optuna_storage(
             db_setup_params=db_setup_params,
             restart_tuning=args.restart_tuning,
             rank=0 if (worker_id == 0) else worker_id

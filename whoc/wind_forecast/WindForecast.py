@@ -27,6 +27,7 @@ from functools import partial
 import torch
 from itertools import cycle
 from psutil import virtual_memory
+#from datetime import datetime, timedelta
 
 # from joblib import parallel_backend
 
@@ -722,6 +723,8 @@ class WindForecast:
         assert (multiple_forecasters and turbine_ids != "all") or (not multiple_forecasters and turbine_ids == "all")
         
         if isinstance(forecast_wf, pd.DataFrame):
+            forecast_wf = pl.from_pandas(forecast_wf)
+        elif isinstance(forecast_wf, pl.LazyFrame):
             forecast_wf = forecast_wf.collect()
             #forecast_wf = pl.DataFrame(forecast_wf)
             
@@ -742,7 +745,9 @@ class WindForecast:
             elif axs.ndim == 1:
                 axs = axs.reshape(1, -1)
 
-                
+        forecast_wf = forecast_wf.with_columns(pl.col("continuity_group").cast(pl.Int32))
+        continuity_groups = list(forecast_wf['continuity_group'].unique())
+
         if continuity_groups is not None and "continuity_group" in true_wf.collect_schema().names():
             true_wf = true_wf.filter(pl.col("continuity_group").is_in(continuity_groups))
             forecast_wf = forecast_wf.filter(pl.col("time").is_in(true_wf.select(pl.col("time"))))
@@ -753,13 +758,12 @@ class WindForecast:
             forecast_wf = forecast_wf.filter(pl.col("turbine_id").is_in(turbine_ids))
             true_wf = true_wf.filter(pl.col("turbine_id").is_in(turbine_ids))
         
-        if isinstance(forecast_wf, pl.LazyFrame):
-            forecast_wf = forecast_wf.collect()
-        
         if use_common_timedelta:
-            dt =  forecast_wf.sort("time").group_by(["continuity_group", "test_idx", "forecaster", "turbine_id", "feature"], maintain_order=True).agg(pl.col("time").diff().slice(1).max().alias("dt")).select("dt").max().item()
-            if dt is not None:
-                dt = int(dt.total_seconds())
+            dt = forecast_wf.sort("time").group_by(["continuity_group", "forecaster", "turbine_id", "feature"], maintain_order=True).agg(pl.col("time").diff().drop_nulls().max().alias("dt")).select("dt").max().item()
+            #dt =  forecast_wf.sort("time").group_by(["continuity_group", "test_idx", "forecaster", "turbine_id", "feature"], maintain_order=True).agg(pl.col("time").diff().slice(1).max().alias("dt")).select("dt").max().item()
+            if dt is None:
+                raise ValueError("Failed to infer a valid datetime interval (dt). Check forecast_wf['time'] and groupings.")
+            dt = int(dt.total_seconds())
             # dt = 30
             # forecast_wf.sort("time").group_by(["continuity_group", "forecaster", "turbine_id", "feature"], maintain_order=True).agg(pl.col("time").diff().slice(1).max().alias("dt")).select("dt").max().item().total_seconds()
             # forecast_wf.sort("time").with_columns(dt=pl.col("time").diff()).sort("dt")
@@ -2338,6 +2342,7 @@ class MLForecast(WindForecast):
 class ARIMAForecast(WindForecast):
     """Wind speed forecasting using ARIMA model"""
     is_probabilistic = False
+    study_name: Optional[str] = None
 
     def __post_init__(self, model_save_dir=None, study_name=None):
         print("ARIMAForecast initialized")
@@ -2352,15 +2357,21 @@ class ARIMAForecast(WindForecast):
         #self.model = {}
         self.scaler = {}
         self.storage = 'sqlite:///C:/Users/20202629/Desktop/Internship/wind-forecasting/examples/optuna/tuning_arima_windfarm_debug.db'
-        if not hasattr(self, "study_name"):
-            self.study_name = "arima_ws_vert_all_20250429_123701" #"tuning_arima_windfarm_debug" 
+        # if self.study_name is None:
+        #     self.study_name = "default_study_name"
+        if self.study_name is None:
+            self.study_name = 'arima_LUT_prediction_timedelta_420'
+        # if not hasattr(self, "study_name"):
+        #     self.study_name = f"{args.model}_ws_vert_all_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            #self.study_name = "arima_ws_vert_all_20250429_123701" #"tuning_arima_windfarm_debug" 
         self.study = self.create_or_load_study(self.study_name)
         #self.model_config["experiment"]["log_dir"] = "C:/Users/20202629/Desktop/Internship/wind-forecasting/examples/optuna"
         base_log_dir = "C:/Users/20202629/Desktop/Internship/wind-forecasting/examples/optuna"
-        self.model_save_dir_horz = os.path.join(base_log_dir, "arima_ws_horz_all_20250429_123701", "models")
-        self.model_save_dir_vert = os.path.join(base_log_dir, "arima_ws_vert_all_20250429_123701", "models")
+        self.model_save_dir_horz = os.path.join(base_log_dir, self.study_name, "horz", "models")
+        self.model_save_dir_vert = os.path.join(base_log_dir, self.study_name, "vert", "models")
+        #self.model_save_dir = self.model_save_dir_horz or self.model_save_dir_vert
         #self.model_save_dir = os.path.join(self.model_config["experiment"]["log_dir"], self.study_name, "models")
-        self.model = {} # trained models from local directory
+        #self.model = {} # trained models from local directory
         #if self.model_save_dir:
         #    self.load_models(self.model_save_dir)
         self.load_models(self.model_save_dir_horz, "horz")
@@ -2377,6 +2388,11 @@ class ARIMAForecast(WindForecast):
 
     def load_models(self, model_save_dir, mode):
         """Load ARIMA models from the specified directory."""
+
+        if not os.path.exists(model_save_dir):
+            print(f"[INFO] No models found in {model_save_dir}, skipping loading for '{mode}'.")
+            return  # No models to load yet
+
         if mode not in self.model:
             self.model[mode] = {}
         if mode not in self.boxcox_params:
@@ -2595,7 +2611,7 @@ class ARIMAForecast(WindForecast):
             turbine_ids = [
                 col.split("_")[-1]
                 for col in historic_measurements.columns
-                if col.startswith("ws_horz_")
+                if col.startswith("ws_vert_")
             ]
         
         for turbine_id in turbine_ids:
@@ -3699,7 +3715,7 @@ if __name__ == "__main__":
                                     forecaster_name,
                                     str(int(prediction_timedelta)))
             
-            forecast_path = os.path.join(save_dir, "forecast_*.csv")
+            forecast_path = os.path.join(save_dir, "forecast_*.csv") 
             agg_metric_path = os.path.join(save_dir, "agg_metrics.csv")       
             
             if args.rerun_validation or not os.path.exists(agg_metric_path):
@@ -3728,7 +3744,7 @@ if __name__ == "__main__":
                                             prediction_timedelta=pl.lit(res["prediction_timedelta"]))
             for res in results], how="vertical")
         
-        turbine_ids = ["5", "6"]
+        turbine_ids = ["6"]
         # best_cg = agg_df.filter((pl.col("forecaster") == forecaster_name) 
         #                                     & (pl.col("prediction_timedelta")== forecaster.prediction_timedelta.total_seconds())
         #                                     & (pl.col("metric") == "RMSE") 
@@ -3831,8 +3847,11 @@ if __name__ == "__main__":
             ax_indices = [v[1] for v in plotting_metrics_dirs]
             # plt.close()
             
-            totals_agg_df = agg_df.filter((pl.col("test_idx")==-1) & (pl.col("turbine_id") == "all"))\
-                                .group_by(["forecaster", "metric", "prediction_timedelta"]).agg(pl.col("score").mean())
+           #totals_agg_df = agg_df.filter((pl.col("test_idx")==-1) & (pl.col("turbine_id") == "all"))\
+           #                    .group_by(["forecaster", "metric", "prediction_timedelta"]).agg(pl.col("score").mean())
+
+            totals_agg_df = agg_df.filter((pl.col("test_idx") == -1) & (pl.col("turbine_id") == "all") & (~pl.col("score").is_nan())).group_by(["forecaster", "metric", "prediction_timedelta"])\
+                                .agg(pl.col("score").mean())
                                     
             # generate scatterplot of metric vs prediction time for different models (different colors) and different metrics (different_styles) (crps, picp, pinaw, cwc, mse, mae)
             if False:

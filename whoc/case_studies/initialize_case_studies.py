@@ -47,7 +47,7 @@ elif sys.platform == "win32" or sys.platform == "cygwin":  # Add Windows check
 case_studies = {
     "baseline_controllers_preview_flasc_perfect": {
                                     "target_turbine_indices": {"group": 1, "vals": ["6,4", "6,"]},
-                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
+                                    "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController"]}, #"LookupBasedWakeSteeringController", 
                                     # "target_turbine_indices": {"group": 1, "vals": ["6,"]},
                                     # "controller_class": {"group": 1, "vals": ["GreedyController"]},        
                                     "controller_dt": {"group": 0, "vals": [60]},
@@ -55,10 +55,10 @@ case_studies = {
                                     "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
                                     "simulation_dt": {"group": 0, "vals": [60]},
                                     "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/smarteole_farm.yaml"]},
-                                    "uncertain": {"group": 2, "vals": [False]},
-                                    "wind_forecast_class": {"group": 3, "vals": ["PerfectForecast"]}, #, ", "KalmanFilterForecast", "SpatialFilterForecast"]},
+                                    "uncertain": {"group": 2, "vals": [False, False]},
+                                    "wind_forecast_class": {"group": 3, "vals": ["PerfectForecast", "ARIMAForecast"]}, #, ", "KalmanFilterForecast", "SpatialFilterForecast"]},
                                     "study_name": {"group": 3, "vals": ["svr_aoifemac_flasc"]},
-                                    "prediction_timedelta": {"group": 4, "vals": [0, 60, 120, 180, 240, 300, 360, 420, 480, 540, 600, 660, 720, 780, 840, 900]}, #, 120, 180]},
+                                    "prediction_timedelta": {"group": 4, "vals": [420]}, #, 120, 180]},
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]},
                                     "n_horizon": {"group": 0, "vals": [0]},
                                     },
@@ -90,7 +90,7 @@ case_studies = {
         "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController"]},
         "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73"]},
         "uncertain": {"group": 1, "vals": [False, False]},
-        "wind_forecast_class": {"group": 0, "vals": ["PerfectForecast"]},
+        "wind_forecast_class": {"group": 0, "vals": ["PerfectForecast", "ARIMAForecast"]},
         "prediction_timedelta": {"group": 2, "vals": [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 360, 420, 480, 540, 600, 660, 720, 780, 840, 900]},
         },
     "baseline_controllers_perfect_forecaster_flasc": {
