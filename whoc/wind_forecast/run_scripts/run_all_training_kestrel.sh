@@ -1,0 +1,3 @@
+cd ..
+sbatch run_training_kestrel.sh svr $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred600_svr.yaml
+# sbatch run_training_kestrel.sh svr $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred300_svr.yaml

@@ -112,12 +112,12 @@ def plot_power_vs_prediction_time(agg_df, save_dir, label):
         n_greedy_turbines = len(greedy_input_config["controller"]["target_turbine_indices"])
         compute_df.loc[(compute_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")] = compute_df.loc[(compute_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")] / n_greedy_turbines
         
-        if 0 in compute_df["prediction_timedelta"]:
-           plot_df.loc[(plot_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")] = 100 * (plot_df.loc[(plot_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")] - plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")].iloc[0]) / plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")].iloc[0]
+        if (compute_df["prediction_timedelta"] == 0.0).any():
+            plot_df.loc[(plot_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")] = 100 * (plot_df.loc[(plot_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")] - plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")].iloc[0]) / plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")].iloc[0]
     
     lut_compute_df = compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), :]
     if lut_compute_df.shape[0]:
-        case_family = greedy_compute_df.index.get_level_values("CaseFamily")[0]
+        case_family = lut_compute_df.index.get_level_values("CaseFamily")[0]
         case_name = lut_compute_df.index.get_level_values("CaseName")[0]
         input_fn = f"input_config_case_{case_name}.pkl"
         with open(os.path.join(save_dir, case_family, input_fn), mode='rb') as fp:
@@ -125,19 +125,22 @@ def plot_power_vs_prediction_time(agg_df, save_dir, label):
         n_lut_turbines = len(lut_input_config["controller"]["target_turbine_indices"])
         compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] = compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] / n_lut_turbines
 
-        if 0 in compute_df["prediction_timedelta"]:
-            if greedy_compute_df.shape[0]:
-                compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] = 100 * (compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] - compute_df.loc[(compute_df["prediction_timedelta"] == 0) & (compute_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")].iloc[0]) / compute_df.loc[(compute_df["prediction_timedelta"] == 0) & (compute_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")].iloc[0]
+        if (compute_df["prediction_timedelta"] == 0.0).any():
+            if lut_compute_df.shape[0]:
+                compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] = 100 * (compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] - compute_df.loc[(compute_df["prediction_timedelta"] == 0) & (compute_df["controller_class"] == "GreedyController"), ("FarmPowerMean", "mean")].iloc[0]) / compute_df.loc[(compute_df["prediction_timedelta"] == 0) & (compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")].iloc[0]
             else:
                 compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] = 100 * (compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] - compute_df.loc[(compute_df["prediction_timedelta"] == 0) & (compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")].iloc[0]) / compute_df.loc[(compute_df["prediction_timedelta"] == 0) & (compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")].iloc[0]
 
-            plot_df.loc[(plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] = 100 * (plot_df.loc[(plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] - plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")].iloc[0]) / plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")].iloc[0]
+            plot_df.loc[(plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] \
+                = 100 * (plot_df.loc[(plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")] 
+                         - plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")].iloc[0]) \
+                             / plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPowerMean", "mean")].iloc[0]
 
         compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), [("prediction_timedelta", ""), ("FarmPowerMean", "mean")]].reset_index(drop=True)
         
     x_vals = np.sort(pd.unique(plot_df["prediction_timedelta"]))
     xlim = (x_vals.min(), x_vals.max())
-    fig, ax = plt.subplots(1, len(controllers), sharey=False)
+    fig, ax = plt.subplots(1, len(controllers), sharey=False, figsize=(15.11, 7.94))
     ax = np.atleast_1d(ax)
     for c, ctrl in enumerate(controllers):
         sns.lineplot(plot_df.loc[plot_df["controller_class"] == ctrl, :], 
@@ -145,7 +148,7 @@ def plot_power_vs_prediction_time(agg_df, save_dir, label):
         ax[c].set_ylabel("")
         ax[c].set_xlabel("Prediction Horizon (s)")
         # ax[c].set_title(f"{controller_labels[ctrl]} Mean Farm Power (MW)")
-        ax[c].set_title(f"{controller_labels[ctrl]} Mean Farm Power Gain (%)")
+        ax[c].set_title(f"{controller_labels[ctrl]} Mean Farm\nPower Gain (%)")
         ax[c].set_xlim(xlim)
         ax[c].set_xticks(x_vals[1::2])
         ax[c].tick_params("x", rotation=45)
@@ -156,6 +159,7 @@ def plot_agg_metrics_vs_forecaster(agg_df, save_dir, label, controller_labels, a
     
     metric_labels = {"FarmPowerMean": "Farm Power Change\nvs. Persistence (%)", "YawAngleChangeAbsMean": "Yaw Actuation Change\nvs. Persistence (%)"}
     # controllers = pd.unique(agg_df["controller_class"])
+    # controllers = controller_labels.keys() & set(pd.unique(agg_df["controller_class"]))
     controllers = list(controller_labels.keys())
     if agg_metrics is None:
         agg_metrics = [("FarmPowerMean", "mean"), ("YawAngleChangeAbsMean",  "mean")]
@@ -250,50 +254,48 @@ def write_case_family_time_series_data(case_family, new_time_series_df, save_dir
     new_time_series_df.loc[new_time_series_df.index.get_level_values("CaseFamily") == case_family, :].to_csv(all_ts_df_path)
 
 def read_time_series_data(results_path, input_dict_path):
-    # TODO fix scalability Greedy/LUT offline status at end for 25 turbines
           
     warnings.simplefilter('error', pd.errors.DtypeWarning)
-    try:
+    # try:
         # get column names 
-        with open(results_path, 'r', newline='') as fp:
-            csv_reader = csv.reader(fp)
-            columns = next(csv_reader)
-            columns = columns[3:] # remove index rows
-        bool_cols = [col for col in columns if "TurbineOfflineStatus" in col]
-        if bool_cols:
-            df = pd.read_csv(results_path, index_col=[0,1], dtype={col: object for col in bool_cols}) # necessary if contains NaNs
-            for col in bool_cols:
-                df.loc[(df[col] == "False") | (df[col].isna()), col] = False
-                df[col] = df[col].astype(bool)
-        else:
-            df = pd.read_csv(results_path, index_col=[0,1])
-        logging.info(f"Read {results_path}")
+        # with open(results_path, 'r', newline='') as fp:
+        #     csv_reader = csv.reader(fp)
+        #     columns = next(csv_reader)
+        #     columns = columns[3:] # remove index rows
+        # bool_cols = [col for col in columns if "TurbineOfflineStatus" in col]
+        # if bool_cols:
+        #     df = pd.read_csv(results_path, index_col=[0,1], dtype={col: object for col in bool_cols}) # necessary if contains NaNs
+        #     for col in bool_cols:
+        #         df.loc[(df[col] == "False") | (df[col].isna()), col] = False
+        #         df[col] = df[col].astype(bool)
+        # else:
+    df = pd.read_csv(results_path, low_memory=False)
+    logging.info(f"Read {results_path}")
         
-        df.reset_index(inplace=True)
+        # df.reset_index(inplace=True)
         
-        if "CaseName" not in df.index.names:
-            df = df.reset_index()
-            df["CaseName"] = re.search("(?<=case_)\\d+", os.path.basename(results_path)).group()
-        if "CaseFamily" not in df.index.names:
-            df["CaseFamily"] = os.path.basename(os.path.dirname(results_path))
-        if "WindSeed" not in df.columns:
-            df["WindSeed"] = re.search("(?<=seed_)\\d+", os.path.basename(results_path)).group()
+    if "CaseName" not in df.index.names:
+        df = df.reset_index()
+        df["CaseName"] = re.search("(?<=case_)\\d+", os.path.basename(results_path)).group()
+        df["CaseFamily"] = os.path.basename(os.path.dirname(results_path))
         df = df.set_index(["CaseFamily", "CaseName"])
+    if "WindSeed" not in df.columns:
+        df["WindSeed"] = re.search("(?<=seed_)\\d+", os.path.basename(results_path)).group()
             # df.to_csv(results_path, index=False, header=True)
         # df = df.set_index(["CaseFamily", "CaseName"])
-        if "Time" not in df.columns:
-            df["Time"] = np.arange(df.shape[0]) - 1
-            df.to_csv(results_path, index=False, header=True)
+    if "Time" not in df.columns:
+        df["Time"] = np.arange(df.shape[0]) - 1
+        df.to_csv(results_path, index=False, header=True)
                
-    except pd.errors.DtypeWarning as w:
-        logging.info(f"DtypeWarning with combined time series file {results_path}: {w}")
-        warnings.simplefilter('ignore', pd.errors.DtypeWarning)
-        bad_df = pd.read_csv(results_path, index_col=[0,1])
-        bad_cols = [bad_df.columns[int(s) - len(bad_df.index.names)] for s in re.findall(r"(?<=Columns \()(.*)(?=\))", w.args[0])[0].split(",")]
-        bad_df.loc[bad_df[bad_cols].isna().any(axis=1)][["Time", "CaseFamily", "CaseName"]].values
-        bad_df["Time"].max()
-    except pd.errors.EmptyDataError as e:
-        logging.info(f"Dataframe {results_path} not read correctly due to error {e}")
+    # except pd.errors.DtypeWarning as w:
+    #     logging.info(f"DtypeWarning with combined time series file {results_path}: {w}")
+    #     warnings.simplefilter('ignore', pd.errors.DtypeWarning)
+    #     bad_df = pd.read_csv(results_path, index_col=[0,1])
+    #     bad_cols = [bad_df.columns[int(s) - len(bad_df.index.names)] for s in re.findall(r"(?<=Columns \()(.*)(?=\))", w.args[0])[0].split(",")]
+    #     bad_df.loc[bad_df[bad_cols].isna().any(axis=1)][["Time", "CaseFamily", "CaseName"]].values
+    #     bad_df["Time"].max()
+    # except pd.errors.EmptyDataError as e:
+    #     logging.info(f"Dataframe {results_path} not read correctly due to error {e}")
 
     try:
         with open(input_dict_path, 'rb') as fp:
@@ -470,7 +472,9 @@ def generate_outputs(agg_results_df, save_dir):
     with open(os.path.join(save_dir, "comparison_time_series_results_table.tex"), "w") as fp:
             fp.write(compare_results_latex)
 
-def plot_simulations(time_series_df, plotting_cases, save_dir, include_power=True, legend_loc="best", single_plot=False):
+def plot_simulations(time_series_df, plotting_cases, save_dir, 
+                     include_power=True, legend_loc="best", single_plot=False,
+                     label_mapping=None):
     
     if single_plot:
         yaw_power_ts_fig, yaw_power_ts_ax = plt.subplots(int(1 + include_power), 1, sharex=True) # 1 subplot of yaw, another for power
@@ -478,7 +482,7 @@ def plot_simulations(time_series_df, plotting_cases, save_dir, include_power=Tru
     for case_family in pd.unique(time_series_df.index.get_level_values("CaseFamily")):
         case_family_df = time_series_df.loc[(time_series_df.index.get_level_values("CaseFamily") == case_family), :]
         for case_name in pd.unique(case_family_df.index.get_level_values("CaseName")):
-            if (case_family, case_name) not in plotting_cases:
+            if (case_family, str(case_name)) not in plotting_cases:
                 continue
             case_name_df = case_family_df.loc[case_family_df.index.get_level_values("CaseName") == case_name, :].reset_index(drop=True)
             input_fn = [fn for fn in os.listdir(os.path.join(save_dir, case_family)) if "input_config" in fn and str(case_name) in fn][0]
@@ -487,10 +491,12 @@ def plot_simulations(time_series_df, plotting_cases, save_dir, include_power=Tru
                 input_config =  pickle.load(fp)
             if single_plot:
                 fig, _ = plot_yaw_power_ts(case_name_df, os.path.join(save_dir, case_family, f"yaw_power_ts_{case_name}.png"), include_power=include_power, legend_loc=legend_loc,
-                                        controller_dt=None, include_filtered_wind_dir=(case_family=="baseline_controllers"), single_plot=single_plot, fig=yaw_power_ts_fig, ax=yaw_power_ts_ax, case_label=case_name)
+                                        controller_dt=None, include_filtered_wind_dir=(case_family=="baseline_controllers"), single_plot=single_plot, fig=yaw_power_ts_fig, 
+                                        ax=yaw_power_ts_ax, case_label=case_name, label_mapping=label_mapping)
             else:
                 fig, _ = plot_yaw_power_ts(case_name_df, os.path.join(save_dir, case_family, f"yaw_power_ts_{case_name}.png"), include_power=include_power, legend_loc=legend_loc,
-                                        controller_dt=None, include_filtered_wind_dir=(case_family=="baseline_controllers_3"), single_plot=single_plot, case_label=case_name)
+                                        controller_dt=None, include_filtered_wind_dir=(case_family=="baseline_controllers_3"), single_plot=single_plot, case_label=case_name,
+                                        label_mapping=label_mapping)
                                     #    controller_dt=input_config["controller"]["dt"])
         
     if False:
@@ -711,7 +717,7 @@ def aggregate_time_series_data(time_series_df, input_dict_path, n_seeds):
 
     with open(input_dict_path, 'rb') as fp:
         input_config = pickle.load(fp)
-
+    
     stoptime = (np.ceil(input_config["hercules_comms"]["helics"]["config"]["stoptime"] / input_config["simulation_dt"]) * input_config["simulation_dt"]).astype(int)
     time_series_df = time_series_df.loc[time_series_df["Time"] < stoptime, :]
     time = pd.unique(time_series_df["Time"])
@@ -1032,7 +1038,9 @@ def plot_yaw_offset_wind_direction(data_dfs, case_names, case_labels, lut_path, 
     # fig.show()
     return fig, ax
 
-def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, include_filtered_wind_dir=True, controller_dt=None, legend_loc="best", single_plot=False, fig=None, ax=None, case_label=None):
+def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, include_filtered_wind_dir=True, 
+                      controller_dt=None, legend_loc="best", single_plot=False, fig=None, ax=None, case_label=None,
+                      label_mapping=None):
     
     colors = sns.color_palette("Paired")
     colors = [colors[1], colors[3], colors[5]]
@@ -1042,10 +1050,12 @@ def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, 
     
     ax = np.atleast_1d(ax)
     data_df = data_df.dropna(axis=1, how="all")
+    # data_df = data_df.drop(columns=["TurbineWindMag_5", "TurbineWindDir_5", "TurbinePower_5", "TurbineYawAngle_5", "TurbineYawAngleChange_5", "TurbineOfflineStatus_5"])
+    # data_df = data_df.dropna(subset=turbine_wind_direction_cols+turbine_power_cols+yaw_angle_cols)
     turbine_wind_direction_cols = sorted([col for col in data_df.columns if "TurbineWindDir_" in col], key=lambda s: int(s.split("_")[-1]))
     turbine_power_cols = sorted([col for col in data_df.columns if "TurbinePower_" in col], key=lambda s: int(s.split("_")[-1]))
     yaw_angle_cols = sorted([col for col in data_df.columns if "TurbineYawAngle_" == col[:len("TurbineYawAngle_")]], key=lambda s: int(s.split("_")[-1]))
-    data_df = data_df.dropna(subset=turbine_wind_direction_cols+turbine_power_cols+yaw_angle_cols)
+    
     case_seeds = sorted(pd.unique(data_df["WindSeed"]))
     plot_seed = case_seeds[0]
     
@@ -1056,9 +1066,9 @@ def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, 
         
         if include_yaw:
             ax_idx = 0
-            sns.lineplot(data=seed_df.reset_index(), x="Time", y="FreestreamWindDir", label="Wind dir.", color="black", ax=ax[ax_idx])
+            sns.lineplot(data=seed_df, x="Time", y="FreestreamWindDir", label="Wind dir.", color="black", ax=ax[ax_idx], alpha=0.25)
             if include_filtered_wind_dir:
-                sns.lineplot(data=seed_df, x="Time", y="FilteredFreestreamWindDir", label="Filtered wind dir.", color="black", linestyle="--", ax=ax[ax_idx])
+                sns.lineplot(data=seed_df, x="Time", y="FilteredFreestreamWindDir", label="Filtered wind dir.", color="black", linestyle="--", ax=ax[ax_idx], alpha=0.25)
             
         # Direction
         # for t, (wind_dir_col, power_col, yaw_col) in enumerate(zip(turbine_wind_direction_cols, turbine_power_cols, yaw_angle_cols)):
@@ -1067,10 +1077,14 @@ def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, 
             if include_yaw:
                 ax_idx = 0
                 tid = re.search("(?<=TurbineYawAngle_).*$", yaw_col).group(0)
-                if single_plot:
-                    sns.lineplot(data=seed_df, x="Time", y=yaw_col, label=f"T{tid} yaw setpoint, {1}".format(t + 1, case_label), linestyle=":", ax=ax[ax_idx])
+                if label_mapping:
+                    tid = label_mapping[tid]
                 else:
-                    sns.lineplot(data=seed_df, x="Time", y=yaw_col, color=color, label=f"T{tid} yaw setpoint".format(t + 1), linestyle=":", ax=ax[ax_idx])
+                    tid = f"T{tid}"
+                if single_plot:
+                    sns.lineplot(data=seed_df, x="Time", y=yaw_col, label=f"{tid} yaw setpoint, {1}".format(t + 1, case_label), linestyle=":", ax=ax[ax_idx])
+                else:
+                    sns.lineplot(data=seed_df, x="Time", y=yaw_col, color=color, label=f"{tid} yaw setpoint".format(t + 1), linestyle=":", ax=ax[ax_idx])
                 ax[ax_idx].set(ylabel="")
                 
                 if controller_dt is not None:
@@ -1080,20 +1094,20 @@ def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, 
                 next_ax_idx = (1 if include_yaw else 0)
                 if t == 0:
                     if single_plot:
-                        ax[next_ax_idx].fill_between(seed_df["Time"], seed_df[power_col] / 1e6, label=f"T{tid} power, {1}".format(t + 1, case_label))
+                        ax[next_ax_idx].fill_between(seed_df["Time"], seed_df[power_col] / 1e6, label=f"{tid} power, {1}".format(t + 1, case_label))
                     else:
-                        ax[next_ax_idx].fill_between(seed_df["Time"], seed_df[power_col] / 1e6, color=color, label=f"T{tid} power".format(t + 1))
+                        ax[next_ax_idx].fill_between(seed_df["Time"], seed_df[power_col] / 1e6, color=color, label=f"{tid} power".format(t + 1))
                 else:
                     if single_plot:
                         ax[next_ax_idx].fill_between(seed_df["Time"], seed_df[turbine_power_cols[:t+1]].sum(axis=1) / 1e6, 
                                         seed_df[turbine_power_cols[:t]].sum(axis=1)  / 1e6,
-                                        label=f"T{tid} power, {1}".format(t + 1, case_label))
+                                        label=f"{tid} power, {1}".format(t + 1, case_label))
                     else:
                         ax[next_ax_idx].fill_between(
                             seed_df["Time"], 
                             seed_df[turbine_power_cols[:t+1]].sum(axis=1) / 1e6, 
                             seed_df[turbine_power_cols[:t]].sum(axis=1)  / 1e6,
-                            color=color, label=f"T{tid} power".format(t + 1))
+                            color=color, label=f"{tid} power".format(t + 1))
         
         if include_power:
             next_ax_idx = (1 if include_yaw else 0)

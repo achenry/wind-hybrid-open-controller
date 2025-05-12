@@ -9,14 +9,10 @@ from itertools import product
 from functools import partial
 from memory_profiler import profile
 from wind_forecasting.preprocessing.data_module import DataModule
-from whoc.wind_forecast.WindForecast import generate_wind_field_df
+from whoc.wind_forecast.run_forecaster_validation import generate_wind_field_df
 import gc
 import re
-from wind_forecasting.utils.optuna_db_utils import setup_optuna_storage
-from wind_forecasting.run_scripts.tuning import generate_df_setup_params
 from wind_forecasting import __file__ as wind_forecasting_file
-#from line_profiler import profile
-# from datetime import timedelta
 
 import pandas as pd
 import polars as pl
@@ -32,11 +28,6 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 if sys.platform == "linux":
     N_COST_FUNC_TUNINGS = 21
-    # if os.getlogin() == "ahenry":
-    #     # Kestrel
-    #     STORAGE_DIR = "/projects/ssc/ahenry/whoc/floris_case_studies"
-    # elif os.getlogin() == "aohe7145":
-    #     STORAGE_DIR = "/projects/aohe7145/toolboxes/wind-hybrid-open-controller/whoc/floris_case_studies"
 elif sys.platform == "darwin":
     N_COST_FUNC_TUNINGS = 21
     # STORAGE_DIR = "/Users/ahenry/Documents/toolboxes/wind-hybrid-open-controller/examples/floris_case_studies"
@@ -69,13 +60,14 @@ case_studies = {
                                     "simulation_dt": {"group": 0, "vals": [1]},
                                     "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]},
-                                    "target_turbine_indices": {"group": 1, "vals": ["74,73"]}, #, "4,"]},
-                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]}, #, "GreedyController"]},
-                                    "prediction_timedelta": {"group": 1, "vals": [300]},#, 60]},
-                                    # "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
-                                    # "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
-                                    "uncertain": {"group": 3, "vals": [False, False, False, False]},
-                                    "wind_forecast_class": {"group": 3, "vals": ["PerfectForecast", "KalmanFilterForecast", "PersistenceForecast", "SpatialFilterForecast", "SVRForecast"]}, # "MLForecast"
+                                    # "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73"]},
+                                    # "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController"]},
+                                    "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
+                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
+                                    "use_upstream_wind": {"group": 4, "vals": [True, False]},
+                                    "prediction_timedelta": {"group": 1, "vals": [60, 300]},
+                                    "uncertain": {"group": 3, "vals": [False]}, #, False, False, False]},
+                                    "wind_forecast_class": {"group": 3, "vals": ["PerfectForecast"]}, #, "KalmanFilterForecast", "PersistenceForecast", "SpatialFilterForecast", "SVRForecast"]}, # "MLForecast"
                                     # "model_key": {"group": 3, "vals": ["informer"]},
                                     # "wind_forecast_class": {"group": 3, "vals": ["MLForecast"]},
     },
@@ -89,9 +81,9 @@ case_studies = {
         "yaw_limits": {"group": 0, "vals": ["-15,15"]},
         "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController"]},
         "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73"]},
-        "uncertain": {"group": 1, "vals": [False, False]},
-        "wind_forecast_class": {"group": 0, "vals": ["PerfectForecast", "ARIMAForecast"]},
-        "prediction_timedelta": {"group": 2, "vals": [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 360, 420, 480, 540, 600, 660, 720, 780, 840, 900]},
+        "uncertain": {"group": 0, "vals": [False]}, #, False]},
+        "wind_forecast_class": {"group": 0, "vals": ["PerfectForecast"]},
+        "prediction_timedelta": {"group": 2, "vals": [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360, 390, 420, 450, 480, 510, 540, 570, 600, 630, 660, 720, 750, 780]}, # TODO change naming so that we need not repeat, 450, 630, 660, 690, 720]},
         },
     "baseline_controllers_perfect_forecaster_flasc": {
         "controller_dt": {"group": 0, "vals": [5]},
@@ -209,7 +201,7 @@ case_studies = {
         "yaw_limits": {"group": 0, "vals": ["-15,15"]},
         "uncertain": {"group": 0, "vals": [False]},
         "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
-        "prediction_timedelta": {"group": 1, "vals": [300, 60]},
+        "prediction_timedelta": {"group": 1, "vals": [600, 600]},
         "target_turbine_indices": {"group": 1, "vals": ["74,73", "4,"]},
         "model_config_path": {"group": 1, "vals": [
             os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred300_svr.yaml"),
@@ -231,7 +223,7 @@ case_studies = {
         "yaw_limits": {"group": 0, "vals": ["-15,15"]},
         "uncertain": {"group": 0, "vals": [True, False, False]},
         "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController", "GreedyController"]},
-        "prediction_timedelta": {"group": 1, "vals": [300, 300, 60]},
+        "prediction_timedelta": {"group": 1, "vals": [600, 600, 600]},
         "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73", "4,"]},
         "wind_forecast_class": {"group": 0, "vals": ["KalmanFilterForecast"]}
     },
@@ -641,8 +633,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                                  freq=f"{simulation_dt}s", target_suffixes=base_model_config["dataset"]["target_turbine_ids"],
                                  per_turbine_target=False, as_lazyframe=False, dtype=pl.Float32)
 
-        # TODO REMOVE AND RENAME after sims have run!!!
-        data_module.train_ready_data_path = data_module.train_ready_data_path.replace(".parquet", "_new.parquet")
+        # data_module.train_ready_data_path = data_module.train_ready_data_path.replace(".parquet", "_new.parquet")
         if not os.path.exists(data_module.train_ready_data_path):
             data_module.generate_datasets()
             reload = True
@@ -651,16 +642,18 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         
         # pull ws_horz, ws_vert, nacelle_direction, normalization_consts from awaken data and run for ML, SVR
         data_module.generate_splits(splits=["test"], save=True, reload=reload) # TODO should reload if context/prediction length has changed
+        
         wind_field_ts = generate_wind_field_df(data_module.test_dataset, data_module.target_cols, data_module.feat_dynamic_real_cols)
+        
         delattr(data_module, "test_dataset")
         
         wind_field_ts = wind_field_ts.partition_by("continuity_group")
         
-        wind_field_ts = sorted(wind_field_ts, reverse=True, key=lambda df: df.select(pl.col("time").last() - pl.col("time").first()).item())
+        wind_field_ts.sort(reverse=True, key=lambda df: df.select(pl.col("time").last() - pl.col("time").first()).item())
         if n_seeds != "auto":
+            # reverse the order to start with the shortest
             wind_field_ts = wind_field_ts[:n_seeds]
-            # wind_field_ts = wind_field_ts[143:144]
-            # n_seeds = 1
+            wind_field_ts.sort(reverse=False, key=lambda df: df.select(pl.col("time").last() - pl.col("time").first()).item())
             
         else:
             n_seeds = len(wind_field_ts)
@@ -744,7 +737,12 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         del data_module
         gc.collect()
     for case_family in case_families:
-        case_studies[case_family]["wind_case_idx"] = {"group": max(d["group"] for d in case_studies[case_family].values()) + 1, "vals": [i for i in range(int(n_seeds))]}
+        # such that every case for single seed is processed first
+        for p in case_studies[case_family]:
+            case_studies[case_family][p]["group"] += 1
+        case_studies[case_family]["wind_case_idx"] = {"group": 0, "vals": [i for i in range(n_seeds)]}
+        
+        # case_studies[case_family]["wind_case_idx"] = {"group": max(d["group"] for d in case_studies[case_family].values()) + 1, "vals": [i for i in range(n_seeds)]}
 
     model_configs = {}
     input_dicts = []
@@ -891,7 +889,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             
             if "case_names" not in case_lists[start_case_idx + c]:
                 # case_lists[start_case_idx + c]["case_names"] = str(len(input_df) - 1)
-                input_dicts[start_case_idx + c]["case_name"] = str(len(input_df) - 1)
+                input_dicts[start_case_idx + c]["case_name"] = str(c % int(len(case_list) / n_seeds))
             else:
                 input_dicts[start_case_idx + c]["case_name"] = case_lists[start_case_idx + c]["case_names"]
             
@@ -956,6 +954,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
     for case_study_key in case_study_keys:
         allowed_input_files = set([fn for csk, _, _, fn in input_filenames if csk == case_study_key])
         allowed_ts_files = set([fn for csk, fn in ts_filenames if csk == case_study_key])
+        allowed_ts_files |= set([fn.replace(".csv", "_temp.csv") for fn in allowed_ts_files])
         # allowed_ts_files = set([
         #     f"time_series_results_case_{re.search('(?<=input_config_case_)(.*)(?=\\.pkl)', fn).group()}_seed_{wind_case_idx}.csv".replace("/", "_") 
         #     for csk, wind_case_idx, fn in input_filenames if csk == case_study_key])
@@ -983,7 +982,6 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                 pickle.dump(inp, fp) # TODO this adds different stop times for each file
             written_input_files.add(inp_path)
     
-    input_dicts = sorted(input_dicts, key=lambda case: case["wind_case_idx"], reverse=True)
     return input_dicts, wind_field_config, wind_field_ts
 
 # 0, 1, 2, 3, 6

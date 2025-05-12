@@ -1,4 +1,9 @@
+<<<<<<< HEAD
 from whoc.wind_forecast.WindForecast import SVRForecast, generate_wind_field_df, ARIMAForecast
+=======
+from whoc.wind_forecast.run_forecaster_validation import generate_wind_field_df
+from whoc.wind_forecast.svr_forecast import SVRForecast
+>>>>>>> 05b77aeabd8c37dd009abfe174197a0790429d53
 from wind_forecasting.preprocessing.data_module import DataModule
 from gluonts.dataset.split import slice_data_entry
 import numpy as np
@@ -10,7 +15,7 @@ import os
 import sqlite3
 import logging 
 from floris import FlorisModel
-import psutil
+
 import re
 import random
 import optuna
@@ -24,39 +29,6 @@ try:
     from mpi4py import MPI
 except Exception as e:
     logging.warning("Could not import MPI.")
-
-# def set_cpu_affinity(core_ids):
-#     """Sets the CPU affinity for the current process."""
-#     pid = os.getpid()
-#     p = psutil.Process(pid)
-
-#     try:
-#         current_affinity = p.cpu_affinity()
-#         logging.info(f"Process {pid}: Current CPU affinity: {current_affinity}")
-
-#         # Ensure core_ids is a list of integers
-#         cores_to_set = [int(c) for c in core_ids]
-
-#         # Check if requested cores are available (optional but good practice)
-#         available_cores = list(range(psutil.cpu_count(logical=True)))
-#         invalid_cores = [c for c in cores_to_set if c not in available_cores]
-#         if invalid_cores:
-#             logging.warning(f"Requested cores {invalid_cores} are not valid/available.")
-#             logging.info(f"Available cores: {available_cores}")
-#             # Decide how to handle: exit, use available subset, or proceed anyway?
-#             # For now, we'll proceed, but psutil might raise an error later.
-
-#         p.cpu_affinity(cores_to_set)
-#         new_affinity = p.cpu_affinity()
-#         logging.info(f"Process {pid}: Set CPU affinity to: {new_affinity}")
-#         return True
-
-#     except AttributeError:
-#         logging.error(f"Process {pid}: CPU affinity setting not supported on this platform via psutil.")
-#         return False
-#     except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError) as e:
-#         logging.error(f"Process {pid}: Failed to set CPU affinity: {e}")
-#         return False
 
 def replace_env_vars(dirpath):
     env_vars = re.findall(r"(?:^|\/)\$(\w+)(?:\/|$)", dirpath)
@@ -199,12 +171,10 @@ if __name__ == "__main__":
             reload = True
         else:
             reload = False
-        
-    else:
-        reload = False
+            
+        data_module.generate_splits(save=True, reload=reload, splits=["train", "val"])
+
     # get max_splits longest datasets
-    data_module.generate_splits(save=True, reload=reload, splits=["train", "val"])
-    
     if worker_id == 0 and (args.reload_data or reload):
         data_module.train_dataset = sorted(data_module.train_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
         data_module.val_dataset = sorted(data_module.val_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
@@ -245,34 +215,20 @@ if __name__ == "__main__":
     
         logging.info("Running tune_hyperparameters_single")
     
-    if args.multiprocessor == "mpi":
+    
+    elif args.multiprocessor == "mpi":
         optuna_storage = comm.bcast(optuna_storage, root=0)
+        
+    if args.multiprocessor == "mpi":
+        comm.Barrier()
     
     scaler_params = data_module.compute_scaler_params()
     
     if args.mode == "tune" and worker_id >= 0:
         
-        # Parse the core argument (e.g., "0-9" or "10,11,12")
-        # if args.cores:
-        #     core_ids = []
-        #     parts = args.cores.split(',')
-        #     for part in parts:
-        #         if '-' in part:
-        #             start, end = map(int, part.split('-'))
-        #             core_ids.extend(list(range(start, end + 1)))
-        #         else:
-        #             core_ids.append(int(part))
-
-        #     # Remove duplicates and sort
-        #     core_ids = sorted(list(set(core_ids)))
-            
-        # logging.info(f"Process {os.getpid()}: Attempting to use cores: {core_ids}")
-        
-        
-        #{"type": "hyperband", "min_resource": 2, "max_resource": 5, "reduction_factor": 3, "percentile": 25}
-        
         if args.multiprocessor:
             logging.info(f"Using multiprocessor {args.multiprocessor}")
+<<<<<<< HEAD
 
         #        historic_measurements = train_dataset["ws_horz_1"]
     
@@ -295,6 +251,21 @@ if __name__ == "__main__":
                                                     limit_train_val=args.limit_train_val)
                                             #  trial_protection_callback=handle_trial_with_oom_protection)
 
+=======
+            
+        forecaster.tune_hyperparameters_single(storage=optuna_storage,
+                                                n_trials_per_worker=model_config["optuna"]["n_trials_per_worker"], 
+                                                seed=args.seed,
+                                                config=model_config,
+                                                worker_id=0 if RUN_ONCE and (worker_id == 0) else worker_id,
+                                                multiprocessor=args.multiprocessor,
+                                                limit_train_val=args.limit_train_val)
+                                        #  trial_protection_callback=handle_trial_with_oom_protection)
+        # %% After tuning completes
+        logging.info("Optuna hyperparameter tuning completed.")
+        
+    elif args.mode == "train":
+>>>>>>> 05b77aeabd8c37dd009abfe174197a0790429d53
         # %% TRAINING MODEL
         if args.model == "svr":
             logging.info("Training model using best hyperparameters.")
