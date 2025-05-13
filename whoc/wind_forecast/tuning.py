@@ -1,9 +1,7 @@
-<<<<<<< HEAD
 from whoc.wind_forecast.WindForecast import SVRForecast, generate_wind_field_df, ARIMAForecast
-=======
 from whoc.wind_forecast.run_forecaster_validation import generate_wind_field_df
 from whoc.wind_forecast.svr_forecast import SVRForecast
->>>>>>> 05b77aeabd8c37dd009abfe174197a0790429d53
+#from whoc.wind_forecast.arima_forecast import ARIMAForecast
 from wind_forecasting.preprocessing.data_module import DataModule
 from gluonts.dataset.split import slice_data_entry
 import numpy as np
@@ -22,6 +20,12 @@ import optuna
 from wind_forecasting.utils.optuna_db_utils import setup_optuna_storage
 from wind_forecasting.run_scripts.tuning import generate_df_setup_params
 from datetime import datetime
+
+import matplotlib.pyplot as plt
+import pandas as pd
+from statsmodels.tsa.stattools import adfuller
+from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
+
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -228,17 +232,85 @@ if __name__ == "__main__":
         
         if args.multiprocessor:
             logging.info(f"Using multiprocessor {args.multiprocessor}")
-<<<<<<< HEAD
 
         #        historic_measurements = train_dataset["ws_horz_1"]
     
         historic_measurements = {
             col: train_dataset[col]
             for col in train_dataset.columns
-            if col.startswith("ws_vert")
+            if col.startswith("ws_horz") 
         }
 
         logging.info(f"Tuning hyperparameters for all horizontal wind speeds: {list(historic_measurements.keys())}")
+
+        ## Manually hyperparameter tuning for ARIMA
+
+        df = pd.DataFrame(historic_measurements)
+        avg_series = df.mean(axis=1)
+       
+        # plot the average series
+        plt.figure(figsize=(12, 6))
+        plt.plot(avg_series, label='Average Horizontal Wind Speed')
+        plt.title('Average Vertical Wind Speed Across 7 Turbines', fontsize=22)
+        plt.xlabel('Time (minutes)', fontsize=16)
+        plt.ylabel('Average Wind Speed (m/s)', fontsize=16)
+        plt.grid(True)
+        plt.show()
+
+        current_series = avg_series.copy()
+        d = 0
+        
+        while True:
+            print(f"nADF Test for d={d}")
+            result = adfuller(current_series.dropna(), autolag='AIC')
+            labels = ['ADF Statistic', 'p-value', 'Used Lag', 'Number of Observations Used']
+            for value, label in zip(result[:4], labels):
+                print(f"{label}: {value}")
+
+            if result[1] < 0.05:
+                print(f"Series is stationary at d={d}")
+                break
+            else:
+                print(f"Series is non-stationary at d={d}, differencing the series.")
+                current_series = current_series.diff().dropna()
+                d += 1
+
+                plt.figure(figsize=(12, 6))
+                plt.plot(current_series.dropna())
+                plt.title('First-Order Differenced Average Vertical Wind Speed Across 7 Turbines', fontsize=22)
+                plt.xlabel('Time (minutes)', fontsize=16)
+                plt.ylabel('Differenced Wind Speed (m/s)', fontsize=16)
+                plt.grid(True)
+                plt.show()
+        print(f"Optimal d: {d}")
+
+        # HYPERPARAMETER TUNING FOR P AND Q
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 5), dpi=80)
+        sampled_series = current_series.iloc[:1000]# Downsample the series for ACF and PACF plots
+        plot_acf(sampled_series.dropna(), lags=20, ax=ax1)
+        ax1.set_title("Autocorrelation Function (ACF)", fontsize=17)
+        ax1.set_xlabel("Lag (minutes)", fontsize=17)
+        ax1.set_ylabel("Autocorrelation (-)", fontsize=17)
+        ax1.tick_params(axis='both', labelsize=12)
+
+        plot_pacf(sampled_series.dropna(), lags=20, ax=ax2, method='ywm')
+
+        ax2.set_title("Partial Autocorrelation Function (PACF)", fontsize=17)
+        ax2.set_xlabel("Lag (minutes)", fontsize=17)
+        ax2.set_ylabel("Partial Autocorrelation (-)", fontsize=17)
+        ax2.tick_params(axis='both', labelsize=12)
+
+        fig.suptitle(
+            "ACF and PACF of First-Order Differenced Average Horizontal Wind Speed Across 7 Turbines",
+            fontsize=24
+        )
+
+        plt.tight_layout()
+        plt.show()
+            
+        ## Here the manually tuning of ARIMA hyperparameters ends
+
+
 
         if args.tune:
             forecaster.tune_hyperparameters_single(historic_measurements=historic_measurements, 
@@ -251,21 +323,10 @@ if __name__ == "__main__":
                                                     limit_train_val=args.limit_train_val)
                                             #  trial_protection_callback=handle_trial_with_oom_protection)
 
-=======
-            
-        forecaster.tune_hyperparameters_single(storage=optuna_storage,
-                                                n_trials_per_worker=model_config["optuna"]["n_trials_per_worker"], 
-                                                seed=args.seed,
-                                                config=model_config,
-                                                worker_id=0 if RUN_ONCE and (worker_id == 0) else worker_id,
-                                                multiprocessor=args.multiprocessor,
-                                                limit_train_val=args.limit_train_val)
-                                        #  trial_protection_callback=handle_trial_with_oom_protection)
         # %% After tuning completes
         logging.info("Optuna hyperparameter tuning completed.")
         
     elif args.mode == "train":
->>>>>>> 05b77aeabd8c37dd009abfe174197a0790429d53
         # %% TRAINING MODEL
         if args.model == "svr":
             logging.info("Training model using best hyperparameters.")

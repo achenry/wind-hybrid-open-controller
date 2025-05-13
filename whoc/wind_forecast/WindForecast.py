@@ -505,7 +505,7 @@ class WindForecast:
         assert split in ["train", "test", "val"]
         feat_type = re.search(f"\\w+(?=_{self.turbine_signature})", output).group()
         tid = re.search(self.turbine_signature, output).group()
-        Xy_path = os.path.join(self.model_save_dir, f"Xy_{self.study_name}_{split}_{output}.dat")
+        Xy_path = os.path.join(self.model_save_dir_horz, f"Xy_{self.study_name}_{split}_{output}.dat")
         
         if isinstance(self, ARIMAForecast):
         # If the model is ARIMA
