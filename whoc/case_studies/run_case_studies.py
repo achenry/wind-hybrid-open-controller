@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 import yaml
 import pickle
+from glob import glob
 from memory_profiler import profile
 
 import logging
@@ -216,7 +217,8 @@ if __name__ == "__main__":
                 # make a list of the time series csv files for all case_names and seeds in each case family directory
                 case_family_case_names = {}
                 for i in args.case_ids:
-                    case_family_case_names[case_families[i]] = [fn for fn in os.listdir(os.path.join(args.save_dir, case_families[i])) if ".csv" in fn and "time_series_results_case" in fn and "_temp.csv" not in fn]
+                    case_family_case_names[case_families[i]] = [fn for fn in glob(os.path.join(args.save_dir, case_families[i], "time_series_results_case_*_seed_*.csv")) if "_temp.csv" not in fn]
+                    # case_family_case_names[case_families[i]] = [fn for fn in glob(os.path.join(args.save_dir, case_families[i], r"time_series_results_case_*_seed_[0-9]+.csv"))]
 
                 # case_family_case_names["slsqp_solver_sweep"] = [f"time_series_results_case_alpha_1.0_controller_class_MPC_diff_type_custom_cd_dt_30_n_horizon_24_n_wind_preview_samples_5_nu_0.01_solver_slsqp_use_filtered_wind_dir_False_wind_preview_type_stochastic_interval_seed_{s}" for s in range(6)]
             # if using multiprocessing
@@ -251,7 +253,7 @@ if __name__ == "__main__":
                     read_futures = [run_simulations_exec.submit(read_case_family_time_series_data, 
                                                                 case_family=case_families[i], save_dir=args.save_dir)
                                     for i in args.case_ids
-                                    if not args.reaggregate_simulations and os.path.exists(os.path.join(args.save_dir, case_families[i], "time_series_results_all.csv"))]
+                                    if os.path.exists(os.path.join(args.save_dir, case_families[i], "time_series_results_all.csv"))]
                     existing_time_series_df = [fut.result() for fut in read_futures]
 
                     # write time_series_all for each case
@@ -316,7 +318,7 @@ if __name__ == "__main__":
                 existing_time_series_df = []
                 for i in args.case_ids:
                     # all_ts_df_path = os.path.join(args.save_dir, case_families[i], "time_series_results_all.csv")
-                    if not args.reaggregate_simulations and os.path.exists(os.path.join(args.save_dir, case_families[i], "time_series_results_all.csv")):
+                    if os.path.exists(os.path.join(args.save_dir, case_families[i], "time_series_results_all.csv")):
                         existing_time_series_df.append(read_case_family_time_series_data(case_families[i], save_dir=args.save_dir))
                 
                 new_case_family_time_series_df = [] 
