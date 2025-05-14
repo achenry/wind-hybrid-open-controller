@@ -186,8 +186,7 @@ def plot_agg_metrics_vs_forecaster(agg_df, save_dir, label, controller_labels, a
             plot_df.loc[(plot_df["wind_forecast_class"] != "PersistenceForecast") & cond, "value"] = 100 * (plot_df.loc[cond, "value"] - base_val) / base_val
 
     # plot_df.loc[(plot_df["controller_class"] == ctrl) & (plot_df["variable"] == "YawAngleChangeAbsMean"), "value"] = plot_df.loc[(plot_df["controller_class"] == ctrl) & (plot_df["variable"] == "YawAngleChangeAbsMean"), "value"] / 100
-    
-    ax = sns.catplot(plot_df.loc[((plot_df["wind_forecast_class"] != "PersistenceForecast")), :], kind="bar",
+    ax = sns.catplot(plot_df.loc[((plot_df["wind_forecast_class"] == "PersistenceForecast")), :], kind="bar",
                 x="wind_forecast_class", y="value", col="variable", hue="controller_class", 
                 sharey=False, errorbar=('pi', 100))
     

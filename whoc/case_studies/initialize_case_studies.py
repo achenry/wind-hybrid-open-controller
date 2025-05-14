@@ -46,8 +46,8 @@ case_studies = {
                                     "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
                                     "simulation_dt": {"group": 0, "vals": [60]},
                                     "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/smarteole_farm.yaml"]},
-                                    "uncertain": {"group": 3, "vals": [False, False]}, # , False
-                                    "wind_forecast_class": {"group": 3, "vals": ["PersistenceForecast"]}, #"PersistenceForecast", , ", "KalmanFilterForecast", "SpatialFilterForecast"]},
+                                    "uncertain": {"group": 3, "vals": [False]}, # , False
+                                    "wind_forecast_class": {"group": 3, "vals": ["PersistenceForecast"]}, #, "ARIMAForecast"#"PersistenceForecast", , ", "KalmanFilterForecast", "SpatialFilterForecast"]},
                                     "study_name": {"group": 3, "vals": ["svr_aoifemac_flasc"]},
                                     "prediction_timedelta": {"group": 4, "vals": [480]}, #, 120, 180]},
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]},

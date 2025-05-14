@@ -190,7 +190,8 @@ class GreedyController(ControllerBase):
         forecasted_wind_field = None
         single_forecasted_wind_field = None
         use_wind_forecast = False
-        
+        if (self.current_time >= self.lpf_start_time):
+            print(f"reached this point")
         if (self.current_time >= self.lpf_start_time) and (((self.current_time - self.init_time).total_seconds() % self.controller_dt) == 0.0):
             
             if self.wind_forecast and self.wind_forecast.prediction_timedelta.total_seconds() > 0:

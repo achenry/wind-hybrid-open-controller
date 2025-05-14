@@ -165,6 +165,7 @@ if __name__ == "__main__":
                 
                 logging.info(f"Submitting simulate_controller calls to pool executor with {run_simulations_exec._max_workers} workers")
                 # for MPIPool executor, (waiting as if shutdown() were called with wait set to True)
+
                 futures = [run_simulations_exec.submit(simulate_controller, 
                                                 controller_class=globals()[d["controller"]["controller_class"]], 
                                                 wind_forecast_class=globals()[d["controller"]["wind_forecast_class"]] if d["controller"]["wind_forecast_class"] else None,
@@ -504,9 +505,9 @@ if __name__ == "__main__":
                 ml_baseline_agg_df = baseline_agg_df.loc[(~baseline_agg_df["model_key"].isnull()) | (baseline_agg_df["wind_forecast_class"] == "PersistenceForecast"), :]
                 ml_baseline_agg_df["controller_class"] = ml_baseline_agg_df["controller_class"] + ml_baseline_agg_df["uncertain"].astype(str)
                 ml_baseline_agg_df = ml_baseline_agg_df.sort_values("controller_class")
-                plot_agg_metrics_vs_forecaster(ml_baseline_agg_df,
-                                               save_dir=args.save_dir, label="ml_forecasters_",
-                                               controller_labels=controller_labels)
+                #plot_agg_metrics_vs_forecaster(ml_baseline_agg_df,
+                #                               save_dir=args.save_dir, label="ml_forecasters_",
+                #                               controller_labels=controller_labels)
                 
                 other_baseline_agg_df = baseline_agg_df.loc[baseline_agg_df["model_key"].isnull(), :]
                 other_baseline_agg_df["controller_class"] = other_baseline_agg_df["controller_class"] + other_baseline_agg_df["uncertain"].astype(str)
