@@ -251,7 +251,7 @@ def write_case_family_time_series_data(case_family, new_time_series_df, save_dir
     logging.info(f"Writing combined case family {case_family} time-series dataframe.")
     logging.info(f"Directory of time_series_results_all.csv: {os.path.join(save_dir, case_family)}")
 
-    new_time_series_df.loc[new_time_series_df.index.get_level_values("CaseFamily") == case_family, :].to_csv(all_ts_df_path)
+    new_time_series_df.loc[new_time_series_df.index.get_level_values("CaseFamily") == case_family, :].to_csv(all_ts_df_path, index=False)
 
 def read_time_series_data(results_path, input_dict_path):
           
@@ -1050,10 +1050,11 @@ def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, 
     ax = np.atleast_1d(ax)
     data_df = data_df.dropna(axis=1, how="all")
     # data_df = data_df.drop(columns=["TurbineWindMag_5", "TurbineWindDir_5", "TurbinePower_5", "TurbineYawAngle_5", "TurbineYawAngleChange_5", "TurbineOfflineStatus_5"])
-    # data_df = data_df.dropna(subset=turbine_wind_direction_cols+turbine_power_cols+yaw_angle_cols)
+    
     turbine_wind_direction_cols = sorted([col for col in data_df.columns if "TurbineWindDir_" in col], key=lambda s: int(s.split("_")[-1]))
     turbine_power_cols = sorted([col for col in data_df.columns if "TurbinePower_" in col], key=lambda s: int(s.split("_")[-1]))
     yaw_angle_cols = sorted([col for col in data_df.columns if "TurbineYawAngle_" == col[:len("TurbineYawAngle_")]], key=lambda s: int(s.split("_")[-1]))
+    data_df = data_df.dropna(subset=turbine_wind_direction_cols+turbine_power_cols+yaw_angle_cols)
     
     case_seeds = sorted(pd.unique(data_df["WindSeed"]))
     plot_seed = case_seeds[0]
@@ -1139,6 +1140,7 @@ def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, 
             ax[next_ax_idx].legend(ncols=n_cols, loc=legend_loc)
         else:
             sns.move_legend(ax[next_ax_idx], "upper left", bbox_to_anchor=(1, 1), ncols=n_cols)
+        ax[next_ax_idx].set_xlim(0, ax[next_ax_idx].get_xlim()[1])
         # ax[next_ax_idx].legend([], [], frameon=False)
 
     results_dir = os.path.dirname(save_path)

@@ -145,35 +145,36 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
                 simulation_v = kwargs["wind_field_ts"].select([f"ws_vert_{idx2tid_mapping[t_idx]}" for t_idx in simulation_input_dict["controller"]["target_turbine_indices"]]).select(pl.mean_horizontal(pl.all())).to_numpy()[:, 0]
         
         # filter wind field NOTE TODO this is not the wind field that PerfectForecast is returning...
-        # fc_dir = 0.0011
-        fc_mag = 0.0011
-        n_lpf = 1
-        ts_len = len(simulation_u)
-        fs = (0.5 / simulation_input_dict["simulation_dt"]) * np.array([i for i in range(1, int(ts_len / 2))]) / (ts_len / 2)
-        
-        # tf_dir_lpf = butterworth_LPF_TFmag(fs, fc_dir, n_lpf)
-        tf_mag_lpf = butterworth_LPF_TFmag(fs, fc_mag, n_lpf)
-
         # FFT of raw wind direction time series
         # freq_vec_dir = np.fft.fft(simulation_dir)
         freq_vec_u = np.fft.fft(simulation_u)
         freq_vec_v = np.fft.fft(simulation_v)
+        
+        # fc_dir = 0.0011
+        fc_mag = 0.0011
+        n_lpf = 1
+        ts_len = len(simulation_u)
+        half_len = int(ts_len / 2)
+        fs = (1 / (ts_len * simulation_input_dict["simulation_dt"])) * np.arange(1, half_len)
+        
+        # tf_dir_lpf = butterworth_LPF_TFmag(fs, fc_dir, n_lpf)
+        tf_mag_lpf = butterworth_LPF_TFmag(fs, fc_mag, n_lpf)
 
         # Apply LPF magnitude
         # freq_vec_dir[1:int(ts_len / 2)] *= tf_dir_lpf
-        freq_vec_u[1:int(ts_len / 2)] *= tf_mag_lpf
-        freq_vec_v[1:int(ts_len / 2)] *= tf_mag_lpf
+        freq_vec_u[1:half_len] *= tf_mag_lpf
+        freq_vec_v[1:half_len] *= tf_mag_lpf
         
         if ts_len % 2 == 0:
-            freq_vec_u[int(ts_len / 2)] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc_mag, n_lpf), 0]))
-            freq_vec_u[int(ts_len / 2) + 1:] *= np.flip(tf_mag_lpf)
-            freq_vec_v[int(ts_len / 2)] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc_mag, n_lpf), 0]))
-            freq_vec_v[int(ts_len / 2) + 1:] *= np.flip(tf_mag_lpf)
+            freq_vec_u[half_len] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc_mag, n_lpf), 0]))
+            freq_vec_u[half_len + 1:] *= np.flip(tf_mag_lpf)
+            freq_vec_v[half_len] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc_mag, n_lpf), 0]))
+            freq_vec_v[half_len + 1:] *= np.flip(tf_mag_lpf)
         else:
-            freq_vec_u[int(ts_len / 2):int(ts_len / 2)+2] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc_mag, n_lpf), 0]))
-            freq_vec_u[int(ts_len / 2) + 2:] *= np.flip(tf_mag_lpf)
-            freq_vec_v[int(ts_len / 2):int(ts_len / 2)+2] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc_mag, n_lpf), 0]))
-            freq_vec_v[int(ts_len / 2) + 2:] *= np.flip(tf_mag_lpf)
+            freq_vec_u[half_len:half_len+2] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc_mag, n_lpf), 0]))
+            freq_vec_u[half_len + 2:] *= np.flip(tf_mag_lpf)
+            freq_vec_v[half_len:half_len+2] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc_mag, n_lpf), 0]))
+            freq_vec_v[half_len + 2:] *= np.flip(tf_mag_lpf)
 
         # START TEST
         # new_simulation_u = np.real(np.fft.ifft(freq_vec_u))[TRUNCATE_STEPS:-TRUNCATE_STEPS]
