@@ -114,6 +114,8 @@ if __name__ == "__main__":
             = initialize_simulations(case_study_keys=[case_families[i] for i in args.case_ids], 
                                         regenerate_wind_field=args.generate_wind_field, 
                                         regenerate_lut=args.generate_lut, 
+                                        rerun_simulations=args.rerun_simulations,
+                                        reprocess_simulations=args.reprocess_simulations,
                                         n_seeds=args.n_seeds, 
                                         stoptime=args.stoptime, 
                                         save_dir=args.save_dir, 
@@ -256,6 +258,7 @@ if __name__ == "__main__":
                                     if not args.reaggregate_simulations and os.path.exists(os.path.join(args.save_dir, case_families[i], "time_series_results_all.csv"))]
                     existing_time_series_df = [fut.result() for fut in read_futures]
 
+                    # write time_series_all for each case
                     if len(new_time_series_df):
                         write_futures = [run_simulations_exec.submit(write_case_family_time_series_data, 
                                                                      case_family=case_families[i], 
@@ -401,32 +404,31 @@ if __name__ == "__main__":
         elif RUN_ONCE:
             time_series_df = []
             for i in args.case_ids:
-                warnings.simplefilter('error', pd.errors.DtypeWarning)
+                # warnings.simplefilter('error', pd.errors.DtypeWarning)
                 filepath = os.path.join(args.save_dir, case_families[i], "time_series_results_all.csv")
                 if os.path.exists(filepath):
-                    try:
+                    # try:
                         # time_series_df.append(pd.read_csv(filepath, index_col=[0, 1]))
                         # get column names 
-                        with open(filepath, 'r', newline='') as fp:
-                            csv_reader = csv.reader(fp)
-                            columns = next(csv_reader)
-                            columns = columns[1:] # remove index row
-                        bool_cols = [col for col in columns if "TurbineOfflineStatus" in col]
-                        if bool_cols:
-                            df = pd.read_csv(filepath, index_col=[0, 1], dtype={col: object for col in bool_cols}) # necessary if contains NaNs
-                            for col in bool_cols:
-                                df.loc[(df[col] == "False") | (df[col].isna()), col] = False
-                                df[col] = df[col].astype(bool)
-                        else:
-                            df = pd.read_csv(filepath, index_col=[0, 1])
-                            
-                        time_series_df.append(df)
-                    except pd.errors.DtypeWarning as w:
-                        logging.error(f"DtypeWarning with combined time series file {filepath}: {w}")
-                        warnings.simplefilter('ignore', pd.errors.DtypeWarning)
-                        bad_df = pd.read_csv(filepath, index_col=[0, 1], low_memory=False)
-                        bad_cols = [bad_df.columns[int(s) - len(bad_df.index.names)] for s in re.findall(r"(?<=Columns \()(.*)(?=\))", w.args[0])[0].split(",")]
-                        bad_df.loc[bad_df[bad_cols].isna().any(axis=1)]
+                        # with open(filepath, 'r', newline='') as fp:
+                        #     csv_reader = csv.reader(fp)
+                        #     columns = next(csv_reader)
+                        #     columns = columns[1:] # remove index row
+                        # bool_cols = [col for col in columns if "TurbineOfflineStatus" in col]
+                        # if bool_cols:
+                        #     df = pd.read_csv(filepath, index_col=[0, 1], dtype={col: object for col in bool_cols}) # necessary if contains NaNs
+                        #     for col in bool_cols:
+                        #         df.loc[(df[col] == "False") | (df[col].isna()), col] = False
+                        #         df[col] = df[col].astype(bool)
+                        # else:
+                    df = pd.read_csv(filepath, low_memory=False)
+                    time_series_df.append(df)
+                    # except pd.errors.DtypeWarning as w:
+                        # logging.error(f"DtypeWarning with combined time series file {filepath}: {w}")
+                        # warnings.simplefilter('ignore', pd.errors.DtypeWarning)
+                        # bad_df = pd.read_csv(filepath, index_col=[0, 1], low_memory=False)
+                        # bad_cols = [bad_df.columns[int(s) - len(bad_df.index.names)] for s in re.findall(r"(?<=Columns \()(.*)(?=\))", w.args[0])[0].split(",")]
+                        # bad_df.loc[bad_df[bad_cols].isna().any(axis=1)]
             time_series_df = pd.concat(time_series_df)
             
             agg_df = []
@@ -434,14 +436,14 @@ if __name__ == "__main__":
                 warnings.simplefilter('error', pd.errors.DtypeWarning)
                 filepath = os.path.join(args.save_dir, case_families[i], "agg_results_all.csv")
                 if os.path.exists(filepath):
-                    try:
-                        agg_df.append(pd.read_csv(filepath, header=[0,1], index_col=[0, 1], skipinitialspace=True))
-                    except pd.errors.DtypeWarning as w:
-                        logging.error(f"DtypeWarning with combined time series file {filepath}: {w}")
-                        warnings.simplefilter('ignore', pd.errors.DtypeWarning)
-                        bad_df = pd.read_csv(filepath, header=[0,1], index_col=[0, 1], skipinitialspace=True)
-                        bad_cols = [bad_df.columns[int(s) - len(bad_df.index.names)] for s in re.findall(r"(?<=Columns \()(.*)(?=\))", w.args[0])[0].split(",")]
-                        bad_df.loc[bad_df[bad_cols].isna().any(axis=1)]
+                    # try:
+                    agg_df.append(pd.read_csv(filepath, header=[0,1], low_memory=False, skipinitialspace=True))
+                    # except pd.errors.DtypeWarning as w:
+                    #     logging.error(f"DtypeWarning with combined time series file {filepath}: {w}")
+                    #     warnings.simplefilter('ignore', pd.errors.DtypeWarning)
+                    #     bad_df = pd.read_csv(filepath, header=[0,1], index_col=[0, 1], skipinitialspace=True)
+                    #     bad_cols = [bad_df.columns[int(s) - len(bad_df.index.names)] for s in re.findall(r"(?<=Columns \()(.*)(?=\))", w.args[0])[0].split(",")]
+                    #     bad_df.loc[bad_df[bad_cols].isna().any(axis=1)]
 
             agg_df = pd.concat(agg_df)
 
@@ -505,9 +507,10 @@ if __name__ == "__main__":
                 ml_baseline_agg_df = baseline_agg_df.loc[(~baseline_agg_df["model_key"].isnull()) | (baseline_agg_df["wind_forecast_class"] == "PersistenceForecast"), :]
                 ml_baseline_agg_df["controller_class"] = ml_baseline_agg_df["controller_class"] + ml_baseline_agg_df["uncertain"].astype(str)
                 ml_baseline_agg_df = ml_baseline_agg_df.sort_values("controller_class")
-                #plot_agg_metrics_vs_forecaster(ml_baseline_agg_df,
-                #                               save_dir=args.save_dir, label="ml_forecasters_",
-                #                               controller_labels=controller_labels)
+                # if (ml_baseline_agg_df["model_key"].apply(type) == str).any():
+                #     plot_agg_metrics_vs_forecaster(ml_baseline_agg_df,
+                #                                 save_dir=args.save_dir, label="ml_forecasters_",
+                #                                 controller_labels=controller_labels)
                 
                 other_baseline_agg_df = baseline_agg_df.loc[baseline_agg_df["model_key"].isnull(), :]
                 other_baseline_agg_df["controller_class"] = other_baseline_agg_df["controller_class"] + other_baseline_agg_df["uncertain"].astype(str)
@@ -534,6 +537,8 @@ if __name__ == "__main__":
                                  + [("baseline_controllers_perfect_forecaster_awaken", cn) for cn in perfect_case_names]
                 label_mapping = {"74": "LUT Ds", "75": "LUT Us", "5": "Greedy"}
                 
+                plotting_cases = [(df[1]._name[0], str(df[1]._name[1])) for df in forecasters_agg_df.loc[(forecasters_agg_df["wind_forecast_class"] == "SVRForecast"), :].iterrows()]
+                plotting_cases = [(df[1]._name[0], str(df[1]._name[1])) for df in forecasters_agg_df.loc[(forecasters_agg_df["wind_forecast_class"] == "PersistenceForecast"), :].iterrows()]
                 plot_simulations(
                         time_series_df, plotting_cases, args.save_dir, include_power=True, 
                         legend_loc="outer", single_plot=False, label_mapping=label_mapping) 

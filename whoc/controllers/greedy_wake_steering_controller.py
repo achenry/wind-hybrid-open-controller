@@ -190,9 +190,8 @@ class GreedyController(ControllerBase):
         forecasted_wind_field = None
         single_forecasted_wind_field = None
         use_wind_forecast = False
-        if (self.current_time >= self.lpf_start_time):
-            print(f"reached this point")
-        if (self.current_time >= self.lpf_start_time) and (((self.current_time - self.init_time).total_seconds() % self.controller_dt) == 0.0):
+        
+        if (((self.current_time - self.init_time).total_seconds() % self.controller_dt) == 0.0):
             
             if self.wind_forecast and self.wind_forecast.prediction_timedelta.total_seconds() > 0:
                 forecasted_wind_field = self.wind_forecast.predict_point(self.historic_measurements, self.current_time)\
@@ -201,7 +200,7 @@ class GreedyController(ControllerBase):
                 use_wind_forecast = True
             
             # if not enough wind data has been collected to filter with, or we are not using filtered data, just get the most recent wind measurements
-            if not self.wind_dir_use_filt:
+            if (self.current_time < self.lpf_start_time) or not self.wind_dir_use_filt:
                 wind = single_forecasted_wind_field if use_wind_forecast else current_measurements.select("time", cs.starts_with("ws_"))
                 wind_dirs = 180.0 + np.rad2deg(np.arctan2(
                     wind.select(self.target_mean_ws_horz_cols).to_numpy()[-1, :], 

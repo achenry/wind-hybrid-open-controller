@@ -147,7 +147,6 @@ class LookupBasedWakeSteeringController(ControllerBase):
         self.yaw_norm_const = 360.0
     
     def _first_ord_filter(self, x, alpha):
-        
         b = [1 - alpha]
         a = [1, -alpha]
         return lfilter(b, a, x)
@@ -410,9 +409,8 @@ class LookupBasedWakeSteeringController(ControllerBase):
         use_wind_forecast = False
         forecasted_wind_field = None
         single_forecasted_wind_field = None
-        if (self.current_time >= self.lpf_start_time):
-            print(f"reached this point")
-        if (self.current_time >= self.lpf_start_time) and (((self.current_time - self.init_time).total_seconds() % self.controller_dt) == 0.0):
+        
+        if (((self.current_time - self.init_time).total_seconds() % self.controller_dt) == 0.0):
             if self.wind_forecast and self.wind_forecast.prediction_timedelta.total_seconds() > 0:
                 if self.uncertain:
                     forecasted_wind_field = self.wind_forecast.predict_distr(self.historic_measurements, self.current_time)
@@ -425,7 +423,7 @@ class LookupBasedWakeSteeringController(ControllerBase):
                 use_wind_forecast = True
             
             # just hold initial yaw setpoints
-            if not (self.wind_dir_use_filt or self.wind_mag_use_filt):
+            if (self.current_time < self.lpf_start_time) or not (self.wind_dir_use_filt or self.wind_mag_use_filt):
                 #pass
                 wind = single_forecasted_wind_field if use_wind_forecast else current_measurements.select("time", cs.starts_with("ws_"))
                 
