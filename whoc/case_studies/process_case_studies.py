@@ -255,7 +255,7 @@ def write_case_family_time_series_data(case_family, new_time_series_df, save_dir
 
 def read_time_series_data(results_path, input_dict_path):
           
-    warnings.simplefilter('error', pd.errors.DtypeWarning)
+    # warnings.simplefilter('error', pd.errors.DtypeWarning)
     # try:
         # get column names 
         # with open(results_path, 'r', newline='') as fp:
@@ -272,18 +272,14 @@ def read_time_series_data(results_path, input_dict_path):
     df = pd.read_csv(results_path, low_memory=False)
     logging.info(f"Read {results_path}")
         
-    if "CaseName" not in df.index.names:
-        df = df.reset_index()
-        df["CaseName"] = re.search("(?<=case_)\\d+", os.path.basename(results_path)).group()
-        df["CaseFamily"] = os.path.basename(os.path.dirname(results_path))
-        df = df.set_index(["CaseFamily", "CaseName"])
-    if "WindSeed" not in df.columns:
-        df["WindSeed"] = re.search("(?<=seed_)\\d+", os.path.basename(results_path)).group()
+    df["CaseName"] = re.search("(?<=case_)\\d+", os.path.basename(results_path)).group()
+    df["CaseFamily"] = os.path.basename(os.path.dirname(results_path))
+    df = df.set_index(["CaseFamily", "CaseName"])
+    df["WindSeed"] = re.search("(?<=seed_)\\d+", os.path.basename(results_path)).group()
     
-    
-    if "Time" not in df.columns:
-        df["Time"] = np.arange(df.shape[0]) - 1
-        df.to_csv(results_path, index=False)
+    # if "Time" not in df.columns:
+    #     df["Time"] = np.arange(df.shape[0]) - 1
+    #     df.to_csv(results_path, index=False)
     # except pd.errors.DtypeWarning as w:
     #     logging.info(f"DtypeWarning with combined time series file {results_path}: {w}")
     #     warnings.simplefilter('ignore', pd.errors.DtypeWarning)
