@@ -251,11 +251,11 @@ def write_case_family_time_series_data(case_family, new_time_series_df, save_dir
     logging.info(f"Writing combined case family {case_family} time-series dataframe.")
     logging.info(f"Directory of time_series_results_all.csv: {os.path.join(save_dir, case_family)}")
 
-    new_time_series_df.loc[new_time_series_df.index.get_level_values("CaseFamily") == case_family, :].to_csv(all_ts_df_path)
+    new_time_series_df.loc[new_time_series_df.index.get_level_values("CaseFamily") == case_family, :].to_csv(all_ts_df_path, index=False)
 
 def read_time_series_data(results_path, input_dict_path):
           
-    warnings.simplefilter('error', pd.errors.DtypeWarning)
+    # warnings.simplefilter('error', pd.errors.DtypeWarning)
     # try:
         # get column names 
         # with open(results_path, 'r', newline='') as fp:
@@ -272,18 +272,14 @@ def read_time_series_data(results_path, input_dict_path):
     df = pd.read_csv(results_path, low_memory=False)
     logging.info(f"Read {results_path}")
         
-    if "CaseName" not in df.index.names:
-        df = df.reset_index()
-        df["CaseName"] = re.search("(?<=case_)\\d+", os.path.basename(results_path)).group()
-        df["CaseFamily"] = os.path.basename(os.path.dirname(results_path))
-        df = df.set_index(["CaseFamily", "CaseName"])
-    if "WindSeed" not in df.columns:
-        df["WindSeed"] = re.search("(?<=seed_)\\d+", os.path.basename(results_path)).group()
+    df["CaseName"] = re.search("(?<=case_)\\d+", os.path.basename(results_path)).group()
+    df["CaseFamily"] = os.path.basename(os.path.dirname(results_path))
+    df = df.set_index(["CaseFamily", "CaseName"])
+    df["WindSeed"] = re.search("(?<=seed_)\\d+", os.path.basename(results_path)).group()
     
-    
-    if "Time" not in df.columns:
-        df["Time"] = np.arange(df.shape[0]) - 1
-        df.to_csv(results_path, index=False)
+    # if "Time" not in df.columns:
+    #     df["Time"] = np.arange(df.shape[0]) - 1
+    #     df.to_csv(results_path, index=False)
     # except pd.errors.DtypeWarning as w:
     #     logging.info(f"DtypeWarning with combined time series file {results_path}: {w}")
     #     warnings.simplefilter('ignore', pd.errors.DtypeWarning)
@@ -1050,10 +1046,11 @@ def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, 
     ax = np.atleast_1d(ax)
     data_df = data_df.dropna(axis=1, how="all")
     # data_df = data_df.drop(columns=["TurbineWindMag_5", "TurbineWindDir_5", "TurbinePower_5", "TurbineYawAngle_5", "TurbineYawAngleChange_5", "TurbineOfflineStatus_5"])
-    # data_df = data_df.dropna(subset=turbine_wind_direction_cols+turbine_power_cols+yaw_angle_cols)
+    
     turbine_wind_direction_cols = sorted([col for col in data_df.columns if "TurbineWindDir_" in col], key=lambda s: int(s.split("_")[-1]))
     turbine_power_cols = sorted([col for col in data_df.columns if "TurbinePower_" in col], key=lambda s: int(s.split("_")[-1]))
     yaw_angle_cols = sorted([col for col in data_df.columns if "TurbineYawAngle_" == col[:len("TurbineYawAngle_")]], key=lambda s: int(s.split("_")[-1]))
+    data_df = data_df.dropna(subset=turbine_wind_direction_cols+turbine_power_cols+yaw_angle_cols)
     
     case_seeds = sorted(pd.unique(data_df["WindSeed"]))
     plot_seed = case_seeds[0]
@@ -1139,6 +1136,7 @@ def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, 
             ax[next_ax_idx].legend(ncols=n_cols, loc=legend_loc)
         else:
             sns.move_legend(ax[next_ax_idx], "upper left", bbox_to_anchor=(1, 1), ncols=n_cols)
+        ax[next_ax_idx].set_xlim(0, ax[next_ax_idx].get_xlim()[1])
         # ax[next_ax_idx].legend([], [], frameon=False)
 
     results_dir = os.path.dirname(save_path)

@@ -4,6 +4,7 @@ import yaml
 import copy
 import sys
 import shutil
+from collections import defaultdict
 from glob import glob
 from itertools import product
 from functools import partial
@@ -57,14 +58,14 @@ case_studies = {
                                     "simulation_dt": {"group": 0, "vals": [1]},
                                     "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]},
+                                    "use_upstream_wind": {"group": 0, "vals": [True]},
                                     # "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73"]},
                                     # "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController"]},
                                     "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
                                     "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
-                                    "use_upstream_wind": {"group": 4, "vals": [True, False]},
-                                    "prediction_timedelta": {"group": 1, "vals": [60, 300]},
-                                    "uncertain": {"group": 3, "vals": [False]}, #, False, False, False]},
-                                    "wind_forecast_class": {"group": 3, "vals": ["PerfectForecast"]}, #, "KalmanFilterForecast", "PersistenceForecast", "SpatialFilterForecast", "SVRForecast"]}, # "MLForecast"
+                                    "prediction_timedelta": {"group": 2, "vals": [60, 180, 300]},
+                                    "uncertain": {"group": 3, "vals": [False, False]}, #, False, False, False]},
+                                    "wind_forecast_class": {"group": 3, "vals": ["PerfectForecast", "PersistenceForecast"]}, #, "KalmanFilterForecast", "PersistenceForecast", "SpatialFilterForecast", "SVRForecast"]}, # "MLForecast"
                                     # "model_key": {"group": 3, "vals": ["informer"]},
                                     # "wind_forecast_class": {"group": 3, "vals": ["MLForecast"]},
     },
@@ -83,17 +84,17 @@ case_studies = {
         "prediction_timedelta": {"group": 2, "vals": [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360, 390, 420, 450, 480, 510, 540, 570, 600, 630, 660, 720, 750, 780]}, # TODO change naming so that we need not repeat, 450, 630, 660, 690, 720]},
         },
     "baseline_controllers_perfect_forecaster_flasc": {
-        "controller_dt": {"group": 0, "vals": [5]},
+        "controller_dt": {"group": 0, "vals": [60]},
         "use_filtered_wind_dir": {"group": 0, "vals": [True]},
         "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
-        "simulation_dt": {"group": 0, "vals": [1]},
+        "simulation_dt": {"group": 0, "vals": [60]},
         "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/smarteole_farm.yaml"]},
         "yaw_limits": {"group": 0, "vals": ["-15,15"]},
         "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController"]},
         "target_turbine_indices": {"group": 1, "vals": ["6,", "6,4"]},
-        "uncertain": {"group": 1, "vals": [False, False]},
-        "wind_forecast_class": {"group": 1, "vals": ["PerfectForecast", "PerfectForecast"]},
-        "prediction_timedelta": {"group": 2, "vals": [60, 120, 180]} #240, 300, 360, 420, 480, 540, 600, 660, 720, 780, 840, 900, 960, 1020, 1080]},
+        "uncertain": {"group": 0, "vals": [False]}, #, False]},
+        "wind_forecast_class": {"group": 0, "vals": ["PerfectForecast"]},
+        "prediction_timedelta": {"group": 2, "vals": [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360, 390, 420, 450, 480, 510, 540, 570, 600, 630, 660, 720, 750, 780]}, # TODO change naming so that we need not repeat, 450, 630, 660, 690, 720]},
         },
     "baseline_controllers_informer_forecasters_awaken": {
         "n_horizon": {"group": 0, "vals": [0]},
@@ -483,8 +484,8 @@ def CaseGen_General(case_inputs, namebase=''):
 
 # @profile
 def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_field, 
-                           n_seeds, stoptime, save_dir, wf_source, multiprocessor,
-                           whoc_config, base_model_config=None):
+                           rerun_simulations, reprocess_simulations, n_seeds, stoptime, save_dir, wf_source, 
+                           multiprocessor, whoc_config, base_model_config=None):
     """_summary_
 
     Args:
@@ -749,6 +750,14 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
     input_filenames = []
     for case_study_key in case_study_keys:
         input_df = []
+        
+        group_val_lengths = defaultdict(list)
+        for k, v in case_studies[case_study_key].items():
+            group_val_lengths[v["group"]].append(len(v["vals"]))
+        
+        for k in group_val_lengths:
+            assert len(set(group_val_lengths[k])) == 1, f"Value lists for group {k-1} of {case_study_key} have different number of elements."
+            
         case_list, _ = CaseGen_General(case_studies[case_study_key], namebase=case_study_key)
         case_lists = case_lists + case_list
         n_cases_list.append(len(case_list))
@@ -756,6 +765,22 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         # Load default settings and make copies
         start_case_idx = len(input_dicts)
         input_dicts = input_dicts + [copy.deepcopy(whoc_config) for i in range(len(case_list))]
+        
+        old2new_case_names = {}
+        all_ts_path = os.path.join(save_dir, case_study_key, "time_series_results_all.csv")
+        all_agg_path = os.path.join(save_dir, case_study_key, "agg_results_all.csv")
+        if not rerun_simulations and os.path.exists(all_ts_path):
+            existing_all_ts_df = pd.read_csv(all_ts_path, index_col=[0,1], low_memory=False)
+            existing_all_agg_df = pd.read_csv(all_agg_path, index_col=[0,1], header=[0,1], low_memory=False, skipinitialspace=True)
+        else:
+            existing_all_ts_df = None
+            existing_all_agg_df = None
+        
+        input_df_path = os.path.join(save_dir, case_study_key, "case_descriptions.csv")
+        if not rerun_simulations and os.path.exists(input_df_path):
+            existing_input_df = pd.read_csv(input_df_path, index_col=0)
+        else:
+            existing_input_df = None
 
         # make adjustements based on case study
         for c, case in enumerate(case_list):
@@ -879,11 +904,6 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
 
                     input_dicts[start_case_idx + c]["controller"]["generate_lut"] = False
             
-            # rename this by index with only config updates from case inside, add dataframe csv linking case indices to names/params
-            if case_lists[start_case_idx + c]["wind_case_idx"] == 0:
-                # only generate input_df row for one wind seed
-                input_df.append(pd.DataFrame(data={k: [v] for k, v in case.items() if k != "wind_case_idx"}))
-            
             if "case_names" not in case_lists[start_case_idx + c]:
                 # case_lists[start_case_idx + c]["case_names"] = str(len(input_df) - 1)
                 input_dicts[start_case_idx + c]["case_name"] = str(c % int(len(case_list) / n_seeds))
@@ -892,16 +912,55 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             
             input_dicts[start_case_idx + c]["case_family"] = case_study_key
             
-            fn = f"input_config_case_{len(input_df) - 1}.pkl"
+            fn = f"input_config_case_{input_dicts[start_case_idx + c]['case_name']}.pkl"
             input_filenames.append((case_study_key, input_dicts[start_case_idx + c]["case_name"], input_dicts[start_case_idx + c]["wind_case_idx"], fn))
+            
+            if existing_input_df is not None:
+                # if not rerun_simulations and this result already exists, rename it
+                cond = True
+                for k, v in case.items():
+                    if k != "wind_case_idx":
+                        cond &= (existing_input_df[k] == v)
+                assert len(existing_input_df.loc[cond, :].index) <= 1
+                if len(existing_input_df.loc[cond, :].index):
+                    existing_case_no = existing_input_df.loc[cond, :].index[0]
+                    # existing_fn = os.path.join(save_dir, case_study_key, f"input_config_case_{existing_case_no}.pkl")
+                    # new_fn = os.path.join(save_dir, case_study_key, input_filenames[-1][1])
+                    if str(existing_case_no) != input_dicts[start_case_idx + c]['case_name']:
+                        old2new_case_names[existing_case_no] = input_dicts[start_case_idx + c]['case_name']
+                        existing_fn = os.path.join(save_dir, case_study_key, f"time_series_results_case_{existing_case_no}_seed_{input_dicts[start_case_idx + c]['wind_case_idx']}.csv")
+                        new_fn = os.path.join(save_dir, case_study_key, f"time_series_results_case_{input_dicts[start_case_idx + c]['case_name']}_seed_{input_dicts[start_case_idx + c]['wind_case_idx']}_existing.csv")
+                        if os.path.exists(existing_fn):
+                            logging.info(f"Found existing time_series_results file {existing_fn}.")
+                            logging.info(f"Renaming {existing_fn} to {new_fn}.")
+                            os.rename(existing_fn, new_fn)
+                        
+            # rename this by index with only config updates from case inside, add dataframe csv linking case indices to names/params
+            if case_lists[start_case_idx + c]["wind_case_idx"] == 0:
+                # only generate input_df row for one wind seed
+                input_df.append(pd.DataFrame(data={k: [v] for k, v in case.items() if k != "wind_case_idx"}))
+            
             # fn = f'input_config_case_{"_".join(
             #     [f"{key}_{val if (isinstance(val, str) or isinstance(val, np.str_) or isinstance(val, bool)) else np.round(val, 6)}" for key, val in case.items() \
             #         if key not in ["simulation_dt", "use_filtered_wind_dir", "use_lut_filtered_wind_dir", "yaw_limits", "wind_case_idx", "seed", "floris_input_file", "lut_path"]]) \
             #         if "case_names" not in case else case["case_names"]}.pkl'.replace("/", "_")
 
+
+        for fn in glob(os.path.join(save_dir, case_study_key, f"time_series_results_case_*_seed_*_existing.csv")):
+            new_fn = fn.replace("_existing.csv", ".csv")
+            logging.info(f"Renaming {fn} to {new_fn}.")
+            os.rename(fn, new_fn)
+        
+        if existing_all_ts_df is not None:
+            # rename case numbers
+            if len(old2new_case_names):
+                logging.info(f"Renaming case names in {all_ts_path} and {all_agg_path} by mapping {old2new_case_names}.")
+                existing_all_ts_df = existing_all_ts_df.rename(index=old2new_case_names)
+                existing_all_agg_df = existing_all_agg_df.rename(index=old2new_case_names)
+                
         input_df = pd.concat(input_df, ignore_index=True, axis=0)
         os.makedirs(os.path.join(save_dir, case_study_key), exist_ok=True)
-        input_df.to_csv(os.path.join(save_dir, case_study_key, "case_descriptions.csv"), index=True)
+        input_df.to_csv(input_df_path, index=True)
         
     # TEMP change the filenames of old simulations to new
     if False:

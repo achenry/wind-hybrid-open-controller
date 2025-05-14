@@ -606,7 +606,7 @@ if __name__ == "__main__":
     
     ## GENERATE PERSISTENT PREVIEW
     if "persistence" in args.model:
-        for ctd, ptd in zip(context_timedelta, prediction_timedelta):
+        for ctd, ptd in zip(context_timedeltas, prediction_timedeltas):
             logging.info(f"Instantiating PersistenceForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
             forecaster = PersistenceForecast(measurements_timedelta=measurements_timedelta,
                                                     controller_timedelta=controller_timedelta,
@@ -623,7 +623,7 @@ if __name__ == "__main__":
         
     ## GENERATE SVR PREVIEW
     if "svr" in args.model:
-        for mncf, ctd, ptd in zip(model_configs, context_timedelta, prediction_timedelta):
+        for mncf, ctd, ptd in zip(model_configs, context_timedeltas, prediction_timedeltas):
             
             logging.info(f"Instantiating SVRForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
             forecaster = SVRForecast(measurements_timedelta=measurements_timedelta,
@@ -649,7 +649,7 @@ if __name__ == "__main__":
     ## GENERATE KF PREVIEW 
     if "kf" in args.model:
         # tune this use single, longer, prediction time, since we have only identity state transition matrix, and must use final posterior only prediction
-        for ctd, ptd in zip(context_timedelta, prediction_timedelta):
+        for ctd, ptd in zip(context_timedeltas, prediction_timedeltas):
             
             logging.info(f"Instantiating KalmanFilterForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
             
@@ -668,7 +668,7 @@ if __name__ == "__main__":
     ## GENERATE KF PREVIEW 
     if "sf" in args.model:
         # tune this use single, longer, prediction time, since we have only identity state transition matrix, and must use final posterior only prediction
-        for ctd, ptd in zip(context_timedelta, prediction_timedelta):
+        for ctd, ptd in zip(context_timedeltas, prediction_timedeltas):
             
             logging.info(f"Instantiating SpatialFilterForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
             
@@ -689,7 +689,7 @@ if __name__ == "__main__":
         ml_models = [ml_model for ml_model in args.model if ml_model in ["informer", "autoformer", "spacetimeformer", "tactis"]]
            
         for m, model in enumerate(ml_models):
-            for mncf, ctd, ptd in zip(model_configs, context_timedelta, prediction_timedelta):
+            for mncf, ctd, ptd in zip(model_configs, context_timedeltas, prediction_timedeltas):
             
                 forecaster = MLForecast(measurements_timedelta=measurements_timedelta,
                                         controller_timedelta=controller_timedelta,
@@ -847,7 +847,7 @@ if __name__ == "__main__":
                         .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
         
         # plot continuity group with best rmse score
-        PLOT_INDIVIDUAL = True
+        PLOT_INDIVIDUAL = False
         forecasts_long = []
         for f, forecaster in enumerate(forecasters):
             forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.model_key.capitalize()}Forecast"
@@ -903,7 +903,7 @@ if __name__ == "__main__":
         cg = 9
         mean_cols = [f"{feat_type}_{tid}" for feat_type in ["loc_ws_horz", "loc_ws_vert"] for tid in data_module.target_suffixes]
         point_cols = [f"{feat_type}_{tid}" for feat_type in ["ws_horz", "ws_vert"] for tid in data_module.target_suffixes]
-        PLOT_ALL = False
+        PLOT_ALL = True
         if PLOT_ALL:
             logging.info("Concatenating forecasts together.")
             forecasts_long = pl.concat(forecasts_long, how="vertical")
