@@ -417,10 +417,16 @@ class LookupBasedWakeSteeringController(ControllerBase):
                 else:
                     forecasted_wind_field = self.wind_forecast.predict_point(self.historic_measurements, self.current_time)
                 
-                forecasted_wind_field = forecasted_wind_field.with_columns(pl.col("time").cast(pl.Datetime(time_unit="ns")), cs.numeric().cast(pl.Float32))
-                single_forecasted_wind_field = forecasted_wind_field.filter(pl.col("time") == self.current_time + self.wind_forecast.prediction_timedelta)
-                
-                use_wind_forecast = True
+                if isinstance(forecasted_wind_field, tuple):
+                    forecasted_wind_field = forecasted_wind_field[0]
+                    forecasted_wind_field = forecasted_wind_field.with_columns(pl.col("time").cast(pl.Datetime(time_unit="ns")), cs.numeric().cast(pl.Float32))
+                    single_forecasted_wind_field = forecasted_wind_field.filter(pl.col("time") == self.current_time + self.wind_forecast.prediction_timedelta)
+                    use_wind_forecast = True
+                else:
+                    forecasted_wind_field = forecasted_wind_field.with_columns(pl.col("time").cast(pl.Datetime(time_unit="ns")), cs.numeric().cast(pl.Float32))
+                    single_forecasted_wind_field = forecasted_wind_field.filter(pl.col("time") == self.current_time + self.wind_forecast.prediction_timedelta)
+                    
+                    use_wind_forecast = True
             
             # just hold initial yaw setpoints
             if (self.current_time < self.lpf_start_time) or not (self.wind_dir_use_filt or self.wind_mag_use_filt):

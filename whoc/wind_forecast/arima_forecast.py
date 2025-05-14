@@ -258,10 +258,12 @@ class ARIMAForecast(WindForecast):
             
             # Check if ts is a NumPy array or Pandas Series and access the last element
             #last_value = ts[-1] if isinstance(ts, np.ndarray) else ts.iloc[-1]
-            last_value = ts[-1] if isinstance(ts, np.ndarray) else ts[-1]
-            
+            #last_value = ts[-1] if isinstance(ts, np.ndarray) else ts[-1]
+            last_value = ts[-1] if isinstance(ts, np.ndarray) else ts.iloc[-1]
+
             #self.boxcox_params[feature_key] = {"lambda": None, "shift": 0, "persistence": last_value if ts.size > 0 else np.nan}
-            self.boxcox_params[feature_key] = {"lambda": None, "shift": 0, "persistence": last_value if ts.len() > 0 else np.nan}
+            #self.boxcox_params[feature_key] = {"lambda": None, "shift": 0, "persistence": last_value if ts.len() > 0 else np.nan}
+            self.boxcox_params[feature_key] = {"lambda": None, "shift": 0, "persistence": last_value if len(ts) > 0 else np.nan}
 
             return ts  # Still return something usable
         
@@ -432,11 +434,13 @@ class ARIMAForecast(WindForecast):
 
             if not sufficient_data: #Persistence will be used
                 logging.info(f"Not enough data for turbine {turbine_id} at time {current_time}, falling back to persistence.")
-                value_horz = turbine_df_horz.select(pl.col(key_horz)).last().item()
-                value_vert = turbine_df_vert.select(pl.col(key_vert)).last().item()
+                #value_horz = turbine_df_horz.select(pl.col(key_horz)).last().item()
+                value_horz = turbine_df_horz.select(pl.col(key_horz)).tail(1).item()
 
-                forecast_horz_original = np.full(horizon, value_horz)
-                forecast_vert_original = np.full(horizon, value_vert)
+                #value_vert = turbine_df_vert.select(pl.col(key_vert)).last().item()
+                value_vert = turbine_df_vert.select(pl.col(key_vert)).tail(1).item()
+                forecast_horz_original_test = np.full(horizon, value_horz)
+                forecast_vert_original_test = np.full(horizon, value_vert)
             else:  # ARIMA forecast will be used
                 # key_horz = f"ws_horz_{turbine_id}"
                 # model_horz = self.models[turbine_id]["ws_horz"] manually setting hyperparams
