@@ -20,8 +20,11 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # @profile
-def simulate_controller(controller_class, wind_forecast_class, simulation_input_dict, **kwargs):
+def simulate_controller(controller_class, wind_forecast_class, simulation_input_dict, wind_field_path=None, **kwargs):
     
+    wind_field_ts = pl.read_parquet(wind_field_path)
+    kwargs["wind_field_ts"] = wind_field_ts
+
     assigned_gpu = kwargs["assigned_gpu"]
     if assigned_gpu:
         os.environ['CUDA_VISIBLE_DEVICES'] = str(assigned_gpu)
@@ -84,7 +87,9 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         kwargs["tid2idx_mapping"] = {i: i for i in np.arange(fi_full.n_turbines)}
     idx2tid_mapping = dict([(v, k) for k, v in kwargs["tid2idx_mapping"].items()])
         
-    stoptime = simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"] - simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() - (simulation_input_dict["controller"]["n_horizon"] * simulation_input_dict["controller"]["controller_dt"])
+    stoptime = int(simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"]) - int(simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds()) - int(simulation_input_dict["controller"]["n_horizon"] * simulation_input_dict["controller"]["controller_dt"])
+
+    #stoptime = simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"] - simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() - (simulation_input_dict["controller"]["n_horizon"] * simulation_input_dict["controller"]["controller_dt"])
     if stoptime < 0:
         print(f"Simulation time {stoptime} is negative, exiting. Please check your inputs (prediction_timedelta, controller_dt, and n_horizon).")
     load_from_checkpoint = not kwargs["rerun_simulations"] and os.path.exists(temp_save_path)
@@ -95,7 +100,9 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         # if (results_df.shape[0] - 2) == int((stoptime - simulation_input_dict["simulation_dt"]) / simulation_input_dict["simulation_dt"]): #simulation_input_dict["controller"]["controller_dt"] + simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds():
         #     logging.info(f"Loaded existing {fn} since rerun_simulations argument is false")
         #     return
-        return results_df
+        results_df.to_csv(save_path, index=False)
+        return save_path
+
         if os.path.exists(save_path):
             os.remove(save_path)
             
@@ -212,7 +219,9 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         simulation_u = np.real(np.fft.ifft(freq_vec_u))#[TRUNCATE_STEPS:-TRUNCATE_STEPS]
         simulation_v = np.real(np.fft.ifft(freq_vec_v))#[TRUNCATE_STEPS:-TRUNCATE_STEPS]
         #stoptime = int(len(simulation_u) // simulation_input_dict["simulation_dt"]) - simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() - (simulation_input_dict["controller"]["n_horizon"] * simulation_input_dict["controller"]["controller_dt"])
-        stoptime = len(simulation_u) * simulation_input_dict["simulation_dt"] - simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() - simulation_input_dict["controller"]["n_horizon"] * simulation_input_dict["controller"]["controller_dt"]
+        #stoptime = len(simulation_u) * simulation_input_dict["simulation_dt"] - simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() - simulation_input_dict["controller"]["n_horizon"] * simulation_input_dict["controller"]["controller_dt"]
+        stoptime = (len(simulation_u) * simulation_input_dict["simulation_dt"]) - int(simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds()) - int(simulation_input_dict["controller"]["n_horizon"] * simulation_input_dict["controller"]["controller_dt"])
+
         simulation_mag = (simulation_u**2 + simulation_v**2)**0.5
         simulation_dir = 180.0 + np.rad2deg(np.arctan2(simulation_u, simulation_v))
         simulation_dir[simulation_dir < 0] = 360. + simulation_dir[simulation_dir < 0]
@@ -448,8 +457,10 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
             if wind_forecast_class:
                 predicted_wind_speeds_ts = []
 
+    results_df.to_csv(save_path, index=False)
+
     # logging.info(f"Saved {save_path}")
-    return
+    return save_path
     # return results_data
 
 # @profile

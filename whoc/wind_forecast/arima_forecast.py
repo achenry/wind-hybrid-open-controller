@@ -8,6 +8,7 @@ import polars as pl
 from scipy.stats import boxcox
 from scipy.special import inv_boxcox
 
+from memory_profiler import profile 
 from typing import Optional, Union
 from dataclasses import dataclass
 import os
@@ -246,6 +247,8 @@ class ARIMAForecast(WindForecast):
 
     def boxcox_transform(self, ts, feature_key):
         """Apply Box-Cox transformation to the data."""
+        print(f"boxcox_transform received ts of size {len(ts)} for {feature_key}")
+
         shift_val = 0
         if isinstance(ts, pl.Series):
             ts = ts.filter(~ts.is_null())  # Pandas specific NaN handling
@@ -277,6 +280,8 @@ class ARIMAForecast(WindForecast):
             ts = ts + shift_val
 
         try:
+            if isinstance(ts, np.ndarray) and ts.size > 10000:
+                print(f"[WARN] boxcox_transform: Input too large! Shape: {ts.shape} for feature '{feature_key}'")
             ts_transformed, lmbda = boxcox(ts)
             self.boxcox_params[feature_key] = {"lambda": lmbda, "shift": shift_val}
             return ts_transformed
@@ -313,6 +318,8 @@ class ARIMAForecast(WindForecast):
         params = self.boxcox_params[feature_key]
         lmbda = params.get("lambda")
         shift_val = params.get("shift", 0)
+        if isinstance(ts_transformed, np.ndarray) and ts_transformed.size > 10000:
+            print(f"[WARN] inverse_boxcox: ts_transformed too large! Shape: {ts_transformed.shape} for feature '{feature_key}'")
 
         if lmbda is None:
             # Box-Cox was skipped, so just return persistence fallback
@@ -395,7 +402,8 @@ class ARIMAForecast(WindForecast):
     
     def reset(self, **kwargs):
         pass
-       
+
+    #@profile   
     def predict_point(self, historic_measurements, current_time=None, return_long_format=True):
         print(">>> ARIMAForecast.predict_point() called")
         if not self.fitted:
@@ -418,13 +426,28 @@ class ARIMAForecast(WindForecast):
 
         for turbine_id in turbine_ids:
             # historic data
+            print(f"\n>>> Starting forecast for turbine: {turbine_id}")
             key_horz = turbine_id
             key_vert = turbine_id.replace("ws_horz_", "ws_vert_")
+            self.max_n_samples = getattr(self, "max_n_samples", 50)
 
             turbine_df_horz = historic_measurements.select(pl.col("time"), pl.col(key_horz)).sort("time").unique(subset=["time"])
             turbine_df_vert = historic_measurements.select(pl.col("time"), pl.col(key_vert)).sort("time").unique(subset=["time"])
+
+            if turbine_df_horz.height > self.max_n_samples:
+                turbine_df_horz = turbine_df_horz.tail(self.max_n_samples).collect()
+            if turbine_df_vert.height > self.max_n_samples:
+                turbine_df_vert = turbine_df_vert.tail(self.max_n_samples).collect()
             raw_series_horz = turbine_df_horz.select(key_horz).to_pandas()[key_horz]
             raw_series_vert = turbine_df_vert.select(key_vert).to_pandas()[key_vert]
+
+            max_allowed_size = 100000  # set threshold here (e.g., 300k elements)
+
+            if raw_series_horz.shape[0] > max_allowed_size:
+                print(f"ERROR: raw_series_horz for {key_horz} is too large: {raw_series_horz.shape[0]} elements!")
+
+            if raw_series_vert.shape[0] > max_allowed_size:
+                print(f"ERROR: raw_series_vert for {key_vert} is too large: {raw_series_vert.shape[0]} elements!")
             raw_series_horz.index = pd.to_datetime(turbine_df_horz.select("time").to_pandas()["time"])
             raw_series_vert.index = pd.to_datetime(turbine_df_vert.select("time").to_pandas()["time"])
             series_horz_transformed = self.boxcox_transform(raw_series_horz, key_horz)

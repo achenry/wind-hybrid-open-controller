@@ -167,14 +167,20 @@ if __name__ == "__main__":
                 
                 logging.info(f"Submitting simulate_controller calls to pool executor with {run_simulations_exec._max_workers} workers")
                 # for MPIPool executor, (waiting as if shutdown() were called with wait set to True)
+                # Save once to a file (if not already saved)
+                for i, wf in enumerate(wind_field_ts):
+                    wind_field_path_i = os.path.join(args.save_dir, f"wind_field_ts_seed_{i}.parquet")
+                    if not os.path.exists(wind_field_path_i):
+                        wf.write_parquet(wind_field_path_i)
 
                 futures = [run_simulations_exec.submit(simulate_controller, 
                                                 controller_class=globals()[d["controller"]["controller_class"]], 
                                                 wind_forecast_class=globals()[d["controller"]["wind_forecast_class"]] if d["controller"]["wind_forecast_class"] else None,
                                                 simulation_input_dict=d,
+                                                wind_field_path=os.path.join(args.save_dir, f"wind_field_ts_seed_{input_dicts[c]['wind_case_idx']}.parquet"),
                                                 wf_source=args.wf_source, 
                                                 wind_case_idx=input_dicts[c]["wind_case_idx"], 
-                                                wind_field_ts=wind_field_ts[input_dicts[c]["wind_case_idx"]],
+                                                #wind_field_ts=wind_field_ts[input_dicts[c]["wind_case_idx"]],
                                                 case_name=input_dicts[c]["case_name"],
                                                 case_family=input_dicts[c]["case_family"], 
                                                 verbose=args.verbose, 
@@ -191,7 +197,11 @@ if __name__ == "__main__":
 
                         for c, d in enumerate(input_dicts)]
                 
-                _ = [fut.result() for fut in futures]
+                result_paths = []
+                for fut in futures:
+                    result_path = fut.result()
+                    result_paths.append(result_path)
+                #_ = [fut.result() for fut in futures]
 
         else:
             for c, d in enumerate(input_dicts):
