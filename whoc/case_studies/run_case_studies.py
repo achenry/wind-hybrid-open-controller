@@ -108,21 +108,22 @@ if __name__ == "__main__":
             tid2idx_mapping = None
             # temp_storage_dir = None
             
-        logging.info(f"running initialize_simulations for case_ids {[case_families[i] for i in args.case_ids]}")
-        input_dicts, wind_field_config, wind_field_ts \
-            = initialize_simulations(case_study_keys=[case_families[i] for i in args.case_ids], 
-                                        regenerate_wind_field=args.generate_wind_field, 
-                                        regenerate_lut=args.generate_lut, 
-                                        rerun_simulations=args.rerun_simulations,
-                                        reprocess_simulations=args.reprocess_simulations,
-                                        n_seeds=args.n_seeds, 
-                                        stoptime=args.stoptime, 
-                                        save_dir=args.save_dir, 
-                                        wf_source=args.wf_source,
-                                        multiprocessor=args.multiprocessor, 
-                                        whoc_config=whoc_config, base_model_config=model_config)
-        logging.info(f"Resetting args.n_seeds to {len(wind_field_ts)}")
-        args.n_seeds = len(wind_field_ts)
+        if args.run_simulations:
+            logging.info(f"running initialize_simulations for case_ids {[case_families[i] for i in args.case_ids]}")
+            input_dicts, wind_field_config, wind_field_ts \
+                = initialize_simulations(case_study_keys=[case_families[i] for i in args.case_ids], 
+                                            regenerate_wind_field=args.generate_wind_field, 
+                                            regenerate_lut=args.generate_lut, 
+                                            rerun_simulations=args.rerun_simulations,
+                                            reprocess_simulations=args.reprocess_simulations,
+                                            n_seeds=args.n_seeds, 
+                                            stoptime=args.stoptime, 
+                                            save_dir=args.save_dir, 
+                                            wf_source=args.wf_source,
+                                            multiprocessor=args.multiprocessor, 
+                                            whoc_config=whoc_config, base_model_config=model_config)
+            logging.info(f"Resetting args.n_seeds to {len(wind_field_ts)}")
+            args.n_seeds = len(wind_field_ts)
         
     if args.multiprocessor == "mpi":
         comm.Barrier()
@@ -253,7 +254,7 @@ if __name__ == "__main__":
                     read_futures = [run_simulations_exec.submit(read_case_family_time_series_data, 
                                                                 case_family=case_families[i], save_dir=args.save_dir)
                                     for i in args.case_ids
-                                    if os.path.exists(os.path.join(args.save_dir, case_families[i], "time_series_results_all.csv"))]
+                                    if not args.reaggregate_simulations and os.path.exists(os.path.join(args.save_dir, case_families[i], "time_series_results_all.csv"))]
                     existing_time_series_df = [fut.result() for fut in read_futures]
 
                     # write time_series_all for each case
@@ -274,6 +275,7 @@ if __name__ == "__main__":
                         common_seeds.intersection_update(sds)
                     
                     # if args.reaggregate_simulations is true, or for any case family where doesn't agg_results_all.csv exist, compute the aggregate stats for each case families and case name, over all wind seeds
+                    # TODO replace this with groupby (vectorize) for each case_family
                     futures = []
                     for i in args.case_ids:
                         if args.reaggregate_simulations or not os.path.exists(os.path.join(args.save_dir, case_families[i], "agg_results_all.csv")):
@@ -286,7 +288,7 @@ if __name__ == "__main__":
                                         aggregate_time_series_data,
                                             time_series_df=case_name_df,
                                             input_dict_path=os.path.join(args.save_dir, case_families[i], f"input_config_case_{case_name}.pkl"),
-                                            n_seeds=args.n_seeds))
+                                            n_seeds=len(common_seeds)))
                                 
                     new_agg_df = [fut.result() for fut in futures]
                     new_agg_df = [df for df in new_agg_df if df is not None]
@@ -353,13 +355,13 @@ if __name__ == "__main__":
                         # for case_name in set([re.findall(r"(?<=case_)(.*)(?=_seed)", fn)[0] for fn in case_family_case_names[case_families[i]]]):
                         case_family_df = time_series_df.iloc[time_series_df.index.get_level_values("CaseFamily") == case_families[i], :]
                         for case_name in pd.unique(case_family_df.index.get_level_values("CaseName")):
-                            case_name_df = case_family_df.iloc[case_family_df.index.get_level_values("CaseName") == case_name, :]
+                            case_name_df = case_family_df.iloc[case_family_df.index.get_level_values("CaseName") == str(case_name), :]
                             case_name_df = case_name_df.loc[case_name_df["WindSeed"].isin(common_seeds), :]
                             res = aggregate_time_series_data(
                                                             time_series_df=case_name_df,
                                                             input_dict_path=os.path.join(args.save_dir, case_families[i], f"input_config_case_{case_name}.pkl"),
                                                             # results_path=os.path.join(args.save_dir, case_families[i], f"agg_results_{case_name}.csv"),
-                                                            n_seeds=args.n_seeds)
+                                                            n_seeds=len(common_seeds))
                             if res is not None:
                                 new_agg_df.append(res)
 
@@ -388,37 +390,19 @@ if __name__ == "__main__":
                 # warnings.simplefilter('error', pd.errors.DtypeWarning)
                 filepath = os.path.join(args.save_dir, case_families[i], "time_series_results_all.csv")
                 if os.path.exists(filepath):
-                    # try:
-                        # time_series_df.append(pd.read_csv(filepath, index_col=[0, 1]))
-                        # get column names 
-                        # with open(filepath, 'r', newline='') as fp:
-                        #     csv_reader = csv.reader(fp)
-                        #     columns = next(csv_reader)
-                        #     columns = columns[1:] # remove index row
-                        # bool_cols = [col for col in columns if "TurbineOfflineStatus" in col]
-                        # if bool_cols:
-                        #     df = pd.read_csv(filepath, index_col=[0, 1], dtype={col: object for col in bool_cols}) # necessary if contains NaNs
-                        #     for col in bool_cols:
-                        #         df.loc[(df[col] == "False") | (df[col].isna()), col] = False
-                        #         df[col] = df[col].astype(bool)
-                        # else:
-                    df = pd.read_csv(filepath, low_memory=False)
+                    logging.info(f"Reading combined time series file: {filepath}.")
+                    df = pd.read_csv(filepath, index_col=[0, 1], low_memory=False)
                     time_series_df.append(df)
-                    # except pd.errors.DtypeWarning as w:
-                        # logging.error(f"DtypeWarning with combined time series file {filepath}: {w}")
-                        # warnings.simplefilter('ignore', pd.errors.DtypeWarning)
-                        # bad_df = pd.read_csv(filepath, index_col=[0, 1], low_memory=False)
-                        # bad_cols = [bad_df.columns[int(s) - len(bad_df.index.names)] for s in re.findall(r"(?<=Columns \()(.*)(?=\))", w.args[0])[0].split(",")]
-                        # bad_df.loc[bad_df[bad_cols].isna().any(axis=1)]
             time_series_df = pd.concat(time_series_df)
             
             agg_df = []
             for i in args.case_ids:
-                warnings.simplefilter('error', pd.errors.DtypeWarning)
+                # warnings.simplefilter('error', pd.errors.DtypeWarning)
                 filepath = os.path.join(args.save_dir, case_families[i], "agg_results_all.csv")
                 if os.path.exists(filepath):
                     # try:
-                    agg_df.append(pd.read_csv(filepath, header=[0,1], low_memory=False, skipinitialspace=True))
+                    logging.info(f"Reading combined aggregate metrics file: {filepath}.")
+                    agg_df.append(pd.read_csv(filepath, header=[0,1], index_col=[0,1], low_memory=False, skipinitialspace=True, dtype={"CaseName": str}))
                     # except pd.errors.DtypeWarning as w:
                     #     logging.error(f"DtypeWarning with combined time series file {filepath}: {w}")
                     #     warnings.simplefilter('ignore', pd.errors.DtypeWarning)
@@ -502,12 +486,12 @@ if __name__ == "__main__":
                 # plot_power_vs_prediction_time(baseline_agg_df, args.save_dir, "all_forecasters_")
                 
                 # PLOT 2) Yaw angles/power for persistent vs. other forecasters for best lead times
-                best_forecaster_prediction_delta = forecasters_agg_df.groupby("wind_forecast_class", group_keys=False).apply(lambda x: x.sort_values(by=("FarmPowerMean", "mean"), ascending=False).head(10)) #[("FarmPowerMean", "mean")] 
-                best_perfect_prediction_delta = perfect_agg_df.groupby("wind_forecast_class", group_keys=False).apply(lambda x: x.sort_values(by=("FarmPowerMean", "mean"), ascending=False).head(10))
+                best_forecaster_prediction_delta = forecasters_agg_df.groupby("wind_forecast_class", group_keys=False).apply(lambda x: x.sort_values(by=("FarmPower", "mean"), ascending=False).head(10)) #[("FarmPower", "mean")] 
+                best_perfect_prediction_delta = perfect_agg_df.groupby("wind_forecast_class", group_keys=False).apply(lambda x: x.sort_values(by=("FarmPower", "mean"), ascending=False).head(10))
                 
                 
                 # find best performing forecasters
-                forecasters_agg_df.groupby("prediction_timedelta", group_keys=False).apply(lambda x: x.sort_values(by=("FarmPowerMean", "mean"), ascending=False).head(10))
+                forecasters_agg_df.groupby("prediction_timedelta", group_keys=False).apply(lambda x: x.sort_values(by=("FarmPower", "mean"), ascending=False).head(10))
                 
                 # plot forecasters, persistent, perfect for 60/300sec predictions
                 perfect_case_names = perfect_agg_df.loc[perfect_agg_df["prediction_timedelta"].isin(pd.unique(forecasters_agg_df["prediction_timedelta"]))].index.get_level_values("CaseName")
@@ -523,16 +507,18 @@ if __name__ == "__main__":
                         legend_loc="outer", single_plot=False, label_mapping=label_mapping) 
             
             
-            if (case_families.index("baseline_controllers_perfect_forecaster_awaken") in args.case_ids
+            if True or (case_families.index("baseline_controllers_perfect_forecaster_awaken") in args.case_ids
                 or case_families.index("baseline_controllers_perfect_forecaster_flasc") in args.case_ids):
-                if case_families.index("baseline_controllers_perfect_forecaster_awaken") in args.case_ids:
-                    forecaster_case_fam = "baseline_controllers_perfect_forecaster_awaken"
-                elif case_families.index("baseline_controllers_perfect_forecaster_flasc") in args.case_ids:
-                    forecaster_case_fam = "baseline_controllers_perfect_forecaster_flasc"
+                # if case_families.index("baseline_controllers_perfect_forecaster_awaken") in args.case_ids:
+                #     forecaster_case_fam = "baseline_controllers_perfect_forecaster_awaken"
+                # elif case_families.index("baseline_controllers_perfect_forecaster_flasc") in args.case_ids:
+                #     forecaster_case_fam = "baseline_controllers_perfect_forecaster_flasc"
+                # else:
+                #     forecaster_case_fam = 
                     
-                baseline_agg_df = agg_df.loc[agg_df.index.get_level_values("CaseFamily") == forecaster_case_fam, :] #.reset_index(level="CaseFamily", drop=True)
+                baseline_agg_df = agg_df #.loc[agg_df.index.get_level_values("CaseFamily") == forecaster_case_fam, :] #.reset_index(level="CaseFamily", drop=True)
                 
-                config_cols = ["controller_class", "wind_forecast_class", "prediction_timedelta", "uncertain", "use_upstream_wind"]
+                config_cols = ["controller_class", "wind_forecast_class", "prediction_timedelta", "uncertain", "use_upstream_wind", "filter_floris_wind"]
                 
                 for (case_family, case_name), _ in baseline_agg_df.iterrows():
                 # for case_name, _ in baseline_time_df.iterrows():    
@@ -546,13 +532,28 @@ if __name__ == "__main__":
                         baseline_agg_df.loc[(baseline_agg_df.index.get_level_values("CaseFamily") == case_family) & 
                                             (baseline_agg_df.index.get_level_values("CaseName") == case_name), col] = full_config[col]
 
-                # baseline_agg_df[[("YawAngleChangeAbsMean", "mean"), ("FarmPowerMean", "mean"), ("controller_class", ""), ("use_upstream_wind", "")]]
+                x = baseline_agg_df[[("FarmPower", "mean"), ("FarmPower", "std"), ("controller_class", ""), ("use_upstream_wind", ""), ("filter_floris_wind", "")]].reset_index(drop=True).sort_values(("FarmPower", "mean"), ascending=False)
+                
+                extra_args = baseline_agg_df[config_cols]
+                extra_args.columns = extra_args.columns.droplevel(1)
+                time_series_df = pd.merge(time_series_df, extra_args, on=["CaseFamily", "CaseName"])
+                x = time_series_df.reset_index(drop=True)[["controller_class", "prediction_timedelta", "filter_floris_wind", "use_upstream_wind", "FarmPower", "Time", "WindSeed"]].set_index(["Time", "controller_class", "WindSeed"]).sort_values(["controller_class", "Time"])
+                x = x.groupby(["controller_class", "prediction_timedelta", "filter_floris_wind", "use_upstream_wind", "WindSeed"]).agg("mean").reset_index(["prediction_timedelta", "filter_floris_wind", "use_upstream_wind"])
+                zero_case = x.loc[x["prediction_timedelta"] == pd.Timedelta(seconds=0), :]
+                x = pd.merge(x, zero_case, on=["controller_class", "WindSeed"])
+                x["FarmPower_x"] = 100 * ((x["FarmPower_x"] / x["FarmPower_y"]) - 1)
+                x.loc[x["FarmPower_x"] > 0.5, :].groupby("controller_class").apply(lambda x: x.sort_values("FarmPower_x", ascending=False))[["prediction_timedelta_x", "FarmPower_x"]]
+                x.groupby(["controller_class", "WindSeed"])["FarmPower_x"].agg("mean").groupby("controller_class").apply(lambda x: x.sort_values(ascending=False))
                 
                 perfect_agg_df = baseline_agg_df.loc[baseline_agg_df["wind_forecast_class"] == "PerfectForecast", :]
                 controllers = pd.unique(perfect_agg_df["controller_class"])
                 
-                # perfect_agg_df.sort_values(("FarmPowerMean", "mean"))[[("prediction_timedelta", ""), ("controller_class", ""), ("FarmPowerMean", "mean"), ("YawAngleChangeAbsMean", "mean")]].reset_index(drop=True)
-                # PLOT 1) Farm power of perfect forecaster vs prediction timedela for different controllers
+                perfect_agg_df.groupby(["use_upstream_wind", "filter_floris_wind"])[("FarmPower", "mean")].agg("mean")\
+                              .groupby("controller_class")\
+                              .apply(lambda x: x.sort_values(ascending=False))
+                
+                # perfect_agg_df.sort_values(("FarmPower", "mean"))[[("prediction_timedelta", ""), ("controller_class", ""), ("FarmPower", "mean"), ("YawAngleChangeAbs", "mean")]].reset_index(drop=True)
+                # PLOT 1) Farm power of perfect forecaster vs prediction timedelta for different controllers
                 plot_power_vs_prediction_time(perfect_agg_df, args.save_dir, "perfect_forecaster_")
                 
                 plotting_cases = [("baseline_controllers_perfect_forecaster_awaken", str(baseline_agg_df.loc[(baseline_agg_df["controller_class"] == "GreedyController") & (baseline_agg_df["prediction_timedelta"] == pd.Timedelta(seconds=600))].index.get_level_values(1)[0])),
@@ -560,11 +561,11 @@ if __name__ == "__main__":
                 label_mapping = {"74": "LUT Ds", "75": "LUT Us", "5": "Greedy"}
                 plot_simulations(
                     time_series_df, plotting_cases, args.save_dir, include_power=True, 
-                    legend_loc="outer", single_plot=False, label_mapping=label_mapping) 
+                    legend_loc="outer", single_plot=False, label_mapping=label_mapping, seed_idx=6)
                 
                 # PLOT 2) Farm power ratio of other forecasters relative to perfect forecaster vs prediction timedela for different controllers (diff plots)
                 # plot_df = plot_df.set_index(["controller_class", "prediction_timedelta"])
-                # plot_df["power_ratio"] = (plot_df[("FarmPowerMean", "mean")] / perfect_agg_df.set_index(["controller_class", "prediction_timedelta"])[("FarmPowerMean", "mean")]) * 100
+                # plot_df["power_ratio"] = (plot_df[("FarmPower", "mean")] / perfect_agg_df.set_index(["controller_class", "prediction_timedelta"])[("FarmPower", "mean")]) * 100
                 # plot_df = plot_df.reset_index()
                 # plot_power_increase_vs_prediction_time(plot_df, args.save_dir)    
             
@@ -573,20 +574,20 @@ if __name__ == "__main__":
                 lut_df = agg_df.iloc[(agg_df.index.get_level_values("CaseFamily") == "baseline_controllers") & (agg_df.index.get_level_values("CaseName") == "LUT")] 
                 greedy_df = agg_df.iloc[(agg_df.index.get_level_values("CaseFamily") == "baseline_controllers") & (agg_df.index.get_level_values("CaseName") == "Greedy")]
                 
-                better_than_lut_df = mpc_df.loc[(mpc_df[("FarmPowerMean", "mean")] > lut_df[("FarmPowerMean", "mean")].iloc[0]) 
-                                                & (mpc_df[("YawAngleChangeAbsMean", "mean")] < lut_df[("YawAngleChangeAbsMean", "mean")].iloc[0]), 
-                                                [("RelativeTotalRunningOptimizationCostMean", "mean"), ("YawAngleChangeAbsMean", "mean"), ("FarmPowerMean", "mean")]]\
+                better_than_lut_df = mpc_df.loc[(mpc_df[("FarmPower", "mean")] > lut_df[("FarmPower", "mean")].iloc[0]) 
+                                                & (mpc_df[("YawAngleChangeAbs", "mean")] < lut_df[("YawAngleChangeAbs", "mean")].iloc[0]), 
+                                                [("RelativeTotalRunningOptimizationCostMean", "mean"), ("YawAngleChangeAbs", "mean"), ("FarmPower", "mean")]]\
                                                     .sort_values(by=("RelativeTotalRunningOptimizationCostMean", "mean"), ascending=True)\
                                                         .reset_index(level="CaseFamily", drop=True)
-                better_than_greedy_df = mpc_df.loc[(mpc_df[("FarmPowerMean", "mean")] > greedy_df[("FarmPowerMean", "mean")].iloc[0]), 
-                                                   [("RelativeTotalRunningOptimizationCostMean", "mean"), ("YawAngleChangeAbsMean", "mean"), ("FarmPowerMean", "mean")]]\
-                                                    .sort_values(by=("YawAngleChangeAbsMean", "mean"), ascending=True)\
+                better_than_greedy_df = mpc_df.loc[(mpc_df[("FarmPower", "mean")] > greedy_df[("FarmPower", "mean")].iloc[0]), 
+                                                   [("RelativeTotalRunningOptimizationCostMean", "mean"), ("YawAngleChangeAbs", "mean"), ("FarmPower", "mean")]]\
+                                                    .sort_values(by=("YawAngleChangeAbs", "mean"), ascending=True)\
                                                         .reset_index(level="CaseFamily", drop=True)
 
-                100 * (better_than_lut_df.iloc[0]["FarmPowerMean"] - lut_df.iloc[0]["FarmPowerMean"]) / lut_df.iloc[0]["FarmPowerMean"]
-                100 * (better_than_lut_df.iloc[0]["FarmPowerMean"] - greedy_df.iloc[0]["FarmPowerMean"]) / greedy_df.iloc[0]["FarmPowerMean"]
-                100 * (better_than_lut_df.iloc[0]["YawAngleChangeAbsMean"] - lut_df.iloc[0]["YawAngleChangeAbsMean"]) / lut_df.iloc[0]["YawAngleChangeAbsMean"]
-                100 * (better_than_lut_df.iloc[0]["YawAngleChangeAbsMean"] - greedy_df.iloc[0]["YawAngleChangeAbsMean"]) / greedy_df.iloc[0]["YawAngleChangeAbsMean"]
+                100 * (better_than_lut_df.iloc[0]["FarmPower"] - lut_df.iloc[0]["FarmPower"]) / lut_df.iloc[0]["FarmPower"]
+                100 * (better_than_lut_df.iloc[0]["FarmPower"] - greedy_df.iloc[0]["FarmPower"]) / greedy_df.iloc[0]["FarmPower"]
+                100 * (better_than_lut_df.iloc[0]["YawAngleChangeAbs"] - lut_df.iloc[0]["YawAngleChangeAbs"]) / lut_df.iloc[0]["YawAngleChangeAbs"]
+                100 * (better_than_lut_df.iloc[0]["YawAngleChangeAbs"] - greedy_df.iloc[0]["YawAngleChangeAbs"]) / greedy_df.iloc[0]["YawAngleChangeAbs"]
                 
                 if True:
                     plotting_cases = [("wind_preview_type", better_than_lut_df.iloc[0]._name),   
@@ -610,13 +611,13 @@ if __name__ == "__main__":
                     lut_df = agg_df.iloc[(agg_df.index.get_level_values("CaseFamily") == "baseline_controllers_3") & (agg_df.index.get_level_values("CaseName") == "LUT")] 
                     greedy_df = agg_df.iloc[(agg_df.index.get_level_values("CaseFamily") == "baseline_controllers_3") & (agg_df.index.get_level_values("CaseName") == "Greedy")]
 
-                mpc_alpha_df[[("RelativeTotalRunningOptimizationCostMean", "mean"), ("RelativeRunningOptimizationCostTerm_0", "mean"), ("RelativeRunningOptimizationCostTerm_1", "mean"), ("YawAngleChangeAbsMean", "mean"), ("FarmPowerMean", "mean")]]\
-                        .sort_values(by=("FarmPowerMean", "mean"), ascending=False).reset_index(level="CaseFamily", drop=True) 
+                mpc_alpha_df[[("RelativeTotalRunningOptimizationCostMean", "mean"), ("RelativeRunningOptimizationCostTerm_0", "mean"), ("RelativeRunningOptimizationCostTerm_1", "mean"), ("YawAngleChangeAbs", "mean"), ("FarmPower", "mean")]]\
+                        .sort_values(by=("FarmPower", "mean"), ascending=False).reset_index(level="CaseFamily", drop=True) 
             
 
-                # better_than_lut_df = mpc_alpha_df.loc[(mpc_alpha_df[("FarmPowerMean", "mean")] > lut_df[("FarmPowerMean", "mean")].iloc[0]), [("RelativeTotalRunningOptimizationCostMean", "mean"), ("YawAngleChangeAbsMean", "mean"), ("FarmPowerMean", "mean")]].sort_values(by=("RelativeTotalRunningOptimizationCostMean", "mean"), ascending=True).reset_index(level="CaseFamily", drop=True)
-                better_than_lut_df = mpc_alpha_df.loc[(mpc_alpha_df[("FarmPowerMean", "mean")] > lut_df[("FarmPowerMean", "mean")].iloc[0]) & (mpc_alpha_df[("YawAngleChangeAbsMean", "mean")] < lut_df[("YawAngleChangeAbsMean", "mean")].iloc[0]), [("RelativeTotalRunningOptimizationCostMean", "mean"), ("YawAngleChangeAbsMean", "mean"), ("FarmPowerMean", "mean")]].reset_index(level="CaseFamily", drop=True)
-                better_than_greedy_df = mpc_alpha_df.loc[(mpc_alpha_df[("FarmPowerMean", "mean")] > greedy_df[("FarmPowerMean", "mean")].iloc[0]), [("RelativeTotalRunningOptimizationCostMean", "mean"), ("YawAngleChangeAbsMean", "mean"), ("FarmPowerMean", "mean")]].sort_values(by=("FarmPowerMean", "mean"), ascending=False).reset_index(level="CaseFamily", drop=True)
+                # better_than_lut_df = mpc_alpha_df.loc[(mpc_alpha_df[("FarmPower", "mean")] > lut_df[("FarmPower", "mean")].iloc[0]), [("RelativeTotalRunningOptimizationCostMean", "mean"), ("YawAngleChangeAbs", "mean"), ("FarmPower", "mean")]].sort_values(by=("RelativeTotalRunningOptimizationCostMean", "mean"), ascending=True).reset_index(level="CaseFamily", drop=True)
+                better_than_lut_df = mpc_alpha_df.loc[(mpc_alpha_df[("FarmPower", "mean")] > lut_df[("FarmPower", "mean")].iloc[0]) & (mpc_alpha_df[("YawAngleChangeAbs", "mean")] < lut_df[("YawAngleChangeAbs", "mean")].iloc[0]), [("RelativeTotalRunningOptimizationCostMean", "mean"), ("YawAngleChangeAbs", "mean"), ("FarmPower", "mean")]].reset_index(level="CaseFamily", drop=True)
+                better_than_greedy_df = mpc_alpha_df.loc[(mpc_alpha_df[("FarmPower", "mean")] > greedy_df[("FarmPower", "mean")].iloc[0]), [("RelativeTotalRunningOptimizationCostMean", "mean"), ("YawAngleChangeAbs", "mean"), ("FarmPower", "mean")]].sort_values(by=("FarmPower", "mean"), ascending=False).reset_index(level="CaseFamily", drop=True)
 
                 # plot_simulations(time_series_df=time_series_df, 
                 #                  plotting_cases=[("cost_func_tuning", "alpha_0.001"),
@@ -626,20 +627,20 @@ if __name__ == "__main__":
                 # x = agg_df.loc[(agg_df.index.get_level_values("CaseFamily") == "cost_func_tuning") 
                 #            & ((agg_df.index.get_level_values("CaseName") == "alpha_0.001") 
                 #               | (agg_df.index.get_level_values("CaseName") == "alpha_0.999")), 
-                #            [('YawAngleChangeAbsMean', 'mean'), ('FarmPowerMean', 'mean'), 
+                #            [('YawAngleChangeAbs', 'mean'), ('FarmPower', 'mean'), 
                 #             ('RelativeRunningOptimizationCostTerm_0', 'mean'), ('RelativeRunningOptimizationCostTerm_1', 'mean')]
-                #             ].sort_values(by=('FarmPowerMean', 'mean'), ascending=False).reset_index(level="CaseFamily", drop=True)
+                #             ].sort_values(by=('FarmPower', 'mean'), ascending=False).reset_index(level="CaseFamily", drop=True)
                 # x.columns = x.columns.droplevel(1)
-                better_than_lut_df = better_than_lut_df.sort_values(by=("FarmPowerMean", "mean"), ascending=False)
-                100 * (better_than_lut_df.iloc[0]["FarmPowerMean"] - lut_df.iloc[0]["FarmPowerMean"]) / lut_df.iloc[0]["FarmPowerMean"]
-                100 * (better_than_lut_df.iloc[0]["FarmPowerMean"] - greedy_df.iloc[0]["FarmPowerMean"]) / greedy_df.iloc[0]["FarmPowerMean"]
+                better_than_lut_df = better_than_lut_df.sort_values(by=("FarmPower", "mean"), ascending=False)
+                100 * (better_than_lut_df.iloc[0]["FarmPower"] - lut_df.iloc[0]["FarmPower"]) / lut_df.iloc[0]["FarmPower"]
+                100 * (better_than_lut_df.iloc[0]["FarmPower"] - greedy_df.iloc[0]["FarmPower"]) / greedy_df.iloc[0]["FarmPower"]
                 
-                better_than_lut_df = better_than_lut_df.sort_values(by=("YawAngleChangeAbsMean", "mean"), ascending=True)
-                100 * (better_than_lut_df.iloc[0]["YawAngleChangeAbsMean"] - lut_df.iloc[0]["YawAngleChangeAbsMean"]) / lut_df.iloc[0]["YawAngleChangeAbsMean"]
-                100 * (better_than_lut_df.iloc[0]["YawAngleChangeAbsMean"] - greedy_df.iloc[0]["YawAngleChangeAbsMean"]) / greedy_df.iloc[0]["YawAngleChangeAbsMean"]
+                better_than_lut_df = better_than_lut_df.sort_values(by=("YawAngleChangeAbs", "mean"), ascending=True)
+                100 * (better_than_lut_df.iloc[0]["YawAngleChangeAbs"] - lut_df.iloc[0]["YawAngleChangeAbs"]) / lut_df.iloc[0]["YawAngleChangeAbs"]
+                100 * (better_than_lut_df.iloc[0]["YawAngleChangeAbs"] - greedy_df.iloc[0]["YawAngleChangeAbs"]) / greedy_df.iloc[0]["YawAngleChangeAbs"]
 
-                100 * (lut_df.iloc[0]["FarmPowerMean"] - greedy_df.iloc[0]["FarmPowerMean"]) / greedy_df.iloc[0]["FarmPowerMean"]
-                100 * (lut_df.iloc[0]["YawAngleChangeAbsMean"] - greedy_df.iloc[0]["YawAngleChangeAbsMean"]) / greedy_df.iloc[0]["YawAngleChangeAbsMean"]
+                100 * (lut_df.iloc[0]["FarmPower"] - greedy_df.iloc[0]["FarmPower"]) / greedy_df.iloc[0]["FarmPower"]
+                100 * (lut_df.iloc[0]["YawAngleChangeAbs"] - greedy_df.iloc[0]["YawAngleChangeAbs"]) / greedy_df.iloc[0]["YawAngleChangeAbs"]
 
                 plot_cost_function_pareto_curve(agg_df, args.save_dir)
 
@@ -653,8 +654,8 @@ if __name__ == "__main__":
 
             if (case_families.index("baseline_controllers") in args.case_ids) and (case_families.index("horizon_length") in args.case_ids):
                 mpc_df = agg_df.iloc[agg_df.index.get_level_values("CaseFamily")  == "horizon_length"][
-                    [("YawAngleChangeAbsMean", "mean"), ("FarmPowerMean", "mean"), ("OptimizationConvergenceTime", "mean")]
-                    ].sort_values(by=("FarmPowerMean", "mean"), ascending=False) #.reset_index(level="CaseFamily", drop=True)
+                    [("YawAngleChangeAbs", "mean"), ("FarmPower", "mean"), ("OptimizationConvergenceTime", "mean")]
+                    ].sort_values(by=("FarmPower", "mean"), ascending=False) #.reset_index(level="CaseFamily", drop=True)
 
                 config_cols = ["controller_dt", "n_horizon"]
                 for (case_family, case_name), _ in mpc_df.iterrows():
@@ -666,8 +667,8 @@ if __name__ == "__main__":
                     for col in config_cols:
                         mpc_df.loc[(mpc_df.index.get_level_values("CaseFamily") == case_family) & (mpc_df.index.get_level_values("CaseName") == case_name), col] = input_config["controller"][col]
 
-                lut_df = agg_df.iloc[agg_df.index.get_level_values("CaseFamily").str.contains("baseline_controllers") & (agg_df.index.get_level_values("CaseName") == "LUT")][[("YawAngleChangeAbsMean", "mean"), ("FarmPowerMean", "mean"), ("OptimizationConvergenceTime", "mean")]] 
-                greedy_df = agg_df.iloc[agg_df.index.get_level_values("CaseFamily").str.contains("baseline_controllers") & (agg_df.index.get_level_values("CaseName") == "Greedy")][[("YawAngleChangeAbsMean", "mean"), ("FarmPowerMean", "mean"), ("OptimizationConvergenceTime", "mean")]]
+                lut_df = agg_df.iloc[agg_df.index.get_level_values("CaseFamily").str.contains("baseline_controllers") & (agg_df.index.get_level_values("CaseName") == "LUT")][[("YawAngleChangeAbs", "mean"), ("FarmPower", "mean"), ("OptimizationConvergenceTime", "mean")]] 
+                greedy_df = agg_df.iloc[agg_df.index.get_level_values("CaseFamily").str.contains("baseline_controllers") & (agg_df.index.get_level_values("CaseName") == "Greedy")][[("YawAngleChangeAbs", "mean"), ("FarmPower", "mean"), ("OptimizationConvergenceTime", "mean")]]
                  
                 plot_horizon_length(pd.concat([mpc_df, lut_df, greedy_df]), args.save_dir)
 
@@ -679,10 +680,10 @@ if __name__ == "__main__":
                 if "baseline_controllers_3" in agg_df.index.get_level_values("CaseFamily"):
                     greedy_df = agg_df.iloc[(agg_df.index.get_level_values("CaseFamily") == "baseline_controllers_3") & (agg_df.index.get_level_values("CaseName").str.contains("Greedy"))]  
                     
-                    better_than_lut_df = mpc_alpha_df.loc[((mpc_alpha_df[("FarmPowerMean", "mean")] > lut_df[("FarmPowerMean", "mean")].iloc[0])
-                                                        & (mpc_alpha_df[("YawAngleChangeAbsMean", "mean")] < lut_df[("YawAngleChangeAbsMean", "mean")].iloc[0])), 
-                                                        [("RelativeTotalRunningOptimizationCostMean", "mean"), ("YawAngleChangeAbsMean", "mean"), ("FarmPowerMean", "mean")]]\
-                                                            .sort_values(by=("FarmPowerMean", "mean"), ascending=False)\
+                    better_than_lut_df = mpc_alpha_df.loc[((mpc_alpha_df[("FarmPower", "mean")] > lut_df[("FarmPower", "mean")].iloc[0])
+                                                        & (mpc_alpha_df[("YawAngleChangeAbs", "mean")] < lut_df[("YawAngleChangeAbs", "mean")].iloc[0])), 
+                                                        [("RelativeTotalRunningOptimizationCostMean", "mean"), ("YawAngleChangeAbs", "mean"), ("FarmPower", "mean")]]\
+                                                            .sort_values(by=("FarmPower", "mean"), ascending=False)\
                                                                 .reset_index(level="CaseFamily", drop=True)
                     plotting_cases = [("yaw_offset_study", better_than_lut_df.iloc[0]._name),   
                                                     ("baseline_controllers_3", "LUT_3turb"),
@@ -725,8 +726,8 @@ if __name__ == "__main__":
                     MPC_TYPE = "n_wind_preview_samples"
 
                 mpc_df = agg_df.iloc[agg_df.index.get_level_values("CaseFamily")  == MPC_TYPE][
-                    [("YawAngleChangeAbsMean", "mean"), ("FarmPowerMean", "mean"), ("OptimizationConvergenceTime", "mean")]
-                    ].sort_values(by=("FarmPowerMean", "mean"), ascending=False) #.reset_index(level="CaseFamily", drop=True)
+                    [("YawAngleChangeAbs", "mean"), ("FarmPower", "mean"), ("OptimizationConvergenceTime", "mean")]
+                    ].sort_values(by=("FarmPower", "mean"), ascending=False) #.reset_index(level="CaseFamily", drop=True)
 
                 config_cols = ["n_wind_preview_samples", "wind_preview_type", "diff_type", "nu", "decay_type", "max_std_dev", "n_horizon"]
                 for (case_family, case_name), _ in mpc_df.iterrows():
@@ -751,51 +752,51 @@ if __name__ == "__main__":
                 mpc_df.columns = mpc_df.columns.droplevel(1)
 
                 # read params from input configs rather than CaseName
-                lut_df = agg_df.iloc[agg_df.index.get_level_values("CaseFamily").str.contains("baseline_controllers") & (agg_df.index.get_level_values("CaseName") == "LUT")][[("YawAngleChangeAbsMean", "mean"), ("FarmPowerMean", "mean"), ("OptimizationConvergenceTime", "mean")]] 
+                lut_df = agg_df.iloc[agg_df.index.get_level_values("CaseFamily").str.contains("baseline_controllers") & (agg_df.index.get_level_values("CaseName") == "LUT")][[("YawAngleChangeAbs", "mean"), ("FarmPower", "mean"), ("OptimizationConvergenceTime", "mean")]] 
                 lut_df.columns = lut_df.columns.droplevel(1)
-                greedy_df = agg_df.iloc[agg_df.index.get_level_values("CaseFamily").str.contains("baseline_controllers") & (agg_df.index.get_level_values("CaseName") == "Greedy")][[("YawAngleChangeAbsMean", "mean"), ("FarmPowerMean", "mean"), ("OptimizationConvergenceTime", "mean")]]
+                greedy_df = agg_df.iloc[agg_df.index.get_level_values("CaseFamily").str.contains("baseline_controllers") & (agg_df.index.get_level_values("CaseName") == "Greedy")][[("YawAngleChangeAbs", "mean"), ("FarmPower", "mean"), ("OptimizationConvergenceTime", "mean")]]
                 greedy_df.columns = greedy_df.columns.droplevel(1)
 
-                # better_than_lut_df = mpc_df.loc[(mpc_df["FarmPowerMean"] > lut_df["FarmPowerMean"].iloc[0]), ["YawAngleChangeAbsMean", "OptimizationConvergenceTime", "FarmPowerMean"] + config_cols].sort_values(by="FarmPowerMean", ascending=False).reset_index(level="CaseFamily", drop=True)
-                better_than_lut_df = mpc_df.loc[(mpc_df["FarmPowerMean"] > lut_df["FarmPowerMean"].iloc[0]) 
-                                                & (mpc_df["YawAngleChangeAbsMean"] < lut_df["YawAngleChangeAbsMean"].iloc[0]), 
-                                                ["YawAngleChangeAbsMean", "OptimizationConvergenceTime", "FarmPowerMean"] + config_cols]\
-                                                    .sort_values(by="FarmPowerMean", ascending=False).reset_index(level="CaseFamily", drop=True)
+                # better_than_lut_df = mpc_df.loc[(mpc_df["FarmPower"] > lut_df["FarmPower"].iloc[0]), ["YawAngleChangeAbs", "OptimizationConvergenceTime", "FarmPower"] + config_cols].sort_values(by="FarmPower", ascending=False).reset_index(level="CaseFamily", drop=True)
+                better_than_lut_df = mpc_df.loc[(mpc_df["FarmPower"] > lut_df["FarmPower"].iloc[0]) 
+                                                & (mpc_df["YawAngleChangeAbs"] < lut_df["YawAngleChangeAbs"].iloc[0]), 
+                                                ["YawAngleChangeAbs", "OptimizationConvergenceTime", "FarmPower"] + config_cols]\
+                                                    .sort_values(by="FarmPower", ascending=False).reset_index(level="CaseFamily", drop=True)
                 # better_than_lut_df.groupby("wind_preview_type").head(3)[["n_wind_preview_samples", "wind_preview_type", "diff_type", "nu", "decay_type", "max_std_dev"]]
                    # better_than_lut_df = better_than_lut_df.reset_index(level="CaseName", drop=True)
 
-                # better_than_lut_df = better_than_lut_df.sort_values("FarmPowerMean", ascending=False)
-                # 100 * (better_than_lut_df.iloc[0]["FarmPowerMean"] - lut_df.iloc[0]["FarmPowerMean"]) / lut_df.iloc[0]["FarmPowerMean"]
-                # 100 * (better_than_lut_df.iloc[0]["FarmPowerMean"] - greedy_df.iloc[0]["FarmPowerMean"]) / greedy_df.iloc[0]["FarmPowerMean"]
+                # better_than_lut_df = better_than_lut_df.sort_values("FarmPower", ascending=False)
+                # 100 * (better_than_lut_df.iloc[0]["FarmPower"] - lut_df.iloc[0]["FarmPower"]) / lut_df.iloc[0]["FarmPower"]
+                # 100 * (better_than_lut_df.iloc[0]["FarmPower"] - greedy_df.iloc[0]["FarmPower"]) / greedy_df.iloc[0]["FarmPower"]
 
-                # better_than_lut_df = better_than_lut_df.sort_values("YawAngleChangeAbsMean", ascending=True)
-                # 100 * (better_than_lut_df.iloc[0]["YawAngleChangeAbsMean"] - lut_df.iloc[0]["YawAngleChangeAbsMean"]) / lut_df.iloc[0]["YawAngleChangeAbsMean"]
-                # 100 * (better_than_lut_df.iloc[0]["YawAngleChangeAbsMean"] - greedy_df.iloc[0]["YawAngleChangeAbsMean"]) / greedy_df.iloc[0]["YawAngleChangeAbsMean"]             
+                # better_than_lut_df = better_than_lut_df.sort_values("YawAngleChangeAbs", ascending=True)
+                # 100 * (better_than_lut_df.iloc[0]["YawAngleChangeAbs"] - lut_df.iloc[0]["YawAngleChangeAbs"]) / lut_df.iloc[0]["YawAngleChangeAbs"]
+                # 100 * (better_than_lut_df.iloc[0]["YawAngleChangeAbs"] - greedy_df.iloc[0]["YawAngleChangeAbs"]) / greedy_df.iloc[0]["YawAngleChangeAbs"]             
 
                 # best_case_names = better_than_lut_df.groupby(["wind_preview_type"])["diff_type"].idxmax()
                 # better_than_lut_df.drop(["n_wind_preview_samples", "n_horizon"], axis=1)
                 better_than_lut_df.drop(["n_wind_preview_samples", "n_horizon"], axis=1)\
                                   .loc[better_than_lut_df.index.get_level_values("CaseName").isin(
-                                      better_than_lut_df.groupby(["wind_preview_type"])["FarmPowerMean"].idxmax()),
+                                      better_than_lut_df.groupby(["wind_preview_type"])["FarmPower"].idxmax()),
                                       ["wind_preview_type", "diff_type", "decay_type", "max_std_dev", "nu"]]
 
                 for param in ["diff_type", "decay_type", "max_std_dev", "nu"]:
                     for agg_type in ["mean", "max"]: 
                         logging.info(f"\nFor parameter {param}, taking the {agg_type} of FarmPowerMean over all other parameters, the best parameter for each wind_preview_type is:")
                         logging.info(better_than_lut_df.drop(["n_wind_preview_samples", "n_horizon"], axis=1)\
-                                        .groupby(["wind_preview_type", param])["FarmPowerMean"].agg(agg_type)\
+                                        .groupby(["wind_preview_type", param])["FarmPower"].agg(agg_type)\
                                         .groupby("wind_preview_type").idxmax().values)
                 
                                 #   .loc[better_than_lut_df.index.get_level_values("CaseName").isin(
-                                #       better_than_lut_df.groupby(["wind_preview_type"])["FarmPowerMean"].idxmax()),
+                                #       better_than_lut_df.groupby(["wind_preview_type"])["FarmPower"].idxmax()),
                                 #       ["wind_preview_type", "diff_type", "decay_type", "max_std_dev", "nu"]]
 
                 if True:
                     plot_parameter_sweep(pd.concat([mpc_df, lut_df, greedy_df]), MPC_TYPE, args.save_dir, 
-                                         plot_columns=["FarmPowerMean", "diff_type", "decay_type", "max_std_dev", "n_wind_preview_samples", "wind_preview_type", "nu"],
+                                         plot_columns=["FarmPower", "diff_type", "decay_type", "max_std_dev", "n_wind_preview_samples", "wind_preview_type", "nu"],
                                          merge_wind_preview_types=False, estimator="mean")
                 
-                plotting_cases = [(MPC_TYPE, better_than_lut_df.sort_values(by="FarmPowerMean", ascending=False).iloc[0]._name),   
+                plotting_cases = [(MPC_TYPE, better_than_lut_df.sort_values(by="FarmPower", ascending=False).iloc[0]._name),   
                                                 ("baseline_controllers_3", "LUT"),
                                                 ("baseline_controllers_3", "Greedy")
                 ]
@@ -805,12 +806,12 @@ if __name__ == "__main__":
 
 
                 # find best power decay type
-                # power_decay_type_df = agg_df.iloc[agg_df.index.get_level_values("CaseFamily")  == "power_decay_type"][[("RelativeTotalRunningOptimizationCostMean", "mean"), ("YawAngleChangeAbsMean", "mean"), ("FarmPowerMean", "mean")]].sort_values(by=("FarmPowerMean", "mean"), ascending=False).reset_index(level="CaseFamily", drop=True)
+                # power_decay_type_df = agg_df.iloc[agg_df.index.get_level_values("CaseFamily")  == "power_decay_type"][[("RelativeTotalRunningOptimizationCostMean", "mean"), ("YawAngleChangeAbs", "mean"), ("FarmPower", "mean")]].sort_values(by=("FarmPower", "mean"), ascending=False).reset_index(level="CaseFamily", drop=True)
 
             if case_families.index("wind_preview_type") in args.case_ids:
                 # TODO get best parameters from each sweep and add to other sweeps, then rerun to compare with LUT
                 # find best wind_preview_type and number of samples, if best is on the upper end, increase n_wind_preview_samples in wind_preview_type sweep
-                wind_preview_type_df = agg_df.iloc[agg_df.index.get_level_values("CaseFamily")  == "wind_preview_type"][[("RelativeTotalRunningOptimizationCostMean", "mean"), ("YawAngleChangeAbsMean", "mean"), ("FarmPowerMean", "mean")]].sort_values(by=("FarmPowerMean", "mean"), ascending=False).reset_index(level="CaseFamily", drop=True)
+                wind_preview_type_df = agg_df.iloc[agg_df.index.get_level_values("CaseFamily")  == "wind_preview_type"][[("RelativeTotalRunningOptimizationCostMean", "mean"), ("YawAngleChangeAbs", "mean"), ("FarmPower", "mean")]].sort_values(by=("FarmPower", "mean"), ascending=False).reset_index(level="CaseFamily", drop=True)
 
 
             if (case_families.index("baseline_controllers") in args.case_ids) and (case_families.index("gradient_type") in args.case_ids):
@@ -820,28 +821,28 @@ if __name__ == "__main__":
                 greedy_df = agg_df.iloc[(agg_df.index.get_level_values("CaseFamily") == "baseline_controllers") & (agg_df.index.get_level_values("CaseName") == "Greedy")]
                 
                 # get mpc configurations for which the generated farm power is greater than lut, and the resulting yaw actuation lesser than lut
-                # better_than_lut_df = mpc_df.loc[(mpc_df[("FarmPowerMean", "mean")] > lut_df[("FarmPowerMean", "mean")].iloc[0]) & (mpc_df[("YawAngleChangeAbsMean", "mean")] < lut_df[("YawAngleChangeAbsMean", "mean")].iloc[0]), [("RelativeTotalRunningOptimizationCostMean", "mean"), ("YawAngleChangeAbsMean", "mean"), ("FarmPowerMean", "mean")]].sort_values(by=("RelativeTotalRunningOptimizationCostMean", "mean"), ascending=True).reset_index(level="CaseFamily", drop=True)
-                better_than_lut_df = mpc_df.loc[(mpc_df[("FarmPowerMean", "mean")] > lut_df[("FarmPowerMean", "mean")].iloc[0]), [("YawAngleChangeAbsMean", "mean"), ("OptimizationConvergenceTime", "mean"), ("FarmPowerMean", "mean")]].sort_values(by=("FarmPowerMean", "mean"), ascending=False).reset_index(level="CaseFamily", drop=True)
+                # better_than_lut_df = mpc_df.loc[(mpc_df[("FarmPower", "mean")] > lut_df[("FarmPower", "mean")].iloc[0]) & (mpc_df[("YawAngleChangeAbs", "mean")] < lut_df[("YawAngleChangeAbs", "mean")].iloc[0]), [("RelativeTotalRunningOptimizationCostMean", "mean"), ("YawAngleChangeAbs", "mean"), ("FarmPower", "mean")]].sort_values(by=("RelativeTotalRunningOptimizationCostMean", "mean"), ascending=True).reset_index(level="CaseFamily", drop=True)
+                better_than_lut_df = mpc_df.loc[(mpc_df[("FarmPower", "mean")] > lut_df[("FarmPower", "mean")].iloc[0]), [("YawAngleChangeAbs", "mean"), ("OptimizationConvergenceTime", "mean"), ("FarmPower", "mean")]].sort_values(by=("FarmPower", "mean"), ascending=False).reset_index(level="CaseFamily", drop=True)
                 # better_than_lut = pd.read_csv(os.path.join(args.save_dir, "better_than_lut.csv"), header=[0,1], index_col=[0], skipinitialspace=True)
                 better_than_lut_df.to_csv(os.path.join(args.save_dir, "better_than_lut.csv"))
-                # better_than_lut_df = mpc_df.loc[(mpc_df[("YawAngleChangeAbsMean", "mean")] < lut_df[("YawAngleChangeAbsMean", "mean")].iloc[0]), [("YawAngleChangeAbsMean", "mean"), ("RelativeTotalRunningOptimizationCostMean", "mean"), ("FarmPowerMean", "mean")]].sort_values(by=("RelativeTotalRunningOptimizationCostMean", "mean"), ascending=True).reset_index(level="CaseFamily", drop=True)
+                # better_than_lut_df = mpc_df.loc[(mpc_df[("YawAngleChangeAbs", "mean")] < lut_df[("YawAngleChangeAbs", "mean")].iloc[0]), [("YawAngleChangeAbs", "mean"), ("RelativeTotalRunningOptimizationCostMean", "mean"), ("FarmPower", "mean")]].sort_values(by=("RelativeTotalRunningOptimizationCostMean", "mean"), ascending=True).reset_index(level="CaseFamily", drop=True)
                 
                 # get mpc configurations for which the generated farm power is greater than greedy
-                better_than_greedy_df = mpc_df.loc[(mpc_df[("FarmPowerMean", "mean")] > greedy_df[("FarmPowerMean", "mean")].iloc[0]), [("RelativeTotalRunningOptimizationCostMean", "mean"), ("YawAngleChangeAbsMean", "mean"), ("FarmPowerMean", "mean")]].sort_values(by=("YawAngleChangeAbsMean", "mean"), ascending=True).reset_index(level="CaseFamily", drop=True)
+                better_than_greedy_df = mpc_df.loc[(mpc_df[("FarmPower", "mean")] > greedy_df[("FarmPower", "mean")].iloc[0]), [("RelativeTotalRunningOptimizationCostMean", "mean"), ("YawAngleChangeAbs", "mean"), ("FarmPower", "mean")]].sort_values(by=("YawAngleChangeAbs", "mean"), ascending=True).reset_index(level="CaseFamily", drop=True)
                 # better_than_greedy_df = better_than_greedy_df.loc[better_than_greedy_df.index.isin(better_than_lut_df.index)]
                 # better_than_lut_df.loc[better_than_lut_df.index.isin(better_than_greedy_df.index)]
                 # greedy warm start better,
                 
-                # lut_df[[("YawAngleChangeAbsMean", "mean"), ("FarmPowerMean", "mean")]].iloc[0]
-                # greedy_df[[("YawAngleChangeAbsMean", "mean"), ("FarmPowerMean", "mean")]].iloc[0]
-                # mpc_df.sort_values(by=("FarmPowerMean", "mean"), ascending=False)[[("YawAngleChangeAbsMean", "mean"), ("FarmPowerMean", "mean"), ("OptimizationConvergenceTime", "mean")]].reset_index(level="CaseFamily", drop=True)
-                # mpc_df.sort_values(by=("YawAngleChangeAbsMean", "mean"), ascending=True)[[("YawAngleChangeAbsMean", "mean"), ("FarmPowerMean", "mean"), ("OptimizationConvergenceTime", "mean")]].iloc[0]
+                # lut_df[[("YawAngleChangeAbs", "mean"), ("FarmPower", "mean")]].iloc[0]
+                # greedy_df[[("YawAngleChangeAbs", "mean"), ("FarmPower", "mean")]].iloc[0]
+                # mpc_df.sort_values(by=("FarmPower", "mean"), ascending=False)[[("YawAngleChangeAbs", "mean"), ("FarmPower", "mean"), ("OptimizationConvergenceTime", "mean")]].reset_index(level="CaseFamily", drop=True)
+                # mpc_df.sort_values(by=("YawAngleChangeAbs", "mean"), ascending=True)[[("YawAngleChangeAbs", "mean"), ("FarmPower", "mean"), ("OptimizationConvergenceTime", "mean")]].iloc[0]
                 # print(better_than_lut_df.iloc[0]._name)
-                # 100 * (better_than_lut_df.loc[better_than_lut_df.index == "alpha_1.0_controller_class_MPC_diff_type_custom_cd_dt_30_n_horizon_24_n_wind_preview_samples_5_nu_0.01_solver_slsqp_use_filtered_wind_dir_False_wind_preview_type_stochastic_interval", ("FarmPowerMean", "mean")] - lut_df.iloc[0][("FarmPowerMean", "mean")]) / lut_df.iloc[0][("FarmPowerMean", "mean")]
-                # 100 * (better_than_lut_df.loc[better_than_lut_df.index == "alpha_1.0_controller_class_MPC_diff_type_custom_cd_dt_30_n_horizon_24_n_wind_preview_samples_5_nu_0.01_solver_slsqp_use_filtered_wind_dir_False_wind_preview_type_stochastic_interval", ("FarmPowerMean", "mean")] - greedy_df.iloc[0][("FarmPowerMean", "mean")]) / greedy_df.iloc[0][("FarmPowerMean", "mean")]
+                # 100 * (better_than_lut_df.loc[better_than_lut_df.index == "alpha_1.0_controller_class_MPC_diff_type_custom_cd_dt_30_n_horizon_24_n_wind_preview_samples_5_nu_0.01_solver_slsqp_use_filtered_wind_dir_False_wind_preview_type_stochastic_interval", ("FarmPower", "mean")] - lut_df.iloc[0][("FarmPower", "mean")]) / lut_df.iloc[0][("FarmPower", "mean")]
+                # 100 * (better_than_lut_df.loc[better_than_lut_df.index == "alpha_1.0_controller_class_MPC_diff_type_custom_cd_dt_30_n_horizon_24_n_wind_preview_samples_5_nu_0.01_solver_slsqp_use_filtered_wind_dir_False_wind_preview_type_stochastic_interval", ("FarmPower", "mean")] - greedy_df.iloc[0][("FarmPower", "mean")]) / greedy_df.iloc[0][("FarmPower", "mean")]
                 
-                # 100 * (better_than_lut_df.iloc[0][("FarmPowerMean", "mean")] - lut_df.iloc[0][("FarmPowerMean", "mean")]) / lut_df.iloc[0][("FarmPowerMean", "mean")]
-                # 100 * (better_than_lut_df.iloc[0][("FarmPowerMean", "mean")] - greedy_df.iloc[0][("FarmPowerMean", "mean")]) / greedy_df.iloc[0][("FarmPowerMean", "mean")]
+                # 100 * (better_than_lut_df.iloc[0][("FarmPower", "mean")] - lut_df.iloc[0][("FarmPower", "mean")]) / lut_df.iloc[0][("FarmPower", "mean")]
+                # 100 * (better_than_lut_df.iloc[0][("FarmPower", "mean")] - greedy_df.iloc[0][("FarmPower", "mean")]) / greedy_df.iloc[0][("FarmPower", "mean")]
                 
                 # plot multibar of farm power vs. stochastic interval n_wind_preview_samples, stochastic sample n_wind_preview_samples
                 # 
