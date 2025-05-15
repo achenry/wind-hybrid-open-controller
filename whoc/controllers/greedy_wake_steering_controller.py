@@ -50,10 +50,10 @@ class GreedyController(ControllerBase):
         # [self.idx2tid_mapping[i] for i in self.sorted_tids]
         self.target_mean_ws_horz_cols = [f"ws_horz_{self.idx2tid_mapping[t_idx]}" for t_idx in self.sorted_tids]
         self.target_mean_ws_vert_cols = [f"ws_vert_{self.idx2tid_mapping[t_idx]}" for t_idx in self.sorted_tids]
-        self.ws_horz_cols = self.mean_ws_horz_cols = [f"ws_horz_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.idx2tid_mapping))]
-        self.ws_vert_cols = self.mean_ws_vert_cols = [f"ws_vert_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.idx2tid_mapping))]
-        self.nd_sin_cols = [f"nd_sin_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.tid2idx_mapping))]
-        self.nd_cos_cols = [f"nd_cos_{self.idx2tid_mapping[t_idx]}" for t_idx in np.arange(len(self.tid2idx_mapping))]
+        self.ws_horz_cols = self.mean_ws_horz_cols = [f"ws_horz_{tid}" for tid in self.tid2idx_mapping]
+        self.ws_vert_cols = self.mean_ws_vert_cols = [f"ws_vert_{tid}" for tid in self.tid2idx_mapping]
+        self.nd_sin_cols = [f"nd_sin_{tid}" for tid in self.tid2idx_mapping]
+        self.nd_cos_cols = [f"nd_cos_{tid}" for tid in self.tid2idx_mapping]
         
         self.tgt_turbine_indices = list(self.tid2idx_mapping.values())
         self.tgt_turbine_indices = [self.tgt_turbine_indices.index(i) for i in self.sorted_tids] 

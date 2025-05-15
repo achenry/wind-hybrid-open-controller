@@ -61,14 +61,15 @@ case_studies = {
                                     "simulation_dt": {"group": 0, "vals": [1]},
                                     "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]},
-                                    "use_upstream_wind": {"group": 0, "vals": [True]},
+                                    "filter_floris_wind": {"group": 1, "vals": [True, False]},
+                                    "use_upstream_wind": {"group": 2, "vals": [True, False]},
                                     # "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73"]},
                                     # "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController"]},
-                                    "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
-                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
-                                    "prediction_timedelta": {"group": 2, "vals": [60, 180, 300]},
-                                    "uncertain": {"group": 3, "vals": [False, False]}, #, False, False, False]},
-                                    "wind_forecast_class": {"group": 3, "vals": ["PerfectForecast", "PersistenceForecast"]}, #, "KalmanFilterForecast", "PersistenceForecast", "SpatialFilterForecast", "SVRForecast"]}, # "MLForecast"
+                                    "target_turbine_indices": {"group": 3, "vals": ["74,73"]},
+                                    "controller_class": {"group": 3, "vals": ["LookupBasedWakeSteeringController"]},
+                                    "uncertain": {"group": 3, "vals": [False]}, #, False, False, False]},
+                                    "prediction_timedelta": {"group": 3, "vals": [90]},
+                                    "wind_forecast_class": {"group": 4, "vals": ["PerfectForecast"]}, #, "KalmanFilterForecast", "PersistenceForecast", "SpatialFilterForecast", "SVRForecast"]}, # "MLForecast"
                                     # "model_key": {"group": 3, "vals": ["informer"]},
                                     # "wind_forecast_class": {"group": 3, "vals": ["MLForecast"]},
     },
@@ -84,20 +85,20 @@ case_studies = {
         "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73"]},
         "uncertain": {"group": 0, "vals": [False]}, #, False]},
         "wind_forecast_class": {"group": 0, "vals": ["PerfectForecast"]},
-        "prediction_timedelta": {"group": 2, "vals": [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360, 390, 420, 450, 480, 510, 540, 570, 600, 630, 660, 720, 750, 780]}, # TODO change naming so that we need not repeat, 450, 630, 660, 690, 720]},
+        "prediction_timedelta": {"group": 2, "vals": [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360, 390, 420, 450, 480, 510, 540, 570, 600, 630, 660, 720, 750, 780, 810]},
         },
     "baseline_controllers_perfect_forecaster_flasc": {
-        "controller_dt": {"group": 0, "vals": [5]},
+        "controller_dt": {"group": 0, "vals": [60]},
         "use_filtered_wind_dir": {"group": 0, "vals": [True]},
         "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
-        "simulation_dt": {"group": 0, "vals": [1]},
+        "simulation_dt": {"group": 0, "vals": [60]},
         "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/smarteole_farm.yaml"]},
         "yaw_limits": {"group": 0, "vals": ["-15,15"]},
         "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController"]},
         "target_turbine_indices": {"group": 1, "vals": ["6,", "6,4"]},
-        "uncertain": {"group": 1, "vals": [False, False]},
-        "wind_forecast_class": {"group": 1, "vals": ["PerfectForecast", "PerfectForecast"]},
-        "prediction_timedelta": {"group": 2, "vals": [60, 120, 180]} #240, 300, 360, 420, 480, 540, 600, 660, 720, 780, 840, 900, 960, 1020, 1080]},
+        "uncertain": {"group": 0, "vals": [False]}, #, False]},
+        "wind_forecast_class": {"group": 0, "vals": ["PerfectForecast"]},
+        "prediction_timedelta": {"group": 2, "vals": [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360, 390, 420, 450, 480, 510, 540, 570, 600, 630, 660, 720, 750, 780, 810]},
         },
     "baseline_controllers_informer_forecasters_awaken": {
         "n_horizon": {"group": 0, "vals": [0]},
@@ -487,7 +488,8 @@ def CaseGen_General(case_inputs, namebase=''):
 
 # @profile
 def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_field, 
-                           rerun_simulations, reprocess_simulations, n_seeds, stoptime, save_dir, wf_source, 
+                           rerun_simulations, reprocess_simulations, 
+                           n_seeds, stoptime, save_dir, wf_source, 
                            multiprocessor, whoc_config, base_model_config=None):
     """_summary_
 
@@ -544,7 +546,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
     if wf_source == "floris":
         from whoc.wind_field.WindField import plot_ts
         from whoc.wind_field.WindField import generate_multi_wind_ts, WindField, write_abl_velocity_timetable, first_ord_filter
-    
+
         with open(os.path.join(os.path.dirname(whoc_file), "wind_field", "wind_field_config.yaml"), "r") as fp:
             wind_field_config = yaml.safe_load(fp)
 
@@ -624,15 +626,15 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
     elif wf_source == "scada":
         # NOTE: we use the model config with the highest prediction length to instantiate the DataModule
         data_module = DataModule(data_path=base_model_config["dataset"]["data_path"], 
-                                 normalization_consts_path=base_model_config["dataset"]["normalization_consts_path"],
-                                 normalized=False, 
-                                 n_splits=1, #model_config["dataset"]["n_splits"],
-                                 continuity_groups=None, train_split=(1.0 - base_model_config["dataset"]["val_split"] - base_model_config["dataset"]["test_split"]),
-                                 val_split=base_model_config["dataset"]["val_split"], test_split=base_model_config["dataset"]["test_split"],
-                                 prediction_length=base_model_config["dataset"]["prediction_length"], context_length=base_model_config["dataset"]["context_length"],
-                                 target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
-                                 freq=f"{simulation_dt}s", target_suffixes=base_model_config["dataset"]["target_turbine_ids"],
-                                 per_turbine_target=False, as_lazyframe=False, dtype=pl.Float32)
+                                    normalization_consts_path=base_model_config["dataset"]["normalization_consts_path"],
+                                    normalized=False, 
+                                    n_splits=1, #model_config["dataset"]["n_splits"],
+                                    continuity_groups=None, train_split=(1.0 - base_model_config["dataset"]["val_split"] - base_model_config["dataset"]["test_split"]),
+                                    val_split=base_model_config["dataset"]["val_split"], test_split=base_model_config["dataset"]["test_split"],
+                                    prediction_length=base_model_config["dataset"]["prediction_length"], context_length=base_model_config["dataset"]["context_length"],
+                                    target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
+                                    freq=f"{simulation_dt}s", target_suffixes=base_model_config["dataset"]["target_turbine_ids"],
+                                    per_turbine_target=False, as_lazyframe=False, dtype=pl.Float32)
 
         # data_module.train_ready_data_path = data_module.train_ready_data_path.replace(".parquet", "_new.parquet")
         if not os.path.exists(data_module.train_ready_data_path):
@@ -654,8 +656,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         if n_seeds != "auto":
             # reverse the order to start with the shortest
             wind_field_ts = wind_field_ts[:n_seeds]
-            wind_field_ts.sort(reverse=False, key=lambda df: df.select(pl.col("time").last() - pl.col("time").first()).item())
-            
+            wind_field_ts.sort(reverse=False, key=lambda df: df.select(pl.col("time").last() - pl.col("time").first()).item()) 
         else:
             n_seeds = len(wind_field_ts)
         
@@ -681,23 +682,24 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         # import polars.selectors as cs
         # target_turbine_ids = [75, 74, 5]
         # # for seed, wf in enumerate(wind_field_ts):
-        # for seed, time in check_seed_times:
-        #     wf = wind_field_ts[seed].copy()
-        #     timestamp = wf.loc[(wf["time"] - wf["time"].iloc[0]).dt.total_seconds() == time, "time"].iloc[0]
-        #     wf = wf.loc[(wf["time"] - wf["time"].iloc[0]).dt.total_seconds().between(time - 120, time + 120), :]
-        #     df = wf[["time"] + [c for c in wf.columns if c.startswith("ws_") and any(c.endswith("_" + str(tid)) for tid in target_turbine_ids)]]
-        #     df = pd.melt(df, id_vars=["time"], value_vars=[c for c in df.columns if c.startswith("ws_")])
-        #     df["turbine_id"] = df["variable"].str.extract("_(\\d+)", expand=False)
-        #     df["variable"] = df["variable"].str.extract("(\\w+)(?=_\\d+)", expand=False)
-        #     fig, ax = plt.subplots(2, 1, sharex=True)
-        #     sns.lineplot(data=df.loc[df["variable"]=="ws_horz", :], x="time", y="value", hue="turbine_id", ax=ax[0])
-        #     sns.lineplot(data=df.loc[df["variable"]=="ws_vert", :], x="time", y="value", hue="turbine_id", ax=ax[1])
-        #     ax[0].axvline(x=timestamp)
-        #     ax[1].axvline(x=timestamp)
-        #     ax[0].set_title("Horizontal Wind Speed (m/s)")
-        #     ax[1].set_title("Vertical Wind Speed (m/s)")
-        #     ax[0].set_xlabel("")
-        #     ax[1].set_xlabel("Time (s)")
+        # # for seed, time in check_seed_times:
+        # seed = 9
+        # wf = wind_field_ts[seed].to_pandas() #.copy()
+        # # timestamp = wf.loc[(wf["time"] - wf["time"].iloc[0]).dt.total_seconds() == time, "time"].iloc[0]
+        # # wf = wf.loc[(wf["time"] - wf["time"].iloc[0]).dt.total_seconds().between(time - 120, time + 120), :]
+        # df = wf[["time"] + [c for c in wf.columns if c.startswith("ws_") and any(c.endswith("_" + str(tid)) for tid in target_turbine_ids)]]
+        # df = pd.melt(df, id_vars=["time"], value_vars=[c for c in df.columns if c.startswith("ws_")])
+        # df["turbine_id"] = df["variable"].str.extract("_(\\d+)", expand=False)
+        # df["variable"] = df["variable"].str.extract("(\\w+)(?=_\\d+)", expand=False)
+        # fig, ax = plt.subplots(2, 1, sharex=True)
+        # sns.lineplot(data=df.loc[df["variable"]=="ws_horz", :], x="time", y="value", hue="turbine_id", ax=ax[0])
+        # sns.lineplot(data=df.loc[df["variable"]=="ws_vert", :], x="time", y="value", hue="turbine_id", ax=ax[1])
+        # ax[0].axvline(x=timestamp)
+        # ax[1].axvline(x=timestamp)
+        # ax[0].set_title("Horizontal Wind Speed (m/s)")
+        # ax[1].set_title("Vertical Wind Speed (m/s)")
+        # ax[0].set_xlabel("")
+        # ax[1].set_xlabel("Time (s)")
                 
         wind_field_config = {}
 
@@ -737,6 +739,8 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         
         del data_module
         gc.collect()
+    measurements_timedelta = wind_field_ts[0].select(pl.col("time").diff().slice(1,1)).item()
+        
     for case_family in case_families:
         # such that every case for single seed is processed first
         for p in case_studies[case_family]:
@@ -842,7 +846,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                         input_dicts[start_case_idx + c]["wind_forecast"]["prediction_timedelta"] = mdl_cnf["dataset"]["prediction_length"]
                 
                 wind_forecast_kwargs = {
-                    "measurements_timedelta": wind_field_ts[0].select(pl.col("time").diff().slice(1,1)).item(),
+                    "measurements_timedelta": measurements_timedelta,
                     "context_timedelta": pd.Timedelta(seconds=mdl_cnf["dataset"]["context_length"]), # pd.Timedelta(seconds=input_dicts[start_case_idx + c]["wind_forecast"]["context_timedelta"]),
                     "prediction_timedelta": pd.Timedelta(seconds=input_dicts[start_case_idx + c]["wind_forecast"]["prediction_timedelta"]),
                     "controller_timedelta": pd.Timedelta(seconds=input_dicts[start_case_idx + c]["controller"]["controller_dt"]),
