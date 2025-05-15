@@ -20,40 +20,26 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # @profile
-def simulate_controller(controller_class, wind_forecast_class, simulation_input_dict, wind_field_path=None, **kwargs):
+def simulate_controller(controller_class, wind_forecast_class, simulation_input_dict, **kwargs):
     
-    wind_field_ts = pl.read_parquet(wind_field_path)
-    kwargs["wind_field_ts"] = wind_field_ts
-
     assigned_gpu = kwargs["assigned_gpu"]
     if assigned_gpu:
         os.environ['CUDA_VISIBLE_DEVICES'] = str(assigned_gpu)
     
     results_dir = os.path.join(kwargs["save_dir"], kwargs['case_family'])
-    print(f"Results dir: {results_dir}")
     os.makedirs(results_dir, exist_ok=True)
-    case_name = kwargs["case_name"]
-    case_file_path = os.path.join(results_dir, "case_descriptions.csv")
-    lock = FileLock(case_file_path + ".lock")
-
+    
     if simulation_input_dict["controller"]["uncertain"] and not wind_forecast_class.is_probabilistic:
         logging.info(f"Can't run with uncertain flag for {wind_forecast_class.__name__}, setting uncertainty off.")
         simulation_input_dict["controller"]["uncertain"] = simulation_input_dict["controller"]["uncertain"] and wind_forecast_class.is_probabilistic
-        with lock:
-            try:
-                input_df = pd.read_csv(case_file_path)
-                input_df.loc[input_df['study_name'] == case_name, 'uncertain'] = False
-                input_df.to_csv(case_file_path, index=False)
-            except pd.errors.EmptyDataError:
-                logging.warning(f"case_descriptions.csv is empty, unable to set uncertain flag to False.")
-
+        input_df = pd.read_csv(os.path.join(results_dir, f"case_descriptions.csv"))
+        input_df.loc[int(kwargs['case_name']), "uncertain"] = False
+        input_df.to_csv(os.path.join(results_dir, f"case_descriptions.csv"))
         # old_case_name = kwargs['case_name']
         # kwargs['case_name'] = re.sub("uncertain_True", "uncertain_False", kwargs['case_name'])
         # move(os.path.join(results_dir, f"input_config_case_{old_case_name}.pkl"), os.path.join(results_dir, f"input_config_case_{kwargs['case_name']}.pkl"))
     
-    #fn = f"time_series_results_case_{kwargs['case_name']}_seed_{kwargs['wind_case_idx']}.csv"
-    fn = f"time_series_results_case_{case_name}_seed_{kwargs['wind_case_idx']}.csv"
-
+    fn = f"time_series_results_case_{kwargs['case_name']}_seed_{kwargs['wind_case_idx']}.csv"
     save_path = os.path.join(results_dir, fn)
     temp_save_path = os.path.join(results_dir, fn.replace(".csv", "_temp.csv"))
     
@@ -86,12 +72,10 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     if not kwargs["tid2idx_mapping"]:
         kwargs["tid2idx_mapping"] = {i: i for i in np.arange(fi_full.n_turbines)}
     idx2tid_mapping = dict([(v, k) for k, v in kwargs["tid2idx_mapping"].items()])
-        
-    stoptime = int(simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"]) - int(simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds()) - int(simulation_input_dict["controller"]["n_horizon"] * simulation_input_dict["controller"]["controller_dt"])
-
-    #stoptime = simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"] - simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() - (simulation_input_dict["controller"]["n_horizon"] * simulation_input_dict["controller"]["controller_dt"])
-    if stoptime < 0:
-        print(f"Simulation time {stoptime} is negative, exiting. Please check your inputs (prediction_timedelta, controller_dt, and n_horizon).")
+    
+    TRUNCATE_STEPS = 300 if kwargs["wf_source"] == "scada" else 0
+    stoptime = simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"] - simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() - (simulation_input_dict["controller"]["n_horizon"] * simulation_input_dict["controller"]["controller_dt"]) # - 2*TRUNCATE_STEPS
+    
     load_from_checkpoint = not kwargs["rerun_simulations"] and os.path.exists(temp_save_path)
     load_from_final = not kwargs["rerun_simulations"] and os.path.exists(save_path)
     if load_from_final:
@@ -100,9 +84,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         # if (results_df.shape[0] - 2) == int((stoptime - simulation_input_dict["simulation_dt"]) / simulation_input_dict["simulation_dt"]): #simulation_input_dict["controller"]["controller_dt"] + simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds():
         #     logging.info(f"Loaded existing {fn} since rerun_simulations argument is false")
         #     return
-        results_df.to_csv(save_path, index=False)
-        return save_path
-
+        return results_df
         if os.path.exists(save_path):
             os.remove(save_path)
             
@@ -155,77 +137,100 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         else:
             use_upstream_wind = simulation_input_dict["controller"]["use_upstream_wind"]
             if use_upstream_wind:
-                upstream_tidx = simulation_input_dict["controller"]["target_turbine_indices"][0]
-                simulation_u = kwargs["wind_field_ts"].select(f"ws_horz_{idx2tid_mapping[upstream_tidx]}").to_numpy()[:, 0]
-                simulation_v = kwargs["wind_field_ts"].select(f"ws_vert_{idx2tid_mapping[upstream_tidx]}").to_numpy()[:, 0]
+                # upstream_tidx = simulation_input_dict["controller"]["target_turbine_indices"][0]
+                # rotate turbine coordinates based on most recent wind direction measurement
+                # order turbines based on order of wind incidence
+                layout_x = fi.env.layout_x
+                layout_y = fi.env.layout_y
+                # turbines_ordered_array = []
+                wd = np.array(180.0 + np.rad2deg(np.arctan2(
+                    np.mean(kwargs["wind_field_ts"].select([f"ws_horz_{idx2tid_mapping[t_idx]}" for t_idx in simulation_input_dict["controller"]["target_turbine_indices"]]).select(pl.mean_horizontal(pl.all())).to_numpy()),  
+                    np.mean(kwargs["wind_field_ts"].select([f"ws_vert_{idx2tid_mapping[t_idx]}" for t_idx in simulation_input_dict["controller"]["target_turbine_indices"]]).select(pl.mean_horizontal(pl.all())).to_numpy()))))
+                wd[wd < 0] = 360. + wd[wd < 0]
+                wd[wd > 360] = np.mod(wd[wd > 360], 360.)
+        
+                layout_x_rot = (
+                    np.cos(np.deg2rad(wd + 180.0)) * layout_y
+                    + np.sin(np.deg2rad(wd + 180.0)) * layout_x
+                )
+                upstream_turbine_idx = np.argsort(layout_x_rot)[0]
+                upstream_turbine_id = idx2tid_mapping[upstream_turbine_idx]
+                logging.info(f"Using turbine id {upstream_turbine_id} as upstream turbine for wind seed {kwargs['wind_case_idx']}.")
+                
+                simulation_u = kwargs["wind_field_ts"].select(f"ws_horz_{upstream_turbine_id}").to_numpy()[:, 0]
+                simulation_v = kwargs["wind_field_ts"].select(f"ws_vert_{upstream_turbine_id}").to_numpy()[:, 0]
             else:
                 # use mean
                 simulation_u = kwargs["wind_field_ts"].select([f"ws_horz_{idx2tid_mapping[t_idx]}" for t_idx in simulation_input_dict["controller"]["target_turbine_indices"]]).select(pl.mean_horizontal(pl.all())).to_numpy()[:, 0]
                 simulation_v = kwargs["wind_field_ts"].select([f"ws_vert_{idx2tid_mapping[t_idx]}" for t_idx in simulation_input_dict["controller"]["target_turbine_indices"]]).select(pl.mean_horizontal(pl.all())).to_numpy()[:, 0]
         
-        # filter wind field NOTE TODO this is not the wind field that PerfectForecast is returning...
-        # FFT of raw wind direction time series
-        # freq_vec_dir = np.fft.fft(simulation_dir)
-        freq_vec_u = np.fft.fft(simulation_u)
-        freq_vec_v = np.fft.fft(simulation_v)
-        
-        # fc_dir = 0.0011
-        fc_mag = 0.0011
-        n_lpf = 1
-        ts_len = len(simulation_u)
-        half_len = int(ts_len / 2)
-        fs = (1 / (ts_len * simulation_input_dict["simulation_dt"])) * np.arange(1, half_len)
-        
-        # tf_dir_lpf = butterworth_LPF_TFmag(fs, fc_dir, n_lpf)
-        tf_mag_lpf = butterworth_LPF_TFmag(fs, fc_mag, n_lpf)
+        if simulation_input_dict["controller"]["filter_floris_wind"]:
+            # filter wind field NOTE this is not the wind field that PerfectForecast is returning...
+            # FFT of raw wind direction time series
+            # freq_vec_dir = np.fft.fft(simulation_dir)
+            freq_vec_u = np.fft.fft(simulation_u)
+            freq_vec_v = np.fft.fft(simulation_v)
+            
+            # fc_dir = 0.0011
+            fc_mag = 0.0011
+            n_lpf = 1
+            ts_len = len(simulation_u)
+            half_len = int(ts_len / 2)
+            fs = (1 / (ts_len * simulation_input_dict["simulation_dt"])) * np.arange(1, half_len)
+            
+            # tf_dir_lpf = butterworth_LPF_TFmag(fs, fc_dir, n_lpf)
+            tf_mag_lpf = butterworth_LPF_TFmag(fs, fc_mag, n_lpf)
 
-        # Apply LPF magnitude
-        # freq_vec_dir[1:int(ts_len / 2)] *= tf_dir_lpf
-        freq_vec_u[1:half_len] *= tf_mag_lpf
-        freq_vec_v[1:half_len] *= tf_mag_lpf
-        
-        if ts_len % 2 == 0:
-            freq_vec_u[half_len] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc_mag, n_lpf), 0]))
-            freq_vec_u[half_len + 1:] *= np.flip(tf_mag_lpf)
-            freq_vec_v[half_len] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc_mag, n_lpf), 0]))
-            freq_vec_v[half_len + 1:] *= np.flip(tf_mag_lpf)
-        else:
-            freq_vec_u[half_len:half_len+2] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc_mag, n_lpf), 0]))
-            freq_vec_u[half_len + 2:] *= np.flip(tf_mag_lpf)
-            freq_vec_v[half_len:half_len+2] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc_mag, n_lpf), 0]))
-            freq_vec_v[half_len + 2:] *= np.flip(tf_mag_lpf)
+            # Apply LPF magnitude
+            # freq_vec_dir[1:int(ts_len / 2)] *= tf_dir_lpf
+            freq_vec_u[1:half_len] *= tf_mag_lpf
+            freq_vec_v[1:half_len] *= tf_mag_lpf
+            
+            if ts_len % 2 == 0:
+                freq_vec_u[half_len] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc_mag, n_lpf), 0]))
+                freq_vec_u[half_len + 1:] *= np.flip(tf_mag_lpf)
+                freq_vec_v[half_len] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc_mag, n_lpf), 0]))
+                freq_vec_v[half_len + 1:] *= np.flip(tf_mag_lpf)
+            else:
+                freq_vec_u[half_len:half_len+2] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc_mag, n_lpf), 0]))
+                freq_vec_u[half_len + 2:] *= np.flip(tf_mag_lpf)
+                freq_vec_v[half_len:half_len+2] = np.sqrt(np.max([butterworth_LPF_TFmag(0.5 / simulation_input_dict["simulation_dt"], fc_mag, n_lpf), 0]))
+                freq_vec_v[half_len + 2:] *= np.flip(tf_mag_lpf)
 
-        # START TEST
-        # new_simulation_u = np.real(np.fft.ifft(freq_vec_u))[TRUNCATE_STEPS:-TRUNCATE_STEPS]
-        # new_simulation_v = np.real(np.fft.ifft(freq_vec_v))[TRUNCATE_STEPS:-TRUNCATE_STEPS]
-        # import matplotlib.pyplot as plt
-        # fig, axs = plt.subplots(2, 1, figsize=(10,6), sharex=True)
-        # axs[0].plot(simulation_u,label="Raw Wind U")
-        # axs[0].plot(new_simulation_u,linewidth=2.0,color='r',label="Low-Frequency Wind U")
-        # axs[0].legend()
-        # axs[1].plot(simulation_v,label="Raw Wind V")
-        # axs[1].plot(new_simulation_v,linewidth=2.0,color='r',label="Low-Frequency Wind V")
-        # axs[1].legend()
-        # plt.grid()
-        # END TEST
+            # START TEST
+            # new_simulation_u = np.real(np.fft.ifft(freq_vec_u))[TRUNCATE_STEPS:-TRUNCATE_STEPS]
+            # new_simulation_v = np.real(np.fft.ifft(freq_vec_v))[TRUNCATE_STEPS:-TRUNCATE_STEPS]
+            # import matplotlib.pyplot as plt
+            # fig, axs = plt.subplots(2, 1, figsize=(10,6), sharex=True)
+            # axs[0].plot(simulation_u,label="Raw Wind U")
+            # axs[0].plot(new_simulation_u,linewidth=2.0,color='r',label="Low-Frequency Wind U")
+            # axs[0].legend()
+            # axs[1].plot(simulation_v,label="Raw Wind V")
+            # axs[1].plot(new_simulation_v,linewidth=2.0,color='r',label="Low-Frequency Wind V")
+            # axs[1].legend()
+            # plt.grid()
+            # END TEST
         
-        # save originals
-        all_freq_simulation_mag = ((simulation_u**2 + simulation_v**2)**0.5)#[TRUNCATE_STEPS:-TRUNCATE_STEPS]
-        all_freq_simulation_dir = (180.0 + np.rad2deg(np.arctan2(simulation_u, simulation_v)))#[TRUNCATE_STEPS:-TRUNCATE_STEPS]
-        all_freq_simulation_dir[all_freq_simulation_dir < 0] = 360. + all_freq_simulation_dir[all_freq_simulation_dir < 0]
-        all_freq_simulation_dir[all_freq_simulation_dir > 360] = np.mod(all_freq_simulation_dir[all_freq_simulation_dir > 360], 360.) 
+            # save `originals
+            all_freq_simulation_mag = ((simulation_u**2 + simulation_v**2)**0.5)#[TRUNCATE_STEPS:-TRUNCATE_STEPS]
+            all_freq_simulation_dir = (180.0 + np.rad2deg(np.arctan2(simulation_u, simulation_v)))#[TRUNCATE_STEPS:-TRUNCATE_STEPS]
+            all_freq_simulation_dir[all_freq_simulation_dir < 0] = 360. + all_freq_simulation_dir[all_freq_simulation_dir < 0]
+            all_freq_simulation_dir[all_freq_simulation_dir > 360] = np.mod(all_freq_simulation_dir[all_freq_simulation_dir > 360], 360.) 
+            
+            # time series of low-frequency wind direction
+            simulation_u = np.real(np.fft.ifft(freq_vec_u))#[TRUNCATE_STEPS:-TRUNCATE_STEPS]
+            simulation_v = np.real(np.fft.ifft(freq_vec_v))#[TRUNCATE_STEPS:-TRUNCATE_STEPS]
         
-        # time series of low-frequency wind direction
-        simulation_u = np.real(np.fft.ifft(freq_vec_u))#[TRUNCATE_STEPS:-TRUNCATE_STEPS]
-        simulation_v = np.real(np.fft.ifft(freq_vec_v))#[TRUNCATE_STEPS:-TRUNCATE_STEPS]
-        #stoptime = int(len(simulation_u) // simulation_input_dict["simulation_dt"]) - simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() - (simulation_input_dict["controller"]["n_horizon"] * simulation_input_dict["controller"]["controller_dt"])
-        #stoptime = len(simulation_u) * simulation_input_dict["simulation_dt"] - simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() - simulation_input_dict["controller"]["n_horizon"] * simulation_input_dict["controller"]["controller_dt"]
-        stoptime = (len(simulation_u) * simulation_input_dict["simulation_dt"]) - int(simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds()) - int(simulation_input_dict["controller"]["n_horizon"] * simulation_input_dict["controller"]["controller_dt"])
-
+        stoptime = int(len(simulation_u) // simulation_input_dict["simulation_dt"]) - simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() - (simulation_input_dict["controller"]["n_horizon"] * simulation_input_dict["controller"]["controller_dt"])
+        
         simulation_mag = (simulation_u**2 + simulation_v**2)**0.5
         simulation_dir = 180.0 + np.rad2deg(np.arctan2(simulation_u, simulation_v))
         simulation_dir[simulation_dir < 0] = 360. + simulation_dir[simulation_dir < 0]
         simulation_dir[simulation_dir > 360] = np.mod(simulation_dir[simulation_dir > 360], 360.)
+        
+        if not simulation_input_dict["controller"]["filter_floris_wind"]:
+            all_freq_simulation_mag = simulation_mag
+            all_freq_simulation_dir = simulation_dir
         
         # kwargs["wind_field_ts"] = kwargs["wind_field_ts"].slice(TRUNCATE_STEPS, kwargs["wind_field_ts"].select(pl.len()).item() - (2*TRUNCATE_STEPS))
         
@@ -277,19 +282,11 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     
     yaw_angles_ts = [[ctrl.yaw_IC] * ctrl.n_turbines if isinstance(ctrl.yaw_IC, float) else ctrl.yaw_IC] if k == 0 else []
     # init_yaw_angles_ts = []
-
-    yaw_angles_change_ts = []
     turbine_powers_ts = [[np.nan] * ctrl.n_turbines] if k == 0 else []
     turbine_wind_mag_ts = [[np.nan] * ctrl.n_turbines] if k == 0 else []
     turbine_wind_dir_ts = [[np.nan] * ctrl.n_turbines] if k == 0 else []
     turbine_offline_status_ts = [[False] * ctrl.n_turbines] if k == 0 else []
-    predicted_wind_speeds_ts = []
-    # predicted_time_ts = []
-    predicted_turbine_wind_speed_horz_ts = []
-    predicted_turbine_wind_speed_vert_ts = []
-    stddev_turbine_wind_speed_horz_ts = []
-    stddev_turbine_wind_speed_vert_ts = []
-
+    
     if wind_forecast_class:
         predicted_wind_speeds_ts = []
     
@@ -410,11 +407,37 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     
         # if RAM is running low, write existing data to dataframe and continue
         # turn data into arrays, pandas dataframe, and export to csv
-        ram_used = None
-
         if (final := (t>=stoptime)) or ((ram_used := virtual_memory().percent) > kwargs["ram_limit"]) or (len(turbine_powers_ts) >= int(3600 / simulation_input_dict["simulation_dt"])):
-            if ram_used is not None:
-                logging.info(f"Used {ram_used}% RAM.")
+            logging.info(f"Used {ram_used}% RAM.")
+            
+            # import matplotlib.pyplot as plt
+            # fig, ax = plt.subplots(2,1)
+            # w = kwargs["wind_field_ts"].filter(pl.col("time") <= ctrl.init_time + timedelta(seconds=t))
+            # d_us = (np.rad2deg(np.arctan2(w.select("ws_horz_75"), w.select("ws_vert_75"))) + 180.0).flatten()
+            # d_ds = (np.rad2deg(np.arctan2(w.select("ws_horz_74"), w.select("ws_vert_74"))) + 180.0).flatten()
+            # fd_us = first_ord_filter(d_us, alpha=np.exp(-(1 / simulation_input_dict["controller"]["wind_dir_lpf_time_const"]) * simulation_input_dict["simulation_dt"]))
+            # fd_ds = first_ord_filter(d_ds, alpha=np.exp(-(1 / simulation_input_dict["controller"]["wind_dir_lpf_time_const"]) * simulation_input_dict["simulation_dt"]))
+            # y_ds = np.vstack(yaw_angles_ts)[:, 0]
+            # y_us = np.vstack(yaw_angles_ts)[:, 1]
+            # ax[0].plot(d_ds, label="wind dir ds", color='red')
+            # ax[0].plot(fd_ds, label="filt wind dir ds", linestyle="--", color='red')
+            # ax[0].plot(y_ds, label="yaw ds", color='blue')
+            # ax[1].plot(d_us, label="wind dir us", color='red')
+            # ax[1].plot(fd_us, label="filt wind dir ds", linestyle="--", color='red')
+            # ax[1].plot(y_us, label="yaw us", color='blue')
+            # ax[0].legend()
+            # ax[1].legend()
+            
+            # version_1 = pd.read_csv(save_path.replace(".csv", "_final.csv"), low_memory=False).drop(columns="OptimizationConvergenceTime") # run to completion the first time
+            # version_2 = pd.read_csv(temp_save_path, low_memory=False).drop(columns="OptimizationConvergenceTime") # loaded from checkpoint and completed
+            # ((version_2 == version_1) | version_1.isna() | version_2.isna()).all()
+            # version_2["TurbineWindDir_5"] - version_1["TurbineWindDir_5"]
+            # version_2["TurbineWindMag_5"] - version_1["TurbineWindMag_5"]
+            # version_2["TurbineWindPower_5"] - version_1["TurbineWindPower_5"]
+            # bad_idx = (~version_2["TurbineWindDir_5"].isna() & ~version_1["TurbineWindDir_5"].isna() & ((version_2["TurbineWindDir_5"] - version_1["TurbineWindDir_5"]) != 0)).values
+            # version_1.loc[bad_idx, ["TurbineWindMag_5","TurbineWindDir_5"]]
+            # version_2.loc[bad_idx, ["TurbineWindMag_5","TurbineWindDir_5"]]
+            
             # turn data into arrays, pandas dataframe, and export to csv
             write_df(wf_source=kwargs["wf_source"],
                     wind_field_ts=kwargs["wind_field_ts"],
@@ -457,10 +480,8 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
             if wind_forecast_class:
                 predicted_wind_speeds_ts = []
 
-    results_df.to_csv(save_path, index=False)
-
     # logging.info(f"Saved {save_path}")
-    return save_path
+    return
     # return results_data
 
 # @profile
