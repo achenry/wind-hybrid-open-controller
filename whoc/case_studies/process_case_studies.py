@@ -743,8 +743,8 @@ def aggregate_time_series_data(time_series_df, input_dict_path, n_seeds):
     yaw_angle_change_cols = sorted([c for c in time_series_df.columns if "TurbineYawAngleChange_" in c], key=lambda s: int(s.split("_")[-1]))
     # offline_status_cols = sorted([c for c in time_series_df.columns if "TurbineOfflineStatus_" in c], key=lambda s: int(s.split("_")[-1]))
     turbine_power_cols = sorted([c for c in time_series_df.columns if "TurbinePower_" in c], key=lambda s: int(s.split("_")[-1]))
-    df["FarmPower"] = df[turbine_power_cols].sum(axis=1)
-    df["YawAngleChangeAbs"] = df[yaw_angle_change_cols].abs().sum(axis=1)
+    df.loc[:, "FarmPower"] = df[turbine_power_cols].sum(axis=1)
+    df.loc[:, "YawAngleChangeAbs"] = df[yaw_angle_change_cols].abs().sum(axis=1)
     df = df[["WindSeed", "YawAngleChangeAbs", "FarmPower", 
             "TotalRunningOptimizationCost", "OptimizationConvergenceTime"]]
     df = df.groupby(by=["CaseFamily", "CaseName"])[[col for col in df.columns if col not in ["CaseFamily", "CaseName", "WindSeed"]]]\
