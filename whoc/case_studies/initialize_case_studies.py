@@ -39,7 +39,7 @@ elif sys.platform == "win32" or sys.platform == "cygwin":  # Add Windows check
 case_studies = {
     "baseline_controllers_preview_flasc_perfect": {
                                     "target_turbine_indices": {"group": 1, "vals": ["6,4"]}, #, "6,
-                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]}, #, "GreedyController"
+                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]}, #, "GreedyController"LookupBasedWakeSteeringController
                                     # "target_turbine_indices": {"group": 1, "vals": ["6,"]},
                                     # "controller_class": {"group": 1, "vals": ["GreedyController"]},        
                                     "controller_dt": {"group": 0, "vals": [60]},
@@ -50,7 +50,7 @@ case_studies = {
                                     "uncertain": {"group": 3, "vals": [False, False]}, # , False
                                     "wind_forecast_class": {"group": 3, "vals": ["PersistenceForecast", "ARIMAForecast"]}, #, "ARIMAForecast"#"PersistenceForecast", , ", "KalmanFilterForecast", "SpatialFilterForecast"]},
                                     "study_name": {"group": 3, "vals": ["svr_aoifemac_flasc", "Arima_aoifemac_flasc"]}, #, "Spatial_aoifemac_flasc", "Kalman_aoifemac_flasc"]},
-                                    "prediction_timedelta": {"group": 4, "vals": [480]}, #, 120, 180]},
+                                    "prediction_timedelta": {"group": 4, "vals": [420]}, #, 120, 180]},
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]},
                                     "n_horizon": {"group": 0, "vals": [0]},
                                     },
@@ -807,7 +807,10 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                     elif property_name == "target_turbine_indices":
                         if property_value != "all":
                             # need to preserve order, taking first as upstream
-                            target_turbine_indices = np.array([int(v) for v in property_value.split(",") if len(v)])
+                            if isinstance(property_value, str):
+                                target_turbine_indices = np.array([int(v) for v in property_value.split(",") if v.strip()])
+                            else:
+                                target_turbine_indices = np.array([int(property_value)])
                             _, order_idx = np.unique(target_turbine_indices, return_index=True)
                             target_turbine_indices = target_turbine_indices[np.sort(order_idx)]
                             input_dicts[start_case_idx + c]["controller"][property_name] = tuple(target_turbine_indices)

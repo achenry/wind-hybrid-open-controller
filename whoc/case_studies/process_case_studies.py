@@ -179,7 +179,7 @@ def plot_agg_metrics_vs_forecaster(agg_df, save_dir, label, controller_labels, a
     # 
     
     for v, var in enumerate(reduced_agg_metrics):
-        for c, ctrl in enumerate(controllers):
+        for c, ctrl in enumerate(plot_df["controller_class"].unique()):
             persistent_cond = (plot_df["controller_class"] == ctrl.replace("True", "False")) & (plot_df["variable"] == var) # fetch static case for persistent
             base_val = plot_df.loc[(plot_df["wind_forecast_class"] == "PersistenceForecast") & persistent_cond, "value"].iloc[0]
             cond = (plot_df["controller_class"] == ctrl) & (plot_df["variable"] == var)

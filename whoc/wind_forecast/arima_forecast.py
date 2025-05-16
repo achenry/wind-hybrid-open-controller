@@ -76,7 +76,7 @@ class ARIMAForecast(WindForecast):
         # if self.study_name is None:
         #     self.study_name = "default_study_name"
         if self.study_name is None:
-            self.study_name = 'arima_Greedy_prediction_timedelta_480'
+            self.study_name = 'arima_LUT_prediction_timedelta_420'
         # if not hasattr(self, "study_name"):
         #     self.study_name = f"{args.model}_ws_vert_all_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             #self.study_name = "arima_ws_vert_all_20250429_123701" #"tuning_arima_windfarm_debug" 

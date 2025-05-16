@@ -160,7 +160,7 @@ if __name__ == "__main__":
                 comm_size = comm.Get_size()
                 executor = MPICommExecutor(comm, root=0, max_workers=max_workers)
             elif args.multiprocessor == "cf":
-                executor = ProcessPoolExecutor(max_workers=max_workers,
+                executor = ProcessPoolExecutor(max_workers=3,
                                                mp_context=mp.get_context("spawn"))
             with executor as run_simulations_exec:
                 # if args.multiprocessor == "mpi":
@@ -342,8 +342,9 @@ if __name__ == "__main__":
                         write_case_family_time_series_data(case_families[i], new_time_series_df[-1], args.save_dir)
                 
                 time_series_df = pd.concat(existing_time_series_df + new_time_series_df)
-                
-                unique_seeds = time_series_df.groupby(["CaseFamily", "CaseName"], level=0)["WindSeed"].unique().values
+                time_series_df.index.set_names(["CaseFamily", "CaseName"], inplace=True)
+                unique_seeds = (time_series_df.groupby(level=["CaseFamily", "CaseName"])["WindSeed"].unique().values)
+                #unique_seeds = time_series_df.groupby(["CaseFamily", "CaseName"], level=0)["WindSeed"].unique().values
                 common_seeds = set(unique_seeds[0])
                 for sds in unique_seeds[1:]:
                     common_seeds.intersection_update(sds)
