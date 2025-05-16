@@ -82,7 +82,7 @@ case_studies = {
         "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73"]},
         "uncertain": {"group": 0, "vals": [False]}, #, False]},
         "wind_forecast_class": {"group": 0, "vals": ["PerfectForecast"]},
-        "prediction_timedelta": {"group": 2, "vals": [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360, 390, 420, 450, 480, 510, 540, 570, 600, 630, 660, 720, 750, 780, 810]},
+        "prediction_timedelta": {"group": 2, "vals": [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360, 390, 420, 450, 480, 510, 540, 570, 600, 630, 660, 720, 750, 780, 810, 840, 870, 900, 930, 960, 990, 1020]},
         },
     "baseline_controllers_perfect_forecaster_flasc": {
         "controller_dt": {"group": 0, "vals": [60]},
@@ -654,7 +654,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             # reverse the order to start with the shortest
             wind_field_ts = wind_field_ts[:n_seeds]
             wind_field_ts.sort(reverse=False, key=lambda df: df.select(pl.col("time").last() - pl.col("time").first()).item()) 
-            logging.info(f"Durations in wind_field_ts = {[(df.select((pl.col('time').last() - pl.col('time').first()).dt.total_seconds())) for df in wind_field_ts]}")
+            logging.info(f"Durations in wind_field_ts = {[df.select((pl.col('time').last() - pl.col('time').first())).item() for df in wind_field_ts]}")
         else:
             n_seeds = len(wind_field_ts)
         

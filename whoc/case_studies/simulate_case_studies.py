@@ -164,6 +164,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
                 simulation_v = kwargs["wind_field_ts"].select([f"ws_vert_{idx2tid_mapping[t_idx]}" for t_idx in simulation_input_dict["controller"]["target_turbine_indices"]]).select(pl.mean_horizontal(pl.all())).to_numpy()[:, 0]
         
         if simulation_input_dict["controller"]["filter_floris_wind"]:
+            logging.info("Filtering wind passed to FLORIS.")
             # filter wind field NOTE this is not the wind field that PerfectForecast is returning...
             # FFT of raw wind direction time series
             # freq_vec_dir = np.fft.fft(simulation_dir)
@@ -219,11 +220,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
             # time series of low-frequency wind direction
             simulation_u = np.real(np.fft.ifft(freq_vec_u))#[TRUNCATE_STEPS:-TRUNCATE_STEPS]
             simulation_v = np.real(np.fft.ifft(freq_vec_v))#[TRUNCATE_STEPS:-TRUNCATE_STEPS]
-        
-        # print("LOOKATME")
-        # print(len(simulation_u), simulation_input_dict["simulation_dt"])
-        # print(int(simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() // simulation_input_dict["simulation_dt"]))
-        # print(int((((simulation_input_dict["controller"]["n_horizon"] if controller_class.__name__ == "MPC" else 0) * simulation_input_dict["controller"]["controller_dt"])) // simulation_input_dict["simulation_dt"]))
+            
         stoptime = (len(simulation_u) 
                     - int(simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() // simulation_input_dict["simulation_dt"])
                     - int((((simulation_input_dict["controller"]["n_horizon"] if controller_class.__name__ == "MPC" else 0) * simulation_input_dict["controller"]["controller_dt"])) // simulation_input_dict["simulation_dt"]))
@@ -234,6 +231,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         simulation_dir[simulation_dir > 360] = np.mod(simulation_dir[simulation_dir > 360], 360.)
         
         if not simulation_input_dict["controller"]["filter_floris_wind"]:
+            logging.info("Passing raw wind to FLORIS.")
             all_freq_simulation_mag = simulation_mag
             all_freq_simulation_dir = simulation_dir
         
@@ -242,8 +240,8 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     else:
         simulation_mag = kwargs["wind_field_ts"].select("FreestreamWindMag").to_numpy()
         simulation_dir = kwargs["wind_field_ts"].select("FreestreamWindDir").to_numpy()
-        simulation_u = simulation_mag * np.sin(np.deg2rad(180 + simulation_dir))
-        simulation_v = simulation_mag * np.cos(np.deg2rad(180 + simulation_dir))
+        simulation_u = simulation_mag * np.sin(np.deg2rad(180. + simulation_dir))
+        simulation_v = simulation_mag * np.cos(np.deg2rad(180. + simulation_dir))
      
         # pl.DataFrame(kwargs["wind_field_ts"])
     # simulation_input_dict["wind_forecast"]["measurement_layout"] = np.vstack([fi.env.layout_x, fi.env.layout_y]).T
@@ -413,7 +411,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     
         # if RAM is running low, write existing data to dataframe and continue
         # turn data into arrays, pandas dataframe, and export to csv
-        if (final := (t>=stoptime)) or ((ram_used := virtual_memory().percent) > kwargs["ram_limit"]) or (len(turbine_powers_ts) >= int(3600 / simulation_input_dict["simulation_dt"])):
+        if ((ram_used := virtual_memory().percent) > kwargs["ram_limit"]) or (final := (t>=stoptime)) or (len(turbine_powers_ts) >= int(3600 / simulation_input_dict["simulation_dt"])):
             logging.info(f"Used {ram_used}% RAM.")
             
             # import matplotlib.pyplot as plt

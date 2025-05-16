@@ -507,7 +507,7 @@ if __name__ == "__main__":
                         legend_loc="outer", single_plot=False, label_mapping=label_mapping) 
             
             
-            if True or (case_families.index("baseline_controllers_perfect_forecaster_awaken") in args.case_ids
+            if (case_families.index("baseline_controllers_perfect_forecaster_awaken") in args.case_ids
                 or case_families.index("baseline_controllers_perfect_forecaster_flasc") in args.case_ids):
                 # if case_families.index("baseline_controllers_perfect_forecaster_awaken") in args.case_ids:
                 #     forecaster_case_fam = "baseline_controllers_perfect_forecaster_awaken"
@@ -547,6 +547,9 @@ if __name__ == "__main__":
                 
                 perfect_agg_df = baseline_agg_df.loc[baseline_agg_df["wind_forecast_class"] == "PerfectForecast", :]
                 controllers = pd.unique(perfect_agg_df["controller_class"])
+                # 4, 8, 0, 2, 5, 1
+                
+                # sns.lineplot(data=x.loc[x.index.get_level_values("WindSeed").isin([4, 8, 0, 2, 5, 1]) & (x.index.get_level_values("controller_class") == "GreedyController"), :].reset_index(drop=False)[["controller_class", "prediction_timedelta_x", "FarmPower_x"]].groupby(["controller_class", "prediction_timedelta_x"]).agg("mean").reset_index(drop=False), x="prediction_timedelta_x", y="FarmPower_x")
                 
                 perfect_agg_df.groupby(["use_upstream_wind", "filter_floris_wind"])[("FarmPower", "mean")].agg("mean")\
                               .groupby("controller_class")\
