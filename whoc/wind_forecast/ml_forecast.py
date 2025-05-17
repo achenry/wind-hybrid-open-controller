@@ -1,4 +1,3 @@
-
 from typing import Union
 from dataclasses import dataclass
 import os
@@ -279,24 +278,25 @@ class MLForecast(WindForecast):
         if self.data_module.per_turbine_target:
             test_data = (
                 {
-                    "item_id": f"TURBINE{turbine_id}",
-                    "start": pd.Period(historic_measurements.select(pl.col("time").first()).item(), freq=self.data_module.freq), 
-                    "target": historic_measurements.select([f"{pfx}_{turbine_id}" for pfx in self.data_module.target_prefixes]).to_numpy().T, 
-                    "feat_static_cat": np.array([t]),
-                    "feat_dynamic_real": pl.concat([
+                    FieldName.ITEM_ID: f"TURBINE{turbine_id}",
+                    FieldName.START: pd.Period(historic_measurements.select(pl.col("time").first()).item(), freq=self.data_module.freq), 
+                    FieldName.TARGET: historic_measurements.select([f"{pfx}_{turbine_id}" for pfx in self.data_module.target_prefixes]).to_numpy().T, 
+                    FieldName.FEAT_STATIC_CAT: np.array([t]),
+                    FieldName.FEAT_DYNAMIC_REAL: pl.concat([
                         historic_measurements.select([f"{pfx}_{turbine_id}" for pfx in self.data_module.feat_dynamic_real_prefixes]),
                         historic_measurements.select([pl.col(f"{pfx}_{turbine_id}").last().repeat_by(int(self.model_prediction_timedelta.total_seconds() / data_module_freq_td.total_seconds())).explode() # Use Timedelta seconds
                                                       for pfx in self.data_module.feat_dynamic_real_prefixes])], how="vertical").to_numpy().T
                 } for t, turbine_id in enumerate(self.data_module.target_suffixes))
         else:
-            test_data = ({
-                    "start": pd.Period(historic_measurements.select(pl.col("time").first()).item(), freq=self.data_module.freq), 
-                    "target": historic_measurements.select(self.data_module.target_cols).to_numpy().T, 
-                    "feat_dynamic_real": pl.concat([
+            test_data = [{ # Make this is an iterable (list of one dict)
+                    FieldName.ITEM_ID: "AGGREGATED_TIMESERIES",
+                    FieldName.START: pd.Period(historic_measurements.select(pl.col("time").first()).item(), freq=self.data_module.freq), 
+                    FieldName.TARGET: historic_measurements.select(self.data_module.target_cols).to_numpy().T, 
+                    FieldName.FEAT_DYNAMIC_REAL: pl.concat([
                         historic_measurements.select(self.data_module.feat_dynamic_real_cols),
                         historic_measurements.select([pl.col(col).last().repeat_by(int(self.model_prediction_timedelta.total_seconds() / data_module_freq_td.total_seconds())).explode() # Use Timedelta seconds
                                                       for col in self.data_module.feat_dynamic_real_cols])], how="vertical").to_numpy().T
-            })
+            }]
         return test_data
     
     def predict_sample(self, historic_measurements: Union[pd.DataFrame, pl.DataFrame], current_time, n_samples: int):
