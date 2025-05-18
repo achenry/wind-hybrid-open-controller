@@ -32,7 +32,7 @@ export MODEL_CONFIG_PATH_ARG=${2:-"${WF_DIR}/config/training/training_inputs_jua
 export DATA_CONFIG_PATH_ARG=${3:-"${WF_DIR}/config/preprocessing/preprocessing_inputs_flasc_STORM.yaml"}
 export CHECKPOINT_ARG=${4:-"best"} # Default to 'best' if not provided
 export MAX_STEPS_ARG=${5:-1080}    # Default to original value if not provided
-export PREDICTION_TYPE_ARG=${6:-"distribution"}
+export PREDICTION_TYPE_ARG=${6:-"sample"}
 
 # --- Create Logging Directories ---
 mkdir -p ${LOG_DIR}/slurm_logs
