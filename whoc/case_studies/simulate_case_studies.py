@@ -229,9 +229,9 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
             simulation_u = np.real(np.fft.ifft(freq_vec_u))#[TRUNCATE_STEPS:-TRUNCATE_STEPS]
             simulation_v = np.real(np.fft.ifft(freq_vec_v))#[TRUNCATE_STEPS:-TRUNCATE_STEPS]
             
-        stoptime = (len(simulation_u) 
-                    - int(simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() // simulation_input_dict["simulation_dt"])
-                    - int((((simulation_input_dict["controller"]["n_horizon"] if controller_class.__name__ == "MPC" else 0) * simulation_input_dict["controller"]["controller_dt"])) // simulation_input_dict["simulation_dt"]))
+        stoptime = (len(simulation_u) * simulation_input_dict["simulation_dt"]
+                    - int(simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds())
+                    - int((((simulation_input_dict["controller"]["n_horizon"] if controller_class.__name__ == "MPC" else 0) * simulation_input_dict["controller"]["controller_dt"]))))
         
         simulation_mag = (simulation_u**2 + simulation_v**2)**0.5
         simulation_dir = 180.0 + np.rad2deg(np.arctan2(simulation_u, simulation_v))
