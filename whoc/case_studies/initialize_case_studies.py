@@ -58,14 +58,14 @@ case_studies = {
                                     "simulation_dt": {"group": 0, "vals": [1]},
                                     "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]},
-                                    "filter_floris_wind": {"group": 1, "vals": [True, False]},
-                                    "use_upstream_wind": {"group": 2, "vals": [True, False]},
-                                    # "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73"]},
-                                    # "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController"]},
-                                    "target_turbine_indices": {"group": 3, "vals": ["74,73"]},
-                                    "controller_class": {"group": 3, "vals": ["LookupBasedWakeSteeringController"]},
+                                    # "filter_floris_wind": {"group": 1, "vals": [True, False]},
+                                    # "use_upstream_wind": {"group": 2, "vals": [True, False]},
+                                    "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73"]},
+                                    "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController"]},
+                                    # "target_turbine_indices": {"group": 3, "vals": ["74,73"]},
+                                    # "controller_class": {"group": 3, "vals": ["LookupBasedWakeSteeringController"]},
                                     "uncertain": {"group": 3, "vals": [False]}, #, False, False, False]},
-                                    "prediction_timedelta": {"group": 3, "vals": [90]},
+                                    "prediction_timedelta": {"group": 3, "vals": [1020]},
                                     "wind_forecast_class": {"group": 4, "vals": ["PerfectForecast"]}, #, "KalmanFilterForecast", "PersistenceForecast", "SpatialFilterForecast", "SVRForecast"]}, # "MLForecast"
                                     # "model_key": {"group": 3, "vals": ["informer"]},
                                     # "wind_forecast_class": {"group": 3, "vals": ["MLForecast"]},
@@ -82,7 +82,7 @@ case_studies = {
         "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73"]},
         "uncertain": {"group": 0, "vals": [False]}, #, False]},
         "wind_forecast_class": {"group": 0, "vals": ["PerfectForecast"]},
-        "prediction_timedelta": {"group": 2, "vals": [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360, 390, 420, 450, 480, 510, 540, 570, 600, 630, 660, 720, 750, 780, 810, 840, 870, 900, 930, 960, 990, 1020]},
+        "prediction_timedelta": {"group": 2, "vals": [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360, 390, 420, 450, 480, 510, 540, 570, 600, 630, 660, 720]},
         },
     "baseline_controllers_perfect_forecaster_flasc": {
         "controller_dt": {"group": 0, "vals": [60]},
@@ -738,6 +738,11 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         del data_module
         gc.collect()
     measurements_timedelta = wind_field_ts[0].select(pl.col("time").diff().slice(1,1)).item()
+    
+    # TESTING START
+    # wind_field_ts = [wind_field_ts[2].slice(38400, None)]
+    # n_seeds = 1
+    # TESTING END
         
     for case_family in case_families:
         # such that every case for single seed is processed first
@@ -746,7 +751,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         case_studies[case_family]["wind_case_idx"] = {"group": 0, "vals": [i for i in range(n_seeds)]}
         
         # case_studies[case_family]["wind_case_idx"] = {"group": max(d["group"] for d in case_studies[case_family].values()) + 1, "vals": [i for i in range(n_seeds)]}
-
+    
     model_configs = {}
     input_dicts = []
     case_lists = []

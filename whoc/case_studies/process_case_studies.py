@@ -576,7 +576,7 @@ def read_amr_outputs(results_paths, hercules_dict):
     df = df.loc[~(df[[col for col in df.columns if f"turbine_powers" in col]] == 0).all(axis="columns"), :]
     df = df.rename(columns={col: f"TurbinePower_{col.split('_')[-1]}" for col in df.columns if "turbine_powers" in col})
     df = df.rename(columns={col: f"TurbineYawAngle_{col.split('_')[-1]}" for col in df.columns if "turbine_yaw_angles" in col})
-    df.loc[:, "Time"] = df["Time"] - df.iloc[0]["Time"]
+    df["Time"] = df["Time"] - df.iloc[0]["Time"]
 
     df["ControllerClass"] = pd.Categorical(df["ControllerClass"], ["Greedy", "LUT", "MPC"])
     df = df.sort_values(by=["ControllerClass", "Time"])
@@ -743,8 +743,8 @@ def aggregate_time_series_data(time_series_df, input_dict_path, n_seeds):
     yaw_angle_change_cols = sorted([c for c in time_series_df.columns if "TurbineYawAngleChange_" in c], key=lambda s: int(s.split("_")[-1]))
     # offline_status_cols = sorted([c for c in time_series_df.columns if "TurbineOfflineStatus_" in c], key=lambda s: int(s.split("_")[-1]))
     turbine_power_cols = sorted([c for c in time_series_df.columns if "TurbinePower_" in c], key=lambda s: int(s.split("_")[-1]))
-    df.loc[:, "FarmPower"] = df[turbine_power_cols].sum(axis=1)
-    df.loc[:, "YawAngleChangeAbs"] = df[yaw_angle_change_cols].abs().sum(axis=1)
+    df["FarmPower"] = df.loc[:, turbine_power_cols].sum(axis=1)
+    df["YawAngleChangeAbs"] = df.loc[:, yaw_angle_change_cols].abs().sum(axis=1)
     df = df[["WindSeed", "YawAngleChangeAbs", "FarmPower", 
             "TotalRunningOptimizationCost", "OptimizationConvergenceTime"]]
     df = df.groupby(by=["CaseFamily", "CaseName"])[[col for col in df.columns if col not in ["CaseFamily", "CaseName", "WindSeed"]]]\
