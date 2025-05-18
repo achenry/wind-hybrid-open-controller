@@ -6,10 +6,10 @@
 #SBATCH --cpus-per-task=32          # CPUs per task (adjust based on inference needs)
 #SBATCH --mem-per-cpu=8192          # Memory per CPU (Total Mem = 1 * 16 * 8192 = 128GB)
 #SBATCH --gres=gpu:H100:1           # Request 1 H100 GPU (Matches ntasks-per-node)
-#SBATCH --time=0-06:00              # Time limit (e.g., 1 hour for inference)
+#SBATCH --time=1-00:00              # Time limit (e.g., 1 hour for inference)
 #SBATCH --job-name=whoc_infer_storm
-#SBATCH --output=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/whoc_infer_%j.out
-#SBATCH --error=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/whoc_infer_%j.err
+#SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/whoc_infer_%j.out
+#SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/whoc_infer_%j.err
 #SBATCH --hint=nomultithread        # Disable hyperthreading
 #SBATCH --distribution=block:block  # Improve GPU-CPU affinity
 #SBATCH --gres-flags=enforce-binding # Enforce binding of GPU to task
@@ -18,8 +18,8 @@
 export BASE_DIR="/user/taed7566/Forecasting"
 export WHOC_DIR="${BASE_DIR}/wind-hybrid-open-controller"
 export WF_DIR="${BASE_DIR}/wind-forecasting"
-export LOG_DIR="${WF_DIR}/logs"
-export WHOC_SCRIPT_DIR="${WHOC_DIR}/whoc/wind_forecast/run_scripts"
+export LOG_DIR="/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs"
+export WHOC_SCRIPT_DIR="${WHOC_DIR}/whoc/wind_forecast"
 
 # --- Input Arguments ---
 # Example Usage: sbatch run_wind_forecasting_STORM.sh tactis \
@@ -128,8 +128,8 @@ python run_forecaster_validation.py \
     --use_tuned_params \
     --use_trained_models \
     --rerun_validation \
-    --max_splits 1 \
-    --max_steps ${MAX_STEPS_ARG} \
+    # --max_splits 1 \
+    # --max_steps ${MAX_STEPS_ARG} \
     --multiprocessor cf \
     --plot
 
