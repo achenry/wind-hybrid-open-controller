@@ -35,7 +35,12 @@ from gluonts.dataset.split import split, slice_data_entry
 from gluonts.dataset.field_names import FieldName
 
 from wind_forecasting.preprocessing.data_module import DataModule
-from wind_forecasting.postprocessing.probabilistic_metrics import continuous_ranked_probability_score_gaussian, pi_coverage_probability, pi_normalized_average_width, coverage_width_criterion 
+from wind_forecasting.postprocessing.probabilistic_metrics import (
+    continuous_ranked_probability_score_gaussian, pi_coverage_probability,
+    pi_normalized_average_width, coverage_width_criterion,
+    continuous_ranked_probability_score_samples, pi_coverage_probability_samples,
+    pi_normalized_average_width_samples, coverage_width_criterion_samples
+)
 
 from floris import FlorisModel
 
@@ -173,7 +178,8 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                 pred = forecaster.predict_point(
                     ds.filter(pl.col("time") <= current_time), current_time)
             elif prediction_type == "sample":
-                raise NotImplementedError()
+                pred = forecaster.predict_sample(
+                    ds.filter(pl.col("time") <= current_time), current_time)
             
             pred = pred.with_columns(
                 test_idx=pl.lit(test_idx).cast(pl.Int32), 
