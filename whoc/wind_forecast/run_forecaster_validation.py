@@ -179,8 +179,15 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                 pred = forecaster.predict_point(
                     ds.filter(pl.col("time") <= current_time), current_time)
             elif prediction_type == "sample":
+                n_samples = 100  # Default value
+                if hasattr(forecaster, 'model_config'):
+                    try:
+                        n_samples = forecaster.model_config['model'][forecaster.model_key].get('num_parallel_samples', 100)
+                    except (KeyError, AttributeError):
+                        pass
+                
                 pred = forecaster.predict_sample(
-                    ds.filter(pl.col("time") <= current_time), current_time)
+                    ds.filter(pl.col("time") <= current_time), current_time, n_samples=n_samples)
             
             pred = pred.with_columns(
                 test_idx=pl.lit(test_idx).cast(pl.Int32), 
