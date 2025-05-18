@@ -39,7 +39,8 @@ from wind_forecasting.postprocessing.probabilistic_metrics import (
     continuous_ranked_probability_score_gaussian, pi_coverage_probability,
     pi_normalized_average_width, coverage_width_criterion,
     continuous_ranked_probability_score_samples, pi_coverage_probability_samples,
-    pi_normalized_average_width_samples, coverage_width_criterion_samples
+    pi_normalized_average_width_samples, coverage_width_criterion_samples,
+    prediction_interval_from_samples
 )
 
 from floris import FlorisModel
@@ -255,12 +256,58 @@ def generate_metric_per_cg(pred_mean, pred_stddev, true, metric_name, metric_fun
     return pl.concat([
             pl.DataFrame(
                 data=np.atleast_2d(metric_func(
-                    pred_mean.filter(pl.col("continuity_group") == cg).select(target_cols).to_numpy(), 
-                    true.filter(pl.col("continuity_group") == cg).select(true_cols).to_numpy(), 
+                    pred_mean.filter(pl.col("continuity_group") == cg).select(target_cols).to_numpy(),
+                    true.filter(pl.col("continuity_group") == cg).select(true_cols).to_numpy(),
                     pred_stddev.filter(pl.col("continuity_group") == cg).select(cs.starts_with("sd_")).to_numpy()
                     )),
                 schema=target_cols).with_columns(continuity_group=pl.lit(cg)) for cg in cg_vals], how="vertical")\
                     .with_columns(metric=pl.lit(metric_name), test_idx=pl.lit(-1))
+
+def generate_sample_based_metrics_per_cg(pred_df, true, metric_name, metric_func, cg_vals, target_cols, true_cols):
+    """Generate sample-based metrics per continuity group.
+    
+    Args:
+        pred_df: DataFrame containing sample predictions
+        true: DataFrame containing true values
+        metric_name: Name of the metric being calculated
+        metric_func: Sample-based metric function to apply
+        cg_vals: Array of continuity group values
+        target_cols: List of target column names
+        true_cols: List of true value column names
+        
+    Returns:
+        DataFrame containing metrics for each continuity group and target
+    """
+    metrics = []
+    for cg in cg_vals:
+        cg_metrics = []
+        for target_col, true_col in zip(target_cols, true_cols):
+            # Get base column name without sample suffix
+            base_col = target_col.split('_sample_')[0]
+            
+            # Get all sample columns for this target
+            sample_cols = [col for col in pred_df.columns if col.startswith(f"{base_col}_sample_")]
+            
+            # Extract samples and reshape to (n, num_samples)
+            samples = pred_df.filter(pl.col("continuity_group") == cg).select(sample_cols).to_numpy()
+            samples = samples.reshape(samples.shape[0], -1)  # Reshape to (n, num_samples)
+            
+            # Get true values
+            true_values = true.filter(pl.col("continuity_group") == cg).select(true_col).to_numpy().flatten()
+            
+            # Calculate metric
+            metric_value = metric_func(true_values, samples)
+            cg_metrics.append(metric_value)
+            
+        metrics.append(pl.DataFrame(
+            data=np.atleast_2d(cg_metrics),
+            schema=target_cols
+        ).with_columns(continuity_group=pl.lit(cg)))
+        
+    return pl.concat(metrics, how="vertical").with_columns(
+        metric=pl.lit(metric_name),
+        test_idx=pl.lit(-1)
+    )
 
 def generate_forecaster_agg_results(forecaster, forecast_df, test_data, data_module, prediction_type):
     logging.info(f"Preparing true data for forecaster {forecaster.__class__.__name__} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
@@ -309,6 +356,30 @@ def generate_forecaster_agg_results(forecaster, forecast_df, test_data, data_mod
         cwc = unpivot_df(cwc, forecaster.turbine_signature)
         
         crps = generate_metric_per_cg(pred_mean, pred_stddev, true, "CRPS", continuous_ranked_probability_score_gaussian, cg_vals, data_module.target_cols, true_cols)
+        crps = unpivot_df(crps, forecaster.turbine_signature)
+        
+        agg_metrics += [picp, pinaw, cwc, crps]
+    
+    elif prediction_type == "sample" and forecaster.is_probabilistic:
+        logging.info(f"Preparing sample-based probabilistic metrics for forecaster {forecaster.__class__.__name__} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
+        
+        cg_vals = combined_df.select(pl.col("continuity_group").unique()).to_numpy().flatten()
+        
+        # Calculate sample-based metrics
+        picp = generate_sample_based_metrics_per_cg(combined_df, combined_df, "PICP_samples", pi_coverage_probability_samples,
+                                                  cg_vals, data_module.target_cols, true_cols)
+        picp = unpivot_df(picp, forecaster.turbine_signature)
+        
+        pinaw = generate_sample_based_metrics_per_cg(combined_df, combined_df, "PINAW_samples", pi_normalized_average_width_samples,
+                                                   cg_vals, data_module.target_cols, true_cols)
+        pinaw = unpivot_df(pinaw, forecaster.turbine_signature)
+        
+        cwc = generate_sample_based_metrics_per_cg(combined_df, combined_df, "CWC_samples", coverage_width_criterion_samples,
+                                                 cg_vals, data_module.target_cols, true_cols)
+        cwc = unpivot_df(cwc, forecaster.turbine_signature)
+        
+        crps = generate_sample_based_metrics_per_cg(combined_df, combined_df, "CRPS_samples", continuous_ranked_probability_score_samples,
+                                                  cg_vals, data_module.target_cols, true_cols)
         crps = unpivot_df(crps, forecaster.turbine_signature)
         
         agg_metrics += [picp, pinaw, cwc, crps]
@@ -932,8 +1003,13 @@ if __name__ == "__main__":
         PLOT_METRICS = True
         if PLOT_METRICS:
             logging.info("Plotting aggregate metrics for all forecasts.")
-            plotting_metrics_dirs = [(met, direc) for met, direc in 
-                                zip(["MAE", "RMSE", "PINAW", "CWC", "CRPS", "PICP"], [0, 0, 1, 1, 1, 1]) 
+            plotting_metrics_dirs = [(met, direc) for met, direc in
+                                zip(["MAE", "RMSE",
+                                    "PINAW", "PINAW_samples",
+                                    "CWC", "CWC_samples",
+                                    "CRPS", "CRPS_samples",
+                                    "PICP", "PICP_samples"],
+                                    [0, 0, 1, 1, 1, 1, 1, 1, 1, 1])
                                 if met in agg_df["metric"].unique()]
             plotting_metrics = [v[0] for v in plotting_metrics_dirs]
             ax_indices = [v[1] for v in plotting_metrics_dirs]
@@ -957,7 +1033,10 @@ if __name__ == "__main__":
             # best_prediction_dt = totals_agg_df.filter(pl.col("metric").is_in(["RMSE", "MAE", "CWC", "CRPS", "PINAW"])).group_by("prediction_timedelta").agg(pl.col("score").mean()).select(pl.col("prediction_timedelta").sort_by("score").first()).item()
             # totals_agg_df.filter(pl.col("prediction_timedelta") == best_prediction_dt),
             if True:
-                plot_score_vs_forecaster(totals_agg_df.filter(pl.col("metric").is_in(["RMSE", "MAE", "CWC", "PINAW", "PICP", "CRPS"])),
+                plot_score_vs_forecaster(totals_agg_df.filter(pl.col("metric").is_in([
+                    "RMSE", "MAE", "CWC", "PINAW", "PICP", "CRPS",
+                    "CWC_samples", "PINAW_samples", "PICP_samples", "CRPS_samples"
+                ])),
                                         metrics=plotting_metrics,
                                         ax_indices=ax_indices,
                                         prediction_intervals=totals_agg_df.select(pl.col("prediction_timedelta").unique()).to_numpy().flatten(),
