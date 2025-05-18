@@ -78,6 +78,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     load_from_checkpoint = not kwargs["rerun_simulations"] and os.path.exists(temp_save_path)
     load_from_final = not kwargs["rerun_simulations"] and os.path.exists(save_path)
     if load_from_final:
+        logging.info(f"Returning existing from final checkpoint {save_path}")
         results_df = pd.read_csv(save_path, low_memory=False)
         # check if this saved df completed successfully TODO add back in when all sims are uniform
         # if (results_df.shape[0] - 2) == int((stoptime - simulation_input_dict["simulation_dt"]) / simulation_input_dict["simulation_dt"]): #simulation_input_dict["controller"]["controller_dt"] + simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds():
@@ -108,6 +109,13 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         
         if os.path.exists(temp_save_path):
             os.remove(temp_save_path)
+    
+    # TESTING START
+    # if len(fi.sorted_tids) == 2:
+    #     simulation_input_dict["controller"]["initial_conditions"]["yaw"] = list(np.array([302.8, 283.85]))
+    # else:
+    #     simulation_input_dict["controller"]["initial_conditions"]["yaw"] = list(np.array([289.45]))
+    # TESTING END
     
     logging.info(f"Running instance of {controller_class.__name__} - {kwargs['case_name']} with wind seed {kwargs['wind_case_idx']}")
     
@@ -307,7 +315,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     # recompute controls and step floris forward by ctrl.controller_dt
     logging.info(f"Running for stoptime = {stoptime} for instance of {controller_class.__name__} - {kwargs['case_name']} with wind seed {kwargs['wind_case_idx']}")
     while t < stoptime:
-
+        
         # reiniitialize and run FLORIS interface with current disturbances and disturbance up to (and excluding) next controls computation
         # using yaw angles as most recently sent from last time-step i.e. initial yaw conditions for first time step
         
@@ -316,11 +324,12 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         elif k > 0:
             ctrl_dict = None
             
-        fi.step(disturbances={"wind_speeds": simulation_mag[k:k + n_future_steps + 1],
-                            "wind_directions": simulation_dir[k:k + n_future_steps + 1], 
-                            "turbulence_intensities": [fi.env.core.flow_field.turbulence_intensities[0]] * (n_future_steps + 1)},
-                            ctrl_dict=ctrl_dict,
-                            seed=k)
+        fi.step(disturbances={
+            "wind_speeds": simulation_mag[k:k + n_future_steps + 1],
+            "wind_directions": simulation_dir[k:k + n_future_steps + 1], 
+            "turbulence_intensities": [fi.env.core.flow_field.turbulence_intensities[0]] * (n_future_steps + 1)},
+            ctrl_dict=ctrl_dict,
+            seed=k)
         
         ctrl.current_freestream_measurements = [
                 simulation_u[k],
@@ -651,8 +660,8 @@ def write_df(wf_source, wind_field_ts,
     # ax.plot(results_data["Time"], results_data["TurbineYawAngle_75"], label="75")
     # ax.plot(results_data["Time"], results_data["FreestreamWindDir"], label="Raw wind dir.")
     # ax.plot(results_data["Time"], results_data["FreestreamWindMag"], label="Raw wind mag.")
-    # ax.plot(results_data["Time"], results_data["FilteredFreestreamWindDir"], label="Filtered wind dir.")
-    # ax.plot(results_data["Time"], results_data["FilteredFreestreamWindMag"], label="Filtered wind mag.")
+    # # ax.plot(results_data["Time"], results_data["FilteredFreestreamWindDir"], label="Filtered wind dir.")
+    # # ax.plot(results_data["Time"], results_data["FilteredFreestreamWindMag"], label="Filtered wind mag.")
     # ax.legend()
     # TESTING END
     
