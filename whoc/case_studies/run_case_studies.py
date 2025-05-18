@@ -534,37 +534,59 @@ if __name__ == "__main__":
 
                 x = baseline_agg_df[[("FarmPower", "mean"), ("FarmPower", "std"), ("controller_class", ""), ("use_upstream_wind", ""), ("filter_floris_wind", "")]].reset_index(drop=True).sort_values(("FarmPower", "mean"), ascending=False)
                 
+                # Find best farm power per wind seed
                 extra_args = baseline_agg_df[config_cols]
                 extra_args.columns = extra_args.columns.droplevel(1)
                 time_series_df = pd.merge(time_series_df, extra_args, on=["CaseFamily", "CaseName"])
-                x = time_series_df.reset_index(drop=True)[["controller_class", "prediction_timedelta", "filter_floris_wind", "use_upstream_wind", "FarmPower", "Time", "WindSeed"]].set_index(["Time", "controller_class", "WindSeed"]).sort_values(["controller_class", "Time"])
-                x = x.groupby(["controller_class", "prediction_timedelta", "filter_floris_wind", "use_upstream_wind", "WindSeed"]).agg("mean").reset_index(["prediction_timedelta", "filter_floris_wind", "use_upstream_wind"])
+                x = time_series_df.reset_index(drop=True)[["controller_class", "prediction_timedelta", "FarmPower", "Time", "WindSeed"]].set_index(["Time", "controller_class", "WindSeed"]).sort_values(["controller_class", "Time"])
+                
+                # get lowest end time available
+                end_times_per_seed = x.groupby(["WindSeed", "prediction_timedelta"]).apply(lambda x: x.sort_values("Time", ascending=True).tail(1)).reset_index(level=[0,1], drop=True).reset_index(0, drop=False)[["Time", "prediction_timedelta"]].groupby("WindSeed").agg("min")["Time"]
+                x = x.groupby("WindSeed", group_keys=False).apply(func=(lambda x: x.loc[x.index.get_level_values("Time") <= end_times_per_seed[x.index.get_level_values("WindSeed")[0]]]))
+                x = x[["prediction_timedelta", "FarmPower"]].groupby(["controller_class", "prediction_timedelta", "WindSeed"]).agg("mean").reset_index("prediction_timedelta")
                 zero_case = x.loc[x["prediction_timedelta"] == pd.Timedelta(seconds=0), :]
                 x = pd.merge(x, zero_case, on=["controller_class", "WindSeed"])
                 x["FarmPower_x"] = 100 * ((x["FarmPower_x"] / x["FarmPower_y"]) - 1)
-                x.loc[x["FarmPower_x"] > 0.5, :].groupby("controller_class").apply(lambda x: x.sort_values("FarmPower_x", ascending=False))[["prediction_timedelta_x", "FarmPower_x"]]
-                x.groupby(["controller_class", "WindSeed"])["FarmPower_x"].agg("mean").groupby("controller_class").apply(lambda x: x.sort_values(ascending=False))
+                
+                # find % increase in farm power for each controller class, prediction_timedelta, and WindSeed, averaged over all prediction_timedelta_values
+                x.loc[x["FarmPower_x"] > 0.5, :].groupby("controller_class", group_keys=False).apply(lambda x: x.sort_values("FarmPower_x", ascending=False))[["prediction_timedelta_x", "FarmPower_x"]].to_csv("/Users/ahenry/Desktop/perfect.csv")
+                
+                # find % increase in farm power for each controller class and Wind Seed, averaged over all prediction_timedelta_values
+                x.groupby(["controller_class", "WindSeed"])["FarmPower_x"].agg("mean").groupby("controller_class", group_keys=False).apply(lambda x: x.sort_values(ascending=False))
                 
                 perfect_agg_df = baseline_agg_df.loc[baseline_agg_df["wind_forecast_class"] == "PerfectForecast", :]
                 controllers = pd.unique(perfect_agg_df["controller_class"])
-                # 4, 8, 0, 2, 5, 1
+                # 4, 8, 2 
                 
-                # sns.lineplot(data=x.loc[x.index.get_level_values("WindSeed").isin([4, 8, 0, 2, 5, 1]) & (x.index.get_level_values("controller_class") == "GreedyController"), :].reset_index(drop=False)[["controller_class", "prediction_timedelta_x", "FarmPower_x"]].groupby(["controller_class", "prediction_timedelta_x"]).agg("mean").reset_index(drop=False), x="prediction_timedelta_x", y="FarmPower_x")
+                # x.loc[x.index.get_level_values("WindSeed").isin([8, 4, 2]), :].reset_index(drop=False)[["controller_class", "prediction_timedelta_x", "FarmPower_x"]].groupby(["controller_class", "prediction_timedelta_x"]).agg("mean")
+                 
+                # x.assign(prediction_timedelta_x=x["prediction_timedelta_x"].dt.total_seconds())\
+                #     .loc[x.index.get_level_values("WindSeed").isin([4, 8, 2]), :]\
+                #         .reset_index(drop=False)[["controller_class", "prediction_timedelta_x", "FarmPower_x"]]\
+                #             .groupby(["controller_class", "prediction_timedelta_x"]).agg("mean")\
+                #                 .reset_index(drop=False)\
+                #                     .groupby("controller_class").apply(lambda x: x.sort_values("FarmPower_x", ascending=False)).to_csv("/Users/ahenry/Desktop/perfect.csv")
+                # import seaborn as sns
+                # sns.lineplot(data=
+                # x.assign(prediction_timedelta_x=x["prediction_timedelta_x"].dt.total_seconds()).loc[x.index.get_level_values("WindSeed").isin([4, 8, 0, 2, 5, 1]) & (x.index.get_level_values("controller_class") == "GreedyController"), :].reset_index(drop=False)[["controller_class", "prediction_timedelta_x", "FarmPower_x"]].groupby(["controller_class", "prediction_timedelta_x"]).agg("mean").reset_index(drop=False), 
+                # x="prediction_timedelta_x", y="FarmPower_x")
                 
-                perfect_agg_df.groupby(["use_upstream_wind", "filter_floris_wind"])[("FarmPower", "mean")].agg("mean")\
-                              .groupby("controller_class")\
-                              .apply(lambda x: x.sort_values(ascending=False))
+                # compare influence of filtering wind passed to floris and using upstream wind measurement
+                if "use_upstream_wind" in perfect_agg_df.columns and "filter_floris_wind" in perfect_agg_df.columns:
+                    perfect_agg_df.groupby(["use_upstream_wind", "filter_floris_wind"])[("FarmPower", "mean")].agg("mean")\
+                                .groupby("controller_class")\
+                                .apply(lambda x: x.sort_values(ascending=False))
                 
                 # perfect_agg_df.sort_values(("FarmPower", "mean"))[[("prediction_timedelta", ""), ("controller_class", ""), ("FarmPower", "mean"), ("YawAngleChangeAbs", "mean")]].reset_index(drop=True)
                 # PLOT 1) Farm power of perfect forecaster vs prediction timedelta for different controllers
                 plot_power_vs_prediction_time(perfect_agg_df, args.save_dir, "perfect_forecaster_")
                 
-                plotting_cases = [("baseline_controllers_perfect_forecaster_awaken", str(baseline_agg_df.loc[(baseline_agg_df["controller_class"] == "GreedyController") & (baseline_agg_df["prediction_timedelta"] == pd.Timedelta(seconds=600))].index.get_level_values(1)[0])),
-                                    ("baseline_controllers_perfect_forecaster_awaken", str(baseline_agg_df.loc[(baseline_agg_df["controller_class"] == "LookupBasedWakeSteeringController") & (baseline_agg_df["prediction_timedelta"] == pd.Timedelta(seconds=600))].index.get_level_values(1)[0]))]
+                plotting_cases = [("baseline_controllers_perfect_forecaster_awaken", str(baseline_agg_df.loc[(baseline_agg_df["controller_class"] == "GreedyController") & (baseline_agg_df["prediction_timedelta"] == pd.Timedelta(seconds=17*60))].index.get_level_values(1)[0])),
+                                    ("baseline_controllers_perfect_forecaster_awaken", str(baseline_agg_df.loc[(baseline_agg_df["controller_class"] == "LookupBasedWakeSteeringController") & (baseline_agg_df["prediction_timedelta"] == pd.Timedelta(seconds=17*60))].index.get_level_values(1)[0]))]
                 label_mapping = {"74": "LUT Ds", "75": "LUT Us", "5": "Greedy"}
                 plot_simulations(
                     time_series_df, plotting_cases, args.save_dir, include_power=True, 
-                    legend_loc="outer", single_plot=False, label_mapping=label_mapping, seed_idx=6)
+                    legend_loc="outer", single_plot=False, label_mapping=label_mapping, seed_idx=2)
                 
                 # PLOT 2) Farm power ratio of other forecasters relative to perfect forecaster vs prediction timedela for different controllers (diff plots)
                 # plot_df = plot_df.set_index(["controller_class", "prediction_timedelta"])
