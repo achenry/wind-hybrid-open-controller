@@ -549,7 +549,7 @@ if __name__ == "__main__":
                 x["FarmPower_x"] = 100 * ((x["FarmPower_x"] / x["FarmPower_y"]) - 1)
                 
                 # find % increase in farm power for each controller class, prediction_timedelta, and WindSeed, averaged over all prediction_timedelta_values
-                x.loc[x["FarmPower_x"] > 0.5, :].groupby("controller_class", group_keys=False).apply(lambda x: x.sort_values("FarmPower_x", ascending=False))[["prediction_timedelta_x", "FarmPower_x"]].to_csv("/Users/ahenry/Desktop/perfect.csv")
+                x.loc[x["FarmPower_x"] > 0.5, :].groupby("controller_class", group_keys=False).apply(lambda x: x.sort_values("FarmPower_x", ascending=False))[["prediction_timedelta_x", "FarmPower_x"]] #.to_csv("/Users/ahenry/Desktop/perfect.csv")
                 
                 # find % increase in farm power for each controller class and Wind Seed, averaged over all prediction_timedelta_values
                 x.groupby(["controller_class", "WindSeed"])["FarmPower_x"].agg("mean").groupby("controller_class", group_keys=False).apply(lambda x: x.sort_values(ascending=False))
