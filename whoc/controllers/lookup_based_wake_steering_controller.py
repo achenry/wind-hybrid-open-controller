@@ -175,6 +175,8 @@ class LookupBasedWakeSteeringController(ControllerBase):
             # plt.rc('legend', title_fontsize=14*factor)  # legend title fontsize
             
             # # for dynamic lut case
+            # find suspicious negative offsets
+            # df_plot.loc[(df_plot["Turbine"] == 1) & (df_plot["YawOffset"] < -1) & (df_plot["wind_direction"] > 142.5), :]
             # lut_path = lut_path.replace("uncertainFalse", "uncertainTrue")
             # df_lut = pd.read_csv(lut_path, index_col=0)
             # df_lut["yaw_angles_opt"] = df_lut["yaw_angles_opt"].apply(lambda s: np.array(re.findall(r"-*\d+\.\d*", s), dtype=float))
@@ -193,6 +195,8 @@ class LookupBasedWakeSteeringController(ControllerBase):
             #                 #  estimator="median",
             #                 errorbar=("pi", 95)
             #                 )
+            # df_plot.loc[(df_plot["Turbine"] == 1) & (df_plot["YawOffset"] < 0.0) & (df_plot["wind_direction"] > 141.0), :]
+            
             # cond = (df_plot["Turbine"] == 0) & (df_plot["wind_speed"] == 5.0)
             # ax.plot(df_plot.loc[cond, "wind_direction"], df_plot.loc[cond, "YawOffset"], color="black")
             # h, l = ax.get_legend_handles_labels()
@@ -259,6 +263,19 @@ class LookupBasedWakeSteeringController(ControllerBase):
                            layout_y=fi_lut.layout_y[sorted_target_tids])
             
             if uncertain:
+                # TESTING START check negative yaw offsets for wd=[159, 162, 162, 165, 165], ws=[10, 8, 10, 6, 8], wd_stddev=[2, 4, 6, 6, 6]
+                # wind_directions_lut = np.array([162])
+                # wind_speeds_lut = np.array([8])
+                # wd_stddevs_lut = np.array([4])
+                
+                # fi_lut.set(
+                #     wind_directions=wind_directions_lut,
+                #     wind_speeds=wind_speeds_lut,
+                #     wd_stddevs=wd_stddevs_lut,
+                #     turbulence_intensities=[fi_lut.core.flow_field.turbulence_intensities[0]] * len(wind_speeds_lut)
+                # )
+                # TESTING END
+                
                 fi_lut.set(
                     wind_directions=wd_grid.flatten(),
                     wind_speeds=ws_grid.flatten(),
@@ -280,6 +297,16 @@ class LookupBasedWakeSteeringController(ControllerBase):
                                             minimum_yaw_angle=yaw_limits[0],
                                             maximum_yaw_angle=yaw_limits[1], parallel=parallel,
                                             include_wd_stddev=uncertain)
+                                            # opt_options={"maxiter": 100, "disp": True, 
+                                            #              "iprint": 2,
+                                            #              "ftol": 1e-12, "eps": 0.1})
+            #     {
+            #     "maxiter": 100,
+            #     "disp": True,
+            #     "iprint": 2,
+            #     "ftol": 1e-12,
+            #     "eps": 0.1,
+            # }
             elif optimization == "sr":
                 # TODO update this based on MPC implementation
                 yaw_opt = YawOptimizationSR(fi_lut, 
