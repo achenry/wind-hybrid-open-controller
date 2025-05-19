@@ -224,8 +224,8 @@ class MLForecast(WindForecast):
         self.predictor = estimator.create_predictor(transformation, model, 
                                                           forecast_generator=forecast_generator)
         # self.data_module.freq = pd.Timedelta(self.data_module.freq).to_pytimedelta()
-        # self.sample_predictor = estimator.create_predictor(transformation, model, 
-        #                                                    forecast_generator=SampleForecastGenerator())
+        self.sample_predictor = estimator.create_predictor(transformation, model,
+                                                           forecast_generator=SampleForecastGenerator())
     
     def reset(self, **kwargs):
         if "assigned_gpu" in kwargs and kwargs["assigned_gpu"]:
@@ -249,6 +249,8 @@ class MLForecast(WindForecast):
             self.device = "cpu"
             
         self.predictor = self.predictor.to(self.device)
+        if hasattr(self, 'sample_predictor') and self.sample_predictor is not None: # Check if it exists and is initialized
+            self.sample_predictor = self.sample_predictor.to(self.device)
     
     def _generate_test_data(self, historic_measurements: pl.DataFrame):
         # resample data to frequency model was trained on
