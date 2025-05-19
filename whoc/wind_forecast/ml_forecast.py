@@ -325,15 +325,45 @@ class MLForecast(WindForecast):
             else:
                 # Use index from first forecast for time values
                 time_index = pred_list[0].index.to_timestamp()
-                pred_df = pl.concat([pl.DataFrame(
-                    data={
-                        **{"time": np.tile(time_index, (n_samples,)),
-                            "sample": np.repeat(np.arange(n_samples), (turbine_pred.prediction_length,))},
-                        **{col: turbine_pred.samples[:, :, c].flatten() for c, col in enumerate(self.data_module.target_cols)}
-                    }
-                ).rename({output_type: f"{output_type}_{self.data_module.target_suffixes[t]}"
-                                  for output_type in self.data_module.target_cols}).sort(["sample", "time"])
-                    for t, turbine_pred in enumerate(pred_list)], how="horizontal")
+                # Assuming all turbine_pred objects have the same prediction_length
+                prediction_len = pred_list[0].prediction_length
+
+                turbine_feature_dfs = []
+                for t, turbine_pred in enumerate(pred_list):
+                    # Create a DataFrame for the current turbine's features
+                    df_turbine_features = pl.DataFrame({
+                        # Keys are generic prefixes, values are flattened samples for those features
+                        prefix: turbine_pred.samples[:, :, c_prefix].flatten()
+                        for c_prefix, prefix in enumerate(self.data_module.target_prefixes)
+                    }).rename({
+                        # Rename generic prefixes to turbine-specific column names
+                        prefix: f"{prefix}_{self.data_module.target_suffixes[t]}"
+                        for prefix in self.data_module.target_prefixes
+                    })
+                    turbine_feature_dfs.append(df_turbine_features)
+
+                # Concatenate all per-turbine feature DataFrames horizontally
+                if not turbine_feature_dfs: # Should not happen if pred_list is not empty
+                    features_df = pl.DataFrame()
+                elif len(turbine_feature_dfs) == 1:
+                    features_df = turbine_feature_dfs[0]
+                else:
+                    features_df = pl.concat(turbine_feature_dfs, how="horizontal")
+
+                # Create the common time and sample DataFrame
+                # Number of rows must match features_df (n_samples * prediction_len)
+                df_time_sample = pl.DataFrame({
+                    "time": np.tile(time_index, n_samples), # time_index has length prediction_len
+                    "sample": np.repeat(np.arange(n_samples), prediction_len)
+                })
+
+                # Combine time/sample DataFrame with the features DataFrame
+                if features_df.is_empty():
+                    pred_df = df_time_sample # Should only contain time and sample if no features
+                else:
+                    pred_df = pl.concat([df_time_sample, features_df], how="horizontal")
+                
+                pred_df = pred_df.sort(["sample", "time"]) # Sort at the end
         else:
             pred = next(pred)
             pred_df = pl.DataFrame(
