@@ -115,6 +115,7 @@ echo "Resolved Data Config Path: ${DATA_CONFIG_PATH_ABS}"
 
 # Execute the Python script (assuming WindForecast.py is in the current dir: WHOC_SCRIPT_DIR)
 # Using CUDA_VISIBLE_DEVICES=0 explicitly, although Slurm binding should handle it
+export CUDA_LAUNCH_BLOCKING=1 # For more detailed CUDA error messages
 export CUDA_VISIBLE_DEVICES=0
 echo "Using GPU ${CUDA_VISIBLE_DEVICES}"
 
@@ -131,7 +132,7 @@ python run_forecaster_validation.py \
     --rerun_validation \
     # --max_splits 1 \
     # --max_steps ${MAX_STEPS_ARG} \
-    --multiprocessor cf \
+    # --multiprocessor cf \
     --plot
 
 EXIT_CODE=$?
