@@ -187,14 +187,14 @@ class LookupBasedWakeSteeringController(ControllerBase):
             # df_plot.loc[(df_plot["wind_direction"] > 150) & (df_plot["YawOffset"] < 0) & (df_plot["Turbine"] == 1), :]
             
             # ax = sns.lineplot(df_plot.loc[df_plot["YawOffset"] != 0, :], x="wind_direction", y="YawOffset", 
-            #                   hue="wd_stddev", style="Turbine", 
-            #                 #   estimator=lambda arr: max(arr.min(), arr.max(), key=abs),
-            #                 # estimator=lambda arr: np.mean(arr[arr != 0]),
-            #                 estimator=lambda arr: np.sign(arr.values[np.argmax(np.abs(arr))]) * np.abs(arr).max(),
-            #                 #  errorbar=lambda x: (x.min(), x.max())
-            #                 #  estimator="median",
-            #                 errorbar=("pi", 95)
-            #                 )
+                            #   hue="wd_stddev", style="Turbine", 
+                            # #   estimator=lambda arr: max(arr.min(), arr.max(), key=abs),
+                            # # estimator=lambda arr: np.mean(arr[arr != 0]),
+                            # estimator=lambda arr: np.sign(arr.values[np.argmax(np.abs(arr))]) * np.abs(arr).max(),
+                            # #  errorbar=lambda x: (x.min(), x.max())
+                            # #  estimator="median",
+                            # errorbar=("pi", 95)
+                            # )
             # df_plot.loc[(df_plot["Turbine"] == 1) & (df_plot["YawOffset"] < 0.0) & (df_plot["wind_direction"] > 141.0), :]
             
             # cond = (df_plot["Turbine"] == 0) & (df_plot["wind_speed"] == 5.0)
@@ -209,8 +209,8 @@ class LookupBasedWakeSteeringController(ControllerBase):
             # l = [ll[:-2] if ".0" in ll else ll for ll in l]
             # l[-2] = "Downstream"
             # l[-1] = "Upstream"
-            # ax.legend(h, l, loc="upper right", bbox_to_anchor=(1.0, 1.15))
-            # ax.set_xlim((110, 270))
+            # ax.legend(h, l, loc="upper right", bbox_to_anchor=(1.0, 1.05))
+            # ax.set_xlim((110, 220))
             # plt.tight_layout()
             # plt.savefig(os.path.join(os.path.dirname(lut_path), "uncertain_lut_reduced.png"))
             

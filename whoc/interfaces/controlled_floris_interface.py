@@ -113,8 +113,8 @@ class ControlledFlorisModel(InterfaceBase):
 
         # reinitialize floris
         if ctrl_dict is None:
-            # get most recently set yaw angles
-            yaw_offsets = self.env.core.farm.yaw_angles
+            # get most recently set yaw angles TODO first value isn't rounded...
+            yaw_offsets = self.env.core.farm.yaw_angles[:len(disturbances["wind_directions"]), :]
         else:
             yaw_offsets = (np.array(disturbances["wind_directions"])[:, np.newaxis] - ctrl_dict["yaw_angles"])
             self.current_yaw_setpoints = np.array(ctrl_dict["yaw_angles"])[np.newaxis, :]
