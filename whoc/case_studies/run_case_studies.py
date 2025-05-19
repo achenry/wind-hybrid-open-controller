@@ -554,6 +554,10 @@ if __name__ == "__main__":
                 # find % increase in farm power for each controller class and Wind Seed, averaged over all prediction_timedelta_values
                 x.groupby(["controller_class", "WindSeed"])["FarmPower_x"].agg("mean").groupby("controller_class", group_keys=False).apply(lambda x: x.sort_values(ascending=False))
                 
+                # find % increase in farm power for each controller class and prediction_timedelta values, averaged over all Wind Seeds
+                x.groupby(["controller_class", "prediction_timedelta_x"])["FarmPower_x"].agg("mean").groupby("controller_class", group_keys=False).apply(lambda x: x.sort_values(ascending=False))
+                
+                
                 perfect_agg_df = baseline_agg_df.loc[baseline_agg_df["wind_forecast_class"] == "PerfectForecast", :]
                 controllers = pd.unique(perfect_agg_df["controller_class"])
                 # 4, 8, 2 
@@ -573,20 +577,23 @@ if __name__ == "__main__":
                 
                 # compare influence of filtering wind passed to floris and using upstream wind measurement
                 if "use_upstream_wind" in perfect_agg_df.columns and "filter_floris_wind" in perfect_agg_df.columns:
-                    perfect_agg_df.groupby(["use_upstream_wind", "filter_floris_wind"])[("FarmPower", "mean")].agg("mean")\
-                                .groupby("controller_class")\
+                    perfect_agg_df.groupby(["use_upstream_wind", "filter_floris_wind", "controller_class"])["FarmPower"].agg("mean")[("FarmPower", "mean")]\
+                                .groupby("controller_class", group_keys=False)\
                                 .apply(lambda x: x.sort_values(ascending=False))
                 
                 # perfect_agg_df.sort_values(("FarmPower", "mean"))[[("prediction_timedelta", ""), ("controller_class", ""), ("FarmPower", "mean"), ("YawAngleChangeAbs", "mean")]].reset_index(drop=True)
                 # PLOT 1) Farm power of perfect forecaster vs prediction timedelta for different controllers
                 plot_power_vs_prediction_time(perfect_agg_df, args.save_dir, "perfect_forecaster_")
                 
-                plotting_cases = [("baseline_controllers_perfect_forecaster_awaken", str(baseline_agg_df.loc[(baseline_agg_df["controller_class"] == "GreedyController") & (baseline_agg_df["prediction_timedelta"] == pd.Timedelta(seconds=17*60))].index.get_level_values(1)[0])),
-                                    ("baseline_controllers_perfect_forecaster_awaken", str(baseline_agg_df.loc[(baseline_agg_df["controller_class"] == "LookupBasedWakeSteeringController") & (baseline_agg_df["prediction_timedelta"] == pd.Timedelta(seconds=17*60))].index.get_level_values(1)[0]))]
-                label_mapping = {"74": "LUT Ds", "75": "LUT Us", "5": "Greedy"}
+                plotting_cases = [("baseline_controllers_perfect_forecaster_flasc", str(baseline_agg_df.loc[(baseline_agg_df["controller_class"] == "GreedyController") & (baseline_agg_df["prediction_timedelta"] == pd.Timedelta(seconds=9*60))].index.get_level_values(1)[0])),
+                                    ("baseline_controllers_perfect_forecaster_flasc", str(baseline_agg_df.loc[(baseline_agg_df["controller_class"] == "LookupBasedWakeSteeringController") & (baseline_agg_df["prediction_timedelta"] == pd.Timedelta(seconds=9*60))].index.get_level_values(1)[0]))]
+                # TODO can't have duplicate keys
+                label_mapping = {"5": "Greedy", "74": "LUT Ds", "75": "LUT Us"}
+                # "6,", "6,4"
+                # label_mapping = {"7": "Greedy", "5": "LUT Ds", "7": "LUT Us"}
                 plot_simulations(
                     time_series_df, plotting_cases, args.save_dir, include_power=True, 
-                    legend_loc="outer", single_plot=False, label_mapping=label_mapping, seed_idx=2)
+                    legend_loc="outer", single_plot=False, label_mapping=label_mapping, seed_idx=22)
                 
                 # PLOT 2) Farm power ratio of other forecasters relative to perfect forecaster vs prediction timedela for different controllers (diff plots)
                 # plot_df = plot_df.set_index(["controller_class", "prediction_timedelta"])

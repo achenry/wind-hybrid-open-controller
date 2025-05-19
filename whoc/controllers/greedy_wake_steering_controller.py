@@ -279,7 +279,7 @@ class GreedyController(ControllerBase):
             self.is_yawing[is_target_changing] = True
             
             if self.verbose and any(is_target_changing):
-                logging.info(f"Greedy Controller starting to yaw turbines {np.where(is_target_changing)[0]} from {current_yaw_setpoints[is_target_changing]} to {target_yaw_setpoints[is_target_changing]} at time {self.current_time}")
+                logging.info(f"Greedy Controller starting to yaw turbines {np.where(is_target_changing)[0]} from {current_yaw_setpoints[is_target_changing]} to {target_yaw_setpoints[is_target_changing]} in direction {dir_setpoint_change[is_target_changing]} at time {self.current_time}")
         else:
             is_target_changing = np.zeros_like(self.is_yawing).astype(bool)
         
