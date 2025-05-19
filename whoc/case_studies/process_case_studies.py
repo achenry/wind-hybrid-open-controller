@@ -97,7 +97,7 @@ def plot_power_vs_prediction_time(agg_df, save_dir, label):
     controllers = pd.unique(agg_df["controller_class"])
     plot_df = agg_df.copy()
     plot_df["prediction_timedelta"] = plot_df["prediction_timedelta"].dt.total_seconds()
-    plot_df[("FarmPower", "mean")] = plot_df[("FarmPower", "mean")] / 1e6
+    # plot_df[("FarmPower", "mean")] = plot_df[("FarmPower", "mean")] / 1e6
     
     # get gain of LUT compared to greedy wo preview
     compute_df = plot_df.copy()
@@ -113,7 +113,9 @@ def plot_power_vs_prediction_time(agg_df, save_dir, label):
         compute_df.loc[(compute_df["controller_class"] == "GreedyController"), ("FarmPower", "mean")] = compute_df.loc[(compute_df["controller_class"] == "GreedyController"), ("FarmPower", "mean")] / n_greedy_turbines
         
         if (compute_df["prediction_timedelta"] == 0.0).any():
-            plot_df.loc[(plot_df["controller_class"] == "GreedyController"), ("FarmPower", "mean")] = 100 * (plot_df.loc[(plot_df["controller_class"] == "GreedyController"), ("FarmPower", "mean")] - plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "GreedyController"), ("FarmPower", "mean")].iloc[0]) / plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "GreedyController"), ("FarmPower", "mean")].iloc[0]
+            no_pred_val = plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "GreedyController"), ("FarmPower", "mean")].iloc[0]
+            plot_df.loc[(plot_df["controller_class"] == "GreedyController"), ("FarmPower", "mean")] \
+                = 100 * (plot_df.loc[(plot_df["controller_class"] == "GreedyController"), ("FarmPower", "mean")] - no_pred_val) / no_pred_val
     
     lut_compute_df = compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), :]
     if lut_compute_df.shape[0]:
@@ -131,10 +133,9 @@ def plot_power_vs_prediction_time(agg_df, save_dir, label):
             else:
                 compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPower", "mean")] = 100 * (compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPower", "mean")] - compute_df.loc[(compute_df["prediction_timedelta"] == 0) & (compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPower", "mean")].iloc[0]) / compute_df.loc[(compute_df["prediction_timedelta"] == 0) & (compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPower", "mean")].iloc[0]
 
+            no_pred_val = plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPower", "mean")].iloc[0]
             plot_df.loc[(plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPower", "mean")] \
-                = 100 * (plot_df.loc[(plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPower", "mean")] 
-                         - plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPower", "mean")].iloc[0]) \
-                             / plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPower", "mean")].iloc[0]
+                = 100 * (plot_df.loc[(plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPower", "mean")] - no_pred_val) / no_pred_val
 
         compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), [("prediction_timedelta", ""), ("FarmPower", "mean")]].reset_index(drop=True)
         

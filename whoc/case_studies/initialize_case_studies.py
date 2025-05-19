@@ -60,11 +60,11 @@ case_studies = {
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]},
                                     # "filter_floris_wind": {"group": 1, "vals": [True, False]},
                                     # "use_upstream_wind": {"group": 2, "vals": [True, False]},
-                                    "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73"]},
-                                    "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController"]},
-                                    # "target_turbine_indices": {"group": 3, "vals": ["74,73"]},
-                                    # "controller_class": {"group": 3, "vals": ["LookupBasedWakeSteeringController"]},
-                                    "uncertain": {"group": 3, "vals": [False]}, #, False, False, False]},
+                                    # "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73"]},
+                                    # "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController"]},
+                                    "target_turbine_indices": {"group": 3, "vals": ["74,73"]},
+                                    "controller_class": {"group": 3, "vals": ["LookupBasedWakeSteeringController"]},
+                                    "uncertain": {"group": 3, "vals": [True]}, #, False, False, False]},
                                     "prediction_timedelta": {"group": 3, "vals": [1020]},
                                     "wind_forecast_class": {"group": 4, "vals": ["PerfectForecast"]}, #, "KalmanFilterForecast", "PersistenceForecast", "SpatialFilterForecast", "SVRForecast"]}, # "MLForecast"
                                     # "model_key": {"group": 3, "vals": ["informer"]},
@@ -740,7 +740,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
     measurements_timedelta = wind_field_ts[0].select(pl.col("time").diff().slice(1,1)).item()
     
     # TESTING START
-    # wind_field_ts = [wind_field_ts[2].slice(38400, None)]
+    # wind_field_ts = [wind_field_ts[22]]#.slice(38400, None)]
     # n_seeds = 1
     # TESTING END
         
