@@ -136,6 +136,8 @@ if __name__ == "__main__":
             reload = False
             
         data_module.generate_splits(save=True, reload=reload, splits=["train", "val"])
+    else:
+        data_module.get_dataset_info()
 
     # get max_splits longest datasets
     num_Xy_paths = len(glob.glob(os.path.join(forecaster.model_save_dir, f"Xy_{forecaster.study_name}_*_*.dat")))
