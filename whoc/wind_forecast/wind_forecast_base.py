@@ -595,7 +595,7 @@ class WindForecast:
             X_all = fp[:, :-1]
             y_all = fp[:, -1]
             
-            logging.info(f"Loaded {split} data from {Xy_path} with input shape {X_all.shape}")
+            # logging.info(f"Loaded {split} data from {Xy_path} with input shape {X_all.shape}")
         
         # logging.info(f"Deleting filepointer to {Xy_path}")
         del fp
