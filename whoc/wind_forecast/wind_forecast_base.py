@@ -11,6 +11,7 @@ from concurrent.futures import ProcessPoolExecutor
 import multiprocessing as mp
 from memory_profiler import profile
 from functools import partial
+from sklearn.metrics import mean_squared_error
 
 # from joblib import parallel_backend
 
