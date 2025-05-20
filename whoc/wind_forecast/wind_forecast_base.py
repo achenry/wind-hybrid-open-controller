@@ -35,7 +35,7 @@ import polars.selectors as cs
 
 from optuna import create_study, load_study
 from optuna.samplers import TPESampler
-from optuna.pruners import HyperbandPruner, MedianPruner, PercentilePruner, NopPruner
+from optuna.pruners import HyperbandPruner, PercentilePruner, PatientPruner, SuccessiveHalvingPruner, NopPruner
 from optuna.integration import PyTorchLightningPruningCallback
 from optuna.trial import TrialState # Added for checking trial status
 
@@ -262,30 +262,117 @@ class WindForecast:
                 logging.info(f"Using Optuna storage URL: {log_storage_url}")
 
             # Configure pruner based on settings
+            pruner = None
             if "pruning" in config["optuna"] and config["optuna"]["pruning"].get("enabled", False):
                 pruning_type = config["optuna"]["pruning"].get("type", "hyperband").lower()
-                
-                min_resource = config["optuna"]["pruning"]["min_resource"]
-                max_resource = config["optuna"]["pruning"]["max_resource"]
-                    
-                logging.info(f"Configuring pruner: type={pruning_type}, min_resource={config["optuna"]["pruning"]['min_resource']}")
+                logging.info(f"Configuring pruner: type={pruning_type}")
 
-                if pruning_type == "hyperband":
-                    reduction_factor = config["optuna"]["pruning"]["reduction_factor"]
+                if pruning_type == "patient":
+                    patience = config["optuna"]["pruning"].get("patience", 0)
+                    min_delta = config["optuna"]["pruning"].get("min_delta", 0.0)
+
+                    # Configure wrapped pruner if specified
+                    wrapped_config = config["optuna"]["pruning"].get("wrapped_pruner")
+                    wrapped_pruner_instance = None
+
+                    if wrapped_config and isinstance(wrapped_config, dict):
+                        wrapped_type = wrapped_config.get("type", "").lower()
+                        logging.info(f"Configuring wrapped pruner of type: {wrapped_type}")
+
+                        if wrapped_type == "percentile":
+                            percentile = wrapped_config.get("percentile", 50.0)
+                            n_startup_trials = wrapped_config.get("n_startup_trials", 4)
+                            n_warmup_steps = wrapped_config.get("n_warmup_steps", 12)
+                            interval_steps = wrapped_config.get("interval_steps", 1)
+                            n_min_trials = wrapped_config.get("n_min_trials", 1)
+
+                            wrapped_pruner_instance = PercentilePruner(
+                                percentile=percentile,
+                                n_startup_trials=n_startup_trials,
+                                n_warmup_steps=n_warmup_steps,
+                                interval_steps=interval_steps,
+                                n_min_trials=n_min_trials
+                            )
+                            logging.info(f"Created wrapped PercentilePruner with percentile={percentile}, n_startup_trials={n_startup_trials}, n_warmup_steps={n_warmup_steps}")
+                            
+                        if wrapped_type == "successivehalving":
+                            min_resource = wrapped_config.get("min_resource", 2)
+                            reduction_factor = wrapped_config.get("reduction_factor", 2)
+                            min_early_stopping_rate = wrapped_config.get("min_early_stopping_rate", 0)
+                            bootstrap_count = wrapped_config.get("bootstrap_count", 0)
+
+                            wrapped_pruner_instance = SuccessiveHalvingPruner(
+                                min_resource=min_resource,
+                                reduction_factor=reduction_factor,
+                                min_early_stopping_rate=min_early_stopping_rate,
+                                bootstrap_count=bootstrap_count
+                            )
+                            logging.info(f"Created wrapped SuccessiveHalvingPruner with min_resource={min_resource}, reduction_factor={reduction_factor}, min_early_stopping_rate={min_early_stopping_rate}, bootstrap_count={bootstrap_count}, bootstrap_count={bootstrap_count}")
+                        
+                        else:
+                            logging.warning(f"Unknown wrapped pruner type: {wrapped_type}. Defaulting to NopPruner.")
+                            wrapped_pruner_instance = NopPruner()
+                    else:
+                        logging.warning("No wrapped pruner configuration found. Defaulting to NopPruner.")
+                        wrapped_pruner_instance = NopPruner()
+                    
+                    # If no valid wrapped pruner is configured, use NopPruner
+                    if wrapped_pruner_instance is None:
+                        logging.warning("No valid wrapped pruner configuration found. PatientPruner will wrap NopPruner.")
+                        wrapped_pruner_instance = NopPruner()
+
+                    # Create PatientPruner wrapping the configured pruner
+                    pruner = PatientPruner(
+                        wrapped_pruner=wrapped_pruner_instance,
+                        patience=patience,
+                        min_delta=min_delta
+                    )
+                    logging.info(f"Created PatientPruner with patience={patience}, min_delta={min_delta} wrapping {type(wrapped_pruner_instance).__name__}")
+
+                elif pruning_type == "hyperband":
+                    min_resource = config["optuna"]["pruning"].get("min_resource", 2)
+                    max_resource = config["optuna"]["pruning"].get("max_resource", 10)
+                    reduction_factor = config["optuna"]["pruning"].get("reduction_factor", 2)
+                    bootstrap_count = config["optuna"]["pruning"].get("bootstrap_count", 0)
                     
                     pruner = HyperbandPruner(
                         min_resource=min_resource,
                         max_resource=max_resource,
-                        reduction_factor=reduction_factor
+                        reduction_factor=reduction_factor,
+                        bootstrap_count=bootstrap_count
                     )
-                    logging.info(f"Created HyperbandPruner with min_resource={min_resource}, max_resource={max_resource}, reduction_factor={reduction_factor}")
-                elif pruning_type == "median":
-                    pruner = MedianPruner(n_startup_trials=5, n_warmup_steps=min_resource)
-                    logging.info(f"Created MedianPruner with n_startup_trials=5, n_warmup_steps={min_resource}")
+                    logging.info(f"Created HyperbandPruner with min_resource={min_resource}, max_resource={max_resource}, reduction_factor={reduction_factor}, bootstrap_count={bootstrap_count}")
+
+                elif pruning_type == "successivehalving":
+                    min_resource = config["optuna"]["pruning"].get("min_resource", 2)
+                    reduction_factor = config["optuna"]["pruning"].get("reduction_factor", 2)
+                    min_early_stopping_rate = config["optuna"]["pruning"].get("min_early_stopping_rate", 0)
+                    bootstrap_count = config["optuna"]["pruning"].get("bootstrap_count", 0)
+
+                    pruner = SuccessiveHalvingPruner(
+                        min_resource=min_resource,
+                        reduction_factor=reduction_factor,
+                        min_early_stopping_rate=min_early_stopping_rate,
+                        bootstrap_count=bootstrap_count
+                    )
+                    logging.info(f"Created SuccessiveHalvingPruner with min_resource={min_resource}, reduction_factor={reduction_factor}, min_early_stopping_rate={min_early_stopping_rate}, bootstrap_count={bootstrap_count}, bootstrap_count={bootstrap_count}")
+
                 elif pruning_type == "percentile":
-                    percentile = config["optuna"][percentile]
-                    pruner = PercentilePruner(percentile=percentile, n_startup_trials=5, n_warmup_steps=min_resource)
-                    logging.info(f"Created PercentilePruner with percentile={percentile}, n_startup_trials=5, n_warmup_steps={min_resource}")
+                    percentile = config["optuna"]["pruning"].get("percentile", 25)
+                    n_startup_trials = config["optuna"]["pruning"].get("n_startup_trials", 5)
+                    n_warmup_steps = config["optuna"]["pruning"].get("n_warmup_steps", 2)
+                    interval_steps = config["optuna"]["pruning"].get("interval_steps", 1)
+                    n_min_trials = config["optuna"]["pruning"].get("n_min_trials", 1)
+
+                    pruner = PercentilePruner(
+                        percentile=percentile,
+                        n_startup_trials=n_startup_trials,
+                        n_warmup_steps=n_warmup_steps,
+                        interval_steps=interval_steps,
+                        n_min_trials=n_min_trials
+                    )
+                    logging.info(f"Created PercentilePruner with percentile={percentile}, n_startup_trials={n_startup_trials}, n_warmup_steps={n_warmup_steps}")
+
                 else:
                     logging.warning(f"Unknown pruner type: {pruning_type}, using no pruning")
                     pruner = NopPruner()
