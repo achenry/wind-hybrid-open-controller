@@ -2,7 +2,7 @@ import os
 import re
 import yaml
 from itertools import cycle
-import warnings
+import polars as pl
 import pickle
 import csv
 
@@ -245,8 +245,16 @@ def read_case_family_time_series_data(case_family, save_dir):
     # if reaggregate_simulations, or if the aggregated time series data doesn't exist for this case family, read the csv files for that case family
     all_ts_df_path = os.path.join(save_dir, case_family, "time_series_results_all.csv") 
     logging.info(f"Reading combined case family {case_family} time-series dataframe.")
-    df = pd.read_csv(all_ts_df_path, index_col=[0, 1], low_memory=False, dtype={"CaseName": str})
-    # TODO make sure case names are cast as string
+    
+    # with open(all_ts_df_path, 'r', newline='') as fp:
+    #     csv_reader = csv.reader(fp)
+    #     columns = next(csv_reader)
+    # [col for col in columns if "OfflineStatus" in col]
+    # **{col: object for col in columns if "OfflineStatus" in col}
+    df = pl.read_csv(all_ts_df_path,
+                     schema_overrides={**{"CaseName": str}})
+    df = df.to_pandas().set_index(["CaseFamily", "CaseName"])
+    
     return df
 
 def write_case_family_time_series_data(case_family, new_time_series_df, save_dir):
@@ -273,6 +281,9 @@ def read_time_series_data(results_path, input_dict_path):
         #         df[col] = df[col].astype(bool)
         # else:
     df = pd.read_csv(results_path, low_memory=False)
+    
+    # df = df.drop(columns=[col for col in df.columns if "TrueTurbineWindSpeed" in col])
+    # df.to_csv(results_path, index=False)
     logging.info(f"Read {results_path}")
         
     df["CaseName"] = str(re.search("(?<=case_)\\d+", os.path.basename(results_path)).group())
@@ -319,6 +330,7 @@ def read_time_series_data(results_path, input_dict_path):
     norm_yaw_angle_changes = (df[yaw_change_cols] / (input_config["controller"]["controller_dt"] * input_config["controller"]["yaw_rate"])).values
     df["RunningOptimizationCostTerm_1"] = np.sum(np.stack([0.5 * (norm_yaw_angle_changes[:, i])**2 * R for i in range(norm_yaw_angle_changes.shape[1])], axis=1), axis=1)
     df["TotalRunningOptimizationCost"] = df["RunningOptimizationCostTerm_0"] + df["RunningOptimizationCostTerm_1"]
+    
     return df.iloc[1:] # drop initial row containing init yaw angles, wind passed to floris etc
 
 def generate_outputs(agg_results_df, save_dir):

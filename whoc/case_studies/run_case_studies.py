@@ -320,7 +320,7 @@ if __name__ == "__main__":
                 existing_time_series_df = []
                 for i in args.case_ids:
                     # all_ts_df_path = os.path.join(args.save_dir, case_families[i], "time_series_results_all.csv")
-                    if os.path.exists(os.path.join(args.save_dir, case_families[i], "time_series_results_all.csv")):
+                    if not args.reaggregate_simulations and os.path.exists(os.path.join(args.save_dir, case_families[i], "time_series_results_all.csv")):
                         existing_time_series_df.append(read_case_family_time_series_data(case_families[i], save_dir=args.save_dir))
                 
                 new_case_family_time_series_df = [] 
