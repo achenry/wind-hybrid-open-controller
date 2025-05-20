@@ -41,8 +41,8 @@ echo "TMPDIR=${TMPDIR}"
 
 # prepare training data first
 module purge
-module load mamba
-mamba activate wind_forecasting_env
+eval "$(conda shell.bash hook)"
+conda activate wind_forecasting_env
 module load PrgEnv-intel
 
 # TODO NOTE process gets stuck after writing these .dat files, so run this python first, then the loop
