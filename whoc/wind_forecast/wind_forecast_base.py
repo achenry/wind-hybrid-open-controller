@@ -163,8 +163,8 @@ class WindForecast:
                 # max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
                 max_workers = mp.cpu_count()
                 logging.info(f"Starting ProcessPoolExecutor in _tuning_objective with {max_workers} workers")
-                executor = ProcessPoolExecutor(max_workers=max_workers,
-                                            mp_context=mp.get_context("spawn"))
+                executor = ProcessPoolExecutor(max_workers=max_workers)
+                                            # mp_context=mp.get_context("spawn"))
             
             with executor as ex:
                 futures = [ex.submit(self._compute_output_score, output=output, params=params, limit_train_val=limit_train_val) for output in self.outputs]
@@ -296,7 +296,7 @@ class WindForecast:
                             )
                             logging.info(f"Created wrapped PercentilePruner with percentile={percentile}, n_startup_trials={n_startup_trials}, n_warmup_steps={n_warmup_steps}")
                             
-                        if wrapped_type == "successivehalving":
+                        elif wrapped_type == "successivehalving":
                             min_resource = wrapped_config.get("min_resource", 2)
                             reduction_factor = wrapped_config.get("reduction_factor", 2)
                             min_early_stopping_rate = wrapped_config.get("min_early_stopping_rate", 0)
@@ -393,7 +393,13 @@ class WindForecast:
                                             storage=storage,
                                             direction="maximize",
                                             load_if_exists=True,
-                                            sampler=TPESampler(seed=seed),
+                                            sampler=TPESampler(
+                                                seed=seed,
+                                                n_startup_trials=config["optuna"]["sampler_params"]["tpe"].get("n_startup_trials", 16),
+                                                multivariate=config["optuna"]["sampler_params"]["tpe"].get("multivariate", True),
+                                                constant_liar=config["optuna"]["sampler_params"]["tpe"].get("constant_liar", True),
+                                                group=config["optuna"]["sampler_params"]["tpe"].get("group", False)
+                                            ),
                                             pruner=pruner) # maximize negative mse ie minimize mse
                     logging.info(f"Worker 1: Study '{self.study_name}' created or loaded successfully.")
                     
@@ -413,7 +419,13 @@ class WindForecast:
                             study = load_study(
                                 study_name=self.study_name,
                                 storage=storage,
-                                sampler=TPESampler(seed=seed), # Sampler might be needed for load_study too
+                                sampler=TPESampler(
+                                        seed=seed,
+                                        n_startup_trials=config["optuna"]["sampler_params"]["tpe"].get("n_startup_trials", 16),
+                                        multivariate=config["optuna"]["sampler_params"]["tpe"].get("multivariate", True),
+                                        constant_liar=config["optuna"]["sampler_params"]["tpe"].get("constant_liar", True),
+                                        group=config["optuna"]["sampler_params"]["tpe"].get("group", False)
+                                    ), # Sampler might be needed for load_study too
                                 pruner=pruner
                             )
                             logging.info(f"Worker {worker_id}: Study '{self.study_name}' loaded successfully on attempt {attempt+1}.")
