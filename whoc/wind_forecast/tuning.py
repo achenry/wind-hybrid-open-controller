@@ -9,6 +9,7 @@ import argparse
 import yaml
 import os
 import logging 
+import glob
 from floris import FlorisModel
 
 import re
@@ -137,7 +138,9 @@ if __name__ == "__main__":
         data_module.generate_splits(save=True, reload=reload, splits=["train", "val"])
 
     # get max_splits longest datasets
-    if worker_id == 0 and (args.reload_data or reload):
+    num_Xy_paths = len(glob.glob(os.path.join(forecaster.model_save_dir, f"Xy_{forecaster.study_name}_*_*.dat")))
+    required_num_Xy_paths = data_module.num_target_vars * 2 # val and train
+    if worker_id == 0 and (args.reload_data or reload or num_Xy_paths < required_num_Xy_paths):
         data_module.train_dataset = sorted(data_module.train_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
         data_module.val_dataset = sorted(data_module.val_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
         if args.max_splits:
@@ -186,7 +189,8 @@ if __name__ == "__main__":
     
     scaler_params = data_module.compute_scaler_params()
     
-    if args.mode == "tune" and worker_id >= 0:
+    worker_id = int(os.environ.get('WORKER_RANK', 1))
+    if args.mode == "tune" and worker_id > 0:
         
         if args.multiprocessor:
             logging.info(f"Using multiprocessor {args.multiprocessor}")
@@ -195,7 +199,7 @@ if __name__ == "__main__":
                                                 n_trials_per_worker=model_config["optuna"]["n_trials_per_worker"], 
                                                 seed=args.seed,
                                                 config=model_config,
-                                                worker_id=0 if RUN_ONCE and (worker_id == 0) else worker_id,
+                                                worker_id=1 if RUN_ONCE and (worker_id == 1) else worker_id,
                                                 multiprocessor=args.multiprocessor,
                                                 limit_train_val=args.limit_train_val)
                                         #  trial_protection_callback=handle_trial_with_oom_protection)
