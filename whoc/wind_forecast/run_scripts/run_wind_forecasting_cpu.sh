@@ -4,8 +4,9 @@
 #SBATCH --output=%j_%x.out
 #SBATCH --nodes=1
 #SBATCH --mem=0
-#SBATCH --time=48:00:00
-##SBATCH --partition=debug
+##SBATCH --time=48:00:00
+#SBATCH --time=01:00:00
+#SBATCH --partition=debug
 #SBATCH --ntasks-per-node=104
 
 # salloc --partition=debug --nodes=1 --ntasks-per-node=104 --time=01:00:00 --mem=0 --account=ssc
@@ -35,9 +36,9 @@ echo "DATA_CONFIG_PATH=${DATA_CONFIG_PATH}"
 # prepare training data first
 date +"%Y-%m-%d %H:%M:%S"
 module purge
-module load mamba
 # module load PrgEnv-intel
-mamba activate wind_forecasting_env
+eval "$(conda shell.bash hook)"
+conda activate wind_forecasting_env
 
 #mpirun -np $SLURM_NTASKS 
 python ../run_forecaster_validation.py --ram_limit 65 --model ${MODELS} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --simulation_timestep 1 \
