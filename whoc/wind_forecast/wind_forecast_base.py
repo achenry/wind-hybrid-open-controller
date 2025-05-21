@@ -140,7 +140,7 @@ class WindForecast:
             X_val, y_val = X_val[random_indices, :], y_val[random_indices]
         
         # evaluate with cross-validation
-        # logging.info(f"Fitting model for output {output} with {X_train.shape[0]} training data points.")
+        logging.info(f"Fitting model for output {output} with {X_train.shape[0]} training data points.")
         model.fit(X_train, y_train)
         # logging.info(f"Computing score for output {output} with {X_val.shape[0]} validation data points.")
         return mean_squared_error(y_true=y_val, y_pred=model.predict(X_val))
