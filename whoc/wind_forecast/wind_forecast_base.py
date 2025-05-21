@@ -160,7 +160,6 @@ class WindForecast:
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
             elif multiprocessor == "cf":
                 # max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
-                max_workers = mp.cpu_count()
                 logging.info(f"Starting ProcessPoolExecutor in _tuning_objective with {max_workers} workers")
                 executor = ProcessPoolExecutor(max_workers=max_workers,
                                               mp_context=mp.get_context("spawn"))
@@ -204,8 +203,8 @@ class WindForecast:
                 max_workers = comm_size
             elif multiprocessor == "cf":
                 max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
-                executor = ProcessPoolExecutor(max_workers=max_workers)
-                                                # mp_context=mp.get_context("spawn"))
+                executor = ProcessPoolExecutor(max_workers=max_workers,
+                                                mp_context=mp.get_context("spawn"))
             with executor as ex:
                 # if multiprocessor == "mpi":
                 #     ex.max_workers = comm_size
@@ -388,7 +387,7 @@ class WindForecast:
         if RUN_ONCE:  
             try:
                 if worker_id == 1:
-                    logging.info(f"Worker 1: Creating/loading Optuna study '{self.study_name}' with pruner: {type(pruner).__name__}")
+                    logging.info(f"Rank 1: Creating/loading Optuna study '{self.study_name}' with pruner: {type(pruner).__name__}")
                     study = create_study(study_name=self.study_name,
                                             storage=storage,
                                             direction="minimize",
@@ -401,17 +400,17 @@ class WindForecast:
                                                 group=config["optuna"]["sampler_params"]["tpe"].get("group", False)
                                             ),
                                             pruner=pruner) # minimize mse ie minimize mse
-                    logging.info(f"Worker 1: Study '{self.study_name}' created or loaded successfully.")
+                    logging.info(f"Rank 1: Study '{self.study_name}' created or loaded successfully.")
                     
-                    # --- Launch Dashboard (Worker 1 only) ---
+                    # --- Launch Dashboard (Rank 1 only) ---
                     if hasattr(storage, "url"):
                         launch_optuna_dashboard(config, storage.url) # Call imported function
                     # --------------------------------------
                 else:
-                    # Non-rank-1 workers MUST load the study created by Worker 1
+                    # Non-rank-1 workers MUST load the study created by Rank 1
                     
-                    logging.info(f"Worker {worker_id}: Attempting to load existing Optuna study '{self.study_name}'")
-                    # Add a small delay and retry mechanism for loading, in case Worker 1 is slightly delayed
+                    logging.info(f"Rank {worker_id}: Attempting to load existing Optuna study '{self.study_name}'")
+                    # Add a small delay and retry mechanism for loading, in case Rank 1 is slightly delayed
                     max_retries = 6 # Increased retries slightly
                     retry_delay = 10 # Increased delay slightly
                     for attempt in range(max_retries):
@@ -428,33 +427,33 @@ class WindForecast:
                                     ), # Sampler might be needed for load_study too
                                 pruner=pruner
                             )
-                            logging.info(f"Worker {worker_id}: Study '{self.study_name}' loaded successfully on attempt {attempt+1}.")
+                            logging.info(f"Rank {worker_id}: Study '{self.study_name}' loaded successfully on attempt {attempt+1}.")
                             break # Exit loop on success
                         except KeyError as e: # Optuna <3.0 raises KeyError if study doesn't exist yet
                             if attempt < max_retries - 1:
-                                logging.warning(f"Worker {worker_id}: Study '{self.study_name}' not found yet (attempt {attempt+1}/{max_retries}). Retrying in {retry_delay}s... Error: {e}")
+                                logging.warning(f"Rank {worker_id}: Study '{self.study_name}' not found yet (attempt {attempt+1}/{max_retries}). Retrying in {retry_delay}s... Error: {e}")
                                 time.sleep(retry_delay)
                             else:
-                                logging.error(f"Worker {worker_id}: Failed to load study '{self.study_name}' after {max_retries} attempts (KeyError). Aborting.")
+                                logging.error(f"Rank {worker_id}: Failed to load study '{self.study_name}' after {max_retries} attempts (KeyError). Aborting.")
                                 raise
                         except Exception as e: # Catch other potential loading errors (e.g., DB connection issues)
-                            logging.error(f"Worker {worker_id}: An unexpected error occurred while loading study '{self.study_name}' on attempt {attempt+1}: {e}", exc_info=True)
+                            logging.error(f"Rank {worker_id}: An unexpected error occurred while loading study '{self.study_name}' on attempt {attempt+1}: {e}", exc_info=True)
                             # Decide whether to retry on other errors or raise immediately
                             if attempt < max_retries - 1:
                                 logging.warning(f"Retrying in {retry_delay}s...")
                                 time.sleep(retry_delay)
                             else:
-                                logging.error(f"Worker {worker_id}: Failed to load study '{self.study_name}' after {max_retries} attempts due to persistent errors. Aborting.")
+                                logging.error(f"Rank {worker_id}: Failed to load study '{self.study_name}' after {max_retries} attempts due to persistent errors. Aborting.")
                                 raise # Re-raise other errors after retries
                     
                     # Check if study was successfully loaded after the loop
                     if study is None:
                         # This condition should ideally be caught by the error handling within the loop, but added for safety.
-                        raise RuntimeError(f"Worker {worker_id}: Could not load study '{self.study_name}' after multiple retries.")
+                        raise RuntimeError(f"Rank {worker_id}: Could not load study '{self.study_name}' after multiple retries.")
         
             except Exception as e:
                 # Log error with rank information
-                logging.error(f"Worker {worker_id}: Error creating/loading study '{self.study_name}': {str(e)}", exc_info=True)
+                logging.error(f"Rank {worker_id}: Error creating/loading study '{self.study_name}': {str(e)}", exc_info=True)
                 # Log storage URL safely
                 if hasattr(storage, "url"):
                     log_storage_url_safe = str(storage.url).split('@')[0] + '@...' if '@' in str(storage.url) else str(storage.url)
@@ -465,7 +464,7 @@ class WindForecast:
                 
             # max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
             max_workers = max_workers or mp.cpu_count()
-            logging.info(f"Worker {worker_id}: Participating in Optuna study {self.study_name} with {max_workers} workers")
+            logging.info(f"Rank {worker_id}: Participating in Optuna study {self.study_name} with {max_workers} workers")
             objective_fn = partial(self._tuning_objective, multiprocessor=multiprocessor, limit_train_val=limit_train_val, max_workers=max_workers)
         
         if multiprocessor == "mpi":
@@ -477,7 +476,7 @@ class WindForecast:
                            n_trials=n_trials_per_worker, 
                            show_progress_bar=(worker_id==1))
         except Exception as e:
-            logging.error(f"Worker {worker_id}: Failed during study optimization: {str(e)}", exc_info=True)
+            logging.error(f"Rank {worker_id}: Failed during study optimization: {str(e)}", exc_info=True)
             raise
         
         if RUN_ONCE and worker_id == 1 and study:
