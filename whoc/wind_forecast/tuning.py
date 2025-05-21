@@ -142,8 +142,8 @@ if __name__ == "__main__":
     # get max_splits longest datasets
     num_Xy_paths = len(glob.glob(os.path.join(forecaster.model_save_dir, f"Xy_{forecaster.study_name}_*_*.dat")))
     required_num_Xy_paths = data_module.num_target_vars * 2 # val and train
-    logging.info(f"Number of Xy paths: {num_Xy_paths} out of required {required_num_Xy_paths}")
     if worker_id == 0 and (args.reload_data or reload or num_Xy_paths < required_num_Xy_paths):
+        logging.info(f"Number of Xy paths: {num_Xy_paths} out of required {required_num_Xy_paths}")
         logging.info("Preparing data for tuning")
         data_module.train_dataset = sorted(data_module.train_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
         data_module.val_dataset = sorted(data_module.val_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
