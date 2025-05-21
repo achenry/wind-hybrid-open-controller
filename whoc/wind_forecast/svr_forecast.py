@@ -139,7 +139,7 @@ class SVRForecast(WindForecast):
         # X_train = np.ascontiguousarray(historic_measurements.iloc[:-self.context_timedelta][output])
         y_train = np.ascontiguousarray(training_inputs[self.n_context:, output_idx])
         
-        # assert X_train.shape[0] == y_train.shape[0]
+        assert X_train.shape[0] == y_train.shape[0]
         
         return X_train, y_train
     

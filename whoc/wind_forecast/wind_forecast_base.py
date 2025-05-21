@@ -233,7 +233,7 @@ class WindForecast:
                 # logging.info("Finished calling result on future objects in prepare_data.")
         else: 
             for split, ds_list in dataset_splits.items(): 
-                measurements = [ds for ds in ds_list if ds.shape[0] >= self.n_context + self.n_prediction]
+                measurements = [ds for ds in ds_list if ds.shape[0] >= int((self.context_timedelta + self.prediction_timedelta) / self.measurements_timedelta)]
                 for output in self.outputs:
                     # logging.info(f"Getting data for split {split} output {output}.")
                     self._get_output_data(measurements=measurements, output=output, split=split, reload=reload, scale=scale)
