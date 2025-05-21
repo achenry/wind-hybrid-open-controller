@@ -164,7 +164,7 @@ if __name__ == "__main__":
         delattr(data_module, "val_dataset")
 
         forecaster.prepare_data(dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, 
-                                scale=False, multiprocessor=args.multiprocessor, reload=args.reload_data)
+                                scale=False, multiprocessor=args.multiprocessor, reload=args.reload_data or reload)
 
         if RUN_ONCE:
             logging.info("Finished preparing data for tuning.")
