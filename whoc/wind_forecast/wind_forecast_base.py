@@ -143,7 +143,7 @@ class WindForecast:
         # logging.info(f"Fitting model for output {output} with {X_train.shape[0]} training data points.")
         model.fit(X_train, y_train)
         # logging.info(f"Computing score for output {output} with {X_val.shape[0]} validation data points.")
-        return (-mean_squared_error(y_true=y_val, y_pred=model.predict(X_val)))
+        return mean_squared_error(y_true=y_val, y_pred=model.predict(X_val))
     
     def _tuning_objective(self, trial, multiprocessor, limit_train_val):
         """
@@ -163,8 +163,8 @@ class WindForecast:
                 # max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
                 max_workers = mp.cpu_count()
                 logging.info(f"Starting ProcessPoolExecutor in _tuning_objective with {max_workers} workers")
-                executor = ProcessPoolExecutor(max_workers=max_workers)
-                                            # mp_context=mp.get_context("spawn"))
+                executor = ProcessPoolExecutor(max_workers=max_workers,
+                                              mp_context=mp.get_context("spawn"))
             
             with executor as ex:
                 futures = [ex.submit(self._compute_output_score, output=output, params=params, limit_train_val=limit_train_val) for output in self.outputs]
@@ -205,8 +205,8 @@ class WindForecast:
                 max_workers = comm_size
             elif multiprocessor == "cf":
                 max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
-                executor = ProcessPoolExecutor(max_workers=max_workers,
-                                                mp_context=mp.get_context("spawn"))
+                executor = ProcessPoolExecutor(max_workers=max_workers)
+                                                # mp_context=mp.get_context("spawn"))
             with executor as ex:
                 # if multiprocessor == "mpi":
                 #     ex.max_workers = comm_size
@@ -391,7 +391,7 @@ class WindForecast:
                     logging.info(f"Worker 1: Creating/loading Optuna study '{self.study_name}' with pruner: {type(pruner).__name__}")
                     study = create_study(study_name=self.study_name,
                                             storage=storage,
-                                            direction="maximize",
+                                            direction="minimize",
                                             load_if_exists=True,
                                             sampler=TPESampler(
                                                 seed=seed,
@@ -400,7 +400,7 @@ class WindForecast:
                                                 constant_liar=config["optuna"]["sampler_params"]["tpe"].get("constant_liar", True),
                                                 group=config["optuna"]["sampler_params"]["tpe"].get("group", False)
                                             ),
-                                            pruner=pruner) # maximize negative mse ie minimize mse
+                                            pruner=pruner) # minimize mse ie minimize mse
                     logging.info(f"Worker 1: Study '{self.study_name}' created or loaded successfully.")
                     
                     # --- Launch Dashboard (Worker 1 only) ---
