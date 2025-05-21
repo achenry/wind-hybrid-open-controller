@@ -145,14 +145,13 @@ class WindForecast:
         # logging.info(f"Computing score for output {output} with {X_val.shape[0]} validation data points.")
         return mean_squared_error(y_true=y_val, y_pred=model.predict(X_val))
     
-    def _tuning_objective(self, trial, multiprocessor, limit_train_val):
+    def _tuning_objective(self, trial, multiprocessor, limit_train_val, max_workers):
         """
         Objective function to be minimized in Optuna
         """
         # define hyperparameter search space 
         params = self.get_params(trial)
-        
-        max_workers = mp.cpu_count()
+            
         # max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
         if multiprocessor:
             if multiprocessor == "mpi":
@@ -250,7 +249,8 @@ class WindForecast:
                                     n_trials_per_worker=1,
                                     worker_id=0,
                                     multiprocessor=None,
-                                    limit_train_val=None):
+                                    limit_train_val=None,
+                                    max_workers=None):
         
         comm = MPI.COMM_WORLD
         RUN_ONCE = (multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (multiprocessor != "mpi") or (multiprocessor is None)
@@ -464,9 +464,9 @@ class WindForecast:
                 raise
                 
             # max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
-            max_workers = mp.cpu_count()
+            max_workers = max_workers or mp.cpu_count()
             logging.info(f"Worker {worker_id}: Participating in Optuna study {self.study_name} with {max_workers} workers")
-            objective_fn = partial(self._tuning_objective, multiprocessor=multiprocessor, limit_train_val=limit_train_val)
+            objective_fn = partial(self._tuning_objective, multiprocessor=multiprocessor, limit_train_val=limit_train_val, max_workers=max_workers)
         
         if multiprocessor == "mpi":
             study = comm.bcast(study, root=0)

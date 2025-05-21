@@ -205,7 +205,8 @@ if __name__ == "__main__":
                                                 config=model_config,
                                                 worker_id=1 if RUN_ONCE and (worker_id == 1) else worker_id,
                                                 multiprocessor=args.multiprocessor,
-                                                limit_train_val=args.limit_train_val)
+                                                limit_train_val=args.limit_train_val,
+                                                max_workers=int(os.environ.get("NTASKS_PER_TUNER", None)))
                                         #  trial_protection_callback=handle_trial_with_oom_protection)
         # %% After tuning completes
         logging.info("Optuna hyperparameter tuning completed.")
