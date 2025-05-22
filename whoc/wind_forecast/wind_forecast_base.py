@@ -457,7 +457,7 @@ class WindForecast:
             # max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
             max_cpus = max_cpus or mp.cpu_count() # TODO TEST might be more efficient to allow each rank to use all cores, even if they block eachother
             logging.info(f"Rank {worker_id}: Participating in Optuna study {self.study_name} with {max_cpus} CPUs")
-            objective_fn = partial(self._tuning_objective, multiprocessor=multiprocessor, limit_train_val=limit_train_val, max_workers=max_cpus)
+            objective_fn = partial(self._tuning_objective, multiprocessor=multiprocessor, limit_train_val=limit_train_val, max_cpus=max_cpus)
         
         if multiprocessor == "mpi":
             study = comm.bcast(study, root=0)
