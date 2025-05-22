@@ -126,7 +126,7 @@ class WindForecast:
         model = self.create_model(**params)
         
         # get training data for this output
-        # logging.info(f"Getting training data for output {output}.")
+        logging.info(f"Getting training data for output {output}.")
         # randomly sample from training data
         
         X_train, y_train = self._get_output_data(output=output, split="train", reload=False)
@@ -142,7 +142,7 @@ class WindForecast:
         # evaluate with cross-validation
         logging.info(f"Fitting model for output {output} with {X_train.shape[0]} training data points.")
         model.fit(X_train, y_train)
-        # logging.info(f"Computing score for output {output} with {X_val.shape[0]} validation data points.")
+        logging.info(f"Computing score for output {output} with {X_val.shape[0]} validation data points.")
         return mean_squared_error(y_true=y_val, y_pred=model.predict(X_val))
     
     def _tuning_objective(self, trial, multiprocessor, limit_train_val, max_cpus):
@@ -505,8 +505,8 @@ class WindForecast:
         
         if RUN_ONCE and worker_id == 1 and study:
             # --- Launch Dashboard (Rank 1 only) ---
-            # if hasattr(optuna_storage, "url"):
-            #     launch_optuna_dashboard(config, optuna_storage.url) # Call imported function
+            if hasattr(optuna_storage, "url"):
+                launch_optuna_dashboard(config, optuna_storage.url) # Call imported function
             # --------------------------------------
             # logging.info("Rank 0: Starting W&B summary run creation.")
 
