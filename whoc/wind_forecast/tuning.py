@@ -11,7 +11,7 @@ import os
 import logging 
 import glob
 from floris import FlorisModel
-
+import multiprocessing as mp
 import re
 import random
 from wind_forecasting.utils.optuna_db_utils import setup_optuna_storage
@@ -207,7 +207,8 @@ if __name__ == "__main__":
                                                 multiprocessor=args.multiprocessor,
                                                 limit_train_val=args.limit_train_val,
                                                 restart_tuning=args.restart_tuning,
-                                                max_cpus=int(os.environ.get("NTASKS_PER_TUNER", None)))
+                                                max_cpus=mp.cpu_count())
+                                                # int(os.environ.get("NTASKS_PER_TUNER", None)))
                                         #  trial_protection_callback=handle_trial_with_oom_protection)
         # %% After tuning completes
         logging.info("Optuna hyperparameter tuning completed.")
