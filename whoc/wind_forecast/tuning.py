@@ -199,14 +199,15 @@ if __name__ == "__main__":
         if args.multiprocessor:
             logging.info(f"Using multiprocessor {args.multiprocessor}")
             
-        forecaster.tune_hyperparameters_single(storage=optuna_storage,
+        forecaster.tune_hyperparameters_single(optuna_storage=optuna_storage,
                                                 n_trials_per_worker=model_config["optuna"]["n_trials_per_worker"], 
                                                 seed=args.seed,
                                                 config=model_config,
                                                 worker_id=1 if RUN_ONCE and (worker_id == 1) else worker_id,
                                                 multiprocessor=args.multiprocessor,
                                                 limit_train_val=args.limit_train_val,
-                                                max_workers=int(os.environ.get("NTASKS_PER_TUNER", None)))
+                                                restart_tuning=args.restart_tuning,
+                                                max_cpus=int(os.environ.get("NTASKS_PER_TUNER", None)))
                                         #  trial_protection_callback=handle_trial_with_oom_protection)
         # %% After tuning completes
         logging.info("Optuna hyperparameter tuning completed.")
@@ -214,7 +215,7 @@ if __name__ == "__main__":
     elif args.mode == "train":
         # %% TRAINING MODEL
         logging.info("Training model using best hyperparameters.")
-        forecaster.set_tuned_params(storage=optuna_storage, study_name=forecaster.study_name)
+        forecaster.set_tuned_params(optuna_storage=optuna_storage, study_name=forecaster.study_name)
         forecaster.train_all_outputs(scale=False, 
                                     multiprocessor=args.multiprocessor, 
                                     retrain_models=True,
