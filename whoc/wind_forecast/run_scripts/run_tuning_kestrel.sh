@@ -2,12 +2,11 @@
 #SBATCH --job-name=model_tuning
 #SBATCH --account=ssc
 #SBATCH --output=model_tuning_%j.out
-##SBATCH --nodes=4
 #SBATCH --time=24:00:00
 #SBATCH --nodes=1
-##SBATCH --time=00:20:00
+#SBATCH --mem=0
+##SBATCH --time=01:00:00
 ##SBATCH --partition=debug
-##SBATCH --partition=nvme
 #SBATCH --ntasks-per-node=104
 ##SBATCH --cpus-per-task=1
 
@@ -15,7 +14,7 @@
 # salloc --account=ssc --job-name=model_tuning  --ntasks=104 --cpus-per-task=1 --time=01:00:00 --partition=debug
 # python tuning.py --config $HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel.yaml --study_name "svr_tuning" --model "svr"
 
-export NTASKS_PER_TUNER=13
+export NTASKS_PER_TUNER=26
 export MODEL=$1
 NTUNERS=$((SLURM_NTASKS / NTASKS_PER_TUNER)) # cast to int
 cd ..
@@ -54,7 +53,7 @@ echo "TMPDIR=${TMPDIR}"
 module purge
 eval "$(conda shell.bash hook)"
 conda activate wind_forecasting_env
-module load PrgEnv-intel
+#module load PrgEnv-intel
 
 echo "=== STARTING DATA PREPARATION ==="
 date +"%Y-%m-%d %H:%M:%S"
@@ -64,7 +63,7 @@ PYTHONPATH=$(which python)
 
 # TODO NOTE process gets stuck after writing these .dat files, so run this python first, then the loop
 export WORKER_RANK=0
-python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --seed 0 --restart_tuning #--reload_data
+python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --seed 0 --restart_tuning # --reload_data
 
 echo "=== STARTING TUNING ==="
 date +"%Y-%m-%d %H:%M:%S"
