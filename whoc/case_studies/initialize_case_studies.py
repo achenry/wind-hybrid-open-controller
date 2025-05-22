@@ -944,6 +944,13 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                             logging.info(f"Found existing time_series_results file {existing_fn}.")
                             logging.info(f"Renaming {existing_fn} to {new_fn}.")
                             os.rename(existing_fn, new_fn)
+                            
+                        existing_fn = existing_fn.replace(".csv", "_temp.csv")
+                        new_fn = new_fn.replace(".csv", "_temp.csv")
+                        if os.path.exists(existing_fn):
+                            logging.info(f"Found existing temporarly time_series_results file {existing_fn}.")
+                            logging.info(f"Renaming {existing_fn} to {new_fn}.")
+                            os.rename(existing_fn, new_fn)
                         
             # rename this by index with only config updates from case inside, add dataframe csv linking case indices to names/params
             if case_lists[start_case_idx + c]["wind_case_idx"] == 0:
