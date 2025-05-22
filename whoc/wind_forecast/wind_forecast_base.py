@@ -37,8 +37,8 @@ import polars.selectors as cs
 from optuna import create_study, load_study
 from optuna.samplers import TPESampler
 from optuna.pruners import HyperbandPruner, PercentilePruner, PatientPruner, SuccessiveHalvingPruner, NopPruner
-from optuna.integration import PyTorchLightningPruningCallback
 from optuna.trial import TrialState # Added for checking trial status
+from optuna.study import MaxTrialsCallback
 
 from floris import FlorisModel
 
@@ -145,23 +145,23 @@ class WindForecast:
         # logging.info(f"Computing score for output {output} with {X_val.shape[0]} validation data points.")
         return mean_squared_error(y_true=y_val, y_pred=model.predict(X_val))
     
-    def _tuning_objective(self, trial, multiprocessor, limit_train_val, max_workers):
+    def _tuning_objective(self, trial, multiprocessor, limit_train_val, max_cpus):
         """
         Objective function to be minimized in Optuna
         """
         # define hyperparameter search space 
         params = self.get_params(trial)
             
-        # max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
+        # max_cpus = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
         if multiprocessor:
             if multiprocessor == "mpi":
                 comm_size = MPI.COMM_WORLD.Get_size()
-                logging.info(f"Starting MPICommExecutor in _tuning_objective with {comm_size} workers")
+                logging.info(f"Starting MPICommExecutor in _tuning_objective with {comm_size} CPUs")
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
             elif multiprocessor == "cf":
-                # max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
-                logging.info(f"Starting ProcessPoolExecutor in _tuning_objective with {max_workers} workers")
-                executor = ProcessPoolExecutor(max_workers=max_workers,
+                # max_cpus = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
+                logging.info(f"Starting ProcessPoolExecutor in _tuning_objective with {max_cpus} CPUs")
+                executor = ProcessPoolExecutor(max_workers=max_cpus,
                                               mp_context=mp.get_context("spawn"))
             
             with executor as ex:
@@ -200,16 +200,16 @@ class WindForecast:
             if multiprocessor == "mpi":
                 comm_size = MPI.COMM_WORLD.Get_size()
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
-                max_workers = comm_size
+                max_cpus = comm_size
             elif multiprocessor == "cf":
-                max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
-                executor = ProcessPoolExecutor(max_workers=max_workers,
+                max_cpus = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
+                executor = ProcessPoolExecutor(max_workers=max_cpus,
                                                 mp_context=mp.get_context("spawn"))
             with executor as ex:
                 # if multiprocessor == "mpi":
                 #     ex.max_workers = comm_size
                 
-                logging.info(f"Running _get_output_data in parallel with {ex} max_wokers={max_workers}.")
+                logging.info(f"Running _get_output_data in parallel with {ex} max_cpus={max_cpus}.")
                 for ds in ds_list:
                     dataset_splits[ds_type] = [ds for ds in ds_list if ds.shape[0] >= self.n_context + self.n_prediction]
                 
@@ -243,13 +243,15 @@ class WindForecast:
         return
     
     # def tune_hyperparameters_single(self, historic_measurements, scaler, feat_type, tid, study_name, seed, restart_tuning, backend, storage_dir, n_trials=1):
-    def tune_hyperparameters_single(self, seed, storage, 
+    def tune_hyperparameters_single(self, seed, optuna_storage, 
                                     config,
                                     n_trials_per_worker=1,
                                     worker_id=0,
                                     multiprocessor=None,
                                     limit_train_val=None,
-                                    max_workers=None):
+                                    restart_tuning=False,
+                                    max_cpus=None,
+                                    optimize_callbacks=None):
         
         comm = MPI.COMM_WORLD
         RUN_ONCE = (multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (multiprocessor != "mpi") or (multiprocessor is None)
@@ -257,9 +259,9 @@ class WindForecast:
         # for case when argument is list of multiple continuous time series AND to only get the training inputs/outputs relevant to this model
         # Log safely without credentials if they were included (they aren't for socket trust)
         if RUN_ONCE:
-            if hasattr(storage, "url"):
-                log_storage_url = storage.url.split('@')[0] + '@...' if '@' in storage.url else storage.url
-                logging.info(f"Using Optuna storage URL: {log_storage_url}")
+            if hasattr(optuna_storage, "url"):
+                log_storage_url = optuna_storage.url.split('@')[0] + '@...' if '@' in optuna_storage.url else optuna_storage.url
+                logging.info(f"Using Optuna optuna_storage URL: {log_storage_url}")
 
             # Configure pruner based on settings
             pruner = None
@@ -379,19 +381,19 @@ class WindForecast:
             else:
                 logging.info("Pruning is disabled, using NopPruner")
                 pruner = NopPruner()
-            
+        
         # Create study on Worker 1, load on other Worker
         study = None # Initialize study variable
         objective_fn = None
-        
+        direction = "minimize" # minimize mean_squared_error
         if RUN_ONCE:  
             try:
                 if worker_id == 1:
                     logging.info(f"Rank 1: Creating/loading Optuna study '{self.study_name}' with pruner: {type(pruner).__name__}")
                     study = create_study(study_name=self.study_name,
-                                            storage=storage,
-                                            direction="minimize",
-                                            load_if_exists=True,
+                                            storage=optuna_storage,
+                                            direction=direction,
+                                            load_if_exists=not restart_tuning, # Only load if not restarting
                                             sampler=TPESampler(
                                                 seed=seed,
                                                 n_startup_trials=config["optuna"]["sampler_params"]["tpe"].get("n_startup_trials", 16),
@@ -402,10 +404,6 @@ class WindForecast:
                                             pruner=pruner) # minimize mse ie minimize mse
                     logging.info(f"Rank 1: Study '{self.study_name}' created or loaded successfully.")
                     
-                    # --- Launch Dashboard (Rank 1 only) ---
-                    if hasattr(storage, "url"):
-                        launch_optuna_dashboard(config, storage.url) # Call imported function
-                    # --------------------------------------
                 else:
                     # Non-rank-1 workers MUST load the study created by Rank 1
                     
@@ -417,14 +415,8 @@ class WindForecast:
                         try:
                             study = load_study(
                                 study_name=self.study_name,
-                                storage=storage,
-                                sampler=TPESampler(
-                                        seed=seed,
-                                        n_startup_trials=config["optuna"]["sampler_params"]["tpe"].get("n_startup_trials", 16),
-                                        multivariate=config["optuna"]["sampler_params"]["tpe"].get("multivariate", True),
-                                        constant_liar=config["optuna"]["sampler_params"]["tpe"].get("constant_liar", True),
-                                        group=config["optuna"]["sampler_params"]["tpe"].get("group", False)
-                                    ), # Sampler might be needed for load_study too
+                                storage=optuna_storage,
+                                sampler=TPESampler(seed=seed), # Sampler might be needed for load_study too
                                 pruner=pruner
                             )
                             logging.info(f"Rank {worker_id}: Study '{self.study_name}' loaded successfully on attempt {attempt+1}.")
@@ -454,43 +446,84 @@ class WindForecast:
             except Exception as e:
                 # Log error with rank information
                 logging.error(f"Rank {worker_id}: Error creating/loading study '{self.study_name}': {str(e)}", exc_info=True)
-                # Log storage URL safely
-                if hasattr(storage, "url"):
-                    log_storage_url_safe = str(storage.url).split('@')[0] + '@...' if '@' in str(storage.url) else str(storage.url)
+                # Log optuna_storage URL safely
+                if hasattr(optuna_storage, "url"):
+                    log_storage_url_safe = str(optuna_storage.url).split('@')[0] + '@...' if '@' in str(optuna_storage.url) else str(optuna_storage.url)
                     logging.error(f"Error details - Type: {type(e).__name__}, Storage: {log_storage_url_safe}")
                 else:
                     logging.error(f"Error details - Type: {type(e).__name__}, Storage: Journal")
                 raise
                 
             # max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
-            max_workers = max_workers or mp.cpu_count()
-            logging.info(f"Rank {worker_id}: Participating in Optuna study {self.study_name} with {max_workers} workers")
-            objective_fn = partial(self._tuning_objective, multiprocessor=multiprocessor, limit_train_val=limit_train_val, max_workers=max_workers)
+            max_cpus = max_cpus or mp.cpu_count() # TODO TEST might be more efficient to allow each rank to use all cores, even if they block eachother
+            logging.info(f"Rank {worker_id}: Participating in Optuna study {self.study_name} with {max_cpus} CPUs")
+            objective_fn = partial(self._tuning_objective, multiprocessor=multiprocessor, limit_train_val=limit_train_val, max_workers=max_cpus)
         
         if multiprocessor == "mpi":
             study = comm.bcast(study, root=0)
             objective_fn = comm.bcast(objective_fn, root=0)
         
+        if optimize_callbacks is None:
+            optimize_callbacks = []
+        elif not isinstance(optimize_callbacks, list):
+            optimize_callbacks = [optimize_callbacks]
+
         try:
+            n_trials_per_worker = config["optuna"].get("n_trials_per_worker", 10)
+            total_study_trials_config = config["optuna"].get("total_study_trials")
+            
+            n_trials_setting_for_optimize = None
+            
+            # Determine number of trials to run
+            if isinstance(total_study_trials_config, int) and total_study_trials_config > 0:
+                total_study_trials = total_study_trials_config
+                study.set_user_attr("total_study_trials", total_study_trials)
+                logging.info(f"Set global trial limit to {total_study_trials} trials.")
+                n_trials_setting_for_optimize = None
+                
+                max_trials_cb = MaxTrialsCallback(
+                    n_trials=total_study_trials,
+                    states=(TrialState.COMPLETE, TrialState.PRUNED) # INFO: Do not count failed trials
+                )
+                optimize_callbacks.append(max_trials_cb)
+                logging.info(f"MaxTrialsCallback added for {total_study_trials} trials.")
+            else:
+                # Fall back to per-worker limit if no global limit is set
+                n_trials_setting_for_optimize = n_trials_per_worker
+                logging.info(f"No valid global trial limit found (value: {total_study_trials_config}). Using per-worker limit of {n_trials_per_worker}.")
+                n_trials_setting_for_optimize = n_trials_per_worker
+        
+            # Let Optuna handle trial distribution - each worker will ask the storage for a trial
+            # Show progress bar only on rank 0 to avoid cluttered logs
             study.optimize(objective_fn,
-                           n_trials=n_trials_per_worker, 
+                           n_trials=n_trials_setting_for_optimize, 
+                           callbacks=optimize_callbacks,
                            show_progress_bar=(worker_id==1))
         except Exception as e:
             logging.error(f"Rank {worker_id}: Failed during study optimization: {str(e)}", exc_info=True)
             raise
         
         if RUN_ONCE and worker_id == 1 and study:
+            # --- Launch Dashboard (Rank 1 only) ---
+            # if hasattr(optuna_storage, "url"):
+            #     launch_optuna_dashboard(config, optuna_storage.url) # Call imported function
+            # --------------------------------------
             # logging.info("Rank 0: Starting W&B summary run creation.")
 
             # Wait for all expected trials to complete
             num_workers = int(os.environ.get('WORLD_SIZE', 1))
-            expected_total_trials = num_workers * n_trials_per_worker
-            logging.info(f"Rank 1: Expecting a total of {expected_total_trials} trials ({num_workers} workers * {n_trials_per_worker} trials/worker).")
+            
+            if total_study_trials:
+                expected_total_trials = total_study_trials
+                logging.info(f"Rank 0: Expecting a maximum of {expected_total_trials} trials (global limit).")
+            else:
+                expected_total_trials = num_workers * n_trials_per_worker
+                logging.info(f"Rank 1: Expecting a total of {expected_total_trials} trials ({num_workers} workers * {n_trials_per_worker} trials/worker).")
 
             logging.info("Rank 1: Waiting for all expected Optuna trials to reach a terminal state...")
             wait_interval_seconds = 30
             while True:
-                # Refresh trials from storage
+                # Refresh trials from optuna_storage
                 all_trials_current = study.get_trials(deepcopy=False)
                 finished_trials = [t for t in all_trials_current if t.state in (TrialState.COMPLETE, TrialState.PRUNED, TrialState.FAIL)]
                 num_finished = len(finished_trials)
@@ -609,28 +642,28 @@ class WindForecast:
             # logging.info(f"Returning None from _get_output_data for Xy_path {Xy_path}")
             return None
     
-    def set_tuned_params(self, storage, study_name):
+    def set_tuned_params(self, optuna_storage, study_name):
         """_summary_
 
         Args:
             backend (_type_): journal, sqlite, or mysql
             study_name (_type_): _description_
-            storage_dir (FilePath): required for sqlite or journal storage
+            storage_dir (FilePath): required for sqlite or journal optuna_storage
 
         Raises:
             Exception: _description_
             Exception: _description_
         """
         try:
-            study_id = storage.get_study_id_from_name(study_name)
+            study_id = optuna_storage.get_study_id_from_name(study_name)
             for output in self.outputs:
-                self.model[output] = self.create_model(**storage.get_best_trial(study_id).params)
+                self.model[output] = self.create_model(**optuna_storage.get_best_trial(study_id).params)
         except KeyError:
             logging.error(f"Optuna study {study_name} not found. Please run tuning.py first. Using default parameters for now.")
             for output in self.outputs:
                 self.model[output] = self.create_model(**{k: v for k, v in self.kwargs.items() if k in self.model[output].get_params()})
-        # self.model[output].set_params(**storage.get_best_trial(study_id).params)
-        # storage.get_all_studies()[0]._study_id
+        # self.model[output].set_params(**optuna_storage.get_best_trial(study_id).params)
+        # optuna_storage.get_all_studies()[0]._study_id
         
     def predict_sample(self, historic_measurements: Union[pd.DataFrame, pl.DataFrame], n_samples: int):
         """_summary_
