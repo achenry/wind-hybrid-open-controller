@@ -46,11 +46,15 @@ echo "DATA_CONFIG_PATH=${DATA_CONFIG_PATH}"
 
 # --- Base Directories ---
 export BASE_DIR="/home/ahenry/toolboxes/wind_forecasting_env/wind-hybrid-open-controller"
-export WORK_DIR="${BASE_DIR}/whoc/wind_forecast/run_scripts"
+export WORK_DIR="${BASE_DIR}/whoc/wind_forecast"
 export LOG_DIR="${WORK_DIR}/logs"
 export RESTART_TUNING_FLAG="--restart_tuning" # "" Or "--restart_tuning"
 export AUTO_EXIT_WHEN_DONE="true"  # Set to "true" to exit script when all workers finish, "false" to keep running until timeout
 export NUMEXPR_MAX_THREADS=128
+
+# --- Create Logging Directories ---
+# Create the job-specific directory for worker logs and final main logs
+mkdir -p ${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}
 
 # --- Print Job Info ---
 echo "--- SLURM JOB INFO ---"
@@ -71,9 +75,7 @@ echo "RESTART_TUNING_FLAG: '${RESTART_TUNING_FLAG}'"
 echo "AUTO_EXIT_WHEN_DONE: '${AUTO_EXIT_WHEN_DONE}'"
 echo "------------------------"
 
-# --- Create Logging Directories ---
-# Create the job-specific directory for worker logs and final main logs
-mkdir -p ${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}
+
 
 # prepare training data first
 # --- Setup Main Environment ---
@@ -153,7 +155,7 @@ for i in $(seq 1 $((${NTUNERS}))); do
         if [ \$status -ne 0 ]; then
                 echo \"Worker ${WORKER_RANK} FAILED with status \$status\"
         else
-                echo \"Worker ${WORKER_RANK} COMPLETED successfully\"
+                echo \"Worker ${WORKER_RANK} STARTED RUNNING successfully\"
         fi
         exit \$status
         " > "${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/worker_${WORKER_RANK}.out" 2>&1 &
