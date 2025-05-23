@@ -661,12 +661,12 @@ class WindForecast:
         logging.info(f"Setting tuned parameters from study {study_name}.")
         try:
             study_id = optuna_storage.get_study_id_from_name(study_name)
-            study = optuna_storage.get_best_trial(study_id)
+            trial = optuna_storage.get_best_trial(study_id)
             logging.info(f"Best trial found, number: {study.number}, value: {study.value}, params: {study.params}")
-            trials = sorted(study.get_trials(), key=lambda trial: trial.value, reverse=True)
+            trials = sorted(optuna_storage.get_all_trials(study_id), key=lambda trial: trial.value, reverse=True)
             logging.info(f"Best trials: {trials}")
             for output in self.outputs:
-                self.model[output] = self.create_model(**study.params)
+                self.model[output] = self.create_model(**trial.params)
         except KeyError:
             logging.error(f"Optuna study {study_name} not found. Please run tuning.py first. Using default parameters for now.")
             for output in self.outputs:
