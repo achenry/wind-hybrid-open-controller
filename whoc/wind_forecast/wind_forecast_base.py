@@ -662,7 +662,7 @@ class WindForecast:
         try:
             study_id = optuna_storage.get_study_id_from_name(study_name)
             trial = optuna_storage.get_best_trial(study_id)
-            logging.info(f"Best trial found, number: {study.number}, value: {study.value}, params: {study.params}")
+            logging.info(f"Best trial found, number: {trial.number}, value: {trial.value}, params: {trial.params}")
             trials = sorted(optuna_storage.get_all_trials(study_id), key=lambda trial: trial.value, reverse=True)
             logging.info(f"Best trials: {trials}")
             for output in self.outputs:
