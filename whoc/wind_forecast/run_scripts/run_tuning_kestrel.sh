@@ -46,7 +46,7 @@ echo "DATA_CONFIG_PATH=${DATA_CONFIG_PATH}"
 
 # --- Base Directories ---
 export BASE_DIR="/home/ahenry/toolboxes/wind_forecasting_env/wind-hybrid-open-controller"
-export WORK_DIR="${BASE_DIR}/whoc/wind_forecasting/"
+export WORK_DIR="${BASE_DIR}/whoc/wind_forecasting"
 export LOG_DIR="${WORK_DIR}/logs"
 export RESTART_TUNING_FLAG="--restart_tuning" # "" Or "--restart_tuning"
 export AUTO_EXIT_WHEN_DONE="true"  # Set to "true" to exit script when all workers finish, "false" to keep running until timeout
@@ -91,7 +91,7 @@ PYTHONPATH=$(which python)
 #srun -n ${SLURM_NTASKS} --export=ALL,WORKER_RANK=0 
 
 export WORKER_RANK=0
-python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --seed 0 #--restart_tuning # --reload_data
+python ${WORK_DIR}/tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --seed 0 #--restart_tuning # --reload_data
 
 # --- Parallel Worker Launch using nohup ---
 NUM_CPUS=${SLURM_NTASKS_PER_NODE}
