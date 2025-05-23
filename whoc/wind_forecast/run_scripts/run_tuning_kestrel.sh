@@ -47,7 +47,9 @@ export DATA_CONFIG_PATH="/home/ahenry/toolboxes/wind_forecasting_env/wind-foreca
 echo "MODEL=${MODEL}"
 echo "MODEL_CONFIG_PATH=${MODEL_CONFIG_PATH}"
 echo "DATA_CONFIG_PATH=${DATA_CONFIG_PATH}"
-echo "TMPDIR=${TMPDIR}"
+
+export LOG_DIR="./logs"
+mkdir -p ${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}
 
 # prepare training data first
 module purge
@@ -61,9 +63,8 @@ date +"%Y-%m-%d %H:%M:%S"
 PYTHONPATH=$(which python)
 #srun -n ${SLURM_NTASKS} --export=ALL,WORKER_RANK=0 
 
-# TODO NOTE process gets stuck after writing these .dat files, so run this python first, then the loop
 export WORKER_RANK=0
-python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --seed 0 --restart_tuning # --reload_data
+python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --seed 0 #--restart_tuning # --reload_data
 
 NUM_CPUS=${SLURM_NTASKS_PER_NODE}
 export WORLD_SIZE=${NUM_CPUS}  # Set total number of workers for tuning
@@ -86,21 +87,23 @@ for i in $(seq 1 $((${NTUNERS}))); do
         # Calculate worker index for logging
 	export WORKER_RANK=${i} #$((i*NUM_WORKERS_PER_CPU + j))
 
-        echo "Starting worker ${WORKER_RANK} on CPU ${i} with seed ${WORKER_SEED}"
+        echo "Starting worker ${WORKER_RANK} with seed ${WORKER_SEED}"
 	
 	# Calculate start and end cores (assuming i is 1-based)
 	start_core=$(( ($i - 1) * $NTASKS_PER_TUNER ))
 	end_core=$(( $i * $NTASKS_PER_TUNER - 1 ))
 
 	# Create the range string
-	CORES="${start_core}-${end_core}"
-	echo "Using cores ${CORES}"	
+	#CORES="${start_core}-${end_core}"
+	#echo "Using cores ${CORES}"	
 
         # Launch worker with environment settings
         #srun -n ${NTASKS_PER_TUNER}
-	taskset -c $start_core-$end_core python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} \
-		--multiprocessor cf --seed ${WORKER_SEED} --limit_train_val 0.1 --mode tune ${RESTART_FLAG} &
-
+	#taskset -c $start_core-$end_core
+	nohup bash -c "
+	python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} \
+		--multiprocessor cf --seed ${WORKER_SEED} --limit_train_val .1 --mode tune & #${RESTART_FLAG}
+	" > "${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/worker_${WORKER_RANK}.out" 2>&1 &
 
         # Store the process ID
         WORKER_PIDS+=($!)
@@ -110,8 +113,9 @@ for i in $(seq 1 $((${NTUNERS}))); do
         sleep 2
  #   done
 done
-echo "Started ${#WORKER_PIDS[@]} worker processes for model ${m}"
+echo "Started ${#WORKER_PIDS[@]} worker processes for model ${MODEL}"
 echo "Process IDs: ${WORKER_PIDS[@]}"
+echo "Check worker logs in ${LOG_DIR}/slurm_logs/worker_*.log"
 
 # Wait for all workers to complete
 wait
