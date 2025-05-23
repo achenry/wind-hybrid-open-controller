@@ -120,14 +120,6 @@ for i in $(seq 1 $((${NTUNERS}))); do
 
         echo "Starting worker ${WORKER_RANK} with seed ${WORKER_SEED}"
 
-        # Calculate start and end cores (assuming i is 1-based)
-        # start_core=$(( ($i - 1) * $NTASKS_PER_TUNER ))
-        # end_core=$(( $i * $NTASKS_PER_TUNER - 1 ))
-
-        # Create the range string
-        #CORES="${start_core}-${end_core}"
-        #echo "Using cores ${CORES}"	
-
         # Launch worker with environment settings
         #srun -n ${NTASKS_PER_TUNER}
         #taskset -c $start_core-$end_core
@@ -146,8 +138,17 @@ for i in $(seq 1 $((${NTUNERS}))); do
         conda activate wind_forecasting_env
         echo \"Worker ${WORKER_RANK}: Conda environment 'wind_forecasting_env' activated.\"
 
+        # --- Calculate start and end cores (assuming i is 1-based) ---
+        start_core=$(( ($i - 1) * $NTASKS_PER_TUNER ))
+        end_core=$(( $i * $NTASKS_PER_TUNER - 1 ))
+
+        # --- Create the range string ---
+        CORES=\"${start_core}-${end_core}\"
+        echo \"Using cores ${CORES}\"	
+
+
         echo \"Worker ${WORKER_RANK}: Running python script...\"
-        python ${WORK_DIR}/tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} \
+        taskset -c $start_core-$end_core python ${WORK_DIR}/tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} \
                 --multiprocessor cf --seed ${WORKER_SEED} --limit_train_val .1 --mode tune & #${RESTART_FLAG}
 
         # Check exit status
