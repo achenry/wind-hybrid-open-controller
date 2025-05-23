@@ -509,8 +509,8 @@ class WindForecast:
         
         if RUN_ONCE and worker_id == 1 and study:
             # --- Launch Dashboard (Rank 1 only) ---
-            if hasattr(optuna_storage, "url"):
-                launch_optuna_dashboard(config, optuna_storage.url) # Call imported function
+            # if hasattr(optuna_storage, "url"):
+            #     launch_optuna_dashboard(config, optuna_storage.url) # Call imported function
             # --------------------------------------
             # logging.info("Rank 0: Starting W&B summary run creation.")
 
