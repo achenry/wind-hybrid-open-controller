@@ -46,7 +46,7 @@ echo "DATA_CONFIG_PATH=${DATA_CONFIG_PATH}"
 
 # --- Base Directories ---
 export BASE_DIR="/home/ahenry/toolboxes/wind_forecasting_env/wind-hybrid-open-controller"
-export WORK_DIR="${BASE_DIR}/whoc/wind_forecasting/run_scripts"
+export WORK_DIR="${BASE_DIR}/whoc/wind_forecast/run_scripts"
 export LOG_DIR="${WORK_DIR}/logs"
 export RESTART_TUNING_FLAG="--restart_tuning" # "" Or "--restart_tuning"
 export AUTO_EXIT_WHEN_DONE="true"  # Set to "true" to exit script when all workers finish, "false" to keep running until timeout
