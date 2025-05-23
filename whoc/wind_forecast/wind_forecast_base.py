@@ -658,7 +658,7 @@ class WindForecast:
             Exception: _description_
             Exception: _description_
         """
-        logging.info(f"Setting tuned parameters for {output} from study {study_name} with id {study_id}.")
+        logging.info(f"Setting tuned parameters from study {study_name}.")
         try:
             study_id = optuna_storage.get_study_id_from_name(study_name)
             for output in self.outputs:
