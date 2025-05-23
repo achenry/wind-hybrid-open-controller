@@ -664,9 +664,9 @@ class WindForecast:
             trial = optuna_storage.get_best_trial(study_id)
             logging.info(f"Best trial found, number: {trial.number}, value: {trial.value}, params: {trial.params}")
             trials = sorted(optuna_storage.get_all_trials(study_id), key=lambda trial: trial.value or np.inf, reverse=True)[1:6]
-            for t, trial in enumerate(trials, 1):
+            for t, trial in enumerate(trials, 2):
                 logging.info(f"{t}th best trial found, number: {trial.number}, value: {trial.value}, params: {trial.params}")
-            logging.info(f"Best trials: {trials}")
+            
             for output in self.outputs:
                 self.model[output] = self.create_model(**trial.params)
         except KeyError:
