@@ -626,7 +626,7 @@ def write_df(wf_source, wind_field_ts,
     results_data = pd.DataFrame(results_data)
     
     if wind_forecast_class and include_prediction and simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() > 0:
-        # TODO not right
+        
         # .group_by("time", maintain_order=True).agg(pl.all().last())\
         predicted_wind_speeds_ts = pl.concat(predicted_wind_speeds_ts, how="vertical")\
                                      .with_columns(time=((pl.col("time") - ctrl.init_time).dt.total_seconds().cast(pl.Float32)))
