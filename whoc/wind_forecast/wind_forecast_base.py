@@ -658,10 +658,13 @@ class WindForecast:
             Exception: _description_
             Exception: _description_
         """
+        logging.info(f"Setting tuned parameters for {output} from study {study_name} with id {study_id}.")
         try:
             study_id = optuna_storage.get_study_id_from_name(study_name)
             for output in self.outputs:
-                self.model[output] = self.create_model(**optuna_storage.get_best_trial(study_id).params)
+                study = optuna_storage.get_best_trial(study_id)
+                logging.info(f"Best trial found, number: {study.number}, value: {study.value}, params: {study.params}")
+                self.model[output] = self.create_model(**study.params)
         except KeyError:
             logging.error(f"Optuna study {study_name} not found. Please run tuning.py first. Using default parameters for now.")
             for output in self.outputs:
