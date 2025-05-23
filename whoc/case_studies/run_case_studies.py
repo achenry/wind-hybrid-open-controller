@@ -136,11 +136,13 @@ if __name__ == "__main__":
             visible_gpus = [idx for idx in cuda_devices.split(',') if idx.strip()]
             num_visible_gpus = len(visible_gpus)
             if num_visible_gpus > 0:
-                logging.info(f"Found {num_visible_gpus} GPUs. Setting max_workers to num_visible_gpus={num_visible_gpus}.")
-                max_workers = num_visible_gpus
-            else:
-                logging.warning(f"CUDA_VISIBLE_DEVICES is set but no valid GPU indices found. Setting max_workers to mp.cpu_count()={mp.cpu_count()}.")
+                # max_workers = num_visible_gpus
+                # TODO TESTING see if many cores can share less number of GPUs
                 max_workers = comm.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
+                logging.info(f"Found {num_visible_gpus} GPUs. Setting max_workers to num_visible_gpus={max_workers}.")
+            else:
+                max_workers = comm.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
+                logging.warning(f"CUDA_VISIBLE_DEVICES is set but no valid GPU indices found. Setting max_workers to mp.cpu_count()={max_workers}.")
         except Exception as e:
             logging.warning(f"Error parsing CUDA_VISIBLE_DEVICES: {e}")
         
