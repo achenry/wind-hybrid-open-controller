@@ -202,7 +202,8 @@ class WindForecast:
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
                 max_cpus = comm_size
             elif multiprocessor == "cf":
-                max_cpus = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
+                # max_cpus = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
+                max_cpus = mp.cpu_count()
                 executor = ProcessPoolExecutor(max_workers=max_cpus,
                                                 mp_context=mp.get_context("spawn"))
             with executor as ex:
@@ -246,6 +247,7 @@ class WindForecast:
     def tune_hyperparameters_single(self, seed, optuna_storage, 
                                     config,
                                     n_trials_per_worker=1,
+                                    total_study_trials=100,
                                     worker_id=0,
                                     multiprocessor=None,
                                     limit_train_val=None,
@@ -499,6 +501,8 @@ class WindForecast:
                            n_trials=n_trials_setting_for_optimize, 
                            callbacks=optimize_callbacks,
                            show_progress_bar=(worker_id==1))
+        except KeyError as e:
+            logging.error(f"Configuration key missing: {e}")
         except Exception as e:
             logging.error(f"Rank {worker_id}: Failed during study optimization: {str(e)}", exc_info=True)
             raise
@@ -515,7 +519,7 @@ class WindForecast:
             
             if total_study_trials:
                 expected_total_trials = total_study_trials
-                logging.info(f"Rank 0: Expecting a maximum of {expected_total_trials} trials (global limit).")
+                logging.info(f"Rank 1: Expecting a maximum of {expected_total_trials} trials (global limit).")
             else:
                 expected_total_trials = num_workers * n_trials_per_worker
                 logging.info(f"Rank 1: Expecting a total of {expected_total_trials} trials ({num_workers} workers * {n_trials_per_worker} trials/worker).")

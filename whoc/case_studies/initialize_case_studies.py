@@ -114,10 +114,10 @@ case_studies = {
         #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred300.yaml"), 
         #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred300.yaml")]},
         "model_config_path": {"group": 1, "vals": [
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred60.yaml"),
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred300.yaml"), 
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred300.yaml")]},
-        "prediction_timedelta": {"group": 1, "vals": [60, 300, 300]},
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predGreedy.yaml"),
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"), 
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
+        "prediction_timedelta": {"group": 1, "vals": [210, 510, 510]},
         "uncertain": {"group": 1, "vals": [False, True, False]},
         "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73", "74,73"]},
         "model_key": {"group": 2, "vals": ["informer"]} # 
