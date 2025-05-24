@@ -147,7 +147,7 @@ class WindForecast:
         lr_logger = LearningRateMonitor()  
         predict_callback = PredictCallback()
         logger = TensorBoardLogger("lightning_logs") 
-        trainer = pylt.Trainer(max_epochs=1, accelerator="cpu", enable_model_summary=True, gradient_clip_val=0.1, limit_train_batches=0.05, callbacks=[lr_logger, early_stop_callback, predict_callback], logger=logger)
+        trainer = pylt.Trainer(max_epochs=1, accelerator="auto", enable_model_summary=True, gradient_clip_val=0.1, limit_train_batches=0.05, callbacks=[lr_logger, early_stop_callback, predict_callback], logger=logger)
 
         tft_model = TemporalFusionTransformer.from_dataset(
              dataset=self.data,
