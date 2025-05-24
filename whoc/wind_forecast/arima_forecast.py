@@ -76,7 +76,7 @@ class ARIMAForecast(WindForecast):
         # if self.study_name is None:
         #     self.study_name = "default_study_name"
         if self.study_name is None:
-            self.study_name = 'arima_LUT_prediction_timedelta_420'
+            self.study_name = 'arima_Greedy_prediction_timedelta_480'
         # if not hasattr(self, "study_name"):
         #     self.study_name = f"{args.model}_ws_vert_all_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             #self.study_name = "arima_ws_vert_all_20250429_123701" #"tuning_arima_windfarm_debug" 
@@ -325,6 +325,8 @@ class ARIMAForecast(WindForecast):
             # Box-Cox was skipped, so just return persistence fallback
             persistence_value = params.get("persistence", np.nan)
             return np.full_like(ts_transformed, persistence_value, dtype=np.float64)
+            #logging.warning(f"No Box-Cox transform for '{feature_key}', returning *raw ARIMA output* instead of fallback.")
+            #return ts_transformed
 
         ts_original = inv_boxcox(ts_transformed, lmbda) - shift_val
         return ts_original
@@ -408,7 +410,15 @@ class ARIMAForecast(WindForecast):
         print(">>> ARIMAForecast.predict_point() called")
         if not self.fitted:
             raise ValueError("ARIMA model not fitted. Call train() method first.")
+        if not hasattr(self, "historic_measurements_buffer"):
+            self.historic_measurements_buffer = historic_measurements
+        else:
+            self.historic_measurements_buffer = pl.concat([self.historic_measurements_buffer, historic_measurements]).sort("time").unique(subset=["time"])
+        max_history_length = 500
+        if self.historic_measurements_buffer.height > max_history_length:
+            self.historic_measurements_buffer = self.historic_measurements_buffer.tail(max_history_length)
         
+        historic_measurements = self.historic_measurements_buffer
         horizon = self.n_prediction
         prediction_freq = pd.Timedelta(self.measurements_timedelta)
 
@@ -429,7 +439,7 @@ class ARIMAForecast(WindForecast):
             print(f"\n>>> Starting forecast for turbine: {turbine_id}")
             key_horz = turbine_id
             key_vert = turbine_id.replace("ws_horz_", "ws_vert_")
-            self.max_n_samples = getattr(self, "max_n_samples", 50)
+            self.max_n_samples = getattr(self, "max_n_samples", 501)
 
             turbine_df_horz = historic_measurements.select(pl.col("time"), pl.col(key_horz)).sort("time").unique(subset=["time"])
             turbine_df_vert = historic_measurements.select(pl.col("time"), pl.col(key_vert)).sort("time").unique(subset=["time"])

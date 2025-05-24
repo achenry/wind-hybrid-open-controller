@@ -32,12 +32,25 @@ import numpy as np
 import pandas as pd
 import polars as pl
 import polars.selectors as cs
+import lightning.pytorch as pylt
 
 from optuna import create_study, load_study
 from optuna.samplers import TPESampler
 from optuna.pruners import HyperbandPruner, MedianPruner, PercentilePruner, NopPruner
 from optuna.integration import PyTorchLightningPruningCallback
 from optuna.trial import TrialState # Added for checking trial status
+
+from lightning.pytorch import Trainer
+#from pytorch_forecasting import TemporalFusionTransformer
+from pytorch_forecasting.models.temporal_fusion_transformer import TemporalFusionTransformer
+
+from pytorch_forecasting.metrics import QuantileLoss
+from pytorch_forecasting.data import TimeSeriesDataSet
+from lightning.pytorch.loggers import TensorBoardLogger
+from lightning.pytorch.callbacks import EarlyStopping, LearningRateMonitor
+from pytorch_forecasting.models.base_model import PredictCallback
+import torch 
+from sklearn.metrics import mean_squared_error
 
 from floris import FlorisModel
 
@@ -122,35 +135,62 @@ class WindForecast:
     def _compute_output_score(self, output, params, limit_train_val=None):
         # logging.info(f"Defining model for output {output}.")
         # model = self.create_model(**{re.search(f"\\w+(?=_{output})", k).group(0): v for k, v in params.items() if k.endswith(f"_{output}")})
-        model = self.create_model(**params)
-        
-        # get training data for this output
-        # logging.info(f"Getting training data for output {output}.")
-        # randomly sample from training data
-        
-        X_train, y_train = self._get_output_data(output=output, split="train", reload=False)
-        X_val, y_val = self._get_output_data(output=output, split="val", reload=False)
-        
-        if limit_train_val:
-            random_indices = np.random.choice(np.arange(X_train.shape[0]), size=int(limit_train_val * X_train.shape[0]))
-            X_train, y_train = X_train[random_indices, :], y_train[random_indices]
-            
-            random_indices = np.random.choice(np.arange(X_val.shape[0]), size=int(limit_train_val * X_val.shape[0]))
-            X_val, y_val = X_val[random_indices, :], y_val[random_indices]
-        
-        # evaluate with cross-validation
-        # logging.info(f"Fitting model for output {output} with {X_train.shape[0]} training data points.")
-        model.fit(X_train, y_train)
-        # logging.info(f"Computing score for output {output} with {X_val.shape[0]} validation data points.")
-        return (-mean_squared_error(y_true=y_val, y_pred=model.predict(X_val)))
-    
+        if not hasattr(self, "data") or self.data is None:
+            if hasattr(self, "historic_measurements") and self.historic_measurements is not None:
+                self.define_data(self.historic_measurements)
+            else:
+                raise ValueError("Historic measurements not set. Call define_data(data) first or set historic_measurements.")
+
+        #self.model = self.create_model(**params)
+
+        early_stop_callback = EarlyStopping(monitor="val_loss", min_delta=1e-4, patience=10, verbose=False, mode="min")  
+        lr_logger = LearningRateMonitor()  
+        predict_callback = PredictCallback()
+        logger = TensorBoardLogger("lightning_logs") 
+        trainer = pylt.Trainer(max_epochs=1, accelerator="cpu", enable_model_summary=True, gradient_clip_val=0.1, limit_train_batches=0.05, callbacks=[lr_logger, early_stop_callback, predict_callback], logger=logger)
+
+        tft_model = TemporalFusionTransformer.from_dataset(
+             dataset=self.data,
+             **params)
+
+        train_dataloader = self.data.to_dataloader(train=True, batch_size=128, num_workers=11, persistent_workers=True)
+        val_dataloader = self.data.to_dataloader(train=False, batch_size=128, num_workers=11, persistent_workers=True)
+
+        trainer.fit(tft_model, train_dataloader, val_dataloader)
+
+        raw_predictions = tft_model.predict(val_dataloader, mode="raw", return_x=True)
+        print(f"type raw_predictions: {type(raw_predictions)}")
+
+        y_pred = raw_predictions.output["prediction"]
+        x = raw_predictions.x
+        y_true = x["decoder_target"]
+
+        y_pred_np = y_pred.detach().cpu().numpy()
+        y_true_np = y_true.detach().cpu().numpy()
+
+        median_quantile_idx = 3
+        y_pred_median = y_pred_np[:, :, median_quantile_idx]
+
+        y_true_flat = y_true_np.reshape(-1)
+        y_pred_flat = y_pred_median.reshape(-1)
+
+        return -mean_squared_error(y_true=y_true_flat, y_pred=y_pred_flat)
+
     def _tuning_objective(self, trial, multiprocessor, limit_train_val):
         """
         Objective function to be minimized in Optuna
         """
         # define hyperparameter search space 
         params = self.get_params(trial)
-        
+
+        if "optimizer" in params and isinstance(params["optimizer"], str):
+            opt_name = params["optimizer"].lower()
+            if opt_name == "adam":
+                import torch.optim as optim
+                params["optimizer"] = optim.Adam
+            else:
+                raise ValueError(f"Unsupported optimizer: {opt_name}")
+                
         max_workers = mp.cpu_count()
         # max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
         if multiprocessor:
@@ -246,6 +286,7 @@ class WindForecast:
     # def tune_hyperparameters_single(self, historic_measurements, scaler, feat_type, tid, study_name, seed, restart_tuning, backend, storage_dir, n_trials=1):
     def tune_hyperparameters_single(self, seed, storage, 
                                     config,
+                                    historic_measurements,
                                     n_trials_per_worker=1,
                                     worker_id=0,
                                     multiprocessor=None,
@@ -522,16 +563,39 @@ class WindForecast:
             Exception: _description_
             Exception: _description_
         """
+
+        if not hasattr(self, "data") or self.data is None:
+            logging.info("Data not found. Calling define_data()...")
+            self.define_data(data)
+
         try:
-            study_id = storage.get_study_id_from_name(study_name)
-            for output in self.outputs:
-                self.model[output] = self.create_model(**storage.get_best_trial(study_id).params)
+            study = optuna.load_study(study_name=study_name, storage=storage)
+            best_params = study.best_trial.params
+            logging.info(f"Loaded best parameters from study '{study_name}': {best_params}")
+
+            self.model = TemporalFusionTransformer.from_dataset(
+                self.data,
+                hidden_size=best_params["hidden_size"],
+                attention_head_size=best_params["attention_head_size"],
+                dropout=best_params["dropout"],
+                hidden_continuous_size=best_params["hidden_continuous_size"],
+                learning_rate=best_params["learning_rate"],
+                loss=QuantileLoss(),  # Can also be from config
+                optimizer=best_params["optimizer"]
+            )
+            self.fitted = False
+            model_path = os.path.join(self.model_save_dir, "tft_model.pkl")
+            trainer = Trainer()
+            trainer.save_checkpoint(model_path)
+
+            logging.info(f"TFT model saved to {model_path}")
         except KeyError:
-            logging.error(f"Optuna study {study_name} not found. Please run tuning.py first. Using default parameters for now.")
-            for output in self.outputs:
-                self.model[output] = self.create_model(**{k: v for k, v in self.kwargs.items() if k in self.model[output].get_params()})
-        # self.model[output].set_params(**storage.get_best_trial(study_id).params)
-        # storage.get_all_studies()[0]._study_id
+            logging.error(f"Study '{study_name}' not found. Please run tuning first.")
+            raise
+
+        except Exception as e:
+            logging.error(f"Failed to load or initialize TFT model: {e}", exc_info=True)
+            raise
         
     def predict_sample(self, historic_measurements: Union[pd.DataFrame, pl.DataFrame], n_samples: int):
         """_summary_

@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=full_floris_case_studies.py
-#SBATCH --time=96:00:00
-#SBATCH --nodes=1
+#SBATCH --time=01:00:00
+#SBATCH --nodes=2
 #SBATCH --ntasks-per-node=4
 #SBATCH --gres=gpu:4
 #SBATCH --mem-per-cpu=85G
@@ -20,7 +20,7 @@ export CUDA_VISIBLE_DEVICES=$(seq -s, 0 $(($SLURM_NTASKS_PER_NODE-1)))
 echo "Using GPUs ${CUDA_VISIBLE_DEVICES}"
 
 # taskset -c $start_core-$end_core 
-python run_case_studies.py $CASE_IDX --exclude_prediction --multiprocessor cf -rs -rrs --ram_limit 75 --wf_source scada \
+srun python run_case_studies.py $CASE_IDX --exclude_prediction --multiprocessor mpi -rs --ram_limit 75 --wf_source scada \
         -sd /projects/ssc/ahenry/whoc/floris_case_studies/ \
        -wcnf $HOME/toolboxes/wind_forecasting_env/wind-hybrid-open-controller/examples/hercules_input_001.yaml \
        -dcnf $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/preprocessing/preprocessing_inputs_kestrel_awaken_new.yaml \

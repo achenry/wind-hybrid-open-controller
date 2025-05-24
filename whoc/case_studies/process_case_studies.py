@@ -227,9 +227,13 @@ def plot_agg_metrics_vs_forecaster(agg_df, save_dir, label, controller_labels, a
         ax.axes[0, v].set_xticklabels(x_vals)
         ax.axes[0, v].tick_params("x", rotation=35)
     
-    for c, ctrl in enumerate(controllers):
-        ax.legend.get_texts()[c].set_text(controller_labels[ax.legend.get_texts()[c]._text])
-    
+    # for c, ctrl in enumerate(controllers):
+    #     ax.legend.get_texts()[c].set_text(controller_labels[ax.legend.get_texts()[c]._text])
+    if ax._legend:
+        for text in ax._legend.get_texts():
+            old_label = text.get_text()
+            if old_label in controller_labels:
+                text.set_text(controller_labels[old_label])
     fig = plt.gcf()
     fig.set_size_inches((15, 8))
     plt.tight_layout()

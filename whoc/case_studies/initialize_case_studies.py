@@ -38,8 +38,8 @@ elif sys.platform == "win32" or sys.platform == "cygwin":  # Add Windows check
 # sequential_pyopt is best solver, stochastic is best preview type
 case_studies = {
     "baseline_controllers_preview_flasc_perfect": {
-                                    "target_turbine_indices": {"group": 1, "vals": ["6,4"]}, #, "6,
-                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]}, #, "GreedyController"LookupBasedWakeSteeringController
+                                    "target_turbine_indices": {"group": 1, "vals": ["6"]}, #, "6,
+                                    "controller_class": {"group": 1, "vals": ["GreedyController"]}, #, "GreedyController"LookupBasedWakeSteeringController
                                     # "target_turbine_indices": {"group": 1, "vals": ["6,"]},
                                     # "controller_class": {"group": 1, "vals": ["GreedyController"]},        
                                     "controller_dt": {"group": 0, "vals": [60]},
@@ -50,7 +50,7 @@ case_studies = {
                                     "uncertain": {"group": 3, "vals": [False, False]}, # , False
                                     "wind_forecast_class": {"group": 3, "vals": ["PersistenceForecast", "ARIMAForecast"]}, #, "ARIMAForecast"#"PersistenceForecast", , ", "KalmanFilterForecast", "SpatialFilterForecast"]},
                                     "study_name": {"group": 3, "vals": ["svr_aoifemac_flasc", "Arima_aoifemac_flasc"]}, #, "Spatial_aoifemac_flasc", "Kalman_aoifemac_flasc"]},
-                                    "prediction_timedelta": {"group": 4, "vals": [420]}, #, 120, 180]},
+                                    "prediction_timedelta": {"group": 4, "vals": [480]}, #, 120, 180]},
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]},
                                     "n_horizon": {"group": 0, "vals": [0]},
                                     },
@@ -98,7 +98,7 @@ case_studies = {
         "target_turbine_indices": {"group": 1, "vals": ["6,", "6,4"]},
         "uncertain": {"group": 0, "vals": [False]}, #, False]},
         "wind_forecast_class": {"group": 0, "vals": ["PerfectForecast"]},
-        "prediction_timedelta": {"group": 2, "vals": [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360, 390, 420, 450, 480, 510, 540, 570, 600, 630, 660, 720, 750, 780, 810]},
+        "prediction_timedelta": {"group": 2, "vals": [0, 60, 120, 180, 240, 300, 360, 420, 480, 540, 600, 660, 720, 780]},
         },
     "baseline_controllers_informer_forecasters_awaken": {
         "n_horizon": {"group": 0, "vals": [0]},
@@ -657,6 +657,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             # reverse the order to start with the shortest
             wind_field_ts = wind_field_ts[:n_seeds]
             wind_field_ts.sort(reverse=False, key=lambda df: df.select(pl.col("time").last() - pl.col("time").first()).item()) 
+            logging.info(f"Durations in wind_field_ts = {[(df.select((pl.col('time').last() - pl.col('time').first()).dt.total_seconds())) for df in wind_field_ts]}")
         else:
             n_seeds = len(wind_field_ts)
         

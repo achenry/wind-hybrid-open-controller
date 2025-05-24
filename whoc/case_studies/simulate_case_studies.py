@@ -220,7 +220,15 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
             simulation_u = np.real(np.fft.ifft(freq_vec_u))#[TRUNCATE_STEPS:-TRUNCATE_STEPS]
             simulation_v = np.real(np.fft.ifft(freq_vec_v))#[TRUNCATE_STEPS:-TRUNCATE_STEPS]
         
+        #my stopping time
         stoptime = len(simulation_u) * simulation_input_dict["simulation_dt"]- simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds()- simulation_input_dict["controller"]["n_horizon"] * simulation_input_dict["controller"]["controller_dt"]
+        # print("LOOKATME")
+        # print(len(simulation_u), simulation_input_dict["simulation_dt"])
+        # print(int(simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() // simulation_input_dict["simulation_dt"]))
+        # print(int((((simulation_input_dict["controller"]["n_horizon"] if controller_class.__name__ == "MPC" else 0) * simulation_input_dict["controller"]["controller_dt"])) // simulation_input_dict["simulation_dt"]))
+        # stoptime = (len(simulation_u) 
+        #             - int(simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() // simulation_input_dict["simulation_dt"])
+        #             - int((((simulation_input_dict["controller"]["n_horizon"] if controller_class.__name__ == "MPC" else 0) * simulation_input_dict["controller"]["controller_dt"])) // simulation_input_dict["simulation_dt"]))
         
         simulation_mag = (simulation_u**2 + simulation_v**2)**0.5
         simulation_dir = 180.0 + np.rad2deg(np.arctan2(simulation_u, simulation_v))
@@ -301,6 +309,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         lower_state_cons_activated_ts = upper_state_cons_activated_ts = None
     
     # recompute controls and step floris forward by ctrl.controller_dt
+    logging.info(f"Running for stoptime = {stoptime} for instance of {controller_class.__name__} - {kwargs['case_name']} with wind seed {kwargs['wind_case_idx']}")
     while t < stoptime:
 
         # reiniitialize and run FLORIS interface with current disturbances and disturbance up to (and excluding) next controls computation
@@ -406,6 +415,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     
         # if RAM is running low, write existing data to dataframe and continue
         # turn data into arrays, pandas dataframe, and export to csv
+        ram_used = virtual_memory().percent
         if (final := (t>=stoptime)) or ((ram_used := virtual_memory().percent) > kwargs["ram_limit"]) or (len(turbine_powers_ts) >= int(3600 / simulation_input_dict["simulation_dt"])):
             logging.info(f"Used {ram_used}% RAM.")
             

@@ -1,6 +1,9 @@
-from whoc.wind_forecast.WindForecast import SVRForecast, generate_wind_field_df, ARIMAForecast
 from whoc.wind_forecast.run_forecaster_validation import generate_wind_field_df
 from whoc.wind_forecast.svr_forecast import SVRForecast
+from whoc.wind_forecast.temporal_fusion_transformer import TemporalFusionTransformerForecast
+from whoc.wind_forecast.arima_forecast import ARIMAForecast
+from whoc.wind_forecast.svr_forecast import SVRForecast
+
 #from whoc.wind_forecast.arima_forecast import ARIMAForecast
 from wind_forecasting.preprocessing.data_module import DataModule
 from gluonts.dataset.split import slice_data_entry
@@ -45,7 +48,7 @@ if __name__ == "__main__":
     
     
     parser = argparse.ArgumentParser(prog="WindFarmForecasting")
-    parser.add_argument("-md", "--model", type=str, choices=["svr", "kf", "preview", "informer", "autoformer", "spacetimeformer", "arima"], required=True)
+    parser.add_argument("-md", "--model", type=str, choices=["svr", "kf", "preview", "informer", "autoformer", "spacetimeformer", "arima","tft"], required=True)
     parser.add_argument("-mcnf", "--model_config", type=str)
     parser.add_argument("-dcnf", "--data_config", type=str)
     parser.add_argument("-mp", "--multiprocessor", choices=["mpi", "cf", None], default=None)
@@ -89,8 +92,10 @@ if __name__ == "__main__":
     fmodel = FlorisModel(data_config["farm_input_path"])
 
     storage_url = f"sqlite:///{model_config['optuna']['storage']['sqlite_path']}"
-    study_name = f"{args.model}_ws_vert_all_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-
+    if args.model == "arima":
+        study_name = f"{args.model}_ws_vert_all_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    elif args.model == "tft":
+        study_name = f"{args.model}_tft_horz_all_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     study = optuna.create_study(
         study_name = study_name,
         storage=storage_url,
@@ -149,6 +154,20 @@ if __name__ == "__main__":
                             true_wind_field=None,
                             #model_config=model_config,
                             kwargs=dict(p=1, d=1, q=1, seasonal_order=(1, 1, 1, 12), use_trained_models=False),
+                            tid2idx_mapping=tid2idx_mapping,
+                            turbine_signature=turbine_signature,
+                            use_tuned_params=False)
+    
+    elif args.model == "tft":
+        forecaster = TemporalFusionTransformerForecast(measurements_timedelta=pd.Timedelta(model_config["dataset"]["resample_freq"]),
+                            controller_timedelta=None,
+                            study_name=study_name,
+                            prediction_timedelta=data_module.prediction_length*pd.Timedelta(model_config["dataset"]["resample_freq"]),
+                            context_timedelta=data_module.context_length*pd.Timedelta(model_config["dataset"]["resample_freq"]),
+                            fmodel=fmodel,
+                            true_wind_field=None,
+                            #model_config=model_config,
+                            kwargs=dict(use_trained_models=False),
                             tid2idx_mapping=tid2idx_mapping,
                             turbine_signature=turbine_signature,
                             use_tuned_params=False)
@@ -243,78 +262,80 @@ if __name__ == "__main__":
 
         logging.info(f"Tuning hyperparameters for all horizontal wind speeds: {list(historic_measurements.keys())}")
 
-        ## Manually hyperparameter tuning for ARIMA
+        # ## Manually hyperparameter tuning for ARIMA
 
-        df = pd.DataFrame(historic_measurements)
-        avg_series = df.mean(axis=1)
+        # df = pd.DataFrame(historic_measurements)
+        # avg_series = df.mean(axis=1)
        
-        # plot the average series
-        plt.figure(figsize=(12, 6))
-        plt.plot(avg_series, label='Average Horizontal Wind Speed')
-        plt.title('Average Vertical Wind Speed Across 7 Turbines', fontsize=22)
-        plt.xlabel('Time (minutes)', fontsize=16)
-        plt.ylabel('Average Wind Speed (m/s)', fontsize=16)
-        plt.grid(True)
-        plt.show()
+        # # plot the average series
+        # plt.figure(figsize=(12, 6))
+        # plt.plot(avg_series, label='Average Horizontal Wind Speed')
+        # plt.title('Average Vertical Wind Speed Across 7 Turbines', fontsize=22)
+        # plt.xlabel('Time (minutes)', fontsize=16)
+        # plt.ylabel('Average Wind Speed (m/s)', fontsize=16)
+        # plt.grid(True)
+        # plt.show()
 
-        current_series = avg_series.copy()
-        d = 0
+        # current_series = avg_series.copy()
+        # d = 0
         
-        while True:
-            print(f"nADF Test for d={d}")
-            result = adfuller(current_series.dropna(), autolag='AIC')
-            labels = ['ADF Statistic', 'p-value', 'Used Lag', 'Number of Observations Used']
-            for value, label in zip(result[:4], labels):
-                print(f"{label}: {value}")
+        # while True:
+        #     print(f"nADF Test for d={d}")
+        #     result = adfuller(current_series.dropna(), autolag='AIC')
+        #     labels = ['ADF Statistic', 'p-value', 'Used Lag', 'Number of Observations Used']
+        #     for value, label in zip(result[:4], labels):
+        #         print(f"{label}: {value}")
 
-            if result[1] < 0.05:
-                print(f"Series is stationary at d={d}")
-                break
-            else:
-                print(f"Series is non-stationary at d={d}, differencing the series.")
-                current_series = current_series.diff().dropna()
-                d += 1
+        #     if result[1] < 0.05:
+        #         print(f"Series is stationary at d={d}")
+        #         break
+        #     else:
+        #         print(f"Series is non-stationary at d={d}, differencing the series.")
+        #         current_series = current_series.diff().dropna()
+        #         d += 1
 
-                plt.figure(figsize=(12, 6))
-                plt.plot(current_series.dropna())
-                plt.title('First-Order Differenced Average Vertical Wind Speed Across 7 Turbines', fontsize=22)
-                plt.xlabel('Time (minutes)', fontsize=16)
-                plt.ylabel('Differenced Wind Speed (m/s)', fontsize=16)
-                plt.grid(True)
-                plt.show()
-        print(f"Optimal d: {d}")
+        #         plt.figure(figsize=(12, 6))
+        #         plt.plot(current_series.dropna())
+        #         plt.title('First-Order Differenced Average Vertical Wind Speed Across 7 Turbines', fontsize=22)
+        #         plt.xlabel('Time (minutes)', fontsize=16)
+        #         plt.ylabel('Differenced Wind Speed (m/s)', fontsize=16)
+        #         plt.grid(True)
+        #         plt.show()
+        # print(f"Optimal d: {d}")
 
-        # HYPERPARAMETER TUNING FOR P AND Q
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 5), dpi=80)
-        sampled_series = current_series.iloc[:1000]# Downsample the series for ACF and PACF plots
-        plot_acf(sampled_series.dropna(), lags=20, ax=ax1)
-        ax1.set_title("Autocorrelation Function (ACF)", fontsize=17)
-        ax1.set_xlabel("Lag (minutes)", fontsize=17)
-        ax1.set_ylabel("Autocorrelation (-)", fontsize=17)
-        ax1.tick_params(axis='both', labelsize=12)
+        # # HYPERPARAMETER TUNING FOR P AND Q
+        # fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 5), dpi=80)
+        # sampled_series = current_series.iloc[:1000]# Downsample the series for ACF and PACF plots
+        # plot_acf(sampled_series.dropna(), lags=20, ax=ax1)
+        # ax1.set_title("Autocorrelation Function (ACF)", fontsize=17)
+        # ax1.set_xlabel("Lag (minutes)", fontsize=17)
+        # ax1.set_ylabel("Autocorrelation (-)", fontsize=17)
+        # ax1.tick_params(axis='both', labelsize=12)
 
-        plot_pacf(sampled_series.dropna(), lags=20, ax=ax2, method='ywm')
+        # plot_pacf(sampled_series.dropna(), lags=20, ax=ax2, method='ywm')
 
-        ax2.set_title("Partial Autocorrelation Function (PACF)", fontsize=17)
-        ax2.set_xlabel("Lag (minutes)", fontsize=17)
-        ax2.set_ylabel("Partial Autocorrelation (-)", fontsize=17)
-        ax2.tick_params(axis='both', labelsize=12)
+        # ax2.set_title("Partial Autocorrelation Function (PACF)", fontsize=17)
+        # ax2.set_xlabel("Lag (minutes)", fontsize=17)
+        # ax2.set_ylabel("Partial Autocorrelation (-)", fontsize=17)
+        # ax2.tick_params(axis='both', labelsize=12)
 
-        fig.suptitle(
-            "ACF and PACF of First-Order Differenced Average Horizontal Wind Speed Across 7 Turbines",
-            fontsize=24
-        )
+        # fig.suptitle(
+        #     "ACF and PACF of First-Order Differenced Average Horizontal Wind Speed Across 7 Turbines",
+        #     fontsize=24
+        # )
 
-        plt.tight_layout()
-        plt.show()
+        # plt.tight_layout()
+        # plt.show()
             
         ## Here the manually tuning of ARIMA hyperparameters ends
 
-
-
+        forecaster.historic_measurements = train_dataset
+        ## to create learning rate graph
+        #forecaster.define_data(data=train_dataset)
+        #forecaster.find_optimal_learning_rate(trainer=None, max_epochs=10, batch_size=64)
         if args.tune:
-            forecaster.tune_hyperparameters_single(historic_measurements=historic_measurements, 
-                                                    storage=optuna_storage,
+            forecaster.tune_hyperparameters_single(storage=optuna_storage,
+                                                    historic_measurements=train_dataset,
                                                     n_trials_per_worker=model_config["optuna"]["n_trials_per_worker"], 
                                                     seed=args.seed,
                                                     config=model_config,
@@ -351,4 +372,16 @@ if __name__ == "__main__":
         logging.info(f"Saved Box-Cox parameters to {boxcox_path}")
         # %% After training completes
         logging.info("Training completed.")
+
+        if args.model == "tft":
+            loggin.info("Training TFT model using best hyperparameters.")
+            forecaster.set_tuned_params(storage=optuna_storage, study_name=study_name, data=train_dataset)
+            forecaster.train(max_epochs=model_config["training"].get("max_epochs", 10),
+                             gpus=model_config["training"].get("gpus", 1),
+                             batch_size=model_config["training"].get("batch_size", 64),
+                             use_best_params=True)
+            
+            model_path = os.path.join(forecaster.model_save_dir, "tft_best_model.ckpt")
+            forecaster.save_model_checkpoint(model_path)
+            logging.info(f"Saved model checkpoint to {model_path}")
         

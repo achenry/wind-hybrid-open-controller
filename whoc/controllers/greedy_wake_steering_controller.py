@@ -194,9 +194,13 @@ class GreedyController(ControllerBase):
         if (((self.current_time - self.init_time).total_seconds() % self.controller_dt) == 0.0):
             
             if self.wind_forecast and self.wind_forecast.prediction_timedelta.total_seconds() > 0:
-                forecasted_wind_field = self.wind_forecast.predict_point(self.historic_measurements, self.current_time)\
-                                            .with_columns(pl.col("time").cast(pl.Datetime(time_unit="ns")), cs.numeric().cast(pl.Float32))
+                forecasted_wind_field = self.wind_forecast.predict_point(self.historic_measurements, self.current_time)
+                if isinstance(forecasted_wind_field, tuple):
+                    forecasted_wind_field = forecasted_wind_field[0]
+                forecasted_wind_field = forecasted_wind_field.with_columns(pl.col("time").cast(pl.Datetime(time_unit="ns")), cs.numeric().cast(pl.Float32))
+                
                 single_forecasted_wind_field = forecasted_wind_field.filter(pl.col("time") == self.current_time + self.wind_forecast.prediction_timedelta)
+                
                 use_wind_forecast = True
             
             # if not enough wind data has been collected to filter with, or we are not using filtered data, just get the most recent wind measurements
