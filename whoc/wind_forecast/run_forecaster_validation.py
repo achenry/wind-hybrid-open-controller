@@ -609,7 +609,7 @@ if __name__ == "__main__":
         test_data = data_module.test_dataset
     
     if args.max_steps:
-        assert args.max_steps >= int((max(context_timedeltas) + max(prediction_timedeltas)) / measurements_timedelta), f"max_steps, if provided, must allow for context_timedelta + max(prediction_timedelta) = {int((max(context_timedelta) + max(prediction_timedelta)) / measurements_timedelta)}"
+        assert args.max_steps >= int((max(context_timedeltas) + max(prediction_timedeltas)) / measurements_timedelta), f"max_steps, if provided, must allow for context_timedelta + max(prediction_timedelta) = {int((max(context_timedeltas) + max(prediction_timedeltas)) / measurements_timedelta)}"
         test_data = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in test_data]
     
     logging.info("Generating dataframe.")
