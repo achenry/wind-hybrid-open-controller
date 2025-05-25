@@ -364,14 +364,18 @@ def plot_score_vs_forecaster(agg_df, metrics, ax_indices, prediction_intervals, 
     new_xticks = [" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", label._text).group())) for label in ax.axes[0, 0].get_xticklabels()]
     new_xticks = ["".join(label.split(" ")) if all(l.isupper() or l.isspace() for l in label) else label for label in new_xticks]
     
+    pattern = r"(?<=prediction_timedelta = )(\d+)"
     for p in range(ax.axes.shape[1]):
-        ax.axes[0, p].set_title(f"Prediction Length {re.search('(?<=prediction_timedelta = )(\\d+)', ax.axes[0, p].title.get_text()).group()} sec")
+        title_text = ax.axes[0, p].title.get_text()
+        match = re.search(pattern, title_text)
+        prediction_length = match.group() if match else "?"
+        ax.axes[0, p].set_title(f"Prediction Length {prediction_length} sec")
         ax.axes[0, p].set_ylabel("")
         ax.axes[0, p].set_xlabel("Forecaster")
         ax.axes[0, p].set_xticklabels(new_xticks, rotation=25)
-    
+
     ax.axes[0, 0].set_ylabel(f"Score")
-    
+
     ax.legend.set_title("")
     ax.legend.set_loc("upper right")
     ax.legend.set_bbox_to_anchor((0.0, 0.0, 1.01, 0.9))
