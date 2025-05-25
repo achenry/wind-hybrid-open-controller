@@ -1,4 +1,3 @@
-
 from typing import Union
 from dataclasses import dataclass
 import os
@@ -225,8 +224,8 @@ class MLForecast(WindForecast):
         self.predictor = estimator.create_predictor(transformation, model, 
                                                           forecast_generator=forecast_generator)
         # self.data_module.freq = pd.Timedelta(self.data_module.freq).to_pytimedelta()
-        # self.sample_predictor = estimator.create_predictor(transformation, model, 
-        #                                                    forecast_generator=SampleForecastGenerator())
+        self.sample_predictor = estimator.create_predictor(transformation, model,
+                                                           forecast_generator=SampleForecastGenerator())
     
     def reset(self, **kwargs):
         if "assigned_gpu" in kwargs and kwargs["assigned_gpu"]:
@@ -250,6 +249,8 @@ class MLForecast(WindForecast):
             self.device = "cpu"
             
         self.predictor = self.predictor.to(self.device)
+        if hasattr(self, 'sample_predictor') and self.sample_predictor is not None: # Check if it exists and is initialized
+            self.sample_predictor = self.sample_predictor.to(self.device)
     
     def _generate_test_data(self, historic_measurements: pl.DataFrame):
         # resample data to frequency model was trained on
@@ -279,24 +280,25 @@ class MLForecast(WindForecast):
         if self.data_module.per_turbine_target:
             test_data = (
                 {
-                    "item_id": f"TURBINE{turbine_id}",
-                    "start": pd.Period(historic_measurements.select(pl.col("time").first()).item(), freq=self.data_module.freq), 
-                    "target": historic_measurements.select([f"{pfx}_{turbine_id}" for pfx in self.data_module.target_prefixes]).to_numpy().T, 
-                    "feat_static_cat": np.array([t]),
-                    "feat_dynamic_real": pl.concat([
+                    FieldName.ITEM_ID: f"TURBINE{turbine_id}",
+                    FieldName.START: pd.Period(historic_measurements.select(pl.col("time").first()).item(), freq=self.data_module.freq), 
+                    FieldName.TARGET: historic_measurements.select([f"{pfx}_{turbine_id}" for pfx in self.data_module.target_prefixes]).to_numpy().T, 
+                    FieldName.FEAT_STATIC_CAT: np.array([t]),
+                    FieldName.FEAT_DYNAMIC_REAL: pl.concat([
                         historic_measurements.select([f"{pfx}_{turbine_id}" for pfx in self.data_module.feat_dynamic_real_prefixes]),
                         historic_measurements.select([pl.col(f"{pfx}_{turbine_id}").last().repeat_by(int(self.model_prediction_timedelta.total_seconds() / data_module_freq_td.total_seconds())).explode() # Use Timedelta seconds
                                                       for pfx in self.data_module.feat_dynamic_real_prefixes])], how="vertical").to_numpy().T
                 } for t, turbine_id in enumerate(self.data_module.target_suffixes))
         else:
-            test_data = ({
-                    "start": pd.Period(historic_measurements.select(pl.col("time").first()).item(), freq=self.data_module.freq), 
-                    "target": historic_measurements.select(self.data_module.target_cols).to_numpy().T, 
-                    "feat_dynamic_real": pl.concat([
+            test_data = [{ # Make this is an iterable (list of one dict)
+                    FieldName.ITEM_ID: "AGGREGATED_TIMESERIES",
+                    FieldName.START: pd.Period(historic_measurements.select(pl.col("time").first()).item(), freq=self.data_module.freq), 
+                    FieldName.TARGET: historic_measurements.select(self.data_module.target_cols).to_numpy().T, 
+                    FieldName.FEAT_DYNAMIC_REAL: pl.concat([
                         historic_measurements.select(self.data_module.feat_dynamic_real_cols),
                         historic_measurements.select([pl.col(col).last().repeat_by(int(self.model_prediction_timedelta.total_seconds() / data_module_freq_td.total_seconds())).explode() # Use Timedelta seconds
                                                       for col in self.data_module.feat_dynamic_real_cols])], how="vertical").to_numpy().T
-            })
+            }]
         return test_data
     
     def predict_sample(self, historic_measurements: Union[pd.DataFrame, pl.DataFrame], current_time, n_samples: int):
@@ -316,31 +318,69 @@ class MLForecast(WindForecast):
         pred = self.sample_predictor.predict(test_data, num_samples=n_samples, output_distr_params=False)
         
         if self.data_module.per_turbine_target:
-            # TODO test
-            pred_df = pl.concat([pl.DataFrame(
-                data={
-                    **{"time": np.tile(pred.index.to_timestamp(), (n_samples,)),
-                        "sample": np.repeat(np.arange(n_samples), (turbine_pred.prediction_length,))},
-                    **{col: turbine_pred.samples[:, :, c].flatten() for c, col in enumerate(self.data_module.target_cols)}
-                }
-            ).rename({output_type: f"{output_type}_{self.data_module.static_features.iloc[t]['turbine_id']}" 
-                              for output_type in self.data_module.target_cols}).sort_values(["sample", "time"]) for t, turbine_pred in enumerate(pred)], how="horizontal")
+            # Convert generator to list so we can access the first forecast's index
+            pred_list = list(pred)
+            if not pred_list:
+                pred_df = pl.DataFrame()
+            else:
+                # Use index from first forecast for time values
+                time_index = pred_list[0].index.to_timestamp()
+                # Assuming all turbine_pred objects have the same prediction_length
+                prediction_len = pred_list[0].prediction_length
+
+                turbine_feature_dfs = []
+                for t, turbine_pred in enumerate(pred_list):
+                    # Create a DataFrame for the current turbine's features
+                    df_turbine_features = pl.DataFrame({
+                        # Keys are generic prefixes, values are flattened samples for those features
+                        prefix: turbine_pred.samples[:, :, c_prefix].flatten()
+                        for c_prefix, prefix in enumerate(self.data_module.target_prefixes)
+                    }).rename({
+                        # Rename generic prefixes to turbine-specific column names
+                        prefix: f"{prefix}_{self.data_module.target_suffixes[t]}"
+                        for prefix in self.data_module.target_prefixes
+                    })
+                    turbine_feature_dfs.append(df_turbine_features)
+
+                # Concatenate all per-turbine feature DataFrames horizontally
+                if not turbine_feature_dfs: # Should not happen if pred_list is not empty
+                    features_df = pl.DataFrame()
+                elif len(turbine_feature_dfs) == 1:
+                    features_df = turbine_feature_dfs[0]
+                else:
+                    features_df = pl.concat(turbine_feature_dfs, how="horizontal")
+
+                # Create the common time and sample DataFrame
+                # Number of rows must match features_df (n_samples * prediction_len)
+                df_time_sample = pl.DataFrame({
+                    "time": np.tile(time_index, n_samples), # time_index has length prediction_len
+                    "sample": np.repeat(np.arange(n_samples), prediction_len)
+                })
+
+                # Combine time/sample DataFrame with the features DataFrame
+                if features_df.is_empty():
+                    pred_df = df_time_sample # Should only contain time and sample if no features
+                else:
+                    pred_df = pl.concat([df_time_sample, features_df], how="horizontal")
+                
+                pred_df = pred_df.sort(["sample", "time"]) # Sort at the end
         else:
             pred = next(pred)
-            # pred_turbine_id = pd.Categorical([col.split("_")[-1] for col in col_names for t in range(pred.prediction_length)])
             pred_df = pl.DataFrame(
                 data={
-                    # "turbine_id": pred_turbine_id,
                     **{"time": np.tile(pred.index.to_timestamp(), (n_samples,)),
                        "sample": np.repeat(np.arange(n_samples), (pred.prediction_length,))},
                     **{col: pred.samples[:, :, c].flatten() for c, col in enumerate(self.data_module.target_cols)}
                 }
             ).sort(by=["sample", "time"])
         
-        # denormalize data 
-        pred_df = pred_df.with_columns([(cs.starts_with(col) - self.norm_min[c]) 
-                                                    / self.norm_scale[c] 
-                                                    for c, col in enumerate(self.norm_min_cols)])
+        # denormalize data using scaler_params
+        if not pred_df.is_empty():
+            for feat_type in self.scaler_params["min_"]:
+                if any(col.startswith(feat_type) for col in pred_df.columns):
+                    pred_df = pred_df.with_columns(
+                        (cs.starts_with(feat_type) - self.scaler_params["min_"][feat_type]) / self.scaler_params["scale_"][feat_type]
+                    )
         pred_df = pred_df.filter(pl.col("time") <= (current_time + self.prediction_timedelta))
         # check if the data that trained the model differs from the frequency of historic_measurments
         # Convert freq string to Timedelta for comparison and calculations
