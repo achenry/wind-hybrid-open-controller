@@ -3,7 +3,7 @@
 #SBATCH --partition=all_gpu.p          # Partition for H100/A100 GPUs (adjust if needed)
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1         # Requesting 1 task for 1 GPU
-#SBATCH --cpus-per-task=32          # CPUs per task (adjust based on inference needs)
+#SBATCH --cpus-per-task=4          # CPUs per task (adjust based on inference needs)
 #SBATCH --mem-per-cpu=8192          # Memory per CPU (Total Mem = 1 * 16 * 8192 = 128GB)
 #SBATCH --gres=gpu:H100:1           # Request 1 H100 GPU (Matches ntasks-per-node)
 #SBATCH --time=1-00:00              # Time limit (e.g., 1 hour for inference)
@@ -32,6 +32,7 @@ export MODEL_CONFIG_PATH_ARG=${2:-"${WF_DIR}/config/training/training_inputs_jua
 export DATA_CONFIG_PATH_ARG=${3:-"${WF_DIR}/config/preprocessing/preprocessing_inputs_flasc_STORM.yaml"}
 export CHECKPOINT_ARG=${4:-"best"} # Default to 'best' if not provided
 export MAX_STEPS_ARG=${5:-1080}    # Default to original value if not provided
+export PREDICTION_TYPE_ARG=${6:-"sample"}
 
 # --- Create Logging Directories ---
 mkdir -p ${LOG_DIR}/slurm_logs
@@ -114,6 +115,7 @@ echo "Resolved Data Config Path: ${DATA_CONFIG_PATH_ABS}"
 
 # Execute the Python script (assuming WindForecast.py is in the current dir: WHOC_SCRIPT_DIR)
 # Using CUDA_VISIBLE_DEVICES=0 explicitly, although Slurm binding should handle it
+export CUDA_LAUNCH_BLOCKING=1 # For more detailed CUDA error messages
 export CUDA_VISIBLE_DEVICES=0
 echo "Using GPU ${CUDA_VISIBLE_DEVICES}"
 
@@ -124,14 +126,14 @@ python run_forecaster_validation.py \
     --simulation_timestep 60 \
     --save_dir "${LOG_DIR}/inference_results/${SLURM_JOB_ID}" \
     --checkpoint "${CHECKPOINT_ARG}" \
-    --prediction_type distribution \
+    --prediction_type "${PREDICTION_TYPE_ARG}" \
     --use_tuned_params \
     --use_trained_models \
     --rerun_validation \
+    --plot
     # --max_splits 1 \
     # --max_steps ${MAX_STEPS_ARG} \
-    --multiprocessor cf \
-    --plot
+    # --multiprocessor cf \
 
 EXIT_CODE=$?
 
