@@ -393,6 +393,20 @@ class WindForecast:
         direction = "minimize" # minimize mean_squared_error
         if RUN_ONCE:  
             try:
+                if not restart_tuning and os.path.exists(os.path.join(self.model_save_dir, f"{self.study_name}_sampler.pkl")):
+                    sampler = pickle.load(open(os.path.join(self.model_save_dir, f"{self.study_name}_sampler.pkl"), "rb"))
+                else:
+                    sampler = TPESampler(
+                        seed=seed,
+                        n_startup_trials=config["optuna"]["sampler_params"]["tpe"].get("n_startup_trials", 16),
+                        multivariate=config["optuna"]["sampler_params"]["tpe"].get("multivariate", True),
+                        constant_liar=config["optuna"]["sampler_params"]["tpe"].get("constant_liar", True),
+                        group=config["optuna"]["sampler_params"]["tpe"].get("group", False)
+                    )
+                        # Save the sampler with pickle to be loaded later. 
+                    with open(os.path.join(self.model_save_dir, f"{self.study_name}_sampler.pkl"), "wb") as fp:
+                        pickle.dump(sampler, fp)
+                        
                 if worker_id == 1:
                     
                     if restart_tuning:
@@ -406,20 +420,6 @@ class WindForecast:
             
                     logging.info(f"Rank 1: Creating/loading Optuna study '{self.study_name}' with pruner: {type(pruner).__name__}")
                     
-                    # Save the sampler with pickle to be loaded later. 
-                    with open(os.path.join(self.model_save_dir, f"{self.study_name}_sampler.pkl"), "wb") as fp:
-                        pickle.dump(sampler, fp)
-                        
-                    if not restart_tuning and os.path.exists(os.path.join(self.model_save_dir, f"{self.study_name}_sampler.pkl")):
-                        sampler = pickle.load(open(os.path.join(self.model_save_dir, f"{self.study_name}_sampler.pkl"), "rb"))
-                    else:
-                         sampler = TPESampler(
-                            seed=seed,
-                            n_startup_trials=config["optuna"]["sampler_params"]["tpe"].get("n_startup_trials", 16),
-                            multivariate=config["optuna"]["sampler_params"]["tpe"].get("multivariate", True),
-                            constant_liar=config["optuna"]["sampler_params"]["tpe"].get("constant_liar", True),
-                            group=config["optuna"]["sampler_params"]["tpe"].get("group", False)
-                        )
                     study = create_study(study_name=self.study_name,
                                             storage=optuna_storage,
                                             direction=direction,
@@ -438,11 +438,10 @@ class WindForecast:
                     retry_delay = 10 # Increased delay slightly
                     for attempt in range(max_retries):
                         try:
-                            restored_sampler = pickle.load(open(os.path.join(self.model_save_dir, f"{self.study_name}_sampler.pkl"), "rb"))
                             study = load_study(
                                 study_name=self.study_name,
                                 storage=optuna_storage,
-                                sampler=restored_sampler, # Sampler might be needed for load_study too
+                                sampler=sampler, # Sampler might be needed for load_study too
                                 pruner=pruner
                             )
                             logging.info(f"Rank {worker_id}: Study '{self.study_name}' loaded successfully on attempt {attempt+1} with sampler {study.sampler} and pruner {study.pruner}.")
