@@ -220,7 +220,7 @@ case_studies = {
             "../../examples/inputs/gch_KP_v4_lut.csv",
                                         ]},
         "yaw_limits": {"group": 0, "vals": ["-15,15"]},
-        "uncertain": {"group": 0, "vals": [True, False, False]},
+        "uncertain": {"group": 1, "vals": [True, False, False]},
         "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController", "GreedyController"]},
         "prediction_timedelta": {"group": 1, "vals": [510, 510, 210]},
         "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73", "4,"]},
