@@ -12,6 +12,7 @@ import multiprocessing as mp
 from memory_profiler import profile
 from functools import partial
 from sklearn.metrics import mean_squared_error
+import pickle
 
 # from joblib import parallel_backend
 
@@ -34,7 +35,7 @@ import pandas as pd
 import polars as pl
 import polars.selectors as cs
 
-from optuna import create_study, load_study
+from optuna import create_study, load_study, delete_study
 from optuna.samplers import TPESampler
 from optuna.pruners import HyperbandPruner, PercentilePruner, PatientPruner, SuccessiveHalvingPruner, NopPruner
 from optuna.trial import TrialState # Added for checking trial status
@@ -151,6 +152,8 @@ class WindForecast:
         """
         # define hyperparameter search space 
         params = self.get_params(trial)
+        
+        logging.info(f"Starting trial {trial.number} and params {params}.")
             
         # max_cpus = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
         if multiprocessor:
@@ -391,20 +394,40 @@ class WindForecast:
         if RUN_ONCE:  
             try:
                 if worker_id == 1:
+                    
+                    if restart_tuning:
+                        try:
+                            # Attempt to delete the existing study if it exists
+                            logging.info(f"Rank 1: Attempting to delete existing study '{self.study_name}'")
+                            delete_study(study_name=self.study_name, storage=optuna_storage)
+                            logging.info(f"Rank 1: Study '{self.study_name}' deleted successfully.")
+                        except KeyError as e: 
+                            logging.info(f"Rank 1: Study '{self.study_name}' does not exist.")
+            
                     logging.info(f"Rank 1: Creating/loading Optuna study '{self.study_name}' with pruner: {type(pruner).__name__}")
+                    
+                    # Save the sampler with pickle to be loaded later. 
+                    with open(os.path.join(self.model_save_dir, f"{self.study_name}_sampler.pkl"), "wb") as fp:
+                        pickle.dump(sampler, fp)
+                        
+                    if not restart_tuning and os.path.exists(os.path.join(self.model_save_dir, f"{self.study_name}_sampler.pkl")):
+                        sampler = pickle.load(open(os.path.join(self.model_save_dir, f"{self.study_name}_sampler.pkl"), "rb"))
+                    else:
+                         sampler = TPESampler(
+                            seed=seed,
+                            n_startup_trials=config["optuna"]["sampler_params"]["tpe"].get("n_startup_trials", 16),
+                            multivariate=config["optuna"]["sampler_params"]["tpe"].get("multivariate", True),
+                            constant_liar=config["optuna"]["sampler_params"]["tpe"].get("constant_liar", True),
+                            group=config["optuna"]["sampler_params"]["tpe"].get("group", False)
+                        )
                     study = create_study(study_name=self.study_name,
                                             storage=optuna_storage,
                                             direction=direction,
                                             load_if_exists=not restart_tuning, # Only load if not restarting
-                                            sampler=TPESampler(
-                                                seed=seed,
-                                                n_startup_trials=config["optuna"]["sampler_params"]["tpe"].get("n_startup_trials", 16),
-                                                multivariate=config["optuna"]["sampler_params"]["tpe"].get("multivariate", True),
-                                                constant_liar=config["optuna"]["sampler_params"]["tpe"].get("constant_liar", True),
-                                                group=config["optuna"]["sampler_params"]["tpe"].get("group", False)
-                                            ),
+                                            sampler=sampler,
                                             pruner=pruner) # minimize mse ie minimize mse
-                    logging.info(f"Rank 1: Study '{self.study_name}' created or loaded successfully.")
+                    
+                    logging.info(f"Rank 1: Study '{self.study_name}' created or loaded successfully with sampler {study.sampler} and pruner {study.pruner}.")
                     
                 else:
                     # Non-rank-1 workers MUST load the study created by Rank 1
@@ -415,13 +438,14 @@ class WindForecast:
                     retry_delay = 10 # Increased delay slightly
                     for attempt in range(max_retries):
                         try:
+                            restored_sampler = pickle.load(open(os.path.join(self.model_save_dir, f"{self.study_name}_sampler.pkl"), "rb"))
                             study = load_study(
                                 study_name=self.study_name,
                                 storage=optuna_storage,
-                                sampler=TPESampler(seed=seed), # Sampler might be needed for load_study too
+                                sampler=restored_sampler, # Sampler might be needed for load_study too
                                 pruner=pruner
                             )
-                            logging.info(f"Rank {worker_id}: Study '{self.study_name}' loaded successfully on attempt {attempt+1}.")
+                            logging.info(f"Rank {worker_id}: Study '{self.study_name}' loaded successfully on attempt {attempt+1} with sampler {study.sampler} and pruner {study.pruner}.")
                             break # Exit loop on success
                         except KeyError as e: # Optuna <3.0 raises KeyError if study doesn't exist yet
                             if attempt < max_retries - 1:
@@ -549,7 +573,7 @@ class WindForecast:
             best_trial = None
             try:
                 best_trial = study.best_trial
-                logging.info(f"Rank 1: Fetched best trial: Number={best_trial.number}, Value={best_trial.value}")
+                logging.info(f"\nRank 1: Fetched best trial: Number={best_trial.number}, Value={best_trial.value}, Params={best_trial.params}\n")
             except ValueError:
                 logging.warning("Rank 1: Could not retrieve best trial (likely no trials completed successfully).")
             except Exception as e_best_trial:
@@ -663,7 +687,7 @@ class WindForecast:
             study_id = optuna_storage.get_study_id_from_name(study_name)
             trial = optuna_storage.get_best_trial(study_id)
             logging.info(f"Best trial found, number: {trial.number}, value: {trial.value}, params: {trial.params}")
-            trials = sorted(optuna_storage.get_all_trials(study_id), key=lambda trial: trial.value or np.inf, reverse=True)[1:6]
+            trials = sorted(optuna_storage.get_all_trials(study_id), key=lambda trial: trial.value or np.inf)[1:6]
             for t, trial in enumerate(trials, 2):
                 logging.info(f"{t}th best trial found, number: {trial.number}, value: {trial.value}, params: {trial.params}")
                 
