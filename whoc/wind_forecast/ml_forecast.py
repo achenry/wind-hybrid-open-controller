@@ -301,21 +301,61 @@ class MLForecast(WindForecast):
             }]
         return test_data
     
-    def predict_sample(self, historic_measurements: Union[pd.DataFrame, pl.DataFrame], current_time, n_samples: int):
-        if isinstance(historic_measurements, pd.DataFrame):
-            historic_measurements = pl.DataFrame(historic_measurements)
+    @property
+    def is_sample_based(self) -> bool:
+        """Return True if the model is sample-based (TACTiS), False otherwise."""
+        return self.model_key.lower() in ["tactis"]
+    
+    @property
+    def supports_samples(self) -> bool:
+        """Return True if the predict_sample method is available and properly implemented."""
+        return self.is_sample_based and hasattr(self, 'sample_predictor') and self.sample_predictor is not None
+    
+    def predict_sample(self, historical_data: Union[pd.DataFrame, pl.DataFrame], current_time, n_samples: int, horizon_steps: int = None):
+        """Generate raw forecast samples without Gaussian transformation.
+        
+        Args:
+            historical_data: Historical time series data
+            current_time: Current timestamp for prediction
+            n_samples: Number of samples to generate
+            horizon_steps: Number of forecast steps (optional, uses model default if None)
+            
+        Returns:
+            Array with shape [n_samples, horizon_steps, num_target_vars] containing raw samples
+        """
+        logging.info(f"Generating {n_samples} forecast samples using {self.model_key} model")
+        
+        # Error handling for sample generation
+        if not self.supports_samples:
+            raise ValueError(f"Sample-based prediction not supported for model '{self.model_key}'. "
+                           f"Only TACTiS/TACTiS-2 models support sample generation.")
+        
+        if self.sample_predictor is None:
+            raise RuntimeError("Sample predictor not properly initialized. Cannot generate samples.")
+        # Handle input format
+        if isinstance(historical_data, pd.DataFrame):
+            historic_measurements = pl.DataFrame(historical_data)
             return_pl = False
         else:
+            historic_measurements = historical_data
             return_pl = True
             
-        # normalize historic measurements
-        historic_measurements = historic_measurements.with_columns([
-            (cs.starts_with(k) * self.scaler_params["scale_"][k]) + self.scaler_params["min_"][k] for k in self.scaler_params["min_"]]
-        )
+        # Normalize historic measurements if needed (skip for TACTiS which handles scaling internally)
+        if not self.is_sample_based:
+            historic_measurements = historic_measurements.with_columns([
+                (cs.starts_with(k) * self.scaler_params["scale_"][k]) + self.scaler_params["min_"][k] for k in self.scaler_params["min_"]]
+            )
+        else:
+            logging.debug("Skipping external normalization for TACTiS model (handles scaling internally)")
 
-        test_data = self._generate_test_data(historic_measurements)
+        try:
+            test_data = self._generate_test_data(historic_measurements)
             
-        pred = self.sample_predictor.predict(test_data, num_samples=n_samples, output_distr_params=False)
+            logging.debug(f"Generating samples with predictor device: {self.sample_predictor.device if hasattr(self.sample_predictor, 'device') else 'unknown'}")
+            pred = self.sample_predictor.predict(test_data, num_samples=n_samples, output_distr_params=False)
+        except Exception as e:
+            logging.error(f"Error during sample generation: {e}")
+            raise RuntimeError(f"Failed to generate samples with {self.model_key} model: {str(e)}") from e
         
         if self.data_module.per_turbine_target:
             # Convert generator to list so we can access the first forecast's index
@@ -374,14 +414,31 @@ class MLForecast(WindForecast):
                 }
             ).sort(by=["sample", "time"])
         
-        # denormalize data using scaler_params
-        if not pred_df.is_empty():
+        # Denormalize data using scaler_params (skip for TACTiS which handles scaling internally)
+        if not pred_df.is_empty() and not self.is_sample_based:
             for feat_type in self.scaler_params["min_"]:
                 if any(col.startswith(feat_type) for col in pred_df.columns):
                     pred_df = pred_df.with_columns(
                         (cs.starts_with(feat_type) - self.scaler_params["min_"][feat_type]) / self.scaler_params["scale_"][feat_type]
                     )
-        pred_df = pred_df.filter(pl.col("time") <= (current_time + self.prediction_timedelta))
+        elif self.is_sample_based:
+            logging.debug("Skipping external denormalization for TACTiS model (handles scaling internally)")
+        
+        # Apply horizon_steps filter if specified
+        if horizon_steps is not None:
+            # Calculate target time based on horizon_steps
+            data_module_freq_td = pd.Timedelta(str(self.data_module.freq))
+            target_time = current_time + (horizon_steps * data_module_freq_td)
+            pred_df = pred_df.filter(pl.col("time") <= target_time)
+            logging.debug(f"Filtered predictions to {horizon_steps} horizon steps (until {target_time})")
+        else:
+            pred_df = pred_df.filter(pl.col("time") <= (current_time + self.prediction_timedelta))
+        
+        # Log sample dimensions for debugging
+        if not pred_df.is_empty():
+            num_target_vars = len([col for col in pred_df.columns if col not in ["time", "sample"]])
+            actual_horizon_steps = len(pred_df.filter(pl.col("sample") == 0))
+            logging.debug(f"Generated samples with dimensions: [n_samples={n_samples}, horizon_steps={actual_horizon_steps}, num_target_vars={num_target_vars}]")
         # check if the data that trained the model differs from the frequency of historic_measurments
         # Convert freq string to Timedelta for comparison and calculations
         data_module_freq_td = pd.Timedelta(str(self.data_module.freq))
@@ -400,6 +457,12 @@ class MLForecast(WindForecast):
             return pred_df.to_pandas()
 
     def predict_point(self, historic_measurements: Union[pd.DataFrame, pl.DataFrame], current_time):
+        """Generate point forecasts (mean predictions).
+        
+        For TACTiS-2, computes mean from generated samples.
+        For other models, returns mean from distribution parameters.
+        """
+        logging.info(f"Generating point forecast using {self.model_key} model")
         
         if isinstance(historic_measurements, pd.DataFrame):
             historic_measurements = pl.DataFrame(historic_measurements)
@@ -407,17 +470,27 @@ class MLForecast(WindForecast):
         else:
             return_pl = True
         
+        # For TACTiS-2, ensure we compute statistics from samples
+        if self.is_sample_based:
+            logging.debug("Computing point forecast from samples for TACTiS model")
+        
         # select mean features and rename
-        pred_df = self.predict_distr( historic_measurements, current_time)
+        pred_df = self.predict_distr(historic_measurements, current_time)
         pred_df = pred_df.select(pl.col("time"), cs.starts_with("loc_").name.map(lambda original_col: re.search("(?<=loc_)(.*)", original_col).group() if "loc" in original_col else original_col))
         
-        if return_pl: 
+        if return_pl:
             return pred_df
         else:
             return pred_df.to_pandas()
 
 
     def predict_distr(self, historic_measurements: Union[pd.DataFrame, pl.DataFrame], current_time):
+        """Generate distribution forecasts (mean and standard deviation).
+        
+        For TACTiS-2 model, computes mean and std from generated samples.
+        For other models, returns distribution parameters directly.
+        """
+        logging.info(f"Generating distribution forecast using {self.model_key} model")
         
         if isinstance(historic_measurements, pd.DataFrame):
             historic_measurements = pl.DataFrame(historic_measurements)
@@ -429,16 +502,25 @@ class MLForecast(WindForecast):
         feature_types = list(self.scaler_params["min_"].keys())
         
         if historic_measurements.select(pl.len()).item() >= self.n_context:
-            if self.self_scaled:
+            if self.self_scaled and not self.is_sample_based:
                 historic_measurements = historic_measurements.with_columns([
                         (cs.starts_with(feat_type) * self.scaler_params["scale_"][feat_type]) + self.scaler_params["min_"][feat_type]
                                                                 for feat_type in feature_types])
             else:
-                pass
+                if self.is_sample_based:
+                    logging.debug("Skipping external normalization for TACTiS model (handles scaling internally)")
+            
             test_data = self._generate_test_data(historic_measurements)
             logging.info(f"Using {torch.cuda.device_count()} GPU devices: {self.device} at {current_time} to make predictions for {self.model_key} with prediction_timedelta {self.prediction_timedelta}.")
             
-            pred_iter = self.predictor.predict(test_data, num_samples=1 if self.model_key != "tactis" else 100,
+            # For TACTiS-2, ensure we're computing statistics from samples
+            if self.is_sample_based:
+                num_samples = self.model_config["model"][self.model_key].get("inference_num_samples", 100)
+                logging.debug(f"TACTiS model: using {num_samples} samples to compute distribution statistics")
+            else:
+                num_samples = 1
+                
+            pred_iter = self.predictor.predict(test_data, num_samples=num_samples,
                                                output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"})
             
             if self.data_module.per_turbine_target:
@@ -447,12 +529,12 @@ class MLForecast(WindForecast):
                 
                 # logging.info(f"pred_list[0] is on device {pred_list[0].samples.device}")
                 
-                if self.model_key == 'tactis':
+                if self.is_sample_based:
+                    logging.debug("Computing distribution statistics from samples for TACTiS model (per-turbine)")
                     for p in range(len(pred_list)):
                         pred_list[p].distribution = types.SimpleNamespace()
-                        # logging.info(f"TACTiS samples are stored on device {pred_list[p].samples.get_device()}")
                         # TODO is there any advantage to loading this onto GPU before computing mean,stddev?
-                        samples_tensor = torch.from_numpy(pred_list[p].samples).to(self.predictor.device) # .to(self.predictor.device) 
+                        samples_tensor = torch.from_numpy(pred_list[p].samples).to(self.predictor.device)
                         pred_list[p].distribution.mean = samples_tensor.mean(dim=0)
                         pred_list[p].distribution.stddev = samples_tensor.std(dim=0)
                 
@@ -470,9 +552,10 @@ class MLForecast(WindForecast):
                 # single forecast object
                 pred = next(pred_iter) # Get the single forecast object
                 
-                if self.model_key == 'tactis':
+                if self.is_sample_based:
+                    logging.debug("Computing distribution statistics from samples for TACTiS model (aggregated)")
                     pred.distribution = types.SimpleNamespace()
-                    samples_tensor = torch.from_numpy(pred.samples) # .to(self.predictor.device)
+                    samples_tensor = torch.from_numpy(pred.samples)
                     pred.distribution.mean = samples_tensor.to(self.predictor.device).mean(dim=0)
                     pred.distribution.stddev = samples_tensor.std(dim=0)
                 
@@ -484,16 +567,16 @@ class MLForecast(WindForecast):
                     }
                 ).sort(by=["time"])
 
-            # denormalize data ONLY IF NOT TACTIS @boujuan DEBUG
-            if self.self_scaled:
+            # denormalize data ONLY IF NOT TACTIS
+            if self.self_scaled and not self.is_sample_based:
                 pred_df = pred_df.with_columns([
                         (cs.starts_with(f"loc_{feat_type}") - self.scaler_params["min_"][feat_type]) / self.scaler_params["scale_"][feat_type]
                                                                 for feat_type in feature_types])\
                                  .with_columns([
                         cs.starts_with(f"sd_{feat_type}") / self.scaler_params["scale_"][feat_type]
                                                                 for feat_type in feature_types])
-            else:
-                pass
+            elif self.is_sample_based:
+                logging.debug("Skipping external denormalization for TACTiS model (handles scaling internally)")
                                                        
             pred_df = pred_df.filter(pl.col("time") <= (current_time + self.prediction_timedelta))
             # check if the data that trained the model differs from the frequency of historic_measurments
