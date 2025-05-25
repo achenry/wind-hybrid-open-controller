@@ -175,15 +175,18 @@ case_studies = {
         "lut_path": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4_lut.csv",]},
         "yaw_limits": {"group": 0, "vals": ["-15,15"]},
         "wind_forecast_class": {"group": 0, "vals": ["MLForecast"]},
-        "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController", "GreedyController"]},
+        "n_forecast_samples": {"group": 0, "vals": [100]}, # Added for sample-based control
+        "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController", "GreedyController", "GreedyController"]}, # Added GreedyController (True)
         "model_config_path": {"group": 1, "vals": [
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"), 
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"), 
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predGreedy.yaml")]},
-        "prediction_timedelta": {"group": 1, "vals": [510, 510, 210]},
-        "uncertain": {"group": 1, "vals": [True, False, False]},
-        "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73", "4,"]},
-        "model_key": {"group": 2, "vals": ["tactis"]} # 
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"),
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"),
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predGreedy.yaml"),
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predGreedy.yaml")]}, # Added for GreedyController (True)
+        "prediction_timedelta": {"group": 1, "vals": [510, 510, 210, 210]}, # Added for GreedyController (True)
+        "uncertain": {"group": 1, "vals": [True, False, False, False]}, # Added for GreedyController (True)
+        "use_power_weighting": {"group": 1, "vals": [False, False, False, True]}, # For sample-based control
+        "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73", "4,", "4,"]}, # Added for GreedyController (True)
+        "model_key": {"group": 2, "vals": ["tactis"]} #
     },
     "baseline_controllers_baseline_det_forecasters_awaken": {
         "n_horizon": {"group": 0, "vals": [0]},
@@ -836,6 +839,55 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             
             assert all(input_dicts[start_case_idx + c]["controller"]["controller_dt"] <= t for t in stoptime)
             
+            # Load FLORIS input file and extract power curve config if use_power_weighting is True
+            # This logic must occur here because the floris_input_file can vary per case
+            _floris_input_file_path = input_dicts[start_case_idx + c]["controller"]["floris_input_file"]
+
+            # Resolve relative path to absolute
+            # Assuming floris_input_file is relative to the directory of whoc_file or already absolute
+            if not os.path.isabs(_floris_input_file_path):
+                # This path resolution is crucial if floris_input_file is relative to 'whoc' module's parent directory
+                _floris_input_file_path = os.path.normpath(os.path.join(os.path.dirname(whoc_file), '../../', _floris_input_file_path))
+            else:
+                _floris_input_file_path = os.path.normpath(_floris_input_file_path)
+
+            if input_dicts[start_case_idx + c]["controller"].get("use_power_weighting", False):
+                try:
+                    with open(_floris_input_file_path, 'r') as f:
+                        _floris_config = yaml.safe_load(f)
+
+                    _turbine_type_name = _floris_config["farm"]["turbine_type"][0]
+                    _turbine_library_rel_path = _floris_config["farm"]["turbine_library_path"]
+
+                    # Resolve turbine library path: Assume it's relative to the directory of the floris_input_file
+                    _turbine_library_abs_path = os.path.abspath(os.path.join(os.path.dirname(_floris_input_file_path), _turbine_library_rel_path))
+                    _turbine_config_path = os.path.join(_turbine_library_abs_path, f"{_turbine_type_name}.yaml")
+                    
+                    with open(_turbine_config_path, 'r') as f:
+                        _turbine_config = yaml.safe_load(f)
+                    
+                    _power_thrust_table = _turbine_config["power_thrust_table"]
+                    
+                    # Store only relevant power curve data (wind_speed and power arrays)
+                    input_dicts[start_case_idx + c]["controller"]["power_curve_config"] = {
+                        "wind_speed": _power_thrust_table.get("wind_speed"),
+                        "power": _power_thrust_table.get("power")
+                    }
+                    logging.info(f"Successfully loaded power curve for turbine type '{_turbine_type_name}' from '{_turbine_config_path}'.")
+
+                except FileNotFoundError as e:
+                    logging.error(f"Failed to load FLORIS or turbine YAML file. Power weighting will not be enabled. Error: {e}")
+                    input_dicts[start_case_idx + c]["controller"]["use_power_weighting"] = False
+                    input_dicts[start_case_idx + c]["controller"]["power_curve_config"] = None
+                except KeyError as e:
+                    logging.error(f"Missing key in FLORIS or turbine YAML for power curve extraction: {e}. Power weighting will not be enabled.")
+                    input_dicts[start_case_idx + c]["controller"]["use_power_weighting"] = False
+                    input_dicts[start_case_idx + c]["controller"]["power_curve_config"] = None
+                except Exception as e:
+                    logging.error(f"An unexpected error occurred while loading power curve: {e}. Power weighting will not be enabled.")
+                    input_dicts[start_case_idx + c]["controller"]["use_power_weighting"] = False
+                    input_dicts[start_case_idx + c]["controller"]["power_curve_config"] = None
+
             if input_dicts[start_case_idx + c]["controller"]["wind_forecast_class"] or "wind_forecast_class" in case:
                 if input_dicts[start_case_idx + c]["wind_forecast"]["model_config_path"] is None:
                     mdl_cnf = base_model_config
