@@ -92,6 +92,8 @@ if __name__ == "__main__":
     fmodel = FlorisModel(data_config["farm_input_path"])
 
     storage_url = f"sqlite:///{model_config['optuna']['storage']['sqlite_path']}"
+    print(f"Resolved Optuna storage path: {storage_url}")
+
     if args.model == "arima":
         study_name = f"{args.model}_ws_vert_all_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     elif args.model == "tft":
