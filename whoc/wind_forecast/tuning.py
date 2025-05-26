@@ -374,7 +374,7 @@ if __name__ == "__main__":
         logging.info("Training completed.")
 
         if args.model == "tft":
-            loggin.info("Training TFT model using best hyperparameters.")
+            logging.info("Training TFT model using best hyperparameters.")
             forecaster.set_tuned_params(storage=optuna_storage, study_name=study_name, data=train_dataset)
             forecaster.train(max_epochs=model_config["training"].get("max_epochs", 10),
                              gpus=model_config["training"].get("gpus", 1),
