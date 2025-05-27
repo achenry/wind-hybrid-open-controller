@@ -655,7 +655,8 @@ if __name__ == "__main__":
             if num_visible_gpus > 0:
                 # max_workers = num_visible_gpus
                 # TODO TESTING see if many cores can share smaller number of GPUs
-                max_workers = MPI.COMM_WORLD.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
+                # max_workers = MPI.COMM_WORLD.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
+                max_workers = os.environ.get("SLURM_NTASKS_PER_NODE", num_visible_gpus)
                 logging.info(f"Found {num_visible_gpus} GPUs. Setting max_workers to num_visible_gpus={max_workers}.")
             else:
                 max_workers = MPI.COMM_WORLD.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
