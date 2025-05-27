@@ -397,8 +397,10 @@ class WindForecast:
                 if worker_id == 1:
                     
                     if not restart_tuning and os.path.exists(os.path.join(self.model_save_dir, f"{self.study_name}_sampler.pkl")):
+                        logging.info(f"Rank 1: Loading existing sampler for study '{self.study_name}' from {self.model_save_dir}")
                         sampler = pickle.load(open(os.path.join(self.model_save_dir, f"{self.study_name}_sampler.pkl"), "rb"))
                     else:
+                        logging.info(f"Rank 1: Creating new sampler for study '{self.study_name}' and saving it to {self.model_save_dir}")
                         sampler = TPESampler(
                             seed=seed,
                             n_startup_trials=config["optuna"]["sampler_params"]["tpe"].get("n_startup_trials", 16),
