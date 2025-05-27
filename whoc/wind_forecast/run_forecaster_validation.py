@@ -208,13 +208,13 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                     sp = save_path(splits[d])
                 else:
                     sp = save_path
-                logging.info(f"Used {ram_used}% RAM. Saving sub parquet of length {save_length} to {sp}.")
+                logging.info(f"Used {ram_used}% RAM. Saving parquet of length {save_length} to {sp}.")
                 
                 forecasts = pl.concat(forecasts, how="diagonal")
                 
                 # TODO change this to temp write then move
                 # logging.info(f"diagonal concat for {save_path} columns = {forecasts.columns}")
-                logging.info(f"Writing {'final' if final else 'intermediary'} result to file {sp}.")
+                logging.info(f"Writing result to file {sp}.")
                 if not os.path.exists(sp):
                     with open(sp, mode="w") as fp:
                         forecasts.write_csv(fp, include_header=True)
@@ -656,7 +656,6 @@ if __name__ == "__main__":
                 # max_workers = num_visible_gpus
                 # TODO TESTING see if many cores can share smaller number of GPUs
                 # max_workers = MPI.COMM_WORLD.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
-                logging.info(f"{os.environ['SLURM_NTASKS_PER_NODE']}")
                 max_workers = int(os.environ.get("SLURM_NTASKS_PER_NODE", num_visible_gpus))
                 logging.info(f"Found {num_visible_gpus} GPUs. Setting max_workers {max_workers}.")
             else:
@@ -675,7 +674,7 @@ if __name__ == "__main__":
     forecasters = []
     ## GENERATE PERFECT PREVIEW \
     if "perfect" in args.model:
-        for ctd, ptd in zip(context_timedelta, prediction_timedelta):
+        for ctd, ptd in zip(context_timedeltas, prediction_timedeltas):
             logging.info(f"Instantiating PerfectForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
             forecaster = PerfectForecast(
                 measurements_timedelta=measurements_timedelta,
@@ -831,8 +830,8 @@ if __name__ == "__main__":
             executor = MPICommExecutor(MPI.COMM_WORLD, root=0, max_workers=max_workers)
         elif args.multiprocessor == "cf":
             # max_workers = mp.cpu_count()
-            executor = ProcessPoolExecutor(max_workers=max_workers,
-                                            mp_context=mp.get_context("spawn"))
+            executor = ProcessPoolExecutor(max_workers=max_workers)
+                                            # mp_context=mp.get_context("spawn"))
         
         logging.info(f"Running generate_forecaster_results with multiprocessor {args.multiprocessor} with {max_workers} workers.")
         with executor as ex:
