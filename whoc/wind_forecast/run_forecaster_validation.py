@@ -656,8 +656,9 @@ if __name__ == "__main__":
                 # max_workers = num_visible_gpus
                 # TODO TESTING see if many cores can share smaller number of GPUs
                 # max_workers = MPI.COMM_WORLD.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
+                logging.info(f"{os.environ['SLURM_NTASKS_PER_NODE']}")
                 max_workers = os.environ.get("SLURM_NTASKS_PER_NODE", num_visible_gpus)
-                logging.info(f"Found {num_visible_gpus} GPUs. Setting max_workers to num_visible_gpus={max_workers}.")
+                logging.info(f"Found {num_visible_gpus} GPUs. Setting max_workers {max_workers}.")
             else:
                 max_workers = MPI.COMM_WORLD.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
                 logging.warning(f"CUDA_VISIBLE_DEVICES is set but no valid GPU indices found. Setting max_workers to mp.cpu_count()={max_workers}.")
