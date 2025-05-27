@@ -934,7 +934,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                 cond = True
                 for k, v in case.items():
                     if k != "wind_case_idx":
-                        cond &= (existing_input_df[k] == v)
+                        cond &= (existing_input_df[k] == v) # TODO bug if case key is not in existing_input_df
                 assert len(existing_input_df.loc[cond, :].index) <= 1
                 if len(existing_input_df.loc[cond, :].index):
                     existing_case_no = existing_input_df.loc[cond, :].index[0]
