@@ -128,7 +128,7 @@ def transform_wind(inp_df, added_wm=None, added_wd=None):
     return inp_df.select(original_cols)
 
 def make_predictions(forecaster, test_data, prediction_type, single_cg, save_path, assigned_gpu, ram_limit):
-    
+    # TODO HIGH why are predictions in same 30 sec group identical?
     if assigned_gpu:
         os.environ["CUDA_VISIBLE_DEVICES"] = str(assigned_gpu)
     
@@ -224,7 +224,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                     with open(sp, mode="a") as fp:
                         forecasts.write_csv(fp, include_header=False)
                     logging.info(f"File {sp} has size {os.path.getsize(sp)} after appending.")
-                
+                # TODO code seems to hang here for multiprocessing on HPC
                 n_saved += 1
                 forecasts = []
                 save_length = 0
@@ -321,11 +321,12 @@ def generate_forecaster_agg_results(forecaster, forecast_df, test_data, data_mod
     # true_df_pd = test_data.collect().to_pandas()
     # true_df_pd = true_df_pd.set_index(pd.PeriodIndex(true_df_pd["time"].dt.to_period(freq=data_module.freq)))[data_module.target_cols]\
     #                     .rename(columns={src: s for s, src in enumerate(data_module.target_cols)})
-    
+    # TODO HIGH WHICH TEST_IDX TO USE?
     forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.model_key.capitalize()}Forecast"
     logging.info(f"Preparing combined df for forecaster {forecaster_name} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
     
     fdf = forecast_df.select(["time", "test_idx"] + [cs.ends_with(tgt) for tgt in data_module.target_cols])
+    fdf = fdf.group_by("time").select(pl.all().first())
     tdf = test_data.filter(pl.col("time").is_in(forecast_df.select(pl.col("time"))))\
                        .select(["time", "continuity_group"] + data_module.target_cols)
     combined_df = fdf.rename(lambda col: re.search("(?<=loc_)(\\w+)$", col).group() if col.startswith("loc_") else col)\
@@ -830,8 +831,9 @@ if __name__ == "__main__":
             executor = MPICommExecutor(MPI.COMM_WORLD, root=0, max_workers=max_workers)
         elif args.multiprocessor == "cf":
             # max_workers = mp.cpu_count()
-            executor = ProcessPoolExecutor(max_workers=max_workers)
-                                            # mp_context=mp.get_context("spawn"))
+            executor = ProcessPoolExecutor(max_workers=max_workers,
+                                            mp_context=mp.get_context("spawn"),
+                                            max_tasks_per_child=1)
         
         logging.info(f"Running generate_forecaster_results with multiprocessor {args.multiprocessor} with {max_workers} workers.")
         with executor as ex:
@@ -880,7 +882,7 @@ if __name__ == "__main__":
                 # "forecast_df": forecast_df
             })
             # logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('continuity_group').unique()).to_numpy().flatten()} continuity_groups.")
-            
+    # TODO possible to replace long_df with reading from multiple files via glob?  
     if RUN_ONCE:
         # Generate agg_metrics for each forecaster
         for f, forecaster in enumerate(forecasters):
@@ -893,7 +895,8 @@ if __name__ == "__main__":
             forecast_path = os.path.join(save_dir, "forecast_*.csv")
             agg_metric_path = os.path.join(save_dir, "agg_metrics.csv")       
             # TODO won't reload if agg_metric_path doesn't contain all cgs
-            if args.rerun_validation or not os.path.exists(agg_metric_path):
+            # TODO HIGH
+            if True or args.rerun_validation or not os.path.exists(agg_metric_path):
                 logging.info(f"Loading forecast_df from {forecast_path}.")
                 forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
                             .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
@@ -934,7 +937,7 @@ if __name__ == "__main__":
                         .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
         
         # plot continuity group with best rmse score
-        PLOT_INDIVIDUAL = False
+        PLOT_INDIVIDUAL = True
         forecasts_long = []
         for f, forecaster in enumerate(forecasters):
             forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.model_key.capitalize()}Forecast"
