@@ -96,136 +96,137 @@ class MLForecast(WindForecast):
             log_dir=os.path.join(self.model_config["experiment"]["log_dir"], 
                                  f"{self.model_config['experiment']['project_name']}_{self.model_key}"))
         
-        checkpoint_hparams = load_estimator_from_checkpoint(checkpoint_path, lightning_module_class, self.model_config, self.model_key)
-        
-        self.data_module = DataModule(data_path=self.model_config["dataset"]["data_path"],
-                                      n_splits=self.model_config["dataset"]["n_splits"],
-                                      continuity_groups=None,
-                                      train_split=(1.0 - self.model_config["dataset"]["val_split"] - self.model_config["dataset"]["test_split"]),
-                                      val_split=self.model_config["dataset"]["val_split"],
-                                      test_split=self.model_config["dataset"]["test_split"],
-                                      batch_size=self.model_config["dataset"]["batch_size"],
-                                      # Use lengths determined above, converted to seconds
-                                      prediction_length=(checkpoint_hparams["prediction_length_int"] * checkpoint_hparams["freq"]).total_seconds(),
-                                      context_length=(checkpoint_hparams["context_length_int"] * checkpoint_hparams["freq"]).total_seconds(),
-                                      target_prefixes=["ws_horz", "ws_vert"],
-                                      feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
-                                      freq=checkpoint_hparams["freq_str"], # Use original freq string
-                                      normalized=True, # Assume True based on previous context, adjust if needed
-                                      target_suffixes=self.model_config["dataset"]["target_turbine_ids"],
-                                      per_turbine_target=self.model_config["dataset"]["per_turbine_target"], dtype=None,
-                                      normalization_consts_path=self.model_config["dataset"]["normalization_consts_path"])
-        
-        self.data_module.get_dataset_info()
-        self.scaler_params = self.data_module.compute_scaler_params()
-        logging.info("Re-initialized DataModule and recomputed scaler_params based on checkpoint/config.")
-
-        # Determine correct stage based on checkpoint epoch
-        if self.model_key == "tactis":
-            checkpoint_epoch = checkpoint_hparams["checkpoint"].get('epoch')
-            # Ensure stage2_start_epoch is retrieved from hparams within init_args now
-            stage2_start_epoch = checkpoint_hparams["init_args"].get('stage2_start_epoch')
-
-            if checkpoint_epoch is None or stage2_start_epoch is None:
-                 logging.warning("Could not determine stage from checkpoint epoch or hparams. Defaulting to Stage 2 for TACTiS loading.")
-                 correct_stage = 2 # Default assumption if info missing
-            elif checkpoint_epoch >= stage2_start_epoch:
-                 correct_stage = 2
-                 logging.info(f"Checkpoint epoch ({checkpoint_epoch}) >= stage2_start_epoch ({stage2_start_epoch}). Setting TACTiS stage to 2 for loading.")
-            else:
-                 correct_stage = 1
-                 logging.info(f"Checkpoint epoch ({checkpoint_epoch}) < stage2_start_epoch ({stage2_start_epoch}). Setting TACTiS stage to 1 for loading.")
-
-            checkpoint_hparams["init_args"]["stage"] = correct_stage # Set the stage in init_args BEFORE loading
-
-        # Instantiate the model using load_from_checkpoint, passing the correctly determined stage
-        try:
-            # Pass the init_args (which includes the correct stage) to load_from_checkpoint
-            # Use strict=False to ignore the save_hyperparameters error internally,
-            # as we've already ensured the model is configured correctly via init_args.
-            model = lightning_module_class.load_from_checkpoint(
-                checkpoint_path,
-                strict=False, # Allow loading even if save_hyperparameters fails internally
-                **checkpoint_hparams["init_args"]
-            )
-            logging.info(f"Successfully loaded model from checkpoint {checkpoint_path} using init_args including stage {correct_stage if self.model_key == 'tactis' else 'N/A'}.")
-
-        except Exception as e:
-            logging.error(f"Error during LightningModule re-instantiation: {e}", exc_info=True)
-            raise Exception(e)
+        if checkpoint_path is not None:
+            checkpoint_hparams = load_estimator_from_checkpoint(checkpoint_path, lightning_module_class, self.model_config, self.model_key)
             
-        
-        # self.data_module.context_length = init_args["model_config"]["context_length"]
-        self.context_timedelta = self.data_module.context_length * pd.Timedelta(self.data_module.freq)
-        self.model_prediction_timedelta = self.data_module.prediction_length * pd.Timedelta(self.data_module.freq)
-        assert self.model_prediction_timedelta >= self.prediction_timedelta, f"model fetched from checkpoint {checkpoint_path} is tuned for shorter prediction timedelta {self.model_prediction_timedelta} than the given one {self.prediction_timedelta}!"
+            self.data_module = DataModule(data_path=self.model_config["dataset"]["data_path"],
+                                        n_splits=self.model_config["dataset"]["n_splits"],
+                                        continuity_groups=None,
+                                        train_split=(1.0 - self.model_config["dataset"]["val_split"] - self.model_config["dataset"]["test_split"]),
+                                        val_split=self.model_config["dataset"]["val_split"],
+                                        test_split=self.model_config["dataset"]["test_split"],
+                                        batch_size=self.model_config["dataset"]["batch_size"],
+                                        # Use lengths determined above, converted to seconds
+                                        prediction_length=(checkpoint_hparams["prediction_length_int"] * checkpoint_hparams["freq"]).total_seconds(),
+                                        context_length=(checkpoint_hparams["context_length_int"] * checkpoint_hparams["freq"]).total_seconds(),
+                                        target_prefixes=["ws_horz", "ws_vert"],
+                                        feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
+                                        freq=checkpoint_hparams["freq_str"], # Use original freq string
+                                        normalized=True, # Assume True based on previous context, adjust if needed
+                                        target_suffixes=self.model_config["dataset"]["target_turbine_ids"],
+                                        per_turbine_target=self.model_config["dataset"]["per_turbine_target"], dtype=None,
+                                        normalization_consts_path=self.model_config["dataset"]["normalization_consts_path"])
+            
+            self.data_module.get_dataset_info()
+            self.scaler_params = self.data_module.compute_scaler_params()
+            logging.info("Re-initialized DataModule and recomputed scaler_params based on checkpoint/config.")
 
-        self.n_context = int(self.context_timedelta / self.measurements_timedelta) # number of simulation time steps in a context horizon
-        # self.n_prediction = int(self.prediction_timedelta / self.measurements_timedelta) # number of simulation time steps in a prediction horizon
-        
-        # Prepare all arguments in a dictionary # TODO HIGH add limit_train_batches and batch_size to hparams, and also set in data_module above
-        estimator_kwargs = {
-            "freq": self.data_module.freq,
-            "prediction_length": self.data_module.prediction_length,
-            "num_feat_dynamic_real": self.data_module.num_feat_dynamic_real,
-            "num_feat_static_cat": self.data_module.num_feat_static_cat,
-            "cardinality": self.data_module.cardinality,
-            "num_feat_static_real": self.data_module.num_feat_static_real,
-            "input_size": self.data_module.num_target_vars,
-            "scaling": "std" if checkpoint_hparams["init_args"]["model_config"]["scaling"] == "True" else False, # Scaling handled externally or internally by TACTiS
-            "lags_seq": checkpoint_hparams["init_args"]["model_config"]["lags_seq"], # TACTiS doesn't typically use lags
-            "time_features": [second_of_minute, minute_of_hour, hour_of_day, day_of_year],
-            "batch_size": self.data_module.batch_size, #self.model_config["dataset"].setdefault("batch_size", 128), 
-            "num_batches_per_epoch": self.model_config["trainer"].setdefault("limit_train_batches", 1000), 
-            "context_length": self.data_module.context_length,
-            "train_sampler": ExpectedNumInstanceSampler(num_instances=1.0, min_past=self.data_module.context_length, min_future=self.data_module.prediction_length),
-            "validation_sampler": ValidationSplitSampler(min_past=self.data_module.context_length, min_future=self.data_module.prediction_length),
-            "trainer_kwargs": self.model_config["trainer"],
-            # Include distr_output initially, will be removed conditionally
-#             "distr_output": distr_output_class(dim=self.data_module.num_target_vars, **self.model_config["model"]["distr_output"]["kwargs"]),
-            "num_parallel_samples": self.model_config["model"][self.model_key].get("num_parallel_samples", 100) if self.model_key == 'tactis' else 100, # Default 100 if not specified
-        
-        }
-        estimator_sig = inspect.signature(estimator_class.__init__)
-        estimator_params = [param.name for param in estimator_sig.parameters.values()]
-        
-        # Add model-specific arguments. Note that some params, such as num_feat_dynamic_real, are changed within Model, and so can't be used for estimator class
-        model_config_source = checkpoint_hparams["init_args"]["model_config"]
-        if model_config_source:
-             estimator_kwargs.update({k: v for k, v in model_config_source.items() if k in estimator_params and not hasattr(self.data_module, k)})
-        else:
-             logging.warning(f"Could not find 'model_config' in checkpoint hparams or instance config for model {self.model_key}.")
-        
-        # Add distr_output only if the model is NOT tactis
-        if self.model_key != "tactis":
-            estimator_kwargs["distr_output"] = distr_output_class(dim=self.data_module.num_target_vars, **self.model_config["model"]["distr_output"]["kwargs"])
-        
-        logging.info(f"Using final estimator_kwargs:\n {estimator_kwargs}")
-        estimator = estimator_class(**estimator_kwargs)
-        self.self_scaled = (estimator_kwargs["scaling"] == "False") or not estimator_kwargs["scaling"]
-        
-        transformation = estimator.create_transformation(use_lazyframe=False)
-        
-        # Conditionally Create Forecast Generator
-        if self.model_key == 'tactis':
-            # TACTiS uses SampleForecastGenerator internally for prediction
-            # because its foweard pass returns samples not distribution parameters
-            logging.info(f"Using SampleForecastGenerator for TACTiS model.")
-            forecast_generator = SampleForecastGenerator()
-        else:
-            # Other models use DistributionForecastGenerator based on their distr_output
-            logging.info(f"Using DistributionForecastGenerator for {self.model_key} model.")
-            # Ensure estimator has distr_output before accessing
-            if not hasattr(estimator, 'distr_output'):
-                raise AttributeError(f"Estimator for model '{self.model_key}' is missing 'distr_output' attribute needed for DistributionForecastGenerator.")
-            forecast_generator = DistributionForecastGenerator(estimator.distr_output)
+            # Determine correct stage based on checkpoint epoch
+            if self.model_key == "tactis":
+                checkpoint_epoch = checkpoint_hparams["checkpoint"].get('epoch')
+                # Ensure stage2_start_epoch is retrieved from hparams within init_args now
+                stage2_start_epoch = checkpoint_hparams["init_args"].get('stage2_start_epoch')
 
-        
-        self.predictor = estimator.create_predictor(transformation, model, 
-                                                          forecast_generator=forecast_generator)
-        # self.data_module.freq = pd.Timedelta(self.data_module.freq).to_pytimedelta()
-        self.sample_predictor = estimator.create_predictor(transformation, model,
-                                                           forecast_generator=SampleForecastGenerator())
+                if checkpoint_epoch is None or stage2_start_epoch is None:
+                    logging.warning("Could not determine stage from checkpoint epoch or hparams. Defaulting to Stage 2 for TACTiS loading.")
+                    correct_stage = 2 # Default assumption if info missing
+                elif checkpoint_epoch >= stage2_start_epoch:
+                    correct_stage = 2
+                    logging.info(f"Checkpoint epoch ({checkpoint_epoch}) >= stage2_start_epoch ({stage2_start_epoch}). Setting TACTiS stage to 2 for loading.")
+                else:
+                    correct_stage = 1
+                    logging.info(f"Checkpoint epoch ({checkpoint_epoch}) < stage2_start_epoch ({stage2_start_epoch}). Setting TACTiS stage to 1 for loading.")
+
+                checkpoint_hparams["init_args"]["stage"] = correct_stage # Set the stage in init_args BEFORE loading
+
+            # Instantiate the model using load_from_checkpoint, passing the correctly determined stage
+            try:
+                # Pass the init_args (which includes the correct stage) to load_from_checkpoint
+                # Use strict=False to ignore the save_hyperparameters error internally,
+                # as we've already ensured the model is configured correctly via init_args.
+                model = lightning_module_class.load_from_checkpoint(
+                    checkpoint_path,
+                    strict=False, # Allow loading even if save_hyperparameters fails internally
+                    **checkpoint_hparams["init_args"]
+                )
+                logging.info(f"Successfully loaded model from checkpoint {checkpoint_path} using init_args including stage {correct_stage if self.model_key == 'tactis' else 'N/A'}.")
+
+            except Exception as e:
+                logging.error(f"Error during LightningModule re-instantiation: {e}", exc_info=True)
+                raise Exception(e)
+                
+            
+            # self.data_module.context_length = init_args["model_config"]["context_length"]
+            self.context_timedelta = self.data_module.context_length * pd.Timedelta(self.data_module.freq)
+            self.model_prediction_timedelta = self.data_module.prediction_length * pd.Timedelta(self.data_module.freq)
+            assert self.model_prediction_timedelta >= self.prediction_timedelta, f"model fetched from checkpoint {checkpoint_path} is tuned for shorter prediction timedelta {self.model_prediction_timedelta} than the given one {self.prediction_timedelta}!"
+
+            self.n_context = int(self.context_timedelta / self.measurements_timedelta) # number of simulation time steps in a context horizon
+            # self.n_prediction = int(self.prediction_timedelta / self.measurements_timedelta) # number of simulation time steps in a prediction horizon
+            
+            # Prepare all arguments in a dictionary # TODO HIGH add limit_train_batches and batch_size to hparams, and also set in data_module above
+            estimator_kwargs = {
+                "freq": self.data_module.freq,
+                "prediction_length": self.data_module.prediction_length,
+                "num_feat_dynamic_real": self.data_module.num_feat_dynamic_real,
+                "num_feat_static_cat": self.data_module.num_feat_static_cat,
+                "cardinality": self.data_module.cardinality,
+                "num_feat_static_real": self.data_module.num_feat_static_real,
+                "input_size": self.data_module.num_target_vars,
+                "scaling": "std" if checkpoint_hparams["init_args"]["model_config"]["scaling"] == "True" else False, # Scaling handled externally or internally by TACTiS
+                "lags_seq": checkpoint_hparams["init_args"]["model_config"]["lags_seq"], # TACTiS doesn't typically use lags
+                "time_features": [second_of_minute, minute_of_hour, hour_of_day, day_of_year],
+                "batch_size": self.data_module.batch_size, #self.model_config["dataset"].setdefault("batch_size", 128), 
+                "num_batches_per_epoch": self.model_config["trainer"].setdefault("limit_train_batches", 1000), 
+                "context_length": self.data_module.context_length,
+                "train_sampler": ExpectedNumInstanceSampler(num_instances=1.0, min_past=self.data_module.context_length, min_future=self.data_module.prediction_length),
+                "validation_sampler": ValidationSplitSampler(min_past=self.data_module.context_length, min_future=self.data_module.prediction_length),
+                "trainer_kwargs": self.model_config["trainer"],
+                # Include distr_output initially, will be removed conditionally
+    #             "distr_output": distr_output_class(dim=self.data_module.num_target_vars, **self.model_config["model"]["distr_output"]["kwargs"]),
+                "num_parallel_samples": self.model_config["model"][self.model_key].get("num_parallel_samples", 100) if self.model_key == 'tactis' else 100, # Default 100 if not specified
+            
+            }
+            estimator_sig = inspect.signature(estimator_class.__init__)
+            estimator_params = [param.name for param in estimator_sig.parameters.values()]
+            
+            # Add model-specific arguments. Note that some params, such as num_feat_dynamic_real, are changed within Model, and so can't be used for estimator class
+            model_config_source = checkpoint_hparams["init_args"]["model_config"]
+            if model_config_source:
+                estimator_kwargs.update({k: v for k, v in model_config_source.items() if k in estimator_params and not hasattr(self.data_module, k)})
+            else:
+                logging.warning(f"Could not find 'model_config' in checkpoint hparams or instance config for model {self.model_key}.")
+            
+            # Add distr_output only if the model is NOT tactis
+            if self.model_key != "tactis":
+                estimator_kwargs["distr_output"] = distr_output_class(dim=self.data_module.num_target_vars, **self.model_config["model"]["distr_output"]["kwargs"])
+            
+            logging.info(f"Using final estimator_kwargs:\n {estimator_kwargs}")
+            estimator = estimator_class(**estimator_kwargs)
+            self.self_scaled = (estimator_kwargs["scaling"] == "False") or not estimator_kwargs["scaling"]
+            
+            transformation = estimator.create_transformation(use_lazyframe=False)
+            
+            # Conditionally Create Forecast Generator
+            if self.model_key == 'tactis':
+                # TACTiS uses SampleForecastGenerator internally for prediction
+                # because its foweard pass returns samples not distribution parameters
+                logging.info(f"Using SampleForecastGenerator for TACTiS model.")
+                forecast_generator = SampleForecastGenerator()
+            else:
+                # Other models use DistributionForecastGenerator based on their distr_output
+                logging.info(f"Using DistributionForecastGenerator for {self.model_key} model.")
+                # Ensure estimator has distr_output before accessing
+                if not hasattr(estimator, 'distr_output'):
+                    raise AttributeError(f"Estimator for model '{self.model_key}' is missing 'distr_output' attribute needed for DistributionForecastGenerator.")
+                forecast_generator = DistributionForecastGenerator(estimator.distr_output)
+
+            
+            self.predictor = estimator.create_predictor(transformation, model, 
+                                                            forecast_generator=forecast_generator)
+            # self.data_module.freq = pd.Timedelta(self.data_module.freq).to_pytimedelta()
+            self.sample_predictor = estimator.create_predictor(transformation, model,
+                                                            forecast_generator=SampleForecastGenerator())
     
     def reset(self, **kwargs):
         if "assigned_gpu" in kwargs and kwargs["assigned_gpu"]:
@@ -498,15 +499,15 @@ class MLForecast(WindForecast):
             pred_df = pred_df.filter(pl.col("time") <= (current_time + self.prediction_timedelta))
             # check if the data that trained the model differs from the frequency of historic_measurments
             # Convert freq string to Timedelta for comparison and calculations
-            data_module_freq_td = pd.Timedelta(str(self.data_module.freq))
-            if data_module_freq_td != self.measurements_timedelta:
-                # resample historic measurements to historic_measurements frequency and return as pandas dataframe
-                if self.measurements_timedelta > data_module_freq_td: # Use Timedelta here
-                    pred_df = pred_df.with_columns(time=pl.col("time").dt.round(data_module_freq_td) # Use Timedelta here
-                                                + pl.duration(seconds=pred_df.select(pl.col("time").last().dt.second() % data_module_freq_td.total_seconds()).item()))\
-                                                                .group_by("time").agg(cs.numeric().mean()).sort("time")
-                else:
-                    pred_df = pred_df.upsample(time_column="time", every=self.measurements_timedelta).fill_null(strategy="forward") # Use Timedelta here
+            # data_module_freq_td = pd.Timedelta(str(self.data_module.freq))
+            # if data_module_freq_td != self.measurements_timedelta:
+            #     # resample historic measurements to historic_measurements frequency and return as pandas dataframe
+            #     if self.measurements_timedelta > data_module_freq_td: # Use Timedelta here
+            #         pred_df = pred_df.with_columns(time=pl.col("time").dt.round(data_module_freq_td) # Use Timedelta here
+            #                                     + pl.duration(seconds=pred_df.select(pl.col("time").last().dt.second() % data_module_freq_td.total_seconds()).item()))\
+            #                                                     .group_by("time").agg(cs.numeric().mean()).sort("time")
+            #     else:
+            #         pred_df = pred_df.upsample(time_column="time", every=self.measurements_timedelta).fill_null(strategy="forward") # Use Timedelta here
         else:
             # not enough data points to train SVR, assume persistence
             logging.info(f"Not enough data points at time {current_time} to train ML, have {historic_measurements.select(pl.len()).item()} but require {self.n_context}, assuming persistence instead.")
