@@ -128,7 +128,7 @@ def transform_wind(inp_df, added_wm=None, added_wd=None):
     return inp_df.select(original_cols)
 
 def make_predictions(forecaster, test_data, prediction_type, single_cg, save_path, assigned_gpu, ram_limit):
-    # TODO HIGH why are predictions in same 30 sec group identical?
+    
     if assigned_gpu:
         os.environ["CUDA_VISIBLE_DEVICES"] = str(assigned_gpu)
     
@@ -321,7 +321,7 @@ def generate_forecaster_agg_results(forecaster, forecast_df, test_data, data_mod
     # true_df_pd = test_data.collect().to_pandas()
     # true_df_pd = true_df_pd.set_index(pd.PeriodIndex(true_df_pd["time"].dt.to_period(freq=data_module.freq)))[data_module.target_cols]\
     #                     .rename(columns={src: s for s, src in enumerate(data_module.target_cols)})
-    # TODO HIGH WHICH TEST_IDX TO USE?
+    # TODO HIGH Check how err is computed for finer grain predictions… ie multiple time steps of same values across test_idx
     forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.model_key.capitalize()}Forecast"
     logging.info(f"Preparing combined df for forecaster {forecaster_name} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
     
@@ -807,6 +807,7 @@ if __name__ == "__main__":
         os.makedirs(save_dir, exist_ok=True)
         for c, cg in enumerate(continuity_groups):
             save_path = os.path.join(save_dir, f"forecast_{cg}.csv")
+            
             if args.rerun_validation or not os.path.exists(save_path):
                 validation_to_run.append((forecaster, cg, save_path))
                 logging.info(f"Rerunning validation {forecaster_name, prediction_timedelta, save_path}")
@@ -895,8 +896,8 @@ if __name__ == "__main__":
             forecast_path = os.path.join(save_dir, "forecast_*.csv")
             agg_metric_path = os.path.join(save_dir, "agg_metrics.csv")       
             # TODO won't reload if agg_metric_path doesn't contain all cgs
-            # TODO HIGH
-            if True or args.rerun_validation or not os.path.exists(agg_metric_path):
+            
+            if args.rerun_validation or not os.path.exists(agg_metric_path):
                 logging.info(f"Loading forecast_df from {forecast_path}.")
                 forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
                             .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
