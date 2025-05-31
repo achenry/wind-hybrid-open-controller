@@ -1,20 +1,28 @@
-from whoc.wind_forecast.WindForecast import SVRForecast, generate_wind_field_df
+from whoc.wind_forecast.run_forecaster_validation import generate_wind_field_df
+from whoc.wind_forecast.svr_forecast import SVRForecast
 from wind_forecasting.preprocessing.data_module import DataModule
-from gluonts.dataset.split import split, slice_data_entry
+from gluonts.dataset.split import slice_data_entry
 import numpy as np
 import polars as pl
-import polars.selectors as cs
 import pandas as pd
 import argparse
 import yaml
 import os
 import logging 
+import glob
 from floris import FlorisModel
-import gc
+import multiprocessing as mp
 import re
 import random
+from wind_forecasting.utils.optuna_db_utils import setup_optuna_storage
+from wind_forecasting.run_scripts.tuning import generate_df_setup_params
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+try:
+    from mpi4py import MPI
+except Exception as e:
+    logging.warning("Could not import MPI.")
 
 def replace_env_vars(dirpath):
     env_vars = re.findall(r"(?:^|\/)\$(\w+)(?:\/|$)", dirpath)
@@ -25,22 +33,31 @@ def replace_env_vars(dirpath):
 
 if __name__ == "__main__":
     
-    logging.info("Parsing arguments and configuration yaml.")
+    
     parser = argparse.ArgumentParser(prog="WindFarmForecasting")
     parser.add_argument("-md", "--model", type=str, choices=["svr", "kf", "preview", "informer", "autoformer", "spacetimeformer"], required=True)
     parser.add_argument("-mcnf", "--model_config", type=str)
     parser.add_argument("-dcnf", "--data_config", type=str)
-    parser.add_argument("-sn", "--study_name", type=str)
-    parser.add_argument("-m", "--multiprocessor", choices=["mpi", "cf"], default="cf")
+    parser.add_argument("-mp", "--multiprocessor", choices=["mpi", "cf", None], default=None)
     parser.add_argument("-msp", "--max_splits", type=int, required=False, default=None,
                         help="Number of test splits to use.")
+    parser.add_argument("-ltv", "--limit_train_val", type=float, required=False, default=1,
+                        help="Proportion of total training/validation data to randomly sample from during tuning.")
     parser.add_argument("-mst", "--max_steps", type=int, required=False, default=None,
                         help="Number of time steps to use.")
     parser.add_argument("-s", "--seed", type=int, help="Seed for random number generator", default=42)
-    parser.add_argument("-i", "--initialize", action="store_true")
     parser.add_argument("-rt", "--restart_tuning", action="store_true")
-    # pretrained_filename = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/wf_forecasting/lznjshyo/checkpoints/epoch=0-step=50.ckpt"
+    parser.add_argument("-m", "--mode", choices=["tune", "train"])
+    parser.add_argument("-rd", "--reload_data", action="store_true", help="Whether to reload the train/validation data from the source, or to use existing .dat files.")
+    # parser.add_argument('--cores', required=False, default=None, help='Comma-separated list or range of core IDs (e.g., "0-9" or "10,11,12")')
+    # pretrained_filename = "/Users/ahenry/Documents/toolboxes/wind_forecasting/logging/wf_forecasting/lznjshyo/checkpoints/epoch=0-step=50.ckpt"
     args = parser.parse_args()
+    
+    comm = MPI.COMM_WORLD
+    RUN_ONCE = (args.multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
+    
+    if RUN_ONCE:
+        logging.info("Parsing arguments and configuration yaml.")
     
     with open(args.model_config, 'r') as file:
         model_config  = yaml.safe_load(file)
@@ -59,7 +76,9 @@ if __name__ == "__main__":
      
     fmodel = FlorisModel(data_config["farm_input_path"])
     
-    logging.info("Creating datasets")
+    if RUN_ONCE:
+        logging.info("Creating datasets")
+        
     data_module = DataModule(data_path=model_config["dataset"]["data_path"], 
                             normalization_consts_path=model_config["dataset"]["normalization_consts_path"],
                             normalized=True, 
@@ -69,54 +88,65 @@ if __name__ == "__main__":
                                 prediction_length=model_config["dataset"]["prediction_length"], context_length=model_config["dataset"]["context_length"],
                                 target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                                 freq=model_config["dataset"]["resample_freq"], target_suffixes=model_config["dataset"]["target_turbine_ids"],
-                                    per_turbine_target=model_config["dataset"]["per_turbine_target"], as_lazyframe=False, dtype=pl.Float32)
+                                    per_turbine_target=False, as_lazyframe=False, dtype=pl.Float32)
         
     # %% SETUP SEED
-    logging.info(f"Setting random seed to {args.seed}")
-    # torch.manual_seed(args.seed)
+    if RUN_ONCE:
+        logging.info(f"Setting random seed to {args.seed}")
+        
     random.seed(args.seed)
     np.random.seed(args.seed)
     
-    # %% PREPARING DIRECTORIES
-    model_config["optuna"]["storage_dir"] = replace_env_vars(model_config["optuna"]["storage_dir"])
-    data_config["temp_storage_dir"] = replace_env_vars(data_config["temp_storage_dir"])
-
-    logging.info(f"Making Optuna storage directory {model_config['optuna']['storage_dir']}.")
-    os.makedirs(model_config["optuna"]["storage_dir"], exist_ok=True)
-    
-    logging.info(f"Making temporary train/val storage directory {data_config['temp_storage_dir']}.")
-    os.makedirs(data_config["temp_storage_dir"], exist_ok=True)
-    
     # %% INSTANTIATING MODEL
-    logging.info("Instantiating model.")  
+    if RUN_ONCE:
+        logging.info("Instantiating model.")
+          
     if args.model == "svr": 
-        model = SVRForecast(measurements_timedelta=pd.Timedelta(model_config["dataset"]["resample_freq"]),
+        # NOTE: n_neighboring_turbines must be the same as in herculesinput_001.yaml
+        forecaster = SVRForecast(measurements_timedelta=pd.Timedelta(model_config["dataset"]["resample_freq"]),
                             controller_timedelta=None,
                             prediction_timedelta=data_module.prediction_length*pd.Timedelta(model_config["dataset"]["resample_freq"]),
                             context_timedelta=data_module.context_length*pd.Timedelta(model_config["dataset"]["resample_freq"]),
                             fmodel=fmodel,
                             true_wind_field=None,
-                            model_config=model_config,
                             kwargs=dict(kernel="rbf", C=1.0, degree=3, gamma="auto", epsilon=0.1, cache_size=200,
-                                        n_neighboring_turbines=3, max_n_samples=None),
+                                        n_neighboring_turbines=5, max_n_samples=None, 
+                                        use_trained_models=False,
+                                        model_config=model_config), # TODO move n_neighboring_turbines to cnofig
                             tid2idx_mapping=tid2idx_mapping,
                             turbine_signature=turbine_signature,
-                            use_tuned_params=False,
-                            temp_save_dir=data_config["temp_storage_dir"],
-                            multiprocessor=args.multiprocessor)
-    
+                            use_tuned_params=False)
+        # original_save_dir = forecaster.model_save_dir
+        # forecaster.model_save_dir = os.environ["TMPDIR"]
+    # Use the WORKER_RANK variable set explicitly in the Slurm script's nohup block
+    worker_id = int(os.environ.get('WORKER_RANK', 0))
+    if RUN_ONCE:
+        if "WORKER_RANK" in os.environ:
+            logging.info(f"Determined worker rank from WORKER_RANK: {worker_id}")
+        else:
+            logging.info(f"Couldn't find WORKER_RANK env var, setting rank to {worker_id}.")
     
     # %% PREPARING DATA FOR TUNING
-    if args.initialize:
-        # %% READING WIND FIELD TRAINING DATA # TODO fetch training and test data here
-        logging.info("Preparing data for tuning")
+    if worker_id == 0 and RUN_ONCE:
+        logging.info("Generating train/val datasets.")
         if not os.path.exists(data_module.train_ready_data_path):
             data_module.generate_datasets()
             reload = True
         else:
             reload = False
             
-        true_wind_field = data_module.generate_splits(save=True, reload=reload, splits=["train", "val"])._df.collect()
+        data_module.generate_splits(save=True, reload=reload, splits=["train", "val"])
+    else:
+        data_module.get_dataset_info()
+
+    # get max_splits longest datasets
+    num_Xy_paths = len(glob.glob(os.path.join(forecaster.model_save_dir, f"Xy_{forecaster.study_name}_*_*.dat")))
+    required_num_Xy_paths = data_module.num_target_vars * 2 # val and train
+    if worker_id == 0 and (args.reload_data or reload or num_Xy_paths < required_num_Xy_paths):
+        logging.info(f"Number of Xy paths: {num_Xy_paths} out of required {required_num_Xy_paths}")
+        logging.info("Preparing data for tuning")
+        data_module.train_dataset = sorted(data_module.train_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
+        data_module.val_dataset = sorted(data_module.val_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
         if args.max_splits:
             train_dataset = data_module.train_dataset[:args.max_splits]
             val_dataset = data_module.val_dataset[:args.max_splits]
@@ -132,37 +162,65 @@ if __name__ == "__main__":
         val_dataset = generate_wind_field_df(datasets=val_dataset, target_cols=data_module.target_cols, feat_dynamic_real_cols=data_module.feat_dynamic_real_cols)
         delattr(data_module, "train_dataset")
         delattr(data_module, "val_dataset")
+
+        forecaster.prepare_data(dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, 
+                                scale=False, multiprocessor=args.multiprocessor, reload=args.reload_data or reload)
+
+        if RUN_ONCE:
+            logging.info("Finished preparing data for tuning.")
+
+    # %% TUNING MODEL
+    
+    optuna_storage = None
+    if RUN_ONCE:
+        logging.info(f"Initializing storage with restart_tuning={args.restart_tuning} on worker {worker_id}")
         
-        model.prepare_data(dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, scale=False)
+        db_setup_params = generate_df_setup_params(args.model, model_config)
+        optuna_storage, _ = setup_optuna_storage(
+            db_setup_params=db_setup_params,
+            restart_tuning=args.restart_tuning,
+            rank=0 if (worker_id == 0) else worker_id
+        )
+    
+        logging.info("Running tune_hyperparameters_single")
+    
+    
+    elif args.multiprocessor == "mpi":
+        optuna_storage = comm.bcast(optuna_storage, root=0)
         
-        logging.info("Reinitializing storage") 
-        if args.restart_tuning:
-            storage = model.get_storage(
-                backend=model_config["optuna"]["storage"]["backend"], 
-                    study_name=args.study_name, 
-                    storage_dir=model_config["optuna"]["storage_dir"])
-            for s in storage.get_all_studies():
-                storage.delete_study(s._study_id)
-    else: 
-        # %% TUNING MODEL
-        logging.info("Running tune_hyperparameters_multi")
-        pruning_kwargs = model_config["optuna"]["pruning"] 
+    if args.multiprocessor == "mpi":
+        comm.Barrier()
+    
+    scaler_params = data_module.compute_scaler_params()
+    
+    worker_id = int(os.environ.get('WORKER_RANK', 1))
+    if args.mode == "tune" and worker_id > 0:
         
-        #{"type": "hyperband", "min_resource": 2, "max_resource": 5, "reduction_factor": 3, "percentile": 25}
-        model.tune_hyperparameters_single(study_name=args.study_name,
-                                        backend=model_config["optuna"]["storage"]["backend"],
-                                        n_trials=model_config["optuna"]["n_trials"], 
-                                        storage_dir=model_config["optuna"]["storage_dir"],
-                                        seed=args.seed,
-                                        pruning_kwargs=pruning_kwargs)
+        if args.multiprocessor:
+            logging.info(f"Using multiprocessor {args.multiprocessor}")
+            
+        forecaster.tune_hyperparameters_single(optuna_storage=optuna_storage,
+                                                n_trials_per_worker=model_config["optuna"]["n_trials_per_worker"], 
+                                                seed=args.seed,
+                                                config=model_config,
+                                                worker_id=1 if RUN_ONCE and (worker_id == 1) else worker_id,
+                                                multiprocessor=args.multiprocessor,
+                                                limit_train_val=args.limit_train_val,
+                                                restart_tuning=args.restart_tuning,
+                                                # max_cpus=mp.cpu_count())
+                                                max_cpus=int(os.environ.get("NTASKS_PER_TUNER", None)))
                                         #  trial_protection_callback=handle_trial_with_oom_protection)
-    
-        # %% TESTING LOADING HYPERPARAMETERS
-        # Test setting parameters
-        # model.set_tuned_params(backend=model_config["optuna"]["backend"], study_name_root=args.study_name, 
-        #                        storage_dir=model_config["optuna"]["storage_dir"]) 
-    
-        # %% After training completes
-        # torch.cuda.empty_cache()
-        gc.collect()
+        # %% After tuning completes
         logging.info("Optuna hyperparameter tuning completed.")
+        
+    elif args.mode == "train":
+        # %% TRAINING MODEL
+        logging.info("Training model using best hyperparameters.")
+        forecaster.set_tuned_params(optuna_storage=optuna_storage, study_name=forecaster.study_name)
+        forecaster.train_all_outputs(scale=False, 
+                                    multiprocessor=args.multiprocessor, 
+                                    retrain_models=True,
+                                    scaler_params=scaler_params)
+        # %% After training completes
+        logging.info("Training completed.")
+        
