@@ -2,7 +2,7 @@ import os
 import re
 import yaml
 from itertools import cycle
-import warnings
+import polars as pl
 import pickle
 import csv
 
@@ -92,50 +92,231 @@ def write_case_family_agg_data(case_family, new_agg_df, save_dir):
     logging.info(f"Writing case family {case_family} aggregate dataframe.")
     new_agg_df.loc[new_agg_df.index.get_level_values("CaseFamily") == case_family, :].to_csv(all_agg_df_path)   
 
+def plot_power_vs_prediction_time(agg_df, save_dir, label):
+    controller_labels = {"GreedyController": "Greedy", "LookupBasedWakeSteeringController": "LUT"}
+    controllers = pd.unique(agg_df["controller_class"])
+    plot_df = agg_df.copy()
+    plot_df["prediction_timedelta"] = plot_df["prediction_timedelta"].dt.total_seconds()
+    # plot_df[("FarmPower", "mean")] = plot_df[("FarmPower", "mean")] / 1e6
+    
+    # get gain of LUT compared to greedy wo preview
+    compute_df = plot_df.copy()
+    
+    greedy_compute_df = compute_df.loc[(compute_df["controller_class"] == "GreedyController"), :]
+    if greedy_compute_df.shape[0]:
+        case_family = greedy_compute_df.index.get_level_values("CaseFamily")[0]
+        case_name = greedy_compute_df.index.get_level_values("CaseName")[0]
+        input_fn = f"input_config_case_{case_name}.pkl"
+        with open(os.path.join(save_dir, case_family, input_fn), mode='rb') as fp:
+            greedy_input_config = pickle.load(fp)
+        n_greedy_turbines = len(greedy_input_config["controller"]["target_turbine_indices"])
+        compute_df.loc[(compute_df["controller_class"] == "GreedyController"), ("FarmPower", "mean")] = compute_df.loc[(compute_df["controller_class"] == "GreedyController"), ("FarmPower", "mean")] / n_greedy_turbines
+        
+        if (compute_df["prediction_timedelta"] == 0.0).any():
+            no_pred_val = plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "GreedyController"), ("FarmPower", "mean")].iloc[0]
+            plot_df.loc[(plot_df["controller_class"] == "GreedyController"), ("FarmPower", "mean")] \
+                = 100 * (plot_df.loc[(plot_df["controller_class"] == "GreedyController"), ("FarmPower", "mean")] - no_pred_val) / no_pred_val
+    
+    lut_compute_df = compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), :]
+    if lut_compute_df.shape[0]:
+        case_family = lut_compute_df.index.get_level_values("CaseFamily")[0]
+        case_name = lut_compute_df.index.get_level_values("CaseName")[0]
+        input_fn = f"input_config_case_{case_name}.pkl"
+        with open(os.path.join(save_dir, case_family, input_fn), mode='rb') as fp:
+            lut_input_config = pickle.load(fp)
+        n_lut_turbines = len(lut_input_config["controller"]["target_turbine_indices"])
+        compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPower", "mean")] = compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPower", "mean")] / n_lut_turbines
+
+        if (compute_df["prediction_timedelta"] == 0.0).any():
+            if lut_compute_df.shape[0]:
+                compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPower", "mean")] = 100 * (compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPower", "mean")] - compute_df.loc[(compute_df["prediction_timedelta"] == 0) & (compute_df["controller_class"] == "GreedyController"), ("FarmPower", "mean")].iloc[0]) / compute_df.loc[(compute_df["prediction_timedelta"] == 0) & (compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPower", "mean")].iloc[0]
+            else:
+                compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPower", "mean")] = 100 * (compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPower", "mean")] - compute_df.loc[(compute_df["prediction_timedelta"] == 0) & (compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPower", "mean")].iloc[0]) / compute_df.loc[(compute_df["prediction_timedelta"] == 0) & (compute_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPower", "mean")].iloc[0]
+
+            no_pred_val = plot_df.loc[(plot_df["prediction_timedelta"] == 0) & (plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPower", "mean")].iloc[0]
+            plot_df.loc[(plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPower", "mean")] \
+                = 100 * (plot_df.loc[(plot_df["controller_class"] == "LookupBasedWakeSteeringController"), ("FarmPower", "mean")] - no_pred_val) / no_pred_val
+
+        compute_df.loc[(compute_df["controller_class"] == "LookupBasedWakeSteeringController"), [("prediction_timedelta", ""), ("FarmPower", "mean")]].reset_index(drop=True)
+        
+    x_vals = np.sort(pd.unique(plot_df["prediction_timedelta"]))
+    xlim = (x_vals.min(), x_vals.max())
+    fig, ax = plt.subplots(1, len(controllers), sharey=False, figsize=(15.11, 7.94))
+    ax = np.atleast_1d(ax)
+    for c, ctrl in enumerate(controllers):
+        sns.lineplot(plot_df.loc[plot_df["controller_class"] == ctrl, :], 
+                    x="prediction_timedelta", y=("FarmPower", "mean"), ax=ax[c])
+        ax[c].set_ylabel("")
+        ax[c].set_xlabel("Prediction Horizon (s)")
+        # ax[c].set_title(f"{controller_labels[ctrl]} Mean Farm Power (MW)")
+        ax[c].set_title(f"{controller_labels[ctrl]} Mean Farm\nPower Gain (%)")
+        ax[c].set_xlim(xlim)
+        ax[c].set_xticks(x_vals[1::2])
+        ax[c].tick_params("x", rotation=45)
+    plt.tight_layout()
+    fig.savefig(os.path.join(save_dir, f"{label}_power_vs_prediction_time.png"))
+
+def plot_agg_metrics_vs_forecaster(agg_df, save_dir, label, controller_labels, agg_metrics=None):
+    
+    metric_labels = {"FarmPower": "Farm Power Change\nvs. Persistence (%)", "YawAngleChangeAbs": "Yaw Actuation Change\nvs. Persistence (%)"}
+    # controllers = pd.unique(agg_df["controller_class"])
+    # controllers = controller_labels.keys() & set(pd.unique(agg_df["controller_class"]))
+    controllers = list(controller_labels.keys())
+    if agg_metrics is None:
+        agg_metrics = [("FarmPower", "mean"), ("YawAngleChangeAbs",  "mean")]
+    
+    sns.set_style("whitegrid")
+    plot_df = agg_df.copy()
+    plot_df["prediction_timedelta"] = plot_df["prediction_timedelta"].dt.total_seconds()
+    # plot_df[("FarmPower", "mean")] = plot_df[("FarmPower", "mean")] / 1e6
+    plot_df = plot_df[[("controller_class", ""), ("wind_forecast_class", ""), ("prediction_timedelta", ""), ("uncertain", "")] + agg_metrics]
+    plot_df.columns = plot_df.columns.droplevel(1)
+    reduced_agg_metrics = [m if not isinstance(m, tuple) else m[0] for m in agg_metrics]
+    plot_df = pd.melt(plot_df, id_vars=["controller_class", "wind_forecast_class", "prediction_timedelta", "uncertain"], value_vars=reduced_agg_metrics)
+    plot_df = plot_df.loc[plot_df["controller_class"].isin(controllers)]
+    # fig, ax = plt.subplots(1, len(controllers), sharey=True)
+    # fig = plt.figure()
+    # ax = np.atleast_1d(ax)
+    # 
+    
+    for v, var in enumerate(reduced_agg_metrics):
+        for c, ctrl in enumerate(controllers):
+            persistent_cond = (plot_df["controller_class"] == ctrl.replace("True", "False")) & (plot_df["variable"] == var) # fetch static case for persistent
+            base_val = plot_df.loc[(plot_df["wind_forecast_class"] == "PersistenceForecast") & persistent_cond, "value"].iloc[0]
+            cond = (plot_df["controller_class"] == ctrl) & (plot_df["variable"] == var)
+            plot_df.loc[(plot_df["wind_forecast_class"] != "PersistenceForecast") & cond, "value"] = 100 * (plot_df.loc[cond, "value"] - base_val) / base_val
+
+    # plot_df.loc[(plot_df["controller_class"] == ctrl) & (plot_df["variable"] == "YawAngleChangeAbs"), "value"] = plot_df.loc[(plot_df["controller_class"] == ctrl) & (plot_df["variable"] == "YawAngleChangeAbs"), "value"] / 100
+    
+    ax = sns.catplot(plot_df.loc[((plot_df["wind_forecast_class"] != "PersistenceForecast")), :], kind="bar",
+                x="wind_forecast_class", y="value", col="variable", hue="controller_class", 
+                sharey=False, errorbar=('pi', 100))
+    
+    for v, var in enumerate(reduced_agg_metrics):
+        for f, fcst in enumerate(ax.axes[0, v].get_xticklabels()):
+            for c, ctrl in enumerate(controllers):
+                cond = (plot_df["controller_class"] == ctrl) & (plot_df["wind_forecast_class"] == fcst.get_text()) & (plot_df["variable"] == var)
+                # print_val = val = plot_df.loc[cond, 'value'].mean()
+                
+                # x = fcst._x - (0.4 if c == 0 else 0.0)
+                
+                # # y = val + (0.01 * max(1, 100*np.round(abs(val)/100))) if val > 0 else val - (0.05 * max(1, 100*np.round(abs(val)/100)))
+                # y = val + 0.02 * abs(val) if val > 0 else val - 0.2 * abs(val)
+                
+                # if abs(print_val) < 1.0:
+                #     ax.axes[0, v].annotate(text=f"{print_val:.1g}%", xy=(x, y))
+                # elif abs(print_val) >= 100:
+                #     ax.axes[0, v].annotate(text=f"{print_val:.3g}%", xy=(x, y))
+                # else:
+                #     ax.axes[0, v].annotate(text=f"{print_val:.2g}%", xy=(x, y))
+        
+        # ax.axes[0, v].set_yticklabels([])
+        ax.axes[0, v].set_ylabel("")
+        ax.axes[0, v].set_xlabel("Forecaster")
+        # ax[c].set_title(f"{controller_labels[ctrl]} Mean Farm Power (MW)")
+        # ax.axes[0, v].get_yaxis().set_visible(False)
+        ax.axes[0, v].set_title(f"{metric_labels[var]}")
+
+    
+    for v, var in enumerate(reduced_agg_metrics):
+        x_vals = ax.axes[0, v].get_xticklabels()
+        x_vals = [" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", label.get_text()).group())) 
+                    if ("Forecast" in label.get_text()) else (label.get_text().capitalize() if not label.get_text()[0].isupper() else label.get_text()).replace("_", " ") for label in x_vals]
+        
+        x_vals = ["".join(label.split(" ")) if all(l.isupper() or l.isspace() for l in label) else label for label in x_vals]
+
+        ax.axes[0, v].set_xticklabels(x_vals)
+        ax.axes[0, v].tick_params("x", rotation=35)
+    
+    for c, ctrl in enumerate(controllers):
+        ax.legend.get_texts()[c].set_text(controller_labels[ax.legend.get_texts()[c]._text])
+    
+    fig = plt.gcf()
+    fig.set_size_inches((15, 8))
+    plt.tight_layout()
+    fig.subplots_adjust(right=0.825)
+    ax.legend.set_title("")
+    ax.legend.set_loc("upper right")
+    ax.legend.set_bbox_to_anchor((0.0, 0.0, 1.0, 0.9))
+    
+    fig.savefig(os.path.join(save_dir, f"{label}_power_vs_forecaster.png"))
+
 def read_case_family_time_series_data(case_family, save_dir):
     # if reaggregate_simulations, or if the aggregated time series data doesn't exist for this case family, read the csv files for that case family
     all_ts_df_path = os.path.join(save_dir, case_family, "time_series_results_all.csv") 
     logging.info(f"Reading combined case family {case_family} time-series dataframe.")
-    return pd.read_csv(all_ts_df_path, index_col=[0, 1])
+    
+    # with open(all_ts_df_path, 'r', newline='') as fp:
+    #     csv_reader = csv.reader(fp)
+    #     columns = next(csv_reader)
+    # [col for col in columns if "OfflineStatus" in col]
+    # **{col: object for col in columns if "OfflineStatus" in col}
+    df = pl.read_csv(all_ts_df_path,
+                     schema_overrides={**{"CaseName": str}})
+    df = df.to_pandas().set_index(["CaseFamily", "CaseName"])
+    
+    return df
 
 def write_case_family_time_series_data(case_family, new_time_series_df, save_dir):
     all_ts_df_path = os.path.join(save_dir, case_family, "time_series_results_all.csv") # if reaggregate_simulations, or if the aggregated time series data doesn't exist for this case family, read the csv files for that case family
     logging.info(f"Writing combined case family {case_family} time-series dataframe.")
     logging.info(f"Directory of time_series_results_all.csv: {os.path.join(save_dir, case_family)}")
 
-    new_time_series_df.loc[new_time_series_df.index.get_level_values("CaseFamily") == case_family, :].to_csv(all_ts_df_path)
+    new_time_series_df.loc[new_time_series_df.index.get_level_values("CaseFamily") == case_family, :].to_csv(all_ts_df_path, index=True)
 
 def read_time_series_data(results_path, input_dict_path):
-    # TODO fix scalability Greedy/LUT offline status at end for 25 turbines
           
-    warnings.simplefilter('error', pd.errors.DtypeWarning)
-    try:
+    # warnings.simplefilter('error', pd.errors.DtypeWarning)
+    # try:
         # get column names 
-        with open(results_path, 'r', newline='') as fp:
-            csv_reader = csv.reader(fp)
-            columns = next(csv_reader)
-            columns = columns[3:] # remove index rows
-        bool_cols = [col for col in columns if "TurbineOfflineStatus" in col]
-        if bool_cols:
-            df = pd.read_csv(results_path, index_col=[0,1], dtype={col: object for col in bool_cols}) # necessary if contains NaNs
-            for col in bool_cols:
-                df.loc[(df[col] == "False") | (df[col].isna()), col] = False
-                df[col] = df[col].astype(bool)
-        else:
-            df = pd.read_csv(results_path, index_col=[0,1])
-        logging.info(f"Read {results_path}")
-        # df = df.set_index(["CaseFamily", "CaseName"])
+        # with open(results_path, 'r', newline='') as fp:
+        #     csv_reader = csv.reader(fp)
+        #     columns = next(csv_reader)
+        #     columns = columns[3:] # remove index rows
+        # bool_cols = [col for col in columns if "TurbineOfflineStatus" in col]
+        # if bool_cols:
+        #     df = pd.read_csv(results_path, index_col=[0,1], dtype={col: object for col in bool_cols}) # necessary if contains NaNs
+        #     for col in bool_cols:
+        #         df.loc[(df[col] == "False") | (df[col].isna()), col] = False
+        #         df[col] = df[col].astype(bool)
+        # else:
+    df = pd.read_csv(results_path, low_memory=False)
+    
+    # df = df.drop(columns=[col for col in df.columns if "TrueTurbineWindSpeed" in col])
+    # df.to_csv(results_path, index=False)
+    logging.info(f"Read {results_path}")
         
-    except pd.errors.DtypeWarning as w:
-        logging.info(f"DtypeWarning with combined time series file {results_path}: {w}")
-        warnings.simplefilter('ignore', pd.errors.DtypeWarning)
-        bad_df = pd.read_csv(results_path, index_col=[0,1])
-        bad_cols = [bad_df.columns[int(s) - len(bad_df.index.names)] for s in re.findall(r"(?<=Columns \()(.*)(?=\))", w.args[0])[0].split(",")]
-        bad_df.loc[bad_df[bad_cols].isna().any(axis=1)][["Time", "CaseFamily", "CaseName"]].values
-        bad_df["Time"].max()
-    except pd.errors.EmptyDataError as e:
-        logging.info(f"Dataframe {results_path} not read correctly due to error {e}")
-        
+    df["CaseName"] = str(re.search("(?<=case_)\\d+", os.path.basename(results_path)).group())
+    df["CaseFamily"] = os.path.basename(os.path.dirname(results_path))
+    df = df.set_index(["CaseFamily", "CaseName"])
+    df["WindSeed"] = int(re.search("(?<=seed_)\\d+", os.path.basename(results_path)).group())
+    
+    # if "Time" not in df.columns:
+    #     df["Time"] = np.arange(df.shape[0]) - 1
+    #     df.to_csv(results_path, index=False)
+    # except pd.errors.DtypeWarning as w:
+    #     logging.info(f"DtypeWarning with combined time series file {results_path}: {w}")
+    #     warnings.simplefilter('ignore', pd.errors.DtypeWarning)
+    #     bad_df = pd.read_csv(results_path, index_col=[0,1])
+    #     bad_cols = [bad_df.columns[int(s) - len(bad_df.index.names)] for s in re.findall(r"(?<=Columns \()(.*)(?=\))", w.args[0])[0].split(",")]
+    #     bad_df.loc[bad_df[bad_cols].isna().any(axis=1)][["Time", "CaseFamily", "CaseName"]].values
+    #     bad_df["Time"].max()
+    # except pd.errors.EmptyDataError as e:
+    #     logging.info(f"Dataframe {results_path} not read correctly due to error {e}")
+    
+    # TEMP
+    # cn = df.index.get_level_values("CaseName")[0]
+    # inp_info = pd.read_csv(os.path.join(os.path.dirname(results_path), "case_descriptions.csv"))
+    # ctrl_cls = re.search("(?<=controller_class_)(\\w+)(?=_controller_dt)", cn).group()
+    # ctrl_dt = int(re.search("(?<=controller_dt_)(\\d+)(?=_prediction_timedelta)", cn).group())
+    # prediction_timedelta = int(re.search("(?<=prediction_timedelta_)(\\d+)(?=_target_turbine_indices)", cn).group())
+    # tgt_turb_ind = re.search("(?<=target_turbine_indices_)(.*)(?=_uncertain)", cn).group()
+    # unc_flag = True if re.search("(?<=uncertain_)(.*)(?=_wind_forecast_class)", cn).group() == "True" else False
+    # wind_fct_cls = re.search("(?<=wind_forecast_class_)(\\w+)$", cn).group()
+    # new_case_name = inp_info.loc[(inp_info["controller_class"] == ctrl_cls) & (inp_info["controller_dt"] == ctrl_dt) & (inp_info["prediction_timedelta"] == prediction_timedelta) & (inp_info["target_turbine_indices"] == tgt_turb_ind) & (inp_info["uncertain"] == unc_flag) & (inp_info["wind_forecast_class"] == wind_fct_cls), :].index[0]
+    # df.index = df.index.set_levels([new_case_name], level="CaseName")
+    # df.to_csv(results_path)
+    
     with open(input_dict_path, 'rb') as fp:
         input_config = pickle.load(fp)
     
@@ -149,25 +330,26 @@ def read_time_series_data(results_path, input_dict_path):
     norm_yaw_angle_changes = (df[yaw_change_cols] / (input_config["controller"]["controller_dt"] * input_config["controller"]["yaw_rate"])).values
     df["RunningOptimizationCostTerm_1"] = np.sum(np.stack([0.5 * (norm_yaw_angle_changes[:, i])**2 * R for i in range(norm_yaw_angle_changes.shape[1])], axis=1), axis=1)
     df["TotalRunningOptimizationCost"] = df["RunningOptimizationCostTerm_0"] + df["RunningOptimizationCostTerm_1"]
+    
     return df.iloc[1:] # drop initial row containing init yaw angles, wind passed to floris etc
 
 def generate_outputs(agg_results_df, save_dir):
 
     # agg_results_df.sort_values(by=("RelativeTotalRunningOptimizationCostMean", "mean"), ascending=True)[("RelativeTotalRunningOptimizationCostMean", "mean")]
-    # agg_results_df.sort_values(by=("YawAngleChangeAbsMean", "mean"), ascending=True)[("YawAngleChangeAbsMean", "mean")]
-    # agg_results_df.sort_values(by=("FarmPowerMean", "mean"), ascending=False)[("FarmPowerMean", "mean")]
+    # agg_results_df.sort_values(by=("YawAngleChangeAbs", "mean"), ascending=True)[("YawAngleChangeAbs", "mean")]
+    # agg_results_df.sort_values(by=("FarmPower", "mean"), ascending=False)[("FarmPower", "mean")]
 
-    # agg_results_df[("FarmPowerMean", "mean")]
+    # agg_results_df[("FarmPower", "mean")]
 
 
     # agg_results_df.sort_values(by=("TotalRunningOptimizationCostMean", "mean"), ascending=True).groupby(level=0)[("TotalRunningOptimizationCostMean", "mean")]
     # agg_results_df[("TotalRunningOptimizationCostMean", "mean")].sort_values(ascending=True)
 
-    # (-(agg_results_df[("FarmPowerMean", "mean")] * 1e-8) + (agg_results_df[("YawAngleChangeAbsMean", "mean")])).sort_values(ascending=True)
-    # (agg_results_df[("FarmPowerMean", "mean")].sort_values(ascending=False)).to_csv("./mpc_configs_maxpower.csv")
-    # (agg_results_df[("YawAngleChangeAbsMean", "mean")].sort_values(ascending=True)).to_csv("./mpc_configs_minyaw.csv")
-    # ((agg_results_df[("FarmPowerMean", "mean")] * 1e-7) - agg_results_df[("YawAngleChangeAbsMean", "mean")]).sort_values(ascending=False).to_csv("./mpc_configs_mincost")
-    # ((agg_results_df[("FarmPowerMean", "mean")] * 1e-7) / agg_results_df[("YawAngleChangeAbsMean", "mean")]).sort_values(ascending=False).to_csv("./mpc_configs_max_power_yaw_ratio.csv")
+    # (-(agg_results_df[("FarmPower", "mean")] * 1e-8) + (agg_results_df[("YawAngleChangeAbs", "mean")])).sort_values(ascending=True)
+    # (agg_results_df[("FarmPower", "mean")].sort_values(ascending=False)).to_csv("./mpc_configs_maxpower.csv")
+    # (agg_results_df[("YawAngleChangeAbs", "mean")].sort_values(ascending=True)).to_csv("./mpc_configs_minyaw.csv")
+    # ((agg_results_df[("FarmPower", "mean")] * 1e-7) - agg_results_df[("YawAngleChangeAbs", "mean")]).sort_values(ascending=False).to_csv("./mpc_configs_mincost")
+    # ((agg_results_df[("FarmPower", "mean")] * 1e-7) / agg_results_df[("YawAngleChangeAbs", "mean")]).sort_values(ascending=False).to_csv("./mpc_configs_max_power_yaw_ratio.csv")
 
     # # agg_results_df.groupby("CaseFamily", group_keys=False).apply(lambda x: x.sort_values(by=("RelativeTotalRunningOptimizationCostMean", "mean"), ascending=True).head(3))[("RelativeTotalRunningOptimizationCostMean", "mean")]
     # x = agg_results_df.loc[agg_results_df[("RelativeYawAngleChangeAbsMean", "mean")] > 0, :].groupby("CaseFamily", group_keys=False).apply(lambda x: x.sort_values(by=("RelativeYawAngleChangeAbsMean", "mean"), ascending=True).head(10))[("RelativeYawAngleChangeAbsMean", "mean")]
@@ -196,35 +378,35 @@ def generate_outputs(agg_results_df, save_dir):
     #          "wind_preview_type", "warm_start", 
     #           "horizon_length", "scalability"]):
     values = {"Baseline": {"labels": ["Greedy", "LUT"], 
-                           "farm_power": [get_result('baseline_controllers', 'Greedy', 'FarmPowerMean') / 1e6, get_result('baseline_controllers', 'LUT', 'FarmPowerMean') / 1e6],
-                           "yaw_change": [get_result('baseline_controllers', 'Greedy', 'YawAngleChangeAbsMean'), get_result('baseline_controllers', 'LUT', 'YawAngleChangeAbsMean')],
+                           "farm_power": [get_result('baseline_controllers', 'Greedy', 'FarmPower') / 1e6, get_result('baseline_controllers', 'LUT', 'FarmPower') / 1e6],
+                           "yaw_change": [get_result('baseline_controllers', 'Greedy', 'YawAngleChangeAbs'), get_result('baseline_controllers', 'LUT', 'YawAngleChangeAbs')],
                            "conv_time": [get_result('baseline_controllers', 'Greedy', 'OptimizationConvergenceTime'), get_result('baseline_controllers', 'LUT', 'OptimizationConvergenceTime')]
                            },
                 "Solver": {"labels": ["SLSQP", "Sequential SLSQP", "Serial Refine"], 
-                           "farm_power": [get_result('solver_type', 'SLSQP', 'FarmPowerMean') / 1e6, get_result('solver_type', 'Sequential SLSQP', 'FarmPowerMean') / 1e6, get_result('solver_type', 'Sequential Refine', 'FarmPowerMean') / 1e6],
-                           "yaw_change": [get_result('solver_type', 'SLSQP', 'YawAngleChangeAbsMean'), get_result('solver_type', 'Sequential SLSQP', 'YawAngleChangeAbsMean'), get_result('solver_type', 'Sequential Refine', 'YawAngleChangeAbsMean')],
+                           "farm_power": [get_result('solver_type', 'SLSQP', 'FarmPower') / 1e6, get_result('solver_type', 'Sequential SLSQP', 'FarmPower') / 1e6, get_result('solver_type', 'Sequential Refine', 'FarmPower') / 1e6],
+                           "yaw_change": [get_result('solver_type', 'SLSQP', 'YawAngleChangeAbs'), get_result('solver_type', 'Sequential SLSQP', 'YawAngleChangeAbs'), get_result('solver_type', 'Sequential Refine', 'YawAngleChangeAbs')],
                            "conv_time": [get_result('solver_type', 'SLSQP', 'OptimizationConvergenceTime'), get_result('solver_type', 'Sequential SLSQP', 'OptimizationConvergenceTime'), get_result('solver_type', 'Sequential Refine', 'OptimizationConvergenceTime')]
                            },
                 "Wind Preview Type": {"labels": ["Perfect", "Persistent", 
                                                   "$3$ Elliptical Interval Samples", "$5$ Elliptical Interval Samples", "$11$ Elliptical Interval Samples", 
                                                   "$3$ Rectangular Interval Samples", "$5$ Rectangular Interval Samples", "$11$ Rectangular Interval Samples", 
                                                   "$25$ Stochastic Samples", "$50$ Stochastic Samples", "$100$ Stochastic Samples"], 
-                           "farm_power": ([get_result('wind_preview_type', 'Perfect', 'FarmPowerMean') / 1e6, get_result('wind_preview_type', 'Persistent', 'FarmPowerMean') / 1e6] 
-                                          + [get_result('wind_preview_type', f"Stochastic Interval Elliptical {x}", 'FarmPowerMean') / 1e6 for x in [3, 5, 11]] 
-                                          + [get_result('wind_preview_type', f"Stochastic Interval Rectangular {x}", 'FarmPowerMean') / 1e6 for x in [3, 5, 11]] 
-                                          + [get_result('wind_preview_type', f"Stochastic Sample {x}", 'FarmPowerMean') / 1e6 for x in [25, 50, 100]]),
-                           "yaw_change": ([get_result('wind_preview_type', 'Perfect', 'YawAngleChangeAbsMean'), get_result('wind_preview_type', 'Persistent', 'YawAngleChangeAbsMean')] 
-                                          + [get_result('wind_preview_type', f"Stochastic Interval Elliptical {x}", 'YawAngleChangeAbsMean') for x in [3, 5, 11]] 
-                                          + [get_result('wind_preview_type', f"Stochastic Interval Rectangular {x}", 'YawAngleChangeAbsMean') for x in [3, 5, 11]] 
-                                          + [get_result('wind_preview_type', f"Stochastic Sample {x}", 'YawAngleChangeAbsMean') for x in [25, 50, 100]]),
+                           "farm_power": ([get_result('wind_preview_type', 'Perfect', 'FarmPower') / 1e6, get_result('wind_preview_type', 'Persistent', 'FarmPower') / 1e6] 
+                                          + [get_result('wind_preview_type', f"Stochastic Interval Elliptical {x}", 'FarmPower') / 1e6 for x in [3, 5, 11]] 
+                                          + [get_result('wind_preview_type', f"Stochastic Interval Rectangular {x}", 'FarmPower') / 1e6 for x in [3, 5, 11]] 
+                                          + [get_result('wind_preview_type', f"Stochastic Sample {x}", 'FarmPower') / 1e6 for x in [25, 50, 100]]),
+                           "yaw_change": ([get_result('wind_preview_type', 'Perfect', 'YawAngleChangeAbs'), get_result('wind_preview_type', 'Persistent', 'YawAngleChangeAbs')] 
+                                          + [get_result('wind_preview_type', f"Stochastic Interval Elliptical {x}", 'YawAngleChangeAbs') for x in [3, 5, 11]] 
+                                          + [get_result('wind_preview_type', f"Stochastic Interval Rectangular {x}", 'YawAngleChangeAbs') for x in [3, 5, 11]] 
+                                          + [get_result('wind_preview_type', f"Stochastic Sample {x}", 'YawAngleChangeAbs') for x in [25, 50, 100]]),
                            "conv_time": ([get_result('wind_preview_type', 'Perfect', 'OptimizationConvergenceTime'), get_result('wind_preview_type', 'Persistent', 'OptimizationConvergenceTime')] 
                                           + [get_result('wind_preview_type', f"Stochastic Interval Elliptical {x}", 'OptimizationConvergenceTime') for x in [3, 5, 11]] 
                                           + [get_result('wind_preview_type', f"Stochastic Interval Rectangular {x}", 'OptimizationConvergenceTime') for x in [3, 5, 11]] 
                                           + [get_result('wind_preview_type', f"Stochastic Sample {x}", 'OptimizationConvergenceTime') for x in [25, 50, 100]]),
                            },
                 "Warm-Starting Method": {"labels": ["Greedy", "LUT", "Previous Solution"], 
-                           "farm_power": [get_result('warm_start', 'Greedy', 'FarmPowerMean') / 1e6, get_result('warm_start', 'LUT', 'FarmPowerMean') / 1e6, get_result('warm_start', 'Previous', 'FarmPowerMean') / 1e6],
-                           "yaw_change": [get_result('warm_start', 'Greedy', 'YawAngleChangeAbsMean'), get_result('warm_start', 'LUT', 'YawAngleChangeAbsMean'), get_result('warm_start', 'Previous', 'YawAngleChangeAbsMean')],
+                           "farm_power": [get_result('warm_start', 'Greedy', 'FarmPower') / 1e6, get_result('warm_start', 'LUT', 'FarmPower') / 1e6, get_result('warm_start', 'Previous', 'FarmPower') / 1e6],
+                           "yaw_change": [get_result('warm_start', 'Greedy', 'YawAngleChangeAbs'), get_result('warm_start', 'LUT', 'YawAngleChangeAbs'), get_result('warm_start', 'Previous', 'YawAngleChangeAbs')],
                            "conv_time": [get_result('warm_start', 'Greedy', 'OptimizationConvergenceTime'), get_result('warm_start', 'LUT', 'OptimizationConvergenceTime'), get_result('warm_start', 'Previous', 'OptimizationConvergenceTime')]
                            }}
     
@@ -246,7 +428,7 @@ def generate_outputs(agg_results_df, save_dir):
             values[case_family][val_type] = [(val, grey_shades[v]) for v, val in enumerate(values[case_family][val_type])]
 
     compare_results_latex = f"\\begin{{tabular}}{{l|lllll}}\n"
-    compare_results_latex += f"\\textbf{{Case Family}} & \\textbf{{Case Name}} & \\thead{{\\textbf{{Mean}} \\\\ \\textbf{{Farm Power [MW]}}}} & \\thead{{\\textbf{{Mean Absolute}} \\\\ \\textbf{{Yaw Angle Change [$^\\circ$]}}}} & \\thead{{\\textbf{{Mean}} \\\\ \\textbf{{Convergence Time [s]}}}} \\\\ \\hline \n" 
+    compare_results_latex += f"\\textbf{{Case Family}} & \\textbf{{Case Name}} & \\thead{{\\textbf{{Mean}} \\\\ \\textbf{{Farm Power (MW)}}}} & \\thead{{\\textbf{{Mean Absolute}} \\\\ \\textbf{{Yaw Angle Change ($^\\circ$)}}}} & \\thead{{\\textbf{{Mean}} \\\\ \\textbf{{Convergence Time (s)}}}} \\\\ \\hline \n" 
     
     for case_family, vals in values.items():
         compare_results_latex += f"\\multirow{{3}}{{*}}{{\\textbf{{{case_family}}}}} & {vals['labels'][0]} & ${vals['farm_power'][0][0]:.3f}$ \\cellcolor[gray]{{{vals['farm_power'][0][1]}}} & ${vals['yaw_change'][0][0]:.3f}$ \\cellcolor[gray]{{{vals['yaw_change'][0][1]}}} & ${vals['conv_time'][0][0]:.2f}$ \\cellcolor[gray]{{{vals['conv_time'][0][1]}}} \\\\ \n"
@@ -276,58 +458,62 @@ def generate_outputs(agg_results_df, save_dir):
 
     # compare_results_latex2 = (
     #     f"\\begin{{tabular}}{{l|lllll}}\n"
-    #     f"\\textbf{{Case Family}} & \\textbf{{Case Name}} & \\thead{{\\textbf{{Mean}} \\\\ \\textbf{{Farm Power [MW]}}}}                                                                    & \\thead{{\\textbf{{Mean Absolute}} \\\\ \\textbf{{Yaw Angle Change [$^\\circ$]}}}}                           & \\thead{{\\textbf{{Mean}} \\\\ \\textbf{{Convergence Time [s]}}}} \\\\ \\hline \n"
-    #     f"\\multirow{{3}}{{*}}{{\\textbf{{Baseline}}}} & Greedy                       & ${get_result('baseline_controllers', 'Greedy', 'FarmPowerMean') / 1e6:.3f}$                           & ${get_result('baseline_controllers', 'Greedy', 'YawAngleChangeAbsMean'):.3f}$                                & ${get_result('baseline_controllers', 'Greedy', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                           LUT                           & ${get_result('baseline_controllers', 'LUT', 'FarmPowerMean') / 1e6:.3f}$                              & ${get_result('baseline_controllers', 'LUT', 'YawAngleChangeAbsMean'):.3f}$                                   & ${get_result('baseline_controllers', 'LUT', 'OptimizationConvergenceTime'):.2f}$ \\\\ \\hline \n"
-    #     f"\\multirow{{3}}{{*}}{{\\textbf{{Solver}}}} & \\textbf{{SLSQP}}            & ${get_result('solver_type', 'SLSQP', 'FarmPowerMean') / 1e6:.3f}$                                     & ${get_result('solver_type', 'SLSQP', 'YawAngleChangeAbsMean'):.3f}$                                          & ${get_result('solver_type', 'SLSQP', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                          Sequential SLSQP               & ${get_result('solver_type', 'Sequential SLSQP', 'FarmPowerMean') / 1e6:.3f}$                          & ${get_result('solver_type', 'Sequential SLSQP', 'YawAngleChangeAbsMean'):.3f}$                               & ${get_result('solver_type', 'Sequential SLSQP', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                          Serial Refine                  & ${get_result('solver_type', 'Sequential Refine', 'FarmPowerMean') / 1e6:.3f}$                         & ${get_result('solver_type', 'Sequential Refine', 'YawAngleChangeAbsMean'):.3f}$                              & ${get_result('solver_type', 'Sequential Refine', 'OptimizationConvergenceTime'):.2f}$  \\\\ \\hline \n"
-    #     f"\\multirow{{3}}{{*}}{{\\textbf{{Wind Preview Model}}}} & Perfect          & ${get_result('wind_preview_type', 'Perfect', 'FarmPowerMean') / 1e6:.3f}$                             & ${get_result('wind_preview_type', 'Perfect', 'YawAngleChangeAbsMean'):.3f}$                                  & ${get_result('wind_preview_type', 'Perfect', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                      Persistent         & ${get_result('wind_preview_type', 'Persistent', 'FarmPowerMean') / 1e6:.3f}$                          & ${get_result('wind_preview_type', 'Persistent', 'YawAngleChangeAbsMean'):.3f}$                               & ${get_result('wind_preview_type', 'Persistent', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                      $3$ Elliptical Interval Samples     & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 3', 'FarmPowerMean') / 1e6:.3f}$    & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 3', 'YawAngleChangeAbsMean'):.3f}$         & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 3', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                      $5$ Elliptical Interval Samples     & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 5', 'FarmPowerMean') / 1e6:.3f}$    & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 5', 'YawAngleChangeAbsMean'):.3f}$         & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 5', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                      $7$ Elliptical Interval Samples     & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 7', 'FarmPowerMean') / 1e6:.3f}$    & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 7', 'YawAngleChangeAbsMean'):.3f}$         & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 7', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                      $9$ Elliptical Interval Samples     & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 9', 'FarmPowerMean') / 1e6:.3f}$    & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 9', 'YawAngleChangeAbsMean'):.3f}$         & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 9', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                      $11$ Elliptical Interval Samples    & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 11', 'FarmPowerMean') / 1e6:.3f}$   & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 11', 'YawAngleChangeAbsMean'):.3f}$        & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 11', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                      $3$ Rectangular Interval Samples     & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 3', 'FarmPowerMean') / 1e6:.3f}$   & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 3', 'YawAngleChangeAbsMean'):.3f}$        & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 3', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                      $5$ Rectangular Interval Samples     & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 5', 'FarmPowerMean') / 1e6:.3f}$   & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 5', 'YawAngleChangeAbsMean'):.3f}$        & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 5', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                      $7$ Rectangular Interval Samples     & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 7', 'FarmPowerMean') / 1e6:.3f}$   & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 7', 'YawAngleChangeAbsMean'):.3f}$        & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 7', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                      $9$ Rectangular Interval Samples     & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 9', 'FarmPowerMean') / 1e6:.3f}$   & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 9', 'YawAngleChangeAbsMean'):.3f}$        & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 9', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                      $11$ Rectangular Interval Samples    & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 11', 'FarmPowerMean') / 1e6:.3f}$  & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 11', 'YawAngleChangeAbsMean'):.3f}$       & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 11', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                      $25$ Stochastic Samples     & ${get_result('wind_preview_type', 'Stochastic Sample 25', 'FarmPowerMean') / 1e6:.3f}$                & ${get_result('wind_preview_type', 'Stochastic Sample 25', 'YawAngleChangeAbsMean'):.3f}$                     & ${get_result('wind_preview_type', 'Stochastic Sample 25', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                      $50$ Stochastic Samples     & ${get_result('wind_preview_type', 'Stochastic Sample 50', 'FarmPowerMean') / 1e6:.3f}$                & ${get_result('wind_preview_type', 'Stochastic Sample 50', 'YawAngleChangeAbsMean'):.3f}$                     & ${get_result('wind_preview_type', 'Stochastic Sample 50', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                      $100$ Stochastic Samples    & ${get_result('wind_preview_type', 'Stochastic Sample 100', 'FarmPowerMean') / 1e6:.3f}$               & ${get_result('wind_preview_type', 'Stochastic Sample 100', 'YawAngleChangeAbsMean'):.3f}$                    & ${get_result('wind_preview_type', 'Stochastic Sample 100', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                      $250$ Stochastic Samples    & ${get_result('wind_preview_type', 'Stochastic Sample 250', 'FarmPowerMean') / 1e6:.3f}$               & ${get_result('wind_preview_type', 'Stochastic Sample 250', 'YawAngleChangeAbsMean'):.3f}$                    & ${get_result('wind_preview_type', 'Stochastic Sample 250', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                      $500$ Stochastic Samples    & ${get_result('wind_preview_type', 'Stochastic Sample 500', 'FarmPowerMean') / 1e6:.3f}$               & ${get_result('wind_preview_type', 'Stochastic Sample 500', 'YawAngleChangeAbsMean'):.3f}$                    & ${get_result('wind_preview_type', 'Stochastic Sample 500', 'OptimizationConvergenceTime'):.2f}$ \\\\ \\hline \n"
-    #     f"\\multirow{{3}}{{*}}{{\\textbf{{Warm-Starting Method}}}} & Greedy         & ${get_result('warm_start', 'Greedy', 'FarmPowerMean') / 1e6:.3f}$                                     & ${get_result('warm_start', 'Greedy', 'YawAngleChangeAbsMean'):.3f}$                                          & ${get_result('warm_start', 'Greedy', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                       \\textbf{{LUT}}   & ${get_result('warm_start', 'LUT', 'FarmPowerMean') / 1e6:.3f}$                                        & ${get_result('warm_start', 'LUT', 'YawAngleChangeAbsMean'):.3f}$                                             & ${get_result('warm_start', 'LUT', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                       Previous Solution & ${get_result('warm_start', 'Previous', 'FarmPowerMean') / 1e6:.3f}$                                   & ${get_result('warm_start', 'Previous', 'YawAngleChangeAbsMean'):.3f}$                                        & ${get_result('warm_start', 'Previous', 'OptimizationConvergenceTime'):.2f}$ \\\\ \\hline \n"
+    #     f"\\textbf{{Case Family}} & \\textbf{{Case Name}} & \\thead{{\\textbf{{Mean}} \\\\ \\textbf{{Farm Power (MW)}}}}                                                                    & \\thead{{\\textbf{{Mean Absolute}} \\\\ \\textbf{{Yaw Angle Change ($^\\circ$)}}}}                           & \\thead{{\\textbf{{Mean}} \\\\ \\textbf{{Convergence Time (s)}}}} \\\\ \\hline \n"
+    #     f"\\multirow{{3}}{{*}}{{\\textbf{{Baseline}}}} & Greedy                       & ${get_result('baseline_controllers', 'Greedy', 'FarmPower') / 1e6:.3f}$                           & ${get_result('baseline_controllers', 'Greedy', 'YawAngleChangeAbs'):.3f}$                                & ${get_result('baseline_controllers', 'Greedy', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
+    #     f"&                                           LUT                           & ${get_result('baseline_controllers', 'LUT', 'FarmPower') / 1e6:.3f}$                              & ${get_result('baseline_controllers', 'LUT', 'YawAngleChangeAbs'):.3f}$                                   & ${get_result('baseline_controllers', 'LUT', 'OptimizationConvergenceTime'):.2f}$ \\\\ \\hline \n"
+    #     f"\\multirow{{3}}{{*}}{{\\textbf{{Solver}}}} & \\textbf{{SLSQP}}            & ${get_result('solver_type', 'SLSQP', 'FarmPower') / 1e6:.3f}$                                     & ${get_result('solver_type', 'SLSQP', 'YawAngleChangeAbs'):.3f}$                                          & ${get_result('solver_type', 'SLSQP', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
+    #     f"&                                          Sequential SLSQP               & ${get_result('solver_type', 'Sequential SLSQP', 'FarmPower') / 1e6:.3f}$                          & ${get_result('solver_type', 'Sequential SLSQP', 'YawAngleChangeAbs'):.3f}$                               & ${get_result('solver_type', 'Sequential SLSQP', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
+    #     f"&                                          Serial Refine                  & ${get_result('solver_type', 'Sequential Refine', 'FarmPower') / 1e6:.3f}$                         & ${get_result('solver_type', 'Sequential Refine', 'YawAngleChangeAbs'):.3f}$                              & ${get_result('solver_type', 'Sequential Refine', 'OptimizationConvergenceTime'):.2f}$  \\\\ \\hline \n"
+    #     f"\\multirow{{3}}{{*}}{{\\textbf{{Wind Preview Model}}}} & Perfect          & ${get_result('wind_preview_type', 'Perfect', 'FarmPower') / 1e6:.3f}$                             & ${get_result('wind_preview_type', 'Perfect', 'YawAngleChangeAbs'):.3f}$                                  & ${get_result('wind_preview_type', 'Perfect', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
+    #     f"&                                                      Persistent         & ${get_result('wind_preview_type', 'Persistent', 'FarmPower') / 1e6:.3f}$                          & ${get_result('wind_preview_type', 'Persistent', 'YawAngleChangeAbs'):.3f}$                               & ${get_result('wind_preview_type', 'Persistent', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
+    #     f"&                                                      $3$ Elliptical Interval Samples     & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 3', 'FarmPower') / 1e6:.3f}$    & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 3', 'YawAngleChangeAbs'):.3f}$         & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 3', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
+    #     f"&                                                      $5$ Elliptical Interval Samples     & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 5', 'FarmPower') / 1e6:.3f}$    & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 5', 'YawAngleChangeAbs'):.3f}$         & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 5', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
+    #     f"&                                                      $7$ Elliptical Interval Samples     & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 7', 'FarmPower') / 1e6:.3f}$    & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 7', 'YawAngleChangeAbs'):.3f}$         & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 7', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
+    #     f"&                                                      $9$ Elliptical Interval Samples     & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 9', 'FarmPower') / 1e6:.3f}$    & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 9', 'YawAngleChangeAbs'):.3f}$         & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 9', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
+    #     f"&                                                      $11$ Elliptical Interval Samples    & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 11', 'FarmPower') / 1e6:.3f}$   & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 11', 'YawAngleChangeAbs'):.3f}$        & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 11', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
+    #     f"&                                                      $3$ Rectangular Interval Samples     & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 3', 'FarmPower') / 1e6:.3f}$   & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 3', 'YawAngleChangeAbs'):.3f}$        & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 3', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
+    #     f"&                                                      $5$ Rectangular Interval Samples     & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 5', 'FarmPower') / 1e6:.3f}$   & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 5', 'YawAngleChangeAbs'):.3f}$        & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 5', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
+    #     f"&                                                      $7$ Rectangular Interval Samples     & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 7', 'FarmPower') / 1e6:.3f}$   & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 7', 'YawAngleChangeAbs'):.3f}$        & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 7', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
+    #     f"&                                                      $9$ Rectangular Interval Samples     & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 9', 'FarmPower') / 1e6:.3f}$   & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 9', 'YawAngleChangeAbs'):.3f}$        & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 9', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
+    #     f"&                                                      $11$ Rectangular Interval Samples    & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 11', 'FarmPower') / 1e6:.3f}$  & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 11', 'YawAngleChangeAbs'):.3f}$       & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 11', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
+    #     f"&                                                      $25$ Stochastic Samples     & ${get_result('wind_preview_type', 'Stochastic Sample 25', 'FarmPower') / 1e6:.3f}$                & ${get_result('wind_preview_type', 'Stochastic Sample 25', 'YawAngleChangeAbs'):.3f}$                     & ${get_result('wind_preview_type', 'Stochastic Sample 25', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
+    #     f"&                                                      $50$ Stochastic Samples     & ${get_result('wind_preview_type', 'Stochastic Sample 50', 'FarmPower') / 1e6:.3f}$                & ${get_result('wind_preview_type', 'Stochastic Sample 50', 'YawAngleChangeAbs'):.3f}$                     & ${get_result('wind_preview_type', 'Stochastic Sample 50', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
+    #     f"&                                                      $100$ Stochastic Samples    & ${get_result('wind_preview_type', 'Stochastic Sample 100', 'FarmPower') / 1e6:.3f}$               & ${get_result('wind_preview_type', 'Stochastic Sample 100', 'YawAngleChangeAbs'):.3f}$                    & ${get_result('wind_preview_type', 'Stochastic Sample 100', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
+    #     f"&                                                      $250$ Stochastic Samples    & ${get_result('wind_preview_type', 'Stochastic Sample 250', 'FarmPower') / 1e6:.3f}$               & ${get_result('wind_preview_type', 'Stochastic Sample 250', 'YawAngleChangeAbs'):.3f}$                    & ${get_result('wind_preview_type', 'Stochastic Sample 250', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
+    #     f"&                                                      $500$ Stochastic Samples    & ${get_result('wind_preview_type', 'Stochastic Sample 500', 'FarmPower') / 1e6:.3f}$               & ${get_result('wind_preview_type', 'Stochastic Sample 500', 'YawAngleChangeAbs'):.3f}$                    & ${get_result('wind_preview_type', 'Stochastic Sample 500', 'OptimizationConvergenceTime'):.2f}$ \\\\ \\hline \n"
+    #     f"\\multirow{{3}}{{*}}{{\\textbf{{Warm-Starting Method}}}} & Greedy         & ${get_result('warm_start', 'Greedy', 'FarmPower') / 1e6:.3f}$                                     & ${get_result('warm_start', 'Greedy', 'YawAngleChangeAbs'):.3f}$                                          & ${get_result('warm_start', 'Greedy', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
+    #     f"&                                                       \\textbf{{LUT}}   & ${get_result('warm_start', 'LUT', 'FarmPower') / 1e6:.3f}$                                        & ${get_result('warm_start', 'LUT', 'YawAngleChangeAbs'):.3f}$                                             & ${get_result('warm_start', 'LUT', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
+    #     f"&                                                       Previous Solution & ${get_result('warm_start', 'Previous', 'FarmPower') / 1e6:.3f}$                                   & ${get_result('warm_start', 'Previous', 'YawAngleChangeAbs'):.3f}$                                        & ${get_result('warm_start', 'Previous', 'OptimizationConvergenceTime'):.2f}$ \\\\ \\hline \n"
     #     f"\\end{{tabular}}"
     #     )
     with open(os.path.join(save_dir, "comparison_time_series_results_table.tex"), "w") as fp:
             fp.write(compare_results_latex)
 
-def plot_simulations(time_series_df, plotting_cases, save_dir, include_power=True, legend_loc="best", single_plot=False):
-    # TODO delete all extra files in directories before rerunning simulations
+def plot_simulations(time_series_df, plotting_cases, save_dir, 
+                     include_power=True, legend_loc="best", single_plot=False,
+                     label_mapping=None, seed_idx=0):
+    
     if single_plot:
         yaw_power_ts_fig, yaw_power_ts_ax = plt.subplots(int(1 + include_power), 1, sharex=True) # 1 subplot of yaw, another for power
     
     for case_family in pd.unique(time_series_df.index.get_level_values("CaseFamily")):
         case_family_df = time_series_df.loc[(time_series_df.index.get_level_values("CaseFamily") == case_family), :]
         for case_name in pd.unique(case_family_df.index.get_level_values("CaseName")):
-            if (case_family, case_name) not in plotting_cases:
+            if (case_family, str(case_name)) not in plotting_cases:
                 continue
             case_name_df = case_family_df.loc[case_family_df.index.get_level_values("CaseName") == case_name, :].reset_index(drop=True)
-            input_fn = [fn for fn in os.listdir(os.path.join(save_dir, case_family)) if "input_config" in fn and case_name in fn][0]
+            input_fn = [fn for fn in os.listdir(os.path.join(save_dir, case_family)) if "input_config" in fn and str(case_name) in fn][0]
             
             with open(os.path.join(save_dir, case_family, input_fn), 'rb') as fp:
                 input_config =  pickle.load(fp)
             if single_plot:
                 fig, _ = plot_yaw_power_ts(case_name_df, os.path.join(save_dir, case_family, f"yaw_power_ts_{case_name}.png"), include_power=include_power, legend_loc=legend_loc,
-                                        controller_dt=None, include_filtered_wind_dir=(case_family=="baseline_controllers"), single_plot=single_plot, fig=yaw_power_ts_fig, ax=yaw_power_ts_ax, case_label=case_name)
+                                        controller_dt=None, include_filtered_wind_dir=(case_family=="baseline_controllers"), single_plot=single_plot, fig=yaw_power_ts_fig, 
+                                        ax=yaw_power_ts_ax, case_label=case_name, label_mapping=label_mapping, seed_idx=seed_idx)
             else:
                 fig, _ = plot_yaw_power_ts(case_name_df, os.path.join(save_dir, case_family, f"yaw_power_ts_{case_name}.png"), include_power=include_power, legend_loc=legend_loc,
-                                        controller_dt=None, include_filtered_wind_dir=(case_family=="baseline_controllers_3"), single_plot=single_plot, case_label=case_name)
+                                        controller_dt=None, include_filtered_wind_dir=(case_family=="baseline_controllers_3"), single_plot=single_plot, case_label=case_name,
+                                        label_mapping=label_mapping, seed_idx=seed_idx)
                                     #    controller_dt=input_config["controller"]["dt"])
 
     if False:
@@ -403,7 +589,7 @@ def read_amr_outputs(results_paths, hercules_dict):
     df = df.loc[~(df[[col for col in df.columns if f"turbine_powers" in col]] == 0).all(axis="columns"), :]
     df = df.rename(columns={col: f"TurbinePower_{col.split('_')[-1]}" for col in df.columns if "turbine_powers" in col})
     df = df.rename(columns={col: f"TurbineYawAngle_{col.split('_')[-1]}" for col in df.columns if "turbine_yaw_angles" in col})
-    df.loc[:, "Time"] = df["Time"] - df.iloc[0]["Time"]
+    df["Time"] = df["Time"] - df.iloc[0]["Time"]
 
     df["ControllerClass"] = pd.Categorical(df["ControllerClass"], ["Greedy", "LUT", "MPC"])
     df = df.sort_values(by=["ControllerClass", "Time"])
@@ -430,8 +616,8 @@ def read_amr_outputs(results_paths, hercules_dict):
 #         ax1[i] = sns.lineplot(x="Time", y=f"TurbineYawAngleChange_{turbine_indices[i]}", hue="ControllerClass", data=data_df.loc[data_df["WindSeed"] == seed], 
 #                               color=sns.color_palette()[0],
 #                               ax=ax1[i], sort=False, legend=i==0)
-#         ax1[i].xaxis.label.set_text(f"Time [s]")
-#         ax1[i].title.set_text(f"Turbine {turbine_indices[i]}Absolute Yaw Angle Change [$^\\circ$]")
+#         ax1[i].xaxis.label.set_text(f"Time (s)")
+#         ax1[i].title.set_text(f"Turbine {turbine_indices[i]}Absolute Yaw Angle Change ($^\\circ$)")
 #         # ax1[i].yaxis.label.set_color(ax1[i].get_lines()[0].get_color())
 #         # ax1[i].tick_params(axis="y", color=ax1[i].get_lines()[0].get_color())
 #     ax1[0].legend(loc="upper right")
@@ -449,8 +635,8 @@ def read_amr_outputs(results_paths, hercules_dict):
 #         ax2[i] = sns.lineplot(x="Time", y=f"TurbinePower_{turbine_indices[i]}", hue="ControllerClass", data=data_df.loc[data_df["WindSeed"] == seed], 
 #                               color=sns.color_palette()[1],
 #                               ax=ax2[i], sort=False, legend=i==0)
-#         ax2[i].xaxis.label.set_text(f"Time [s]")
-#         ax2[i].title.set_text(f"Turbine {turbine_indices[i]} Power [MW]")
+#         ax2[i].xaxis.label.set_text(f"Time (s)")
+#         ax2[i].title.set_text(f"Turbine {turbine_indices[i]} Power (MW)")
 #         # ax2[i].yaxis.label.set_color(ax2[i].get_lines()[0].get_color())
 #         # ax2[i].tick_params(axis="y", color=ax2[i].get_lines()[0].get_color())
 
@@ -471,7 +657,7 @@ def plot_yaw_power_distribution(data_df, save_path):
     For each controller class (categorical, along x-axis), plot the distribution of total farm powers and total absolute yaw angle changes over all time-steps and seeds (different subplots), plot their angle changes and powers vs time with a combo plot for each turbine.
 
     results_path = os.path.join(os.path.dirname(whoc_file), "..", "examples")
-    # TODO how to find particular seed
+    
     results_dirs = [(controller_class, 0, os.path.join(results_path, controller_dir, "outputs", "hercules_output.csv"))
                     # for seed in range(6)
                     for controller_class, controller_dir in [("Greedy", "greedy_wake_steering_florisstandin"), 
@@ -488,7 +674,7 @@ def plot_yaw_power_distribution(data_df, save_path):
     plt.figure(1)
     ax1 = sns.catplot(x="ControllerClass", y="FarmAbsoluteYawAngleChange", data=data_df, kind="boxen")
     ax1.ax.xaxis.label.set_text("Controller")
-    ax1.ax.title.set_text("Farm Absolute Yaw Angle Change [$^\\circ$]")
+    ax1.ax.title.set_text("Farm Absolute Yaw Angle Change ($^\\circ$)")
     ax1.ax.yaxis.label.set_text("")
     plt.show()
     plt.savefig(save_path.replace(".png", "_abs_yaw_change.png"))
@@ -496,7 +682,7 @@ def plot_yaw_power_distribution(data_df, save_path):
     plt.figure(2)
     ax2 = sns.catplot(x="ControllerClass", y="FarmPower", data=data_df, kind="boxen")
     ax2.ax.xaxis.label.set_text("Controller")
-    ax2.ax.title.set_text("Farm Power [MW]")
+    ax2.ax.title.set_text("Farm Power (MW)")
     ax2.ax.yaxis.label.set_text("")
     ax2.ax.set_yticklabels(ax2.ax.get_yticks() / 1e3)
     plt.show()
@@ -512,8 +698,8 @@ def plot_yaw_power_distribution(data_df, save_path):
 
 #     result_summary_df = pd.DataFrame(result_summary, 
                                     #  columns=["CaseFamily", "CaseName", "WindSeed",
-                                            #   "YawAngleChangeAbsMean", "RelativeYawAngleChangeAbsMean",
-                                            #   "FarmPowerMean", "RelativeFarmPowerMean", 
+                                            #   "YawAngleChangeAbs", "RelativeYawAngleChangeAbsMean",
+                                            #   "FarmPower", "RelativeFarmPowerMean", 
                                             #   "TotalRunningOptimizationCostMean", "RelativeTotalRunningOptimizationCostMean",
                                             #   "RelativeRunningOptimizationCostTerm_0", "RelativeRunningOptimizationCostTerm_1"])
 #     result_summary_df = result_summary_df.groupby(by=["CaseFamily", "CaseName"])[[col for col in result_summary_df.columns if col not in ["CaseFamily", "CaseName", "WindSeed"]]].agg(["min", "max", "mean"])
@@ -540,19 +726,20 @@ def aggregate_time_series_data(time_series_df, input_dict_path, n_seeds):
     # case_family = df_name.replace(f"_{results_df['CaseName'].iloc[0]}", "")
     case_name = time_series_df.index.get_level_values("CaseName")[0]
     if len(case_seeds) < n_seeds:
-       logging.error(f"NOT aggregating data for {case_family}={case_name} due to insufficient seed simulations.")
-       return None
+       logging.warning(f"Data for {case_family}={case_name} has insufficient seed simulations.")
+    #    return None
 
     with open(input_dict_path, 'rb') as fp:
         input_config = pickle.load(fp)
-
+    
     stoptime = (np.ceil(input_config["hercules_comms"]["helics"]["config"]["stoptime"] / input_config["simulation_dt"]) * input_config["simulation_dt"]).astype(int)
     time_series_df = time_series_df.loc[time_series_df["Time"] < stoptime, :]
     time = pd.unique(time_series_df["Time"])
     
+    # TODO differnt stop times have been added for each seed to same config file so this is not correct
     if len(time) != int(stoptime // input_config["simulation_dt"]):
-       logging.error(f"NOT aggregating data for {case_family}={case_name} due to insufficient time steps.")
-       return None
+       logging.warning(f"{case_family}={case_name} data has insufficient time steps.")
+    #    return None
    
     result_summary = []
     # input_fn = f"input_config_case_{case_name}.yaml"
@@ -562,45 +749,64 @@ def aggregate_time_series_data(time_series_df, input_dict_path, n_seeds):
         lpf_start_time = input_config["controller"]["lpf_start_time"]
     else:
         lpf_start_time = 180.0
+        
+    if time_series_df["Time"].max() > lpf_start_time:
+        df = time_series_df.loc[(time_series_df["Time"] >= lpf_start_time), :]
     
-    for seed in case_seeds:
+    yaw_angle_change_cols = sorted([c for c in time_series_df.columns if "TurbineYawAngleChange_" in c], key=lambda s: int(s.split("_")[-1]))
+    # offline_status_cols = sorted([c for c in time_series_df.columns if "TurbineOfflineStatus_" in c], key=lambda s: int(s.split("_")[-1]))
+    turbine_power_cols = sorted([c for c in time_series_df.columns if "TurbinePower_" in c], key=lambda s: int(s.split("_")[-1]))
+    df["FarmPower"] = df.loc[:, turbine_power_cols].sum(axis=1)
+    df["YawAngleChangeAbs"] = df.loc[:, yaw_angle_change_cols].abs().sum(axis=1)
+    df = df[["WindSeed", "YawAngleChangeAbs", "FarmPower", 
+            "TotalRunningOptimizationCost", "OptimizationConvergenceTime"]]
+    df = df.groupby(by=["CaseFamily", "CaseName"])[[col for col in df.columns if col not in ["CaseFamily", "CaseName", "WindSeed"]]]\
+                    .agg(["mean", "std"])
+    
+    # n_values = 0
+    # for seed in case_seeds:
 
-        if time_series_df["Time"].max() > lpf_start_time:
-            seed_df = time_series_df.loc[(time_series_df["WindSeed"] == seed) & (time_series_df["Time"] >= lpf_start_time), :]
-        else:
-            seed_df = time_series_df.loc[(time_series_df["WindSeed"] == seed), :]
+    #     if time_series_df["Time"].max() > lpf_start_time:
+    #         seed_df = time_series_df.loc[(time_series_df["WindSeed"] == seed) & (time_series_df["Time"] >= lpf_start_time), :]
+    #     else:
+    #         seed_df = time_series_df.loc[(time_series_df["WindSeed"] == seed), :]
         
-        yaw_angles_change_ts = seed_df[sorted([c for c in time_series_df.columns if "TurbineYawAngleChange_" in c], key=lambda s: int(s.split("_")[-1]))]
-        turbine_offline_status_ts = seed_df[sorted([c for c in time_series_df.columns if "TurbineOfflineStatus_" in c], key=lambda s: int(s.split("_")[-1]))]
-        turbine_power_ts = seed_df[sorted([c for c in time_series_df.columns if "TurbinePower_" in c], key=lambda s: int(s.split("_")[-1]))]
-        
-        try:
-            result_summary.append((seed_df.index.get_level_values("CaseFamily")[0], 
-                                   seed_df.index.get_level_values("CaseName")[0], 
-                                   seed, 
-                                yaw_angles_change_ts.abs().sum(axis=1).mean(), 
-                                ((yaw_angles_change_ts.abs().to_numpy() * np.logical_not(turbine_offline_status_ts)).sum(axis=1) / ((np.logical_not(turbine_offline_status_ts)).sum(axis=1))).mean(),
-                                turbine_power_ts.sum(axis=1).mean(), 
-                                ((turbine_power_ts.to_numpy() * np.logical_not(turbine_offline_status_ts)).sum(axis=1) / ((np.logical_not(turbine_offline_status_ts)).sum(axis=1))).mean(),
-                                seed_df["TotalRunningOptimizationCost"].mean(), 
-                                (seed_df["TotalRunningOptimizationCost"] / ((np.logical_not(turbine_offline_status_ts)).sum(axis=1))).mean(),
-                                (seed_df["RunningOptimizationCostTerm_0"] / ((np.logical_not(turbine_offline_status_ts)).sum(axis=1))).mean(),
-                                (seed_df["RunningOptimizationCostTerm_1"] / ((np.logical_not(turbine_offline_status_ts)).sum(axis=1))).mean(),
-                                seed_df["OptimizationConvergenceTime"].mean()))
-        except ZeroDivisionError:
-            logging.error("All turbines are offline! Can't generate RelativeYawAngleChangeAbsMean or RelativeFarmPowerMean.")
+    #     yaw_angles_change_ts = seed_df[sorted([c for c in time_series_df.columns if "TurbineYawAngleChange_" in c], key=lambda s: int(s.split("_")[-1]))]
+    #     turbine_offline_status_ts = seed_df[sorted([c for c in time_series_df.columns if "TurbineOfflineStatus_" in c], key=lambda s: int(s.split("_")[-1]))]
+        # turbine_power_ts = seed_df[sorted([c for c in time_series_df.columns if "TurbinePower_" in c], key=lambda s: int(s.split("_")[-1]))]
+        # n_values += seed_df.shape[0]
+        # try:
+        #     result_summary.append((seed_df.index.get_level_values("CaseFamily")[0], 
+        #                            seed_df.index.get_level_values("CaseName")[0], 
+        #                            seed, 
+        #                            yaw_angles_change_ts.abs().sum(axis=1).sum(), 
+        #                         #    ((yaw_angles_change_ts.abs().to_numpy() * np.logical_not(turbine_offline_status_ts)).sum(axis=1).divide((np.logical_not(turbine_offline_status_ts)).sum(axis=1))).mean(),
+        #                            turbine_power_ts.sum(axis=1).sum(), 
+        #                         #    ((turbine_power_ts.to_numpy() * np.logical_not(turbine_offline_status_ts)).sum(axis=1) / ((np.logical_not(turbine_offline_status_ts)).sum(axis=1))).mean(),
+        #                            seed_df["TotalRunningOptimizationCost"].sum(), 
+        #                         #    (seed_df["TotalRunningOptimizationCost"] / ((np.logical_not(turbine_offline_status_ts)).sum(axis=1))).mean(),
+        #                         #    (seed_df["RunningOptimizationCostTerm_0"] / ((np.logical_not(turbine_offline_status_ts)).sum(axis=1))).mean(),
+        #                         #    (seed_df["RunningOptimizationCostTerm_1"] / ((np.logical_not(turbine_offline_status_ts)).sum(axis=1))).mean(),
+        #                            seed_df["OptimizationConvergenceTime"].sum()))
+        # except ZeroDivisionError:
+        #     logging.error("All turbines are offline! Can't generate RelativeYawAngleChangeAbsMean or RelativeFarmPowerMean.")
         
     # print(f"Aggregated data for {case_family}={case_name}")
-    agg_df = pd.DataFrame(result_summary, columns=["CaseFamily", "CaseName", "WindSeed",
-                                              "YawAngleChangeAbsMean", "RelativeYawAngleChangeAbsMean",
-                                              "FarmPowerMean", "RelativeFarmPowerMean", 
-                                              "TotalRunningOptimizationCostMean", "RelativeTotalRunningOptimizationCostMean",
-                                              "RelativeRunningOptimizationCostTerm_0", "RelativeRunningOptimizationCostTerm_1",
-                                              "OptimizationConvergenceTime"])
+    # agg_df = pd.DataFrame(result_summary, columns=["CaseFamily", "CaseName", "WindSeed",
+    #                                           "YawAngleChangeAbs", 
+    #                                         #   "RelativeYawAngleChangeAbsMean",
+    #                                           "FarmPower", 
+    #                                         #   "RelativeFarmPowerMean", 
+    #                                           "TotalRunningOptimizationCostMean", 
+    #                                         #   "RelativeTotalRunningOptimizationCostMean",
+    #                                         #   "RelativeRunningOptimizationCostTerm_0", 
+    #                                         #   "RelativeRunningOptimizationCostTerm_1",
+    #                                           "OptimizationConvergenceTime"])
     
-    agg_df = agg_df.groupby(by=["CaseFamily", "CaseName"])[[col for col in agg_df.columns if col not in ["CaseFamily", "CaseName", "WindSeed"]]].agg(["min", "max", "mean"])
+    # agg_df = agg_df.groupby(by=["CaseFamily", "CaseName"])[[col for col in agg_df.columns if col not in ["CaseFamily", "CaseName", "WindSeed"]]]\
+    #                .agg([lambda df: df.sum() / n_values, "stddev"])
     # agg_df.to_csv(results_path)
-    return agg_df
+    return df
 
 def plot_wind_field_ts(data_df, save_path, filter_func=None):
     fig_wind, ax_wind = plt.subplots(2, 1, sharex=True)
@@ -611,9 +817,9 @@ def plot_wind_field_ts(data_df, save_path, filter_func=None):
         ax_wind[0].plot(seed_df["Time"], seed_df["FreestreamWindDir"], label=f"Seed {seed}")
         if filter_func is not None:
             ax_wind[0].plot(seed_df["Time"], filter_func(x=seed_df["FreestreamWindDir"]), label=f"Seed {seed}")
-        ax_wind[0].set(title='Wind Direction [$^\\circ$]')
+        ax_wind[0].set(title='Wind Direction ($^\\circ$)')
         ax_wind[1].plot(seed_df["Time"], seed_df["FreestreamWindMag"], label=f"Seed {seed}")
-        ax_wind[1].set(title='Wind Speed [m/s]', xlabel='Time [s]', xlim=(0, seed_df["Time"].max() + seed_df["Time"].diff().iloc[1]))
+        ax_wind[1].set(title='Wind Speed [m/s]', xlabel='Time (s)', xlim=(0, seed_df["Time"].max() + seed_df["Time"].diff().iloc[1]))
         ax_wind[0].legend()
     # fig_wind.tight_layout()
     fig_wind.savefig(os.path.join(save_path, "wind_mag_dir_ts.png"))
@@ -636,13 +842,13 @@ def plot_opt_var_ts(data_df, yaw_offset_bounds, save_path):
             continue
         seed_df = data_df.loc[data_df["WindSeed"] == seed].sort_values(by="Time")
         ax_opt_vars[0].plot(seed_df["Time"], seed_df[yaw_angle_cols[plot_turbine]])
-        ax_opt_vars[0].set(title='Yaw Angles [$^\\circ$]')
+        ax_opt_vars[0].set(title='Yaw Angles ($^\\circ$)')
         ax_opt_vars[0].plot(seed_df["Time"], seed_df["FreestreamWindDir"] - yaw_offset_bounds[0], color=colors[seed], linestyle='dotted')
         ax_opt_vars[0].plot(seed_df["Time"], seed_df["FreestreamWindDir"] - yaw_offset_bounds[1], color=colors[seed], linestyle='dotted', label="Lower/Upper Bounds")
         ax_opt_vars[1].plot(seed_df["Time"], seed_df[yaw_angle_change_cols[plot_turbine]], color=colors[seed], linestyle='-')
-        ax_opt_vars[1].set(title='Yaw Angles Change [$^\\circ$]', xlabel='Time [s]', xlim=(0, int((seed_df["Time"].max() + seed_df["Time"].diff().iloc[1]) * time_frac)), ylim=(-2, 2))
+        ax_opt_vars[1].set(title='Yaw Angles Change ($^\\circ$)', xlabel='Time (s)', xlim=(0, int((seed_df["Time"].max() + seed_df["Time"].diff().iloc[1]) * time_frac)), ylim=(-2, 2))
     # ax_outputs[1, 0].plot(time_ts[:int(simulation_max_time // input_dict["dt"]) - 1], turbine_powers_ts)
-    # ax_outputs[1, 0].set(title="Turbine Powers [MW]")
+    # ax_outputs[1, 0].set(title="Turbine Powers (MW)")
     ax_opt_vars[0].legend()
     fig_opt_vars.savefig(save_path)
     # fig_opt_vars.show()
@@ -663,9 +869,9 @@ def plot_opt_cost_ts(data_df, save_path):
         ax_opt_cost[0].set(title="Optimization Farm Power Cost [-]")
         ax_opt_cost[1].step(seed_df["Time"], seed_df["RunningOptimizationCostTerm_1"])
 
-        ax_opt_cost[1].set(title="Optimization Yaw Angle Change Cost [-]", xlabel='Time [s]', xlim=(0, int((seed_df["Time"].max() + seed_df["Time"].diff().iloc[1]) * time_frac)), ylim=(0, 0.05))
+        ax_opt_cost[1].set(title="Optimization Yaw Angle Change Cost [-]", xlabel='Time (s)', xlim=(0, int((seed_df["Time"].max() + seed_df["Time"].diff().iloc[1]) * time_frac)), ylim=(0, 0.05))
     # ax_outputs[2].scatter(time_ts[:int(simulation_max_time // input_dict["dt"]) - 1], convergence_time_ts)
-    # ax_outputs[2].set(title="Convergence Time [s]")
+    # ax_outputs[2].set(title="Convergence Time (s)")
     fig_opt_cost.savefig(save_path)
     # fig_opt_cost.show()
 
@@ -767,10 +973,10 @@ def plot_yaw_offset_wind_direction(data_dfs, case_names, case_labels, lut_path, 
             # if include_power:
             #     ax[col_idx].set_xticks([])
 
-        ax[0].set(ylabel="Yaw Offset [$^\\circ$]")
+        ax[0].set(ylabel="Yaw Offset ($^\\circ$)")
         # ax[0].legend()
         if not include_power:
-            ax[int(len(plot_turbine_ids) // 2)].set(xlabel="Freestream Wind Direction [$^\\circ$]")
+            ax[int(len(plot_turbine_ids) // 2)].set(xlabel="Freestream Wind Direction ($^\\circ$)")
             
     if include_power:
         for col_idx, turbine_idx in enumerate(plot_turbine_ids):
@@ -840,8 +1046,8 @@ def plot_yaw_offset_wind_direction(data_dfs, case_names, case_labels, lut_path, 
                 if subplot_idx != 0:
                     ax[subplot_idx].set(ylabel="")
             
-        ax[len(plot_turbine_ids) if include_yaw else 0].set(ylabel="Turbine Power [MW]")    
-        ax[(int(len(plot_turbine_ids) // 2) + len(plot_turbine_ids)) if include_yaw else int(len(plot_turbine_ids) // 2)].set(xlabel="Freestream Wind Direction [$^\\circ$]")
+        ax[len(plot_turbine_ids) if include_yaw else 0].set(ylabel="Turbine Power (MW)")    
+        ax[(int(len(plot_turbine_ids) // 2) + len(plot_turbine_ids)) if include_yaw else int(len(plot_turbine_ids) // 2)].set(xlabel="Freestream Wind Direction ($^\\circ$)")
 
     results_dir = os.path.dirname(save_path)
     # figManager = plt.get_current_fig_manager()
@@ -857,8 +1063,10 @@ def plot_yaw_offset_wind_direction(data_dfs, case_names, case_labels, lut_path, 
     # fig.show()
     return fig, ax
 
-def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, include_filtered_wind_dir=True, controller_dt=None, legend_loc="best", single_plot=False, fig=None, ax=None, case_label=None):
-    #TODO only plot some turbines, not ones with overlapping yaw offsets, eg single column on farm
+def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, include_filtered_wind_dir=True, 
+                      controller_dt=None, legend_loc="best", single_plot=False, fig=None, ax=None, case_label=None,
+                      label_mapping=None, seed_idx=0):
+    
     colors = sns.color_palette("Paired")
     colors = [colors[1], colors[3], colors[5]]
 
@@ -867,22 +1075,26 @@ def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, 
     
     ax = np.atleast_1d(ax)
     data_df = data_df.dropna(axis=1, how="all")
+    # data_df = data_df.drop(columns=["TurbineWindMag_5", "TurbineWindDir_5", "TurbinePower_5", "TurbineYawAngle_5", "TurbineYawAngleChange_5", "TurbineOfflineStatus_5"])
+    
     turbine_wind_direction_cols = sorted([col for col in data_df.columns if "TurbineWindDir_" in col], key=lambda s: int(s.split("_")[-1]))
     turbine_power_cols = sorted([col for col in data_df.columns if "TurbinePower_" in col], key=lambda s: int(s.split("_")[-1]))
     yaw_angle_cols = sorted([col for col in data_df.columns if "TurbineYawAngle_" == col[:len("TurbineYawAngle_")]], key=lambda s: int(s.split("_")[-1]))
     data_df = data_df.dropna(subset=turbine_wind_direction_cols+turbine_power_cols+yaw_angle_cols)
-    plot_seed = 0
     
-    for seed in sorted(pd.unique(data_df["WindSeed"])):
+    case_seeds = sorted(pd.unique(data_df["WindSeed"]))
+    plot_seed = case_seeds[seed_idx]
+    
+    for seed in case_seeds:
         if seed != plot_seed:
             continue
         seed_df = data_df.loc[data_df["WindSeed"] == seed, :].sort_values(by="Time")
         
         if include_yaw:
             ax_idx = 0
-            sns.lineplot(data=seed_df, x="Time", y="FreestreamWindDir", label="Wind dir.", color="black", ax=ax[ax_idx])
+            sns.lineplot(data=seed_df, x="Time", y="FreestreamWindDir", label="Wind dir.", color="black", ax=ax[ax_idx], alpha=0.25)
             if include_filtered_wind_dir:
-                sns.lineplot(data=seed_df, x="Time", y="FilteredFreestreamWindDir", label="Filtered wind dir.", color="black", linestyle="--", ax=ax[ax_idx])
+                sns.lineplot(data=seed_df, x="Time", y="FilteredFreestreamWindDir", label="Filtered wind dir.", color="black", linestyle="--", ax=ax[ax_idx], alpha=0.25)
             
         # Direction
         # for t, (wind_dir_col, power_col, yaw_col) in enumerate(zip(turbine_wind_direction_cols, turbine_power_cols, yaw_angle_cols)):
@@ -890,10 +1102,15 @@ def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, 
             
             if include_yaw:
                 ax_idx = 0
-                if single_plot:
-                    sns.lineplot(data=seed_df, x="Time", y=yaw_col, label="T{0:01d} yaw setpoint, {1}".format(t + 1, case_label), linestyle=":", ax=ax[ax_idx])
+                tid = re.search("(?<=TurbineYawAngle_).*$", yaw_col).group(0)
+                if label_mapping:
+                    tid = label_mapping[tid]
                 else:
-                    sns.lineplot(data=seed_df, x="Time", y=yaw_col, color=color, label="T{0:01d} yaw setpoint".format(t + 1), linestyle=":", ax=ax[ax_idx])
+                    tid = f"T{tid}"
+                if single_plot:
+                    sns.lineplot(data=seed_df, x="Time", y=yaw_col, label=f"{tid} yaw setpoint, {1}".format(t + 1, case_label), linestyle=":", ax=ax[ax_idx])
+                else:
+                    sns.lineplot(data=seed_df, x="Time", y=yaw_col, color=color, label=f"{tid} yaw setpoint".format(t + 1), linestyle=":", ax=ax[ax_idx])
                 ax[ax_idx].set(ylabel="")
                 
                 if controller_dt is not None:
@@ -903,18 +1120,20 @@ def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, 
                 next_ax_idx = (1 if include_yaw else 0)
                 if t == 0:
                     if single_plot:
-                        ax[next_ax_idx].fill_between(seed_df["Time"], seed_df[power_col] / 1e6, label="T{0:01d} power, {1}".format(t + 1, case_label))
+                        ax[next_ax_idx].fill_between(seed_df["Time"], seed_df[power_col] / 1e6, label=f"{tid} power, {1}".format(t + 1, case_label))
                     else:
-                        ax[next_ax_idx].fill_between(seed_df["Time"], seed_df[power_col] / 1e6, color=color, label="T{0:01d} power".format(t + 1))
+                        ax[next_ax_idx].fill_between(seed_df["Time"], seed_df[power_col] / 1e6, color=color, label=f"{tid} power".format(t + 1))
                 else:
                     if single_plot:
                         ax[next_ax_idx].fill_between(seed_df["Time"], seed_df[turbine_power_cols[:t+1]].sum(axis=1) / 1e6, 
                                         seed_df[turbine_power_cols[:t]].sum(axis=1)  / 1e6,
-                                        label="T{0:01d} power, {1}".format(t + 1, case_label))
+                                        label=f"{tid} power, {1}".format(t + 1, case_label))
                     else:
-                        ax[next_ax_idx].fill_between(seed_df["Time"], seed_df[turbine_power_cols[:t+1]].sum(axis=1) / 1e6, 
-                                        seed_df[turbine_power_cols[:t]].sum(axis=1)  / 1e6,
-                            color=color, label="T{0:01d} power".format(t + 1))
+                        ax[next_ax_idx].fill_between(
+                            seed_df["Time"], 
+                            seed_df[turbine_power_cols[:t+1]].sum(axis=1) / 1e6, 
+                            seed_df[turbine_power_cols[:t]].sum(axis=1)  / 1e6,
+                            color=color, label=f"{tid} power".format(t + 1))
         
         if include_power:
             next_ax_idx = (1 if include_yaw else 0)
@@ -929,7 +1148,7 @@ def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, 
     n_cols = 1
     if include_yaw:
         ax_idx = 0
-        ax[ax_idx].set(title="Wind Direction / Yaw Angle [$^\\circ$]", xlim=(0, int((data_df["Time"].max() + data_df["Time"].diff().iloc[1]) // 1))) # , ylim=(220, 320)
+        ax[ax_idx].set(title="Wind Direction / Yaw Angle ($^\\circ$)", xlim=(0, int((data_df["Time"].max() + data_df["Time"].diff().iloc[1]) // 1))) # , ylim=(220, 320)
         ax[ax_idx].legend() 
         if legend_loc != "outer":
             ax[ax_idx].legend(ncols=n_cols, loc=legend_loc)
@@ -937,23 +1156,25 @@ def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, 
             sns.move_legend(ax[ax_idx], "upper left", bbox_to_anchor=(1, 1), ncols=n_cols)
         # ax[ax_idx].legend([], [], frameon=False)
         if not include_power:
-            ax[ax_idx].set(xlabel="Time [s]")
+            ax[ax_idx].set(xlabel="Time (s)")
     
     if include_power:
         next_ax_idx = (1 if include_yaw else 0)
-        ax[next_ax_idx].set(xlabel="Time [s]", title="Turbine Powers [MW]")
+        ax[next_ax_idx].set(xlabel="Time (s)", title="Turbine Powers (MW)")
         ax[next_ax_idx].legend(ncols=n_cols) 
         if legend_loc != "outer":
             ax[next_ax_idx].legend(ncols=n_cols, loc=legend_loc)
         else:
             sns.move_legend(ax[next_ax_idx], "upper left", bbox_to_anchor=(1, 1), ncols=n_cols)
+        ax[next_ax_idx].set_xlim(0, ax[next_ax_idx].get_xlim()[1])
         # ax[next_ax_idx].legend([], [], frameon=False)
 
     results_dir = os.path.dirname(save_path)
     # figManager = plt.get_current_fig_manager()
     # figManager.full_screen_toggle()
-    fig.suptitle("_".join([os.path.basename(results_dir), case_label.replace('/', '_'), "yaw_power_ts"]))
+    fig.suptitle("_".join([os.path.basename(results_dir), str(case_label), "yaw_power_ts"]))
     # plt.get_current_fig_manager().full_screen_toggle()
+    fig.set_size_inches((15, 8))
     plt.tight_layout()
     fig.savefig(save_path)
     # 
@@ -965,22 +1186,22 @@ def plot_parameter_sweep(agg_dfs, mpc_type, save_dir, plot_columns, merge_wind_p
     lut_df = agg_dfs.iloc[(agg_dfs.index.get_level_values("CaseFamily").str.contains("baseline_controllers")) & (agg_dfs.index.get_level_values("CaseName") == "LUT")] 
     greedy_df = agg_dfs.iloc[(agg_dfs.index.get_level_values("CaseFamily").str.contains("baseline_controllers")) & (agg_dfs.index.get_level_values("CaseName") == "Greedy")]
                 
-    mpc_df = mpc_df.sort_values(by="FarmPowerMean", ascending=False).reset_index(level="CaseFamily", drop=True).reset_index(level="CaseName", drop=False)
-    mpc_df["FarmPowerMean"] = mpc_df["FarmPowerMean"] / 1e6
+    mpc_df = mpc_df.sort_values(by="FarmPower", ascending=False).reset_index(level="CaseFamily", drop=True).reset_index(level="CaseName", drop=False)
+    mpc_df["FarmPower"] = mpc_df["FarmPower"] / 1e6
 
     # plot of farm power vs n_wind_preview_samples, bar for each sampling type
-    if all(c in plot_columns for c in ["n_wind_preview_samples", "wind_preview_type", "FarmPowerMean"]) and len(pd.unique(mpc_df["n_wind_preview_samples"])) > len(pd.unique(mpc_df["wind_preview_type"])):
+    if all(c in plot_columns for c in ["n_wind_preview_samples", "wind_preview_type", "FarmPower"]) and len(pd.unique(mpc_df["n_wind_preview_samples"])) > len(pd.unique(mpc_df["wind_preview_type"])):
         mpc_df = mpc_df.loc[(mpc_df["CaseName"] != "Persistent") & (mpc_df["CaseName"] != "Perfect"), :]
         unique_sir_vals = np.sort(pd.unique(mpc_df.loc[mpc_df["wind_preview_type"] == "stochastic_interval_rectangular", "n_wind_preview_samples"])).astype(int)
         unique_sie_vals = np.sort(pd.unique(mpc_df.loc[mpc_df["wind_preview_type"] == "stochastic_interval_elliptical", "n_wind_preview_samples"])).astype(int)
         unique_ss_vals = np.sort(pd.unique(mpc_df.loc[mpc_df["wind_preview_type"] == "stochastic_sample", "n_wind_preview_samples"])).astype(int)
-        ax = sns.catplot(data=mpc_df, kind="bar", x="n_wind_preview_samples_index", y="FarmPowerMean", estimator=estimator, hue="wind_preview_type", errorbar=None, legend_out=False)
-        ax.ax.set(ylabel="", xlabel="# Wind Preview Samples", title="Farm Power [MW]")
+        ax = sns.catplot(data=mpc_df, kind="bar", x="n_wind_preview_samples_index", y="FarmPower", estimator=estimator, hue="wind_preview_type", errorbar=None, legend_out=False)
+        ax.ax.set(ylabel="", xlabel="# Wind Preview Samples", title="Farm Power (MW)")
         ax.ax.set_ylim((2.65, 3.04))
         ax.ax.set_xticklabels([f"{sie_val}    {sir_val}    {ss_val}" for sir_val, sie_val, ss_val in zip(unique_sir_vals, unique_sie_vals, unique_ss_vals)]) 
         n_xticks = len(pd.unique(mpc_df["n_wind_preview_samples_index"]))
-        ax.ax.scatter(x=np.arange(n_xticks) - ax.ax.patches[0].get_width(), y=[(greedy_df["FarmPowerMean"] / 1e6).iloc[0]] * n_xticks, marker="^", s=250, color="forestgreen", label="Greedy")
-        ax.ax.scatter(x=np.arange(n_xticks) - ax.ax.patches[0].get_width(), y=[(lut_df["FarmPowerMean"] / 1e6).iloc[0]] * n_xticks, marker="s", s=250, color="darkorange", label="LUT")
+        ax.ax.scatter(x=np.arange(n_xticks) - ax.ax.patches[0].get_width(), y=[(greedy_df["FarmPower"] / 1e6).iloc[0]] * n_xticks, marker="^", s=250, color="forestgreen", label="Greedy")
+        ax.ax.scatter(x=np.arange(n_xticks) - ax.ax.patches[0].get_width(), y=[(lut_df["FarmPower"] / 1e6).iloc[0]] * n_xticks, marker="s", s=250, color="darkorange", label="LUT")
         plt.legend(loc="lower right")
         ax.ax.get_legend().get_texts()[[s._text for s in ax.ax.get_legend().get_texts()].index("stochastic_interval_rectangular")].set_text("Stochastic Rectangular Interval")
         ax.ax.get_legend().get_texts()[[s._text for s in ax.ax.get_legend().get_texts()].index("stochastic_interval_elliptical")].set_text("Stochastic Elliptical Interval")
@@ -1006,21 +1227,21 @@ def plot_parameter_sweep(agg_dfs, mpc_type, save_dir, plot_columns, merge_wind_p
     # unique_ss_vals = np.sort(pd.unique(mpc_df.loc[mpc_df["preview_type"] == "stochastic_sample", "diff_type"]))
     # 
     if merge_wind_preview_types:
-        mpc_df = mpc_df.groupby([c for c in ["diff_type", "diff_direction", "diff_steps", "nu", "decay_type", "max_std_dev", "n_wind_preview_samples", "n_wind_preview_samples_index"] if c in mpc_df.columns])["FarmPowerMean"].mean().sort_values(ascending=False).reset_index([c for c in ["diff_type", "nu", "decay_type", "max_std_dev", "n_wind_preview_samples", "n_wind_preview_samples_index"] if c in mpc_df.columns], drop=False).reset_index([c for c in ["diff_direction", "diff_steps"] if c in mpc_df.columns], drop=True)
+        mpc_df = mpc_df.groupby([c for c in ["diff_type", "diff_direction", "diff_steps", "nu", "decay_type", "max_std_dev", "n_wind_preview_samples", "n_wind_preview_samples_index"] if c in mpc_df.columns])["FarmPower"].mean().sort_values(ascending=False).reset_index([c for c in ["diff_type", "nu", "decay_type", "max_std_dev", "n_wind_preview_samples", "n_wind_preview_samples_index"] if c in mpc_df.columns], drop=False).reset_index([c for c in ["diff_direction", "diff_steps"] if c in mpc_df.columns], drop=True)
 
-    if all(c in plot_columns for c in ["diff_type", "wind_preview_type", "FarmPowerMean"]):
+    if all(c in plot_columns for c in ["diff_type", "wind_preview_type", "FarmPower"]):
         
         if merge_wind_preview_types:
-            ax = sns.catplot(data=mpc_df, kind="bar", x="diff_type", y="FarmPowerMean", estimator=estimator, errorbar=None, legend_out=False)
+            ax = sns.catplot(data=mpc_df, kind="bar", x="diff_type", y="FarmPower", estimator=estimator, errorbar=None, legend_out=False)
             n_xticks = len(pd.unique(mpc_df["diff_type"]))
-            ax.ax.scatter(x=np.arange(n_xticks), y=[(greedy_df["FarmPowerMean"] / 1e6).iloc[0]] * n_xticks, marker="^", color="forestgreen", s=250, label="Greedy")
-            ax.ax.scatter(x=np.arange(n_xticks), y=[(lut_df["FarmPowerMean"] / 1e6).iloc[0]] * n_xticks, marker="s", color="darkorange", s=250, label="LUT")
+            ax.ax.scatter(x=np.arange(n_xticks), y=[(greedy_df["FarmPower"] / 1e6).iloc[0]] * n_xticks, marker="^", color="forestgreen", s=250, label="Greedy")
+            ax.ax.scatter(x=np.arange(n_xticks), y=[(lut_df["FarmPower"] / 1e6).iloc[0]] * n_xticks, marker="s", color="darkorange", s=250, label="LUT")
             fn = "param_sweep_diff_type_merge"
         else:
-            ax = sns.catplot(data=mpc_df, kind="bar", x="diff_type", y="FarmPowerMean", estimator=estimator, hue="wind_preview_type", errorbar=None, legend_out=False)
+            ax = sns.catplot(data=mpc_df, kind="bar", x="diff_type", y="FarmPower", estimator=estimator, hue="wind_preview_type", errorbar=None, legend_out=False)
             n_xticks = len(pd.unique(mpc_df["diff_type"]))
-            ax.ax.scatter(x=np.arange(n_xticks) - ax.ax.patches[0].get_width(), y=[(greedy_df["FarmPowerMean"] / 1e6).iloc[0]] * n_xticks, marker="^", s=250, label="Greedy", color="forestgreen")
-            ax.ax.scatter(x=np.arange(n_xticks) - ax.ax.patches[0].get_width(), y=[(lut_df["FarmPowerMean"] / 1e6).iloc[0]] * n_xticks, marker="s", s=250, label="LUT", color="darkorange")
+            ax.ax.scatter(x=np.arange(n_xticks) - ax.ax.patches[0].get_width(), y=[(greedy_df["FarmPower"] / 1e6).iloc[0]] * n_xticks, marker="^", s=250, label="Greedy", color="forestgreen")
+            ax.ax.scatter(x=np.arange(n_xticks) - ax.ax.patches[0].get_width(), y=[(lut_df["FarmPower"] / 1e6).iloc[0]] * n_xticks, marker="s", s=250, label="LUT", color="darkorange")
             ax.ax.legend(loc="lower right")
             
             ax.ax.get_legend().get_texts()[[s._text for s in ax.ax.get_legend().get_texts()].index("stochastic_interval_rectangular")].set_text("Stochastic Rectangular Interval")
@@ -1029,7 +1250,7 @@ def plot_parameter_sweep(agg_dfs, mpc_type, save_dir, plot_columns, merge_wind_p
             sns.move_legend(ax.ax, "upper left", bbox_to_anchor=(1, 1), ncols=1)
             fn = "param_sweep_diff_type"
 
-        ax.ax.set(ylabel="", xlabel="Differentiation Method", title="Farm Power [MW]")
+        ax.ax.set(ylabel="", xlabel="Differentiation Method", title="Farm Power (MW)")
         ax.ax.set_ylim((2.65, 3.05))
 
         plt.tight_layout()
@@ -1050,19 +1271,19 @@ def plot_parameter_sweep(agg_dfs, mpc_type, save_dir, plot_columns, merge_wind_p
         plt.tight_layout() 
         plt.savefig(os.path.join(save_dir, "gradient_type", f"{fn}_zoom.png"))
     
-    if all(c in plot_columns for c in ["nu", "wind_preview_type", "FarmPowerMean"]):
+    if all(c in plot_columns for c in ["nu", "wind_preview_type", "FarmPower"]):
         if merge_wind_preview_types:
-            ax = sns.catplot(data=mpc_df, kind="bar", x="nu", y="FarmPowerMean", estimator=estimator, errorbar=None, legend_out=False)
+            ax = sns.catplot(data=mpc_df, kind="bar", x="nu", y="FarmPower", estimator=estimator, errorbar=None, legend_out=False)
             n_xticks = len(pd.unique(mpc_df["nu"]))
-            ax.ax.scatter(x=np.arange(n_xticks), y=[(greedy_df["FarmPowerMean"] / 1e6).iloc[0]] * n_xticks, marker="^", s=250, label="Greedy", color="forestgreen")
-            ax.ax.scatter(x=np.arange(n_xticks), y=[(lut_df["FarmPowerMean"] / 1e6).iloc[0]] * n_xticks, marker="s", s=250, label="LUT", color="darkorange")
+            ax.ax.scatter(x=np.arange(n_xticks), y=[(greedy_df["FarmPower"] / 1e6).iloc[0]] * n_xticks, marker="^", s=250, label="Greedy", color="forestgreen")
+            ax.ax.scatter(x=np.arange(n_xticks), y=[(lut_df["FarmPower"] / 1e6).iloc[0]] * n_xticks, marker="s", s=250, label="LUT", color="darkorange")
 
             fn = f"param_sweep_{mpc_type}_nu_merge"
         else: 
-            ax = sns.catplot(data=mpc_df, kind="bar", x="nu", y="FarmPowerMean", estimator=estimator, hue="wind_preview_type", errorbar=None, legend_out=False)
+            ax = sns.catplot(data=mpc_df, kind="bar", x="nu", y="FarmPower", estimator=estimator, hue="wind_preview_type", errorbar=None, legend_out=False)
             n_xticks = len(pd.unique(mpc_df["nu"]))
-            ax.ax.scatter(x=np.arange(n_xticks) - ax.ax.patches[0].get_width(), y=[(greedy_df["FarmPowerMean"] / 1e6).iloc[0]] * n_xticks, marker="^", s=250, label="Greedy", color="forestgreen")
-            ax.ax.scatter(x=np.arange(n_xticks) - ax.ax.patches[0].get_width(), y=[(lut_df["FarmPowerMean"] / 1e6).iloc[0]] * n_xticks, marker="s", s=250, label="LUT", color="darkorange")
+            ax.ax.scatter(x=np.arange(n_xticks) - ax.ax.patches[0].get_width(), y=[(greedy_df["FarmPower"] / 1e6).iloc[0]] * n_xticks, marker="^", s=250, label="Greedy", color="forestgreen")
+            ax.ax.scatter(x=np.arange(n_xticks) - ax.ax.patches[0].get_width(), y=[(lut_df["FarmPower"] / 1e6).iloc[0]] * n_xticks, marker="s", s=250, label="LUT", color="darkorange")
             ax.ax.legend(loc="lower right")
             ax.ax.get_legend().get_texts()[[s._text for s in ax.ax.get_legend().get_texts()].index("stochastic_interval_rectangular")].set_text("Stochastic Rectangular Interval")
             ax.ax.get_legend().get_texts()[[s._text for s in ax.ax.get_legend().get_texts()].index("stochastic_interval_elliptical")].set_text("Stochastic Elliptical Interval")
@@ -1070,7 +1291,7 @@ def plot_parameter_sweep(agg_dfs, mpc_type, save_dir, plot_columns, merge_wind_p
             sns.move_legend(ax.ax, "upper left", bbox_to_anchor=(1, 1), ncols=1)
             fn = f"param_sweep_{mpc_type}_nu"
         
-        ax.ax.set(ylabel="", xlabel="Step Size", title="Farm Power [MW]")
+        ax.ax.set(ylabel="", xlabel="Step Size", title="Farm Power (MW)")
         ax.ax.set_ylim((2.65, 3.05))
         plt.tight_layout()
         plt.savefig(os.path.join(save_dir, "gradient_type", f"{fn}.png"))
@@ -1090,19 +1311,19 @@ def plot_parameter_sweep(agg_dfs, mpc_type, save_dir, plot_columns, merge_wind_p
         plt.tight_layout() 
         plt.savefig(os.path.join(save_dir, "gradient_type", f"{fn}_zoom.png"))
 
-    if all(c in plot_columns for c in ["decay_type", "wind_preview_type", "FarmPowerMean"]):
+    if all(c in plot_columns for c in ["decay_type", "wind_preview_type", "FarmPower"]):
 
         if merge_wind_preview_types:
-            ax = sns.catplot(data=mpc_df, kind="bar", x="decay_type", y="FarmPowerMean", estimator=estimator, errorbar=None, legend_out=False)
+            ax = sns.catplot(data=mpc_df, kind="bar", x="decay_type", y="FarmPower", estimator=estimator, errorbar=None, legend_out=False)
             n_xticks = len(pd.unique(mpc_df["decay_type"]))
-            ax.ax.scatter(x=np.arange(n_xticks), y=[(greedy_df["FarmPowerMean"] / 1e6).iloc[0]] * n_xticks, marker="^", s=250, label="Greedy", color="forestgreen")
-            ax.ax.scatter(x=np.arange(n_xticks), y=[(lut_df["FarmPowerMean"] / 1e6).iloc[0]] * n_xticks, marker="s", s=250, label="LUT", color="darkorange")
+            ax.ax.scatter(x=np.arange(n_xticks), y=[(greedy_df["FarmPower"] / 1e6).iloc[0]] * n_xticks, marker="^", s=250, label="Greedy", color="forestgreen")
+            ax.ax.scatter(x=np.arange(n_xticks), y=[(lut_df["FarmPower"] / 1e6).iloc[0]] * n_xticks, marker="s", s=250, label="LUT", color="darkorange")
             fn = f"param_sweep_{mpc_type}_decay_type_merge"
         else:  
-            ax = sns.catplot(data=mpc_df, kind="bar", x="decay_type", y="FarmPowerMean", estimator=estimator, hue="wind_preview_type", errorbar=None, legend_out=False)
+            ax = sns.catplot(data=mpc_df, kind="bar", x="decay_type", y="FarmPower", estimator=estimator, hue="wind_preview_type", errorbar=None, legend_out=False)
             n_xticks = len(pd.unique(mpc_df["decay_type"]))
-            ax.ax.scatter(x=np.arange(n_xticks) - ax.ax.patches[0].get_width(), y=[(greedy_df["FarmPowerMean"] / 1e6).iloc[0]] * n_xticks, marker="^", s=250, label="Greedy", color="forestgreen")
-            ax.ax.scatter(x=np.arange(n_xticks) - ax.ax.patches[0].get_width(), y=[(lut_df["FarmPowerMean"] / 1e6).iloc[0]] * n_xticks, marker="s", s=250, label="LUT", color="darkorange")
+            ax.ax.scatter(x=np.arange(n_xticks) - ax.ax.patches[0].get_width(), y=[(greedy_df["FarmPower"] / 1e6).iloc[0]] * n_xticks, marker="^", s=250, label="Greedy", color="forestgreen")
+            ax.ax.scatter(x=np.arange(n_xticks) - ax.ax.patches[0].get_width(), y=[(lut_df["FarmPower"] / 1e6).iloc[0]] * n_xticks, marker="s", s=250, label="LUT", color="darkorange")
             ax.ax.legend(loc="lower right")   
             ax.ax.get_legend().get_texts()[[s._text for s in ax.ax.get_legend().get_texts()].index("stochastic_interval_rectangular")].set_text("Stochastic Rectangular Interval")
             ax.ax.get_legend().get_texts()[[s._text for s in ax.ax.get_legend().get_texts()].index("stochastic_interval_elliptical")].set_text("Stochastic Elliptical Interval")
@@ -1110,7 +1331,7 @@ def plot_parameter_sweep(agg_dfs, mpc_type, save_dir, plot_columns, merge_wind_p
             sns.move_legend(ax.ax, "upper left", bbox_to_anchor=(1, 1), ncols=1)
             fn = f"param_sweep_{mpc_type}_decay_type"
         
-        ax.ax.set(ylabel="", xlabel="Decay Type", title="Farm Power [MW]")
+        ax.ax.set(ylabel="", xlabel="Decay Type", title="Farm Power (MW)")
         ax.ax.set_ylim((2.65, 3.05))
         plt.tight_layout()
         plt.savefig(os.path.join(save_dir, "gradient_type", f"{fn}.png"))
@@ -1131,19 +1352,19 @@ def plot_parameter_sweep(agg_dfs, mpc_type, save_dir, plot_columns, merge_wind_p
         plt.savefig(os.path.join(save_dir, "gradient_type", f"{fn}_zoom.png"))
 
     # if "max_std_dev" in plot_columns:
-    if all(c in plot_columns for c in ["max_std_dev", "wind_preview_type", "FarmPowerMean"]):
+    if all(c in plot_columns for c in ["max_std_dev", "wind_preview_type", "FarmPower"]):
 
         if merge_wind_preview_types:
-            ax = sns.catplot(data=mpc_df, kind="bar", x="max_std_dev", y="FarmPowerMean", estimator=estimator, errorbar=None, legend_out=False)
+            ax = sns.catplot(data=mpc_df, kind="bar", x="max_std_dev", y="FarmPower", estimator=estimator, errorbar=None, legend_out=False)
             n_xticks = len(pd.unique(mpc_df["max_std_dev"]))
-            ax.ax.scatter(x=np.arange(n_xticks), y=[(greedy_df["FarmPowerMean"] / 1e6).iloc[0]] * n_xticks, marker="^", s=250, label="Greedy", color="forestgreen")
-            ax.ax.scatter(x=np.arange(n_xticks), y=[(lut_df["FarmPowerMean"] / 1e6).iloc[0]] * n_xticks, marker="s", s=250, label="LUT", color="darkorange")
+            ax.ax.scatter(x=np.arange(n_xticks), y=[(greedy_df["FarmPower"] / 1e6).iloc[0]] * n_xticks, marker="^", s=250, label="Greedy", color="forestgreen")
+            ax.ax.scatter(x=np.arange(n_xticks), y=[(lut_df["FarmPower"] / 1e6).iloc[0]] * n_xticks, marker="s", s=250, label="LUT", color="darkorange")
             fn = f"param_sweep_{mpc_type}_max_std_dev_merge"
         else:  
-            ax = sns.catplot(data=mpc_df, kind="bar", x="max_std_dev", y="FarmPowerMean", estimator=estimator, hue="wind_preview_type", errorbar=None, legend_out=False)
+            ax = sns.catplot(data=mpc_df, kind="bar", x="max_std_dev", y="FarmPower", estimator=estimator, hue="wind_preview_type", errorbar=None, legend_out=False)
             n_xticks = len(pd.unique(mpc_df["max_std_dev"]))
-            ax.ax.scatter(x=np.arange(n_xticks) - ax.ax.patches[0].get_width(), y=[(greedy_df["FarmPowerMean"] / 1e6).iloc[0]] * n_xticks, marker="^", s=250, label="Greedy", color="forestgreen")
-            ax.ax.scatter(x=np.arange(n_xticks) - ax.ax.patches[0].get_width(), y=[(lut_df["FarmPowerMean"] / 1e6).iloc[0]] * n_xticks, marker="s", s=250, label="LUT", color="darkorange")
+            ax.ax.scatter(x=np.arange(n_xticks) - ax.ax.patches[0].get_width(), y=[(greedy_df["FarmPower"] / 1e6).iloc[0]] * n_xticks, marker="^", s=250, label="Greedy", color="forestgreen")
+            ax.ax.scatter(x=np.arange(n_xticks) - ax.ax.patches[0].get_width(), y=[(lut_df["FarmPower"] / 1e6).iloc[0]] * n_xticks, marker="s", s=250, label="LUT", color="darkorange")
             ax.ax.legend(loc="lower right")
             ax.ax.get_legend().get_texts()[[s._text for s in ax.ax.get_legend().get_texts()].index("stochastic_interval_rectangular")].set_text("Stochastic Rectangular Interval")
             ax.ax.get_legend().get_texts()[[s._text for s in ax.ax.get_legend().get_texts()].index("stochastic_interval_elliptical")].set_text("Stochastic Elliptical Interval")
@@ -1151,7 +1372,7 @@ def plot_parameter_sweep(agg_dfs, mpc_type, save_dir, plot_columns, merge_wind_p
             sns.move_legend(ax.ax, "upper left", bbox_to_anchor=(1, 1), ncols=1)
             fn = f"param_sweep_{mpc_type}_max_std_dev"
         
-        ax.ax.set(ylabel="", xlabel="Maximum Standard Deviation", title="Farm Power [MW]")
+        ax.ax.set(ylabel="", xlabel="Maximum Standard Deviation", title="Farm Power (MW)")
         ax.ax.set_ylim((2.65, 3.05))
 
         plt.tight_layout()
@@ -1172,16 +1393,16 @@ def plot_parameter_sweep(agg_dfs, mpc_type, save_dir, plot_columns, merge_wind_p
         plt.tight_layout() 
         plt.savefig(os.path.join(save_dir, "gradient_type", f"{fn}_zoom.png"))
 
-    if all(c in plot_columns for c in ["diff_steps", "diff_direction", "wind_preview_type", "FarmPowerMean", "diff_type", "nu"]):
+    if all(c in plot_columns for c in ["diff_steps", "diff_direction", "wind_preview_type", "FarmPower", "diff_type", "nu"]):
         # plot of direct vs. chain fd/cd, with size of scatter = farm power, hue = nu
         ax = sns.catplot(data=mpc_df.loc[mpc_df["wind_preview_type"] != "stochastic_sample"].sort_values(by=["diff_steps", "diff_direction"]), 
-                        kind="bar", x="diff_type", y="FarmPowerMean", hue="nu", estimator=estimator, legend_out=False, errorbar=None)
-        ax.ax.set(ylabel="", xlabel="Derivative Type", title="Farm Power [MW]")
+                        kind="bar", x="diff_type", y="FarmPower", hue="nu", estimator=estimator, legend_out=False, errorbar=None)
+        ax.ax.set(ylabel="", xlabel="Derivative Type", title="Farm Power (MW)")
         ax.ax.set_ylim((2.65, 3.05))
         ax.ax.set_xticklabels(["Chain \nCentral Diff.", "Chain \nForward Diff.", "Direct \nCentral Diff.", "Direct \nForward Diff."])
         n_xticks = len(pd.unique(mpc_df.loc[mpc_df["preview_type"] != "stochastic_sample"]["diff_type"]))
-        ax.ax.scatter(x=np.arange(n_xticks) - ax.ax.patches[0].get_width(), y=[(greedy_df["FarmPowerMean"] / 1e6).iloc[0]] * n_xticks, marker="^", s=250, label="Greedy", color="forestgreen")
-        ax.ax.scatter(x=np.arange(n_xticks) - ax.ax.patches[0].get_width(), y=[(lut_df["FarmPowerMean"] / 1e6).iloc[0]] * n_xticks, marker="s", s=250, label="LUT", color="darkorange")
+        ax.ax.scatter(x=np.arange(n_xticks) - ax.ax.patches[0].get_width(), y=[(greedy_df["FarmPower"] / 1e6).iloc[0]] * n_xticks, marker="^", s=250, label="Greedy", color="forestgreen")
+        ax.ax.scatter(x=np.arange(n_xticks) - ax.ax.patches[0].get_width(), y=[(lut_df["FarmPower"] / 1e6).iloc[0]] * n_xticks, marker="s", s=250, label="LUT", color="darkorange")
         ax.ax.legend(loc="lower right")
         ax.ax.get_legend().get_texts()[0].set_text("0.001 step size")
         ax.ax.get_legend().get_texts()[1].set_text("0.01 step size")
@@ -1256,28 +1477,28 @@ def plot_cost_function_pareto_curve(data_summary_df, save_dir):
 
     fig, ax = plt.subplots(1)
     baseline_df = data_summary_df.loc[data_summary_df.index.get_level_values("CaseFamily").str.contains("baseline_controllers"), :].copy().reset_index(level="CaseName")
-    baseline_df[("FarmPowerMean", "mean")] = baseline_df[("FarmPowerMean", "mean")] / 1e6
-    # baseline_df[("FarmPowerMean", "min")] = baseline_df[("FarmPowerMean", "min")] / 1e6
-    # baseline_df[("FarmPowerMean", "max")] = baseline_df[("FarmPowerMean", "max")] / 1e6
+    baseline_df[("FarmPower", "mean")] = baseline_df[("FarmPower", "mean")] / 1e6
+    # baseline_df[("FarmPower", "min")] = baseline_df[("FarmPower", "min")] / 1e6
+    # baseline_df[("FarmPower", "max")] = baseline_df[("FarmPower", "max")] / 1e6
 
     sub_df = data_summary_df.loc[data_summary_df.index.get_level_values("CaseFamily") == "cost_func_tuning", :].copy()
     sub_df = sub_df.reset_index(level="CaseName")
     sub_df.loc[:, "CaseName"] = [float(x[-1]) for x in sub_df["CaseName"].str.split("_")]
-    sub_df[("FarmPowerMean", "mean")] = sub_df[("FarmPowerMean", "mean")] / 1e6
-    # sub_df[("FarmPowerMean", "min")] = sub_df[("FarmPowerMean", "min")] / 1e6
-    # sub_df[("FarmPowerMean", "max")] = sub_df[("FarmPowerMean", "max")] / 1e6
+    sub_df[("FarmPower", "mean")] = sub_df[("FarmPower", "mean")] / 1e6
+    # sub_df[("FarmPower", "min")] = sub_df[("FarmPower", "min")] / 1e6
+    # sub_df[("FarmPower", "max")] = sub_df[("FarmPower", "max")] / 1e6
 
     # Plot "RelativeFarmPowerMean" vs. "RelativeYawAngleChangeAbsMean" for all "SolverType" == "cost_func_tuning"
-    ax = sns.scatterplot(data=sub_df, x=("YawAngleChangeAbsMean", "mean"), y=("FarmPowerMean", "mean"),
+    ax = sns.scatterplot(data=sub_df, x=("YawAngleChangeAbs", "mean"), y=("FarmPower", "mean"),
                     size="CaseName", #size_order=reversed(sub_df["CaseName"].to_numpy()),
                     ax=ax)
     ax.collections[0].set_sizes(ax.collections[0].get_sizes() * 5)
     ax.legend([], [], frameon=False)
-    ax.set(xlabel="Mean Absolute Yaw Angle Change [$^\\circ$]", ylabel="Mean Farm Power [MW]")
+    ax.set(xlabel="Mean Absolute Yaw Angle Change ($^\\circ$)", ylabel="Mean Farm Power (MW)")
 
     for (idx, row), m, c in zip(baseline_df.iterrows(), ["^", "s"], ["forestgreen", "darkorange"]):
-        ax.scatter(x=[row[("YawAngleChangeAbsMean", "mean")]], 
-                   y=[row[("FarmPowerMean", "mean")]], 
+        ax.scatter(x=[row[("YawAngleChangeAbs", "mean")]], 
+                   y=[row[("FarmPower", "mean")]], 
                    label=row["CaseName"].iloc[0], marker=m, color=c,
                    s=360)
                 #    s=np.max(ax.collections[0].get_sizes()))
@@ -1299,8 +1520,8 @@ def plot_horizon_length(data_summary_df, save_dir):
     lut_df = data_summary_df.loc[(data_summary_df.index.get_level_values("CaseFamily") == "baseline_controllers") &
                                        (data_summary_df.index.get_level_values("CaseName").str.contains("LUT")), :].copy()
     # baseline_df.reset_index(level="CaseName", inplace=True)
-    greedy_df[("FarmPowerMean", "mean")] = greedy_df[("FarmPowerMean", "mean")] / 1e6
-    lut_df[("FarmPowerMean", "mean")] = lut_df[("FarmPowerMean", "mean")] / 1e6
+    greedy_df[("FarmPower", "mean")] = greedy_df[("FarmPower", "mean")] / 1e6
+    lut_df[("FarmPower", "mean")] = lut_df[("FarmPower", "mean")] / 1e6
 
     greedy_df = greedy_df.sort_values(by="CaseName")
     lut_df = lut_df.sort_values(by="CaseName")
@@ -1310,7 +1531,7 @@ def plot_horizon_length(data_summary_df, save_dir):
     sub_df["dt"] = sub_df["dt"].astype(int)
     sub_df = sub_df.reset_index(level="CaseName")
     sub_df.loc[:, "CaseName"] = [float(x[-1]) for x in sub_df["CaseName"].str.split("_")]
-    sub_df[("FarmPowerMean", "mean")] = sub_df[("FarmPowerMean", "mean")] / 1e6
+    sub_df[("FarmPower", "mean")] = sub_df[("FarmPower", "mean")] / 1e6
     sub_df = sub_df.sort_values(by="CaseName")
     sub_df = sub_df.droplevel(1, axis=1)
     greedy_df = greedy_df.droplevel(1, axis=1)
@@ -1319,25 +1540,25 @@ def plot_horizon_length(data_summary_df, save_dir):
 
     # Plot "RelativeFarmPowerMean" vs. "RelativeYawAngleChangeAbsMean" for all "SolverType" == "cost_func_tuning"
     fig, ax = plt.subplots(1)
-    # sns.scatterplot(data=greedy_df, x="YawAngleChangeAbsMean", y="FarmPowerMean", ax=ax, marker="^")
-    # sns.scatterplot(data=lut_df, x="YawAngleChangeAbsMean", y="FarmPowerMean", ax=ax, marker="s")
+    # sns.scatterplot(data=greedy_df, x="YawAngleChangeAbs", y="FarmPower", ax=ax, marker="^")
+    # sns.scatterplot(data=lut_df, x="YawAngleChangeAbs", y="FarmPower", ax=ax, marker="s")
 
     # ax.collections[0].set_sizes(ax.collections[0].get_sizes() * 5)
     # ax.collections[1].set_sizes(ax.collections[1].get_sizes() * 5)
 
     for (idx, row), m, c in zip(lut_df.iterrows(), ["s"], ["darkorange"]):
-        ax.scatter(x=[row["YawAngleChangeAbsMean"]], 
-                   y=[row["FarmPowerMean"]], 
+        ax.scatter(x=[row["YawAngleChangeAbs"]], 
+                   y=[row["FarmPower"]], 
                    label=row.name[1], marker=m, color=c)
 
-    sns.scatterplot(data=sub_df, x="YawAngleChangeAbsMean", y="FarmPowerMean", 
+    sns.scatterplot(data=sub_df, x="YawAngleChangeAbs", y="FarmPower", 
                      hue="n_horizon", style="dt", ax=ax)
                     # size_order=reversed(sub_df["CaseName"]), ax=ax)
     # ax.collections[1].set_sizes(ax.collections[1].get_sizes() * 9)
     # marker_scale = 360 / ax.collections[1].get_sizes()[0]
     ax.collections[1].set_sizes([360])
 
-    ax.set(xlabel="Mean Absolute Yaw Angle Change [$^\\circ$]", ylabel="Mean Farm Power [MW]")
+    ax.set(xlabel="Mean Absolute Yaw Angle Change ($^\\circ$)", ylabel="Mean Farm Power (MW)")
     
     # ax.legend([], [], frameon=False)
     # h, l = ax.get_legend_handles_labels()
@@ -1417,7 +1638,7 @@ def plot_breakdown_robustness(data_summary_df, save_dir):
     sns.scatterplot(data=sub_df, x=("RelativeYawAngleChangeAbsMean", "mean"), y=("RelativeFarmPowerMean", "mean"), size="CaseName", ax=ax)
                     # size_order=reversed(sub_df["CaseName"]), ax=ax)
     
-    ax.set(xlabel="Mean Absolute Yaw Angle Change / No. Active Turbines [$^\\circ$]", ylabel="Mean Farm Power / No. Active Turbines [MW]")
+    ax.set(xlabel="Mean Absolute Yaw Angle Change / No. Active Turbines ($^\\circ$)", ylabel="Mean Farm Power / No. Active Turbines (MW)")
 
     sns.scatterplot(data=greedy_df, x=("RelativeYawAngleChangeAbsMean", "mean"), y=("RelativeFarmPowerMean", "mean"), size="CaseName", ax=ax, marker="^", color="forestgreen")
     sns.scatterplot(data=lut_df, x=("RelativeYawAngleChangeAbsMean", "mean"), y=("RelativeFarmPowerMean", "mean"), size="CaseName", ax=ax, marker="s", color="darkorange")
@@ -1453,7 +1674,6 @@ def plot_power_increase_vs_prediction_time(plot_df, save_dir):
     
     
     fig, ax = plt.subplots(figsize=(15, 9))
-    plot_df["prediction_timedelta"] = plot_df["prediction_timedelta"].dt.total_seconds()
     plot_df = plot_df.rename(columns={"prediction_timedelta": "Prediction Horizon (s)", "wind_forecast_class": "Forecaster", "power_ratio": "Power Increase (%)"})
     sns.scatterplot(x="Prediction Horizon (s)", y="Power Increase (%)", style="Forecaster", data=plot_df, ax=ax)
     
@@ -1462,7 +1682,7 @@ def plot_power_increase_vs_prediction_time(plot_df, save_dir):
     new_labels = [" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", ll).group())) for ll in l]
     ax.legend(h, new_labels, title="Forecaster")
     ax.grid(True)
-    
+    ax.set_xticks(ax.get_xticks()[::2])
     # Save the figure
     fig.tight_layout()
     fig.savefig(os.path.join(save_dir, "power_increase_vs_prediction_time.png"))

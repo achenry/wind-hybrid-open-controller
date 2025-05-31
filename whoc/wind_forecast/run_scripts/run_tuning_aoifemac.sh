@@ -18,6 +18,7 @@ date +"%Y-%m-%d %H:%M:%S"
 # conda init
 source activate base
 conda activate wind_forecasting_env
+cd ..
 python tuning.py \
             --model_config $MODEL_CONFIG \
             --data_config $DATA_CONFIG \
@@ -49,7 +50,7 @@ for i in $(seq 0 $((${NTUNERS}-1))); do
         echo "Starting worker ${WORKER_INDEX} on CPU ${i} with seed ${WORKER_SEED}"
         
         nohup bash -c "
-        conda activate wind_forecasting
+        conda activate wind_forecasting_env
         python tuning.py \
             --model_config $MODEL_CONFIG \
             --data_config $DATA_CONFIG \
