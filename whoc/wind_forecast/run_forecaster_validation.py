@@ -224,6 +224,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                     with open(sp, mode="a") as fp:
                         forecasts.write_csv(fp, include_header=False)
                     logging.info(f"File {sp} has size {os.path.getsize(sp)} after appending.")
+                    
                 # TODO code seems to hang here for multiprocessing on HPC
                 n_saved += 1
                 forecasts = []
@@ -496,6 +497,9 @@ if __name__ == "__main__":
     parser.add_argument("-st", "--simulation_timestep", 
                         required=True, type=int,
                         help="Simulation time step to use (sec)")
+    parser.add_argument("-rv", "--run_validation",
+                        action="store_true",
+                        help="Whether to run validation for results.")
     parser.add_argument("-rrv", "--rerun_validation",
                         action="store_true",
                         help="Whether to repeat validation for results that have already been stored.")
@@ -664,7 +668,6 @@ if __name__ == "__main__":
             num_visible_gpus = len(visible_gpus)
             if num_visible_gpus > 0:
                 # max_workers = num_visible_gpus
-                # TODO TESTING see if many cores can share smaller number of GPUs
                 # max_workers = MPI.COMM_WORLD.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
                 max_workers = int(os.environ.get("SLURM_NTASKS_PER_NODE", num_visible_gpus))
                 logging.info(f"Found {num_visible_gpus} GPUs. Setting max_workers {max_workers}.")
@@ -834,8 +837,8 @@ if __name__ == "__main__":
                 #     logging.info(f"Rerunning validation {forecaster_name, prediction_timedelta, save_path} since saved number of timestamps is only {n_forecasted_timestamps} whereas number in test data is {n_true_timestamps}.")
                     # logging.info(f"Removing existing file {save_path}.")
                     # os.remove.exists(save_path)
-     
-    if False:       
+    
+    if args.run_validation:       
         if args.multiprocessor:
             
             if args.multiprocessor == "mpi":
