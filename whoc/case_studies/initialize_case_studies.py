@@ -60,6 +60,8 @@ case_studies = {
                                     # "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73"]},
                                     # "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController"]},
                                     "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
+                                                            "model_config_path": {"group": 1, "vals": [
+                                    os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
                                     "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
                                     "prediction_timedelta": {"group": 1, "vals": [510]},
                                     "wind_forecast_class": {"group": 2, "vals": ["SVRForecast"]}, #, "KalmanFilterForecast", "PersistenceForecast", "SpatialFilterForecast", "SVRForecast"]}, # "MLForecast"
@@ -863,7 +865,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                 
                 if (input_dicts[start_case_idx + c]["controller"]["wind_forecast_class"] in ["MLForecast", "SVRForecast"]) and \
                     (input_dicts[start_case_idx + c]["wind_forecast"]["prediction_timedelta"] > mdl_cnf["dataset"]["prediction_length"]):
-                        logging.warning(f"Provided prediction_timedelta should be less or equal to the trained model config prediction length {mdl_cnf['dataset']['prediction_length']}. Make sure you are providing the right model config file. Resetting the prediction_timedelta variable.")
+                        logging.warning(f"Provided prediction_timedelta {input_dicts[start_case_idx + c]['wind_forecast']['prediction_timedelta']} should be less or equal to the trained model config prediction length {mdl_cnf['dataset']['prediction_length']}. Make sure you are providing the right model config file. Resetting the prediction_timedelta variable.")
                         input_dicts[start_case_idx + c]["wind_forecast"]["prediction_timedelta"] = mdl_cnf["dataset"]["prediction_length"]
                 
                 wind_forecast_kwargs = {
@@ -988,7 +990,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             if case_lists[start_case_idx + c]["wind_case_idx"] == 0:
                 # only generate input_df row for one wind seed
                 # TODO also add other default attributes here
-                sim_data = {**{input_dicts[start_case_idx + c]["simulation_dt"]},
+                sim_data = {**{"simulation_dt": input_dicts[start_case_idx + c]["simulation_dt"]},
                             **input_dicts[start_case_idx + c]["controller"],
                             **input_dicts[start_case_idx + c]["wind_forecast"]}
                 input_df.append(pd.DataFrame(data={k: [v] for k, v in sim_data.items() if k != "wind_case_idx"}))
