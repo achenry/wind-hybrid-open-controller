@@ -321,17 +321,23 @@ def generate_forecaster_agg_results(forecaster, forecast_df, test_data, data_mod
     # true_df_pd = test_data.collect().to_pandas()
     # true_df_pd = true_df_pd.set_index(pd.PeriodIndex(true_df_pd["time"].dt.to_period(freq=data_module.freq)))[data_module.target_cols]\
     #                     .rename(columns={src: s for s, src in enumerate(data_module.target_cols)})
-    # TODO HIGH Check how err is computed for finer grain predictions… ie multiple time steps of same values across test_idx
+    
     forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.model_key.capitalize()}Forecast"
     logging.info(f"Preparing combined df for forecaster {forecaster_name} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
     
     fdf = forecast_df.select(["time", "test_idx"] + [cs.ends_with(tgt) for tgt in data_module.target_cols])
-    fdf = fdf.group_by("time").select(pl.all().first())
+    if False:
+        # NOTE: for multistep predictions it is possible for multiple predictions for the same timestamp to exist
+        # select the first prediction found for each timestamp, i.e. the one farthest from current time
+        fdf = fdf.group_by("time", maintain_order=True).first()
+        # otherwise we include the errors for the same timestamp multiple times
     tdf = test_data.filter(pl.col("time").is_in(forecast_df.select(pl.col("time"))))\
                        .select(["time", "continuity_group"] + data_module.target_cols)
     combined_df = fdf.rename(lambda col: re.search("(?<=loc_)(\\w+)$", col).group() if col.startswith("loc_") else col)\
                      .join(tdf, on=["time"], suffix="_true", coalesce=False)
     true_cols = [f"{c}_true" for c in data_module.target_cols]
+    
+    # x = datetime.strptime("2023-02-19 15:54:12", "%Y-%m-%d %H:%M:%S")
     
     logging.info(f"Preparing deterministic agg_metrics for forecaster {forecaster.__class__.__name__} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
     
@@ -437,7 +443,7 @@ def plot_score_vs_prediction_dt(agg_df, metrics, ax_indices, fig_dir):
     fig.savefig(fig_path)
     return fig
 
-def plot_score_vs_forecaster(agg_df, metrics, ax_indices, prediction_intervals, fig_dir):
+def plot_score_vs_forecaster(agg_df, metrics, ax_indices, prediction_intervals, fig_dir, label):
     
     sns.set_style("whitegrid")
     
@@ -446,8 +452,8 @@ def plot_score_vs_forecaster(agg_df, metrics, ax_indices, prediction_intervals, 
                 kind="bar", col="prediction_timedelta", row=0,
                 hue="metric", x="forecaster", y="score", hue_order=metrics)
     
-    new_xticks = [" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", label._text).group())) for label in ax.axes[0, 0].get_xticklabels()]
-    new_xticks = ["".join(label.split(" ")) if all(l.isupper() or l.isspace() for l in label) else label for label in new_xticks]
+    new_xticks = [" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", l._text).group())) for l in ax.axes[0, 0].get_xticklabels()]
+    new_xticks = ["".join(l.split(" ")) if all(l.isupper() or l.isspace() for l in l) else l for l in new_xticks]
     
     for p in range(ax.axes.shape[1]):
         ax.axes[0, p].set_title(f"Prediction Length {re.search('(?<=prediction_timedelta = )(\\d+)', ax.axes[0, p].title.get_text()).group()} sec")
@@ -465,7 +471,7 @@ def plot_score_vs_forecaster(agg_df, metrics, ax_indices, prediction_intervals, 
     fig.set_size_inches((14.1, 7.8))
     fig.subplots_adjust(right=0.85)
     
-    fig_path = os.path.join(fig_dir, f"score_vs_forecaster.png")
+    fig_path = os.path.join(fig_dir, f"score_vs_forecaster{label}.png")
     logging.info(f"Saving plot_score_vs_forecaster to {fig_path}")
     fig.savefig(fig_path)
         
@@ -484,6 +490,9 @@ if __name__ == "__main__":
                         # choices=["perfect", "persistence", "svr", "kf", "informer", "autoformer", "spacetimeformer", "sf"], 
                         required=True, nargs="+",
                         help="Which model(s) to simulate, compute score for, and plot.")
+    parser.add_argument("-rn", "--run_name", #type=str, 
+                        default="",
+                        help="Name to append to plots and results, e.g. for experiment tracking.")
     parser.add_argument("-st", "--simulation_timestep", 
                         required=True, type=int,
                         help="Simulation time step to use (sec)")
@@ -792,7 +801,8 @@ if __name__ == "__main__":
                                                     model_checkpoint=args.checkpoint[0] if len(args.checkpoint) == 1 else args.checkpoint[m],
                                                     optuna_storage=None,
                                                     study_name=None,#db_setup_params["study_name"],
-                                                    model_config=mncf))
+                                                    model_config=mncf,
+                                                    resample=False))
                 forecasters.append(forecaster)
     
     continuity_groups = test_data.select(pl.col("continuity_group").unique()).to_numpy().flatten()
@@ -824,42 +834,43 @@ if __name__ == "__main__":
                 #     logging.info(f"Rerunning validation {forecaster_name, prediction_timedelta, save_path} since saved number of timestamps is only {n_forecasted_timestamps} whereas number in test data is {n_true_timestamps}.")
                     # logging.info(f"Removing existing file {save_path}.")
                     # os.remove.exists(save_path)
+     
+    if False:       
+        if args.multiprocessor:
             
-    if args.multiprocessor:
-        
-        if args.multiprocessor == "mpi":
-            # max_workers = MPI.COMM_WORLD.Get_size()
-            executor = MPICommExecutor(MPI.COMM_WORLD, root=0, max_workers=max_workers)
-        elif args.multiprocessor == "cf":
-            # max_workers = mp.cpu_count()
-            executor = ProcessPoolExecutor(max_workers=max_workers,
-                                            mp_context=mp.get_context("spawn"),
-                                            max_tasks_per_child=1)
-        
-        logging.info(f"Running generate_forecaster_results with multiprocessor {args.multiprocessor} with {max_workers} workers.")
-        with executor as ex:
+            if args.multiprocessor == "mpi":
+                # max_workers = MPI.COMM_WORLD.Get_size()
+                executor = MPICommExecutor(MPI.COMM_WORLD, root=0, max_workers=max_workers)
+            elif args.multiprocessor == "cf":
+                # max_workers = mp.cpu_count()
+                executor = ProcessPoolExecutor(max_workers=max_workers,
+                                                mp_context=mp.get_context("spawn"),
+                                                max_tasks_per_child=1)
             
-            test_futures = [ex.submit(make_predictions, forecaster=forecaster,  
-                                test_data=test_data.filter(pl.col("continuity_group") == cg), 
-                                prediction_type=args.prediction_type, single_cg=True, 
-                                save_path=save_path,
-                                assigned_gpu=next(gpu_cycler) if gpu_cycler else None, 
-                                ram_limit=args.ram_limit) for forecaster, cg, save_path in validation_to_run]
-                    
-            res = [fut.result() for fut in test_futures]
-            
+            logging.info(f"Running generate_forecaster_results with multiprocessor {args.multiprocessor} with {max_workers} workers.")
+            with executor as ex:
+                
+                test_futures = [ex.submit(make_predictions, forecaster=forecaster,  
+                                    test_data=test_data.filter(pl.col("continuity_group") == cg), 
+                                    prediction_type=args.prediction_type, single_cg=True, 
+                                    save_path=save_path,
+                                    assigned_gpu=next(gpu_cycler) if gpu_cycler else None, 
+                                    ram_limit=args.ram_limit) for forecaster, cg, save_path in validation_to_run]
+                        
+                res = [fut.result() for fut in test_futures]
+                
 
-    else:
-        logging.info(f"Running generate_forecaster_results with loop.")
-        results = []
-        for forecaster, cg, save_path in validation_to_run:
-            make_predictions(
-                forecaster=forecaster, test_data=test_data.filter(pl.col("continuity_group") == cg),
-                prediction_type=args.prediction_type, single_cg=True,
-                # save_path=lambda cg: forecast_paths[continuity_groups.index(cg)],
-                save_path=save_path,
-                assigned_gpu=next(gpu_cycler) if gpu_cycler else None,
-                ram_limit=args.ram_limit)
+        else:
+            logging.info(f"Running generate_forecaster_results with loop.")
+            results = []
+            for forecaster, cg, save_path in validation_to_run:
+                make_predictions(
+                    forecaster=forecaster, test_data=test_data.filter(pl.col("continuity_group") == cg),
+                    prediction_type=args.prediction_type, single_cg=True,
+                    # save_path=lambda cg: forecast_paths[continuity_groups.index(cg)],
+                    save_path=save_path,
+                    assigned_gpu=next(gpu_cycler) if gpu_cycler else None,
+                    ram_limit=args.ram_limit)
         
     
     # Load generated forecast dfs
@@ -926,7 +937,7 @@ if __name__ == "__main__":
         turbine_ids = ["5", "74", "75"]
         best_cg = 9
         
-        true_long_path = os.path.join(validation_save_dir, "true_long_df.csv")
+        true_long_path = os.path.join(validation_save_dir, f"true_long_df_{args.run_name}.csv")
         if args.rerun_validation or not os.path.exists(true_long_path):
             test_data.unpivot(index=["time", "continuity_group"], variable_name="feature", value_name="value")\
                                          .with_columns(turbine_id=pl.col("feature").str.extract(f"(_)({forecaster.turbine_signature})$", group_index=2),
@@ -1006,7 +1017,7 @@ if __name__ == "__main__":
                 continuity_groups=[cg], 
                 turbine_ids=turbine_ids,
                 turbine_labels=["Greedy", "LUT Ds", "LUT Us"],
-                label=f"_all_forecasters_{data_config['config_label']}",
+                label=f"_{args.run_name}_{data_config['config_label']}",
                 fig_dir=validation_save_dir, include_turbine_legend=True,
                 feature_types=["ws_horz", "ws_vert"],
                 feature_labels=["$u$ Wind Speed (m/s)", "$v$ Wind Speed (m/s)"],
@@ -1054,6 +1065,7 @@ if __name__ == "__main__":
                                         metrics=plotting_metrics,
                                         ax_indices=ax_indices,
                                         prediction_intervals=totals_agg_df.select(pl.col("prediction_timedelta").unique()).to_numpy().flatten(),
-                                        fig_dir=validation_save_dir)
+                                        fig_dir=validation_save_dir,
+                                        label=f"_{args.run_name}_{data_config['config_label']}")
             
         print("here")

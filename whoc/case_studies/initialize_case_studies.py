@@ -53,20 +53,21 @@ case_studies = {
                                     },
     "baseline_controllers_forecasters_test_awaken": {
                                     "controller_dt": {"group": 0, "vals": [5]},
-                                    "use_filtered_wind_dir": {"group": 0, "vals": [True]},
-                                    "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
                                     "simulation_dt": {"group": 0, "vals": [1]},
                                     "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
                                     "yaw_limits": {"group": 0, "vals": ["-15,15"]},
-                                    # "filter_floris_wind": {"group": 1, "vals": [True, False]},
-                                    # "use_upstream_wind": {"group": 2, "vals": [True, False]},
-                                    "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73"]},
-                                    "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController"]},
-                                    # "target_turbine_indices": {"group": 3, "vals": ["74,73"]},
-                                    # "controller_class": {"group": 3, "vals": ["LookupBasedWakeSteeringController"]},
-                                    "uncertain": {"group": 3, "vals": [False]}, #, False, False, False]},
-                                    "prediction_timedelta": {"group": 3, "vals": [0]},
-                                    "wind_forecast_class": {"group": 4, "vals": ["PerfectForecast"]}, #, "KalmanFilterForecast", "PersistenceForecast", "SpatialFilterForecast", "SVRForecast"]}, # "MLForecast"
+                                    "uncertain": {"group": 0, "vals": [False]},
+                                    # "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73"]},
+                                    # "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController"]},
+                                    "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
+                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
+                                    "prediction_timedelta": {"group": 1, "vals": [510]},
+                                    "wind_forecast_class": {"group": 2, "vals": ["SVRForecast"]}, #, "KalmanFilterForecast", "PersistenceForecast", "SpatialFilterForecast", "SVRForecast"]}, # "MLForecast"
+                                    "interpolation_method": {"group": 3, "vals": ["linear", "nearest"]},
+                                    "filter_floris_wind": {"group": 4, "vals": [True, False]},
+                                    "use_upstream_wind": {"group": 5, "vals": [True, False]},
+                                    "use_lut_filtered_wind_dir": {"group": 6, "vals": [False, False]},
+                                    "use_lut_filtered_wind_mag": {"group": 6, "vals": [True, False]},
                                     # "model_key": {"group": 3, "vals": ["informer"]},
                                     # "wind_forecast_class": {"group": 3, "vals": ["MLForecast"]},
     },
@@ -191,12 +192,8 @@ case_studies = {
         "use_filtered_wind_dir": {"group": 0, "vals": [True]},
         "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
         "simulation_dt": {"group": 0, "vals": [1]},
-        "floris_input_file": {"group": 0, "vals": [
-            "../../examples/inputs/gch_KP_v4.yaml"
-                                                ]},
-        "lut_path": {"group": 0, "vals": [
-            "../../examples/inputs/gch_KP_v4_lut.csv",
-                                        ]},
+        "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
+        "lut_path": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4_lut.csv"]},
         "yaw_limits": {"group": 0, "vals": ["-15,15"]},
         "uncertain": {"group": 0, "vals": [False]},
         "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
@@ -933,8 +930,22 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                 # if not rerun_simulations and this result already exists, rename it
                 cond = True
                 for k, v in case.items():
-                    if k != "wind_case_idx":
-                        cond &= (existing_input_df[k] == v) # TODO bug if case key is not in existing_input_df
+                    if k == "wind_case_idx":
+                        continue
+                    if k in existing_input_df.columns:
+                        cond &= (existing_input_df[k] == v)
+                    # TODO this is a bug if default changes, should just fill case_descriptions with all params
+                    elif k in whoc_config["controller"]:
+                        # if case key is not in existing_input_df, fetch from default
+                        cond &= (whoc_config["controller"][k] == v)
+                    elif k in whoc_config["wind_forecast"]:
+                        # if case key is not in existing_input_df, fetch from default
+                        cond &= (whoc_config["wind_forecast"][k] == v)
+                    elif k in whoc_config:
+                        # if case key is not in existing_input_df, fetch from default
+                        cond &= (whoc_config[k] == v)
+                    
+                        
                 assert len(existing_input_df.loc[cond, :].index) <= 1
                 if len(existing_input_df.loc[cond, :].index):
                     existing_case_no = existing_input_df.loc[cond, :].index[0]

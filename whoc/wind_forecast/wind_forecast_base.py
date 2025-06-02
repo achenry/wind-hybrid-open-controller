@@ -1003,6 +1003,14 @@ class WindForecast:
             ax.set_xlim(new_xlim)
             ax.set_xticks(new_xticks)
             ax.set_xticklabels(new_xticklabels)
+        
+        y_rng = int(new_time_range / forecast_wf.select(pl.col("time").diff().max()).item())
+        for ax in axs.flatten():
+            ymin = min(l.get_ydata()[(l.get_xdata() >= new_xlim[0]) & (l.get_xdata() <= new_xlim[1])].min() for l in ax.lines if len(l.get_xdata()))
+            ymin = ymin - abs(ymin*0.075)
+            ymax = max(l.get_ydata()[(l.get_xdata() >= new_xlim[0]) & (l.get_xdata() <= new_xlim[1])].max() for l in ax.lines if len(l.get_xdata()))
+            ymax = ymax + abs(ymax*0.075)
+            ax.set_ylim((ymin, ymax))
         # plt.autoscale(enable=True, axis='y', tight=True)
         fig_path = fig_path.replace(".png", "_reduced.png")
         logging.info(f"Saving reduced plot_forecast to {fig_path}")
