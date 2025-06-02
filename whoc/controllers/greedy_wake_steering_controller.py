@@ -71,6 +71,8 @@ class GreedyController(ControllerBase):
         self.lpf_start_time = self.init_time + pd.Timedelta(seconds=simulation_input_dict["controller"]["lpf_start_time"])
         self.wind_mag_lpf_alpha = np.exp(-(1 / simulation_input_dict["controller"]["wind_mag_lpf_time_const"]) * simulation_input_dict["simulation_dt"])
         self.deadband_thr = simulation_input_dict["controller"]["deadband_thr"]
+        self.interpolation_method = simulation_input_dict["controller"]["interpolation_method"]
+        
         # self.deadband_thr = 0 
         self.wind_mag_use_filt = simulation_input_dict["controller"]["use_lut_filtered_wind_mag"]
 
@@ -220,20 +222,21 @@ class GreedyController(ControllerBase):
             else:
                 # use filtered wind direction and speed     
                 if use_wind_forecast:
-                    hist_meas = self.historic_measurements
+                    hist_meas = self.historic_measurements.select(["time"] + self.target_mean_ws_horz_cols + self.target_mean_ws_vert_cols)
                     last_historic_time = hist_meas.select(pl.col("time").last()).item()
                     first_forecasted_time = forecasted_wind_field.select(pl.col("time").first()).item()
                     if (fcst_lead_timedelta := (first_forecasted_time - last_historic_time)) > (sim_timedelta := timedelta(seconds=self.simulation_dt)):
                         missing_forecasted_time = pl.DataFrame({"time": [last_historic_time + i * sim_timedelta for i in range(1, int(fcst_lead_timedelta / sim_timedelta))]}).with_columns(pl.col("time").cast(pl.Datetime(time_unit="ns")))
                         wind = pl.concat([
-                            hist_meas.select(["time"] + self.target_mean_ws_horz_cols + self.target_mean_ws_vert_cols),
+                            hist_meas,
                             missing_forecasted_time, 
                             forecasted_wind_field.select(["time"] + self.target_mean_ws_horz_cols + self.target_mean_ws_vert_cols)], how="diagonal")\
-                             .select(pl.col("time"), cs.numeric().interpolate_by("time"))
+                             .select(pl.col("time"), cs.numeric().interpolate_by(self.interpolation_method))
                     else:
-                        wind = pl.concat([hist_meas.select(["time"] + self.target_mean_ws_horz_cols + self.target_mean_ws_vert_cols), 
-                                            forecasted_wind_field.select(["time"] + self.target_mean_ws_horz_cols + self.target_mean_ws_vert_cols)
-                                            ], how="vertical")
+                        wind = pl.concat([
+                            hist_meas, 
+                            forecasted_wind_field.select(["time"] + self.target_mean_ws_horz_cols + self.target_mean_ws_vert_cols)
+                        ], how="vertical")
                         
                     assert wind.select((pl.col("time").diff().slice(1) == sim_timedelta).all()).item() and (wind.select(pl.col("time").last()).item() == single_forecasted_wind_field.select(pl.col("time").last()).item()), "DataFrame passed to low pass filter must be continuous, with sampling time equal to simulation timestep, and must end on last forecasted value."
                     del hist_meas
@@ -307,7 +310,7 @@ class GreedyController(ControllerBase):
             if use_wind_forecast:
                 # newest_predictions = forecasted_wind_field.filter(pl.col("time") <= self.current_time + self.prediction_timedelta_stored)\
                 newest_predictions = forecasted_wind_field.filter(pl.col("time") == self.current_time + self.wind_forecast.prediction_timedelta)\
-                                                        .select(["time"] + self.mean_ws_horz_cols + self.mean_ws_vert_cols)
+                                                        .select(["time"] + self.target_mean_ws_horz_cols + self.target_mean_ws_vert_cols)
             else:
                 newest_predictions = None
             self.controls_dict["predicted_wind_speeds"] = newest_predictions

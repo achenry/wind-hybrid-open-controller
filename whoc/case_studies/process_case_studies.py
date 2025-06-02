@@ -159,11 +159,14 @@ def plot_power_vs_prediction_time(agg_df, save_dir, label):
 def plot_agg_metrics_vs_forecaster(agg_df, save_dir, label, controller_labels, agg_metrics=None):
     
     metric_labels = {"FarmPower": "Farm Power Change\nvs. Persistence (%)", "YawAngleChangeAbs": "Yaw Actuation Change\nvs. Persistence (%)"}
+    # metric_labels = {"FarmPowerMean": "Farm Power Change\nvs. Persistence (%)", "YawAngleChangeAbsMean": "Yaw Actuation Change\nvs. Persistence (%)"}
+
     # controllers = pd.unique(agg_df["controller_class"])
     # controllers = controller_labels.keys() & set(pd.unique(agg_df["controller_class"]))
     controllers = list(controller_labels.keys())
     if agg_metrics is None:
         agg_metrics = [("FarmPower", "mean"), ("YawAngleChangeAbs",  "mean")]
+        
     
     sns.set_style("whitegrid")
     plot_df = agg_df.copy()
@@ -181,14 +184,17 @@ def plot_agg_metrics_vs_forecaster(agg_df, save_dir, label, controller_labels, a
     
     for v, var in enumerate(reduced_agg_metrics):
         for c, ctrl in enumerate(controllers):
-            persistent_cond = (plot_df["controller_class"] == ctrl.replace("True", "False")) & (plot_df["variable"] == var) # fetch static case for persistent
-            base_val = plot_df.loc[(plot_df["wind_forecast_class"] == "PersistenceForecast") & persistent_cond, "value"].iloc[0]
-            cond = (plot_df["controller_class"] == ctrl) & (plot_df["variable"] == var)
-            plot_df.loc[(plot_df["wind_forecast_class"] != "PersistenceForecast") & cond, "value"] = 100 * (plot_df.loc[cond, "value"] - base_val) / base_val
+            base_cond = (plot_df["controller_class"] == ctrl.replace("True", "False")) & (plot_df["variable"] == var) # fetch static case for persistent
+            # base_val = plot_df.loc[(plot_df["wind_forecast_class"] == "PersistenceForecast") & persistent_cond, "value"].iloc[0]
+            base_val = plot_df.loc[(plot_df["wind_forecast_class"] == "PerfectForecast") & (plot_df["prediction_timedelta"] == 0) & base_cond, "value"].iloc[0]
+            cond = (plot_df["controller_class"] == ctrl) & (plot_df["variable"] == var) & ((plot_df["wind_forecast_class"] != "PerfectForecast") | (plot_df["prediction_timedelta"] != 0))
+            # forecast_cond = (plot_df["wind_forecast_class"] != "PerfectForecast")
+            plot_df.loc[cond, "value"] = 100 * (plot_df.loc[cond, "value"] - base_val) / base_val
 
     # plot_df.loc[(plot_df["controller_class"] == ctrl) & (plot_df["variable"] == "YawAngleChangeAbs"), "value"] = plot_df.loc[(plot_df["controller_class"] == ctrl) & (plot_df["variable"] == "YawAngleChangeAbs"), "value"] / 100
     
-    ax = sns.catplot(plot_df.loc[((plot_df["wind_forecast_class"] != "PersistenceForecast")), :], kind="bar",
+    ax = sns.catplot(plot_df.loc[((plot_df["wind_forecast_class"] != "PerfectForecast") | (plot_df["prediction_timedelta"] != 0)) & 
+                                 (plot_df["wind_forecast_class"] != "PersistenceForecast"), :], kind="bar",
                 x="wind_forecast_class", y="value", col="variable", hue="controller_class", 
                 sharey=False, errorbar=('pi', 100))
     
@@ -438,60 +444,12 @@ def generate_outputs(agg_results_df, save_dir):
 
     compare_results_latex += f"\\end{{tabular}}"
 
-    # case_family = 'Solver'
-    # compare_results_latex += f"\\multirow{{3}}{{*}}{{\\textbf{{Solver}}}} & {values[case_family]['labels'][0]} & ${values[case_family]['farm_power'][0]:.3f}$  & ${values[case_family]['yaw_change'][0]:.3f}$ & ${values[case_family]['conv_time'][0]:.2f}$ \\\\ \n"
-    # for i in range(1, len(values[case_family]['labels']) - 1):
-    #     compare_results_latex += f" & {values[case_family]['labels'][i]} & ${values[case_family]['farm_power'][i]:.3f}$  & ${values[case_family]['yaw_change'][i]:.3f}$ & ${values[case_family]['conv_time'][i]:.2f}$ \\\\ \n"
-    # compare_results_latex += f" & {values[case_family]['labels'][-1]} & ${values[case_family]['farm_power'][-1]:.3f}$  & ${values[case_family]['yaw_change'][-1]:.3f}$ & ${values[case_family]['conv_time'][-1]:.2f}$ \\\\ \hline \n"
-
-    # case_family = 'Wind Preview Model'
-    # compare_results_latex += f"\\multirow{{3}}{{*}}{{\\textbf{{Wind Preview Model}}}} & {values[case_family]['labels'][0]} & ${values[case_family]['farm_power'][0]:.3f}$  & ${values[case_family]['yaw_change'][0]:.3f}$ & ${values[case_family]['conv_time'][0]:.2f}$ \\\\ \n"
-    # for i in range(1, len(values[case_family]['labels']) - 1):
-    #     compare_results_latex += f" & {values[case_family]['labels'][i]} & ${values[case_family]['farm_power'][i]:.3f}$  & ${values[case_family]['yaw_change'][i]:.3f}$ & ${values[case_family]['conv_time'][i]:.2f}$ \\\\ \n"
-    # compare_results_latex += f" & {values[case_family]['labels'][-1]} & ${values[case_family]['farm_power'][-1]:.3f}$  & ${values[case_family]['yaw_change'][-1]:.3f}$ & ${values[case_family]['conv_time'][-1]:.2f}$ \\\\ \hline \n"
-
-    # case_family = 'Warm-Starting Method'
-    # compare_results_latex += f"\\multirow{{3}}{{*}}{{\\textbf{{Warm-Starting Method}}}} & {values[case_family]['labels'][0]} & ${values[case_family]['farm_power'][0]:.3f}$  & ${values[case_family]['yaw_change'][0]:.3f}$ & ${values[case_family]['conv_time'][0]:.2f}$ \\\\ \n"
-    # for i in range(1, len(values[case_family]['labels']) - 1):
-    #     compare_results_latex += f" & {values[case_family]['labels'][i]} & ${values[case_family]['farm_power'][i]:.3f}$  & ${values[case_family]['yaw_change'][i]:.3f}$ & ${values[case_family]['conv_time'][i]:.2f}$ \\\\ \n"
-    # compare_results_latex += f" & {values[case_family]['labels'][-1]} & ${values[case_family]['farm_power'][-1]:.3f}$  & ${values[case_family]['yaw_change'][-1]:.3f}$ & ${values[case_family]['conv_time'][-1]:.2f}$ \\\\ \hline \n"
-
-    # compare_results_latex2 = (
-    #     f"\\begin{{tabular}}{{l|lllll}}\n"
-    #     f"\\textbf{{Case Family}} & \\textbf{{Case Name}} & \\thead{{\\textbf{{Mean}} \\\\ \\textbf{{Farm Power (MW)}}}}                                                                    & \\thead{{\\textbf{{Mean Absolute}} \\\\ \\textbf{{Yaw Angle Change ($^\\circ$)}}}}                           & \\thead{{\\textbf{{Mean}} \\\\ \\textbf{{Convergence Time (s)}}}} \\\\ \\hline \n"
-    #     f"\\multirow{{3}}{{*}}{{\\textbf{{Baseline}}}} & Greedy                       & ${get_result('baseline_controllers', 'Greedy', 'FarmPower') / 1e6:.3f}$                           & ${get_result('baseline_controllers', 'Greedy', 'YawAngleChangeAbs'):.3f}$                                & ${get_result('baseline_controllers', 'Greedy', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                           LUT                           & ${get_result('baseline_controllers', 'LUT', 'FarmPower') / 1e6:.3f}$                              & ${get_result('baseline_controllers', 'LUT', 'YawAngleChangeAbs'):.3f}$                                   & ${get_result('baseline_controllers', 'LUT', 'OptimizationConvergenceTime'):.2f}$ \\\\ \\hline \n"
-    #     f"\\multirow{{3}}{{*}}{{\\textbf{{Solver}}}} & \\textbf{{SLSQP}}            & ${get_result('solver_type', 'SLSQP', 'FarmPower') / 1e6:.3f}$                                     & ${get_result('solver_type', 'SLSQP', 'YawAngleChangeAbs'):.3f}$                                          & ${get_result('solver_type', 'SLSQP', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                          Sequential SLSQP               & ${get_result('solver_type', 'Sequential SLSQP', 'FarmPower') / 1e6:.3f}$                          & ${get_result('solver_type', 'Sequential SLSQP', 'YawAngleChangeAbs'):.3f}$                               & ${get_result('solver_type', 'Sequential SLSQP', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                          Serial Refine                  & ${get_result('solver_type', 'Sequential Refine', 'FarmPower') / 1e6:.3f}$                         & ${get_result('solver_type', 'Sequential Refine', 'YawAngleChangeAbs'):.3f}$                              & ${get_result('solver_type', 'Sequential Refine', 'OptimizationConvergenceTime'):.2f}$  \\\\ \\hline \n"
-    #     f"\\multirow{{3}}{{*}}{{\\textbf{{Wind Preview Model}}}} & Perfect          & ${get_result('wind_preview_type', 'Perfect', 'FarmPower') / 1e6:.3f}$                             & ${get_result('wind_preview_type', 'Perfect', 'YawAngleChangeAbs'):.3f}$                                  & ${get_result('wind_preview_type', 'Perfect', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                      Persistent         & ${get_result('wind_preview_type', 'Persistent', 'FarmPower') / 1e6:.3f}$                          & ${get_result('wind_preview_type', 'Persistent', 'YawAngleChangeAbs'):.3f}$                               & ${get_result('wind_preview_type', 'Persistent', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                      $3$ Elliptical Interval Samples     & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 3', 'FarmPower') / 1e6:.3f}$    & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 3', 'YawAngleChangeAbs'):.3f}$         & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 3', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                      $5$ Elliptical Interval Samples     & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 5', 'FarmPower') / 1e6:.3f}$    & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 5', 'YawAngleChangeAbs'):.3f}$         & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 5', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                      $7$ Elliptical Interval Samples     & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 7', 'FarmPower') / 1e6:.3f}$    & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 7', 'YawAngleChangeAbs'):.3f}$         & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 7', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                      $9$ Elliptical Interval Samples     & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 9', 'FarmPower') / 1e6:.3f}$    & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 9', 'YawAngleChangeAbs'):.3f}$         & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 9', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                      $11$ Elliptical Interval Samples    & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 11', 'FarmPower') / 1e6:.3f}$   & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 11', 'YawAngleChangeAbs'):.3f}$        & ${get_result('wind_preview_type', 'Stochastic Interval Elliptical 11', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                      $3$ Rectangular Interval Samples     & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 3', 'FarmPower') / 1e6:.3f}$   & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 3', 'YawAngleChangeAbs'):.3f}$        & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 3', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                      $5$ Rectangular Interval Samples     & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 5', 'FarmPower') / 1e6:.3f}$   & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 5', 'YawAngleChangeAbs'):.3f}$        & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 5', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                      $7$ Rectangular Interval Samples     & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 7', 'FarmPower') / 1e6:.3f}$   & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 7', 'YawAngleChangeAbs'):.3f}$        & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 7', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                      $9$ Rectangular Interval Samples     & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 9', 'FarmPower') / 1e6:.3f}$   & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 9', 'YawAngleChangeAbs'):.3f}$        & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 9', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                      $11$ Rectangular Interval Samples    & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 11', 'FarmPower') / 1e6:.3f}$  & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 11', 'YawAngleChangeAbs'):.3f}$       & ${get_result('wind_preview_type', 'Stochastic Interval Rectangular 11', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                      $25$ Stochastic Samples     & ${get_result('wind_preview_type', 'Stochastic Sample 25', 'FarmPower') / 1e6:.3f}$                & ${get_result('wind_preview_type', 'Stochastic Sample 25', 'YawAngleChangeAbs'):.3f}$                     & ${get_result('wind_preview_type', 'Stochastic Sample 25', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                      $50$ Stochastic Samples     & ${get_result('wind_preview_type', 'Stochastic Sample 50', 'FarmPower') / 1e6:.3f}$                & ${get_result('wind_preview_type', 'Stochastic Sample 50', 'YawAngleChangeAbs'):.3f}$                     & ${get_result('wind_preview_type', 'Stochastic Sample 50', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                      $100$ Stochastic Samples    & ${get_result('wind_preview_type', 'Stochastic Sample 100', 'FarmPower') / 1e6:.3f}$               & ${get_result('wind_preview_type', 'Stochastic Sample 100', 'YawAngleChangeAbs'):.3f}$                    & ${get_result('wind_preview_type', 'Stochastic Sample 100', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                      $250$ Stochastic Samples    & ${get_result('wind_preview_type', 'Stochastic Sample 250', 'FarmPower') / 1e6:.3f}$               & ${get_result('wind_preview_type', 'Stochastic Sample 250', 'YawAngleChangeAbs'):.3f}$                    & ${get_result('wind_preview_type', 'Stochastic Sample 250', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                      $500$ Stochastic Samples    & ${get_result('wind_preview_type', 'Stochastic Sample 500', 'FarmPower') / 1e6:.3f}$               & ${get_result('wind_preview_type', 'Stochastic Sample 500', 'YawAngleChangeAbs'):.3f}$                    & ${get_result('wind_preview_type', 'Stochastic Sample 500', 'OptimizationConvergenceTime'):.2f}$ \\\\ \\hline \n"
-    #     f"\\multirow{{3}}{{*}}{{\\textbf{{Warm-Starting Method}}}} & Greedy         & ${get_result('warm_start', 'Greedy', 'FarmPower') / 1e6:.3f}$                                     & ${get_result('warm_start', 'Greedy', 'YawAngleChangeAbs'):.3f}$                                          & ${get_result('warm_start', 'Greedy', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                       \\textbf{{LUT}}   & ${get_result('warm_start', 'LUT', 'FarmPower') / 1e6:.3f}$                                        & ${get_result('warm_start', 'LUT', 'YawAngleChangeAbs'):.3f}$                                             & ${get_result('warm_start', 'LUT', 'OptimizationConvergenceTime'):.2f}$ \\\\ \n"
-    #     f"&                                                       Previous Solution & ${get_result('warm_start', 'Previous', 'FarmPower') / 1e6:.3f}$                                   & ${get_result('warm_start', 'Previous', 'YawAngleChangeAbs'):.3f}$                                        & ${get_result('warm_start', 'Previous', 'OptimizationConvergenceTime'):.2f}$ \\\\ \\hline \n"
-    #     f"\\end{{tabular}}"
-    #     )
     with open(os.path.join(save_dir, "comparison_time_series_results_table.tex"), "w") as fp:
             fp.write(compare_results_latex)
 
 def plot_simulations(time_series_df, plotting_cases, save_dir, 
                      include_power=True, legend_loc="best", single_plot=False,
-                     label_mapping=None, seed_idx=0):
+                     label_mapping=None, seed_idx=0, fig_label_features=None):
     
     if single_plot:
         yaw_power_ts_fig, yaw_power_ts_ax = plt.subplots(int(1 + include_power), 1, sharex=True) # 1 subplot of yaw, another for power
@@ -499,19 +457,27 @@ def plot_simulations(time_series_df, plotting_cases, save_dir,
     for case_family in pd.unique(time_series_df.index.get_level_values("CaseFamily")):
         case_family_df = time_series_df.loc[(time_series_df.index.get_level_values("CaseFamily") == case_family), :]
         for case_name in pd.unique(case_family_df.index.get_level_values("CaseName")):
-            if (case_family, str(case_name)) not in plotting_cases:
+            if (case_family, case_name) not in plotting_cases:
                 continue
             case_name_df = case_family_df.loc[case_family_df.index.get_level_values("CaseName") == case_name, :].reset_index(drop=True)
             input_fn = [fn for fn in os.listdir(os.path.join(save_dir, case_family)) if "input_config" in fn and str(case_name) in fn][0]
             
             with open(os.path.join(save_dir, case_family, input_fn), 'rb') as fp:
                 input_config =  pickle.load(fp)
+            
+            if fig_label_features is not None:
+                case_desc = pd.read_csv(os.path.join(save_dir, case_family, "case_descriptions.csv"), index_col=0)
+                extended_case_name = "_".join(list(case_desc.loc[case_desc.index == int(case_name), fig_label_features].values[0, :]))
+                save_path = os.path.join(save_dir, case_family, f"yaw_power_ts_{extended_case_name}.png")
+            else:
+                save_path = os.path.join(save_dir, case_family, f"yaw_power_ts_{case_name}.png")
+                
             if single_plot:
-                fig, _ = plot_yaw_power_ts(case_name_df, os.path.join(save_dir, case_family, f"yaw_power_ts_{case_name}.png"), include_power=include_power, legend_loc=legend_loc,
+                fig, _ = plot_yaw_power_ts(case_name_df, save_path, include_power=include_power, legend_loc=legend_loc,
                                         controller_dt=None, include_filtered_wind_dir=(case_family=="baseline_controllers"), single_plot=single_plot, fig=yaw_power_ts_fig, 
                                         ax=yaw_power_ts_ax, case_label=case_name, label_mapping=label_mapping, seed_idx=seed_idx)
             else:
-                fig, _ = plot_yaw_power_ts(case_name_df, os.path.join(save_dir, case_family, f"yaw_power_ts_{case_name}.png"), include_power=include_power, legend_loc=legend_loc,
+                fig, _ = plot_yaw_power_ts(case_name_df, save_path, include_power=include_power, legend_loc=legend_loc,
                                         controller_dt=None, include_filtered_wind_dir=(case_family=="baseline_controllers_3"), single_plot=single_plot, case_label=case_name,
                                         label_mapping=label_mapping, seed_idx=seed_idx)
                                     #    controller_dt=input_config["controller"]["dt"])
@@ -599,56 +565,6 @@ def read_amr_outputs(results_paths, hercules_dict):
 
     return df
 
-# def plot_yaw_power_ts(data_df, turbine_indices, save_path, seed=0):
-#     """
-#     For each controller class (different lineplots), and for a select few turbine_indices (different subplots), plot their angle changes and powers vs time with a combo plot for each turbine.
-#     """
-#     n_rows = int(np.floor(np.sqrt(len(turbine_indices))))
-#     if np.sqrt(len(turbine_indices)) % 1.0 == 0:
-#         fig1, ax1 = plt.subplots(n_rows, n_rows, sharex=True, sharey=True)
-#     else:
-#         fig1, ax1 = plt.subplots(n_rows, n_rows + 1, sharex=True, sharey=True)
-#     ax1 = ax1.flatten()
-    
-#     # data_df = data_df.melt()
-
-#     for i in range(len(turbine_indices)):
-#         ax1[i] = sns.lineplot(x="Time", y=f"TurbineYawAngleChange_{turbine_indices[i]}", hue="ControllerClass", data=data_df.loc[data_df["WindSeed"] == seed], 
-#                               color=sns.color_palette()[0],
-#                               ax=ax1[i], sort=False, legend=i==0)
-#         ax1[i].xaxis.label.set_text(f"Time (s)")
-#         ax1[i].title.set_text(f"Turbine {turbine_indices[i]}Absolute Yaw Angle Change ($^\\circ$)")
-#         # ax1[i].yaxis.label.set_color(ax1[i].get_lines()[0].get_color())
-#         # ax1[i].tick_params(axis="y", color=ax1[i].get_lines()[0].get_color())
-#     ax1[0].legend(loc="upper right")
-#     # ax2 = []
-#     # for i in range(len(turbine_indices)):
-#     #     ax2.append(ax1[i].twinx())
-
-#     if np.sqrt(len(turbine_indices)) % 1.0 == 0:
-#         fig2, ax2 = plt.subplots(n_rows, n_rows, sharex=True, sharey=True)
-#     else:
-#         fig2, ax2 = plt.subplots(n_rows, n_rows + 1, sharex=True, sharey=True)
-#     ax2 = ax2.flatten()
-
-#     for i in range(len(turbine_indices)):
-#         ax2[i] = sns.lineplot(x="Time", y=f"TurbinePower_{turbine_indices[i]}", hue="ControllerClass", data=data_df.loc[data_df["WindSeed"] == seed], 
-#                               color=sns.color_palette()[1],
-#                               ax=ax2[i], sort=False, legend=i==0)
-#         ax2[i].xaxis.label.set_text(f"Time (s)")
-#         ax2[i].title.set_text(f"Turbine {turbine_indices[i]} Power (MW)")
-#         # ax2[i].yaxis.label.set_color(ax2[i].get_lines()[0].get_color())
-#         # ax2[i].tick_params(axis="y", color=ax2[i].get_lines()[0].get_color())
-
-#     ax2[0].legend(loc="upper right")
-
-#     fig1.set_size_inches((11.2, 4.8))
-#     fig1.show()
-#     fig1.savefig(save_path.replace(".png", "_abs_yaw_change.png"))
-
-#     fig2.set_size_inches((11.2, 4.8))
-#     fig2.show()
-#     fig2.savefig(save_path.replace(".png", "_power.png"))
 
 
 def plot_yaw_power_distribution(data_df, save_path):
@@ -1143,12 +1059,14 @@ def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, 
             else:
                 sns.lineplot(data=seed_df, x="Time", y="FarmPower", color="black", label="Farm power", ax=ax[next_ax_idx])
             ax[next_ax_idx].set(ylabel="")
+        
+        ax[0].set_xlim(0, int((seed_df["Time"].max() + seed_df["Time"].diff().iloc[1]) // 1))
     
     # n_cols = 1 if single_plot else 2
     n_cols = 1
     if include_yaw:
         ax_idx = 0
-        ax[ax_idx].set(title="Wind Direction / Yaw Angle ($^\\circ$)", xlim=(0, int((data_df["Time"].max() + data_df["Time"].diff().iloc[1]) // 1))) # , ylim=(220, 320)
+        ax[ax_idx].set(title="Wind Direction / Yaw Angle ($^\\circ$)") # , ylim=(220, 320)
         ax[ax_idx].legend() 
         if legend_loc != "outer":
             ax[ax_idx].legend(ncols=n_cols, loc=legend_loc)
@@ -1167,17 +1085,27 @@ def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, 
         else:
             sns.move_legend(ax[next_ax_idx], "upper left", bbox_to_anchor=(1, 1), ncols=n_cols)
         ax[next_ax_idx].set_xlim(0, ax[next_ax_idx].get_xlim()[1])
+        ax[next_ax_idx].set_ylim((0, ax[next_ax_idx].get_ylim()[1]))
         # ax[next_ax_idx].legend([], [], frameon=False)
 
     results_dir = os.path.dirname(save_path)
     # figManager = plt.get_current_fig_manager()
     # figManager.full_screen_toggle()
-    fig.suptitle("_".join([os.path.basename(results_dir), str(case_label), "yaw_power_ts"]))
+    # fig.suptitle("_".join([os.path.basename(results_dir), str(case_label), "yaw_power_ts"]))
     # plt.get_current_fig_manager().full_screen_toggle()
-    fig.set_size_inches((15, 8))
+    fig.set_size_inches((15, 8 if include_yaw and include_power else 4))
     plt.tight_layout()
     fig.savefig(save_path)
-    # 
+    
+    new_xlim = (1200, 1200+3600)
+    ax[0].set_xlim(new_xlim)
+    for a in ax:
+        ymin = min(l.get_ydata()[(l.get_xdata() >= new_xlim[0]) & (l.get_xdata() <= new_xlim[1])].min() for l in a.lines)
+        ymin = ymin - abs(ymin*0.05)
+        ymax = max(l.get_ydata()[(l.get_xdata() >= new_xlim[0]) & (l.get_xdata() <= new_xlim[1])].max() for l in a.lines)
+        ymax = ymax + abs(ymax*0.05)
+        a.set_ylim((ymin, ymax))
+    fig.savefig(save_path.replace(".png", "_reduced.png"))
     # fig.show()
     return fig, ax
     

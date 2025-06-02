@@ -58,6 +58,7 @@ class MLForecast(WindForecast):
         self.model_key = self.kwargs["model_key"]
         self.model_config = self.kwargs["model_config"]
         self.device = None
+        self.resample = self.kwargs.get("resample", True) # Default to True if not specified
         
         # don't need this, can load hyperparamas from checkpoint
         # if self.use_tuned_params:
@@ -499,15 +500,16 @@ class MLForecast(WindForecast):
             pred_df = pred_df.filter(pl.col("time") <= (current_time + self.prediction_timedelta))
             # check if the data that trained the model differs from the frequency of historic_measurments
             # Convert freq string to Timedelta for comparison and calculations
-            # data_module_freq_td = pd.Timedelta(str(self.data_module.freq))
-            # if data_module_freq_td != self.measurements_timedelta:
-            #     # resample historic measurements to historic_measurements frequency and return as pandas dataframe
-            #     if self.measurements_timedelta > data_module_freq_td: # Use Timedelta here
-            #         pred_df = pred_df.with_columns(time=pl.col("time").dt.round(data_module_freq_td) # Use Timedelta here
-            #                                     + pl.duration(seconds=pred_df.select(pl.col("time").last().dt.second() % data_module_freq_td.total_seconds()).item()))\
-            #                                                     .group_by("time").agg(cs.numeric().mean()).sort("time")
-            #     else:
-            #         pred_df = pred_df.upsample(time_column="time", every=self.measurements_timedelta).fill_null(strategy="forward") # Use Timedelta here
+            if self.resample:
+                data_module_freq_td = pd.Timedelta(str(self.data_module.freq))
+                if data_module_freq_td != self.measurements_timedelta:
+                    # resample historic measurements to historic_measurements frequency and return as pandas dataframe
+                    if self.measurements_timedelta > data_module_freq_td: # Use Timedelta here
+                        pred_df = pred_df.with_columns(time=pl.col("time").dt.round(data_module_freq_td) # Use Timedelta here
+                                                    + pl.duration(seconds=pred_df.select(pl.col("time").last().dt.second() % data_module_freq_td.total_seconds()).item()))\
+                                                                    .group_by("time").agg(cs.numeric().mean()).sort("time")
+                    else:
+                        pred_df = pred_df.upsample(time_column="time", every=self.measurements_timedelta).fill_null(strategy="forward") # Use Timedelta here
         else:
             # not enough data points to train SVR, assume persistence
             logging.info(f"Not enough data points at time {current_time} to train ML, have {historic_measurements.select(pl.len()).item()} but require {self.n_context}, assuming persistence instead.")

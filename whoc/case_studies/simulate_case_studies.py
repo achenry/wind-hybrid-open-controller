@@ -606,14 +606,14 @@ def write_df(wf_source, wind_field_ts,
     if wf_source == "scada" and include_prediction:
         results_data.update({
             **{
-                f"TrueTurbineWindSpeedHorz_{idx2tid_mapping[i]}": 
-                wind_field_ts.select(f"ws_horz_{idx2tid_mapping[i]}").slice(start_step, yaw_angles_ts.shape[0]).to_numpy()[:, 0]
-                for i in range(fi_full.n_turbines)
+                f"TrueTurbineWindSpeedHorz_{idx2tid_mapping[sorted_tids[i]]}": 
+                wind_field_ts.select(f"ws_horz_{idx2tid_mapping[sorted_tids[i]]}").slice(start_step, yaw_angles_ts.shape[0]).to_numpy()[:, 0]
+                for i in range(ctrl.n_turbines)
             },
             **{
-                f"TrueTurbineWindSpeedVert_{idx2tid_mapping[i]}": 
-                wind_field_ts.select(f"ws_vert_{idx2tid_mapping[i]}").slice(start_step, yaw_angles_ts.shape[0]).to_numpy()[:, 0]
-                for i in range(fi_full.n_turbines)
+                f"TrueTurbineWindSpeedVert_{idx2tid_mapping[sorted_tids[i]]}": 
+                wind_field_ts.select(f"ws_vert_{idx2tid_mapping[sorted_tids[i]]}").slice(start_step, yaw_angles_ts.shape[0]).to_numpy()[:, 0]
+                for i in range(ctrl.n_turbines)
             },
         })
 
@@ -627,34 +627,24 @@ def write_df(wf_source, wind_field_ts,
     
     if wind_forecast_class and include_prediction and simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() > 0:
         
-        # .group_by("time", maintain_order=True).agg(pl.all().last())\
         predicted_wind_speeds_ts = pl.concat(predicted_wind_speeds_ts, how="vertical")\
                                      .with_columns(time=((pl.col("time") - ctrl.init_time).dt.total_seconds().cast(pl.Float32)))
-        # results_df = pd.concat([results_df, predicted_wind_speeds_ts], axis=1)
-        # sd_ws_vert_cols
-        cols = ["time"] + ctrl.mean_ws_horz_cols + ctrl.mean_ws_vert_cols + ((ctrl.sd_ws_horz_cols + ctrl.sd_ws_vert_cols) if ctrl.uncertain else [])
+        
+        cols = ["time"] + ctrl.target_mean_ws_horz_cols + ctrl.target_mean_ws_vert_cols + ((ctrl.target_sd_ws_horz_cols + ctrl.target_sd_ws_vert_cols) if ctrl.uncertain else [])
         predicted_wind_speeds_ts = predicted_wind_speeds_ts.select(cols)\
                 .rename({
             src: f"PredictedTurbineWindSpeed{re.search('(?<=ws_)\\w+(?=_\\d+)', src).group().capitalize()}_{re.search('(?<=_)\\d+$', src).group()}"
-            for src in ctrl.mean_ws_horz_cols + ctrl.mean_ws_vert_cols})\
+            for src in ctrl.target_mean_ws_horz_cols + ctrl.target_mean_ws_vert_cols})\
                 .rename({"time": "Time"})
         if ctrl.uncertain:
             predicted_wind_speeds_ts = predicted_wind_speeds_ts.rename({
                 src: f"StddevTurbineWindSpeed{re.search('(?<=ws_)\\w+(?=_\\d+)', src).group().capitalize()}_{re.search('(?<=_)\\d+$', src).group()}"
-                for src in ctrl.sd_ws_horz_cols + ctrl.sd_ws_vert_cols})
-        # for key in ["CaseFamily", "CaseName", "WindSeed"]:
-        #     predicted_wind_speeds_ts = predicted_wind_speeds_ts.assign(**{key: results_data[key].values[0]})
-        # results_data = results_data.merge(predicted_wind_speeds_ts, on=["CaseFamily", "CaseName", "WindSeed", "Time"], how="outer")
+                for src in ctrl.target_sd_ws_horz_cols + ctrl.target_sd_ws_vert_cols})
+        
         predicted_wind_speeds_ts = predicted_wind_speeds_ts.to_pandas()
         results_data = results_data.merge(predicted_wind_speeds_ts, on=["Time"], how="outer")
-        # results_data[["CaseFamily", "CaseName", "WindSeed"]] = results_data[["CaseFamily", "CaseName", "WindSeed"]].ffill()
-        # results_data.loc[results_data["Time"] >= predicted_wind_speeds_ts["Time"].iloc[0], predicted_wind_speeds_ts.drop(columns=["Time"]).columns] = predicted_wind_speeds_ts.drop(columns=["Time"])
         del predicted_wind_speeds_ts
-    
-        # if not final:
-        #     # results_data = results_data.dropna(subset=[f"TrueTurbineWindSpeedHorz_{idx2tid_mapping[i]}" for i in range(fi_full.n_turbines)])
-        #     results_data = results_data.iloc[:-int(simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() / simulation_input_dict["simulation_dt"])]
-    
+        
     # TESTING START
     # import matplotlib.pyplot as plt
     # fig, ax = plt.subplots(1, 1)
