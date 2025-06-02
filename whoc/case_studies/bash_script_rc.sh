@@ -1,13 +1,14 @@
 #!/bin/bash
 #SBATCH --job-name=full_floris_case_studies.py
 #SBATCH --mem=0
-#SBATCH --nodes=4
+#SBATCH --nodes=1
 #SBATCH --ntasks-per-node=64
-#SBATCH --time=24:00:00
-#SBATCH --partition=amilan
+#SBATCH --time=12:00:00
+#SBATCH --partition=amem
+#SBATCH --qos=mem
 ##SBATCH --time=01:00:00
 ##SBATCH --partition=atesting
-
+# salloc --nodes=1 --ntasks-per-node=64 --partition=amilan --time=12:00:00
 # load modules
 module purge
 module load miniforge 
@@ -20,5 +21,8 @@ module load intel impi
 
 
 echo $SLURM_NTASKS
+
+mpirun -np $SLURM_NTASKS python run_case_studies.py 18 --multiprocessor mpi -rs --exclude_prediction --ram_limit 75 --wf_source scada -st auto -ns 1 -sd /projects/aohe7145/toolboxes/wind_forecasting_env/wind-hybrid-open-controller/examples/floris_case_studies/ -wcnf /projects/aohe7145/toolboxes/wind_forecasting_env/wind-hybrid-open-controller/examples/hercules_input_001.yaml -dcnf /projects/aohe7145/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_rc_awaken_new.yaml -mcnf /projects/aohe7145/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_rc_awaken.yaml
+
 #mpirun -np $SLURM_NTASKS python run_case_studies.py 0 1 2 3 4 5 6 -rs -st 120 -ns 1 -p -m mpi -sd /projects/aohe7145/toolboxes/whoc_env/wind-hybrid-open-controller/examples/floris_case_studies -wcnf /projects/aohe7145/toolboxes/whoc_env/wind-hybrid-open-controller/examples/hercules_input_001.yaml -wf floris
-mpirun -np $SLURM_NTASKS python run_case_studies.py 0 1 2 3 4 5 6 -rs -st 3600 -ns 6 -p -m mpi -sd /projects/aohe7145/toolboxes/whoc_env/wind-hybrid-open-controller/examples/floris_case_studies -wcnf /projects/aohe7145/toolboxes/whoc_env/wind-hybrid-open-controller/examples/hercules_input_001.yaml -wf floris 
+#mpirun -np $SLURM_NTASKS python run_case_studies.py 0 1 2 3 4 5 6 -rs -st 3600 -ns 6 -p -m mpi -sd /projects/aohe7145/toolboxes/whoc_env/wind-hybrid-open-controller/examples/floris_case_studies -wcnf /projects/aohe7145/toolboxes/whoc_env/wind-hybrid-open-controller/examples/hercules_input_001.yaml -wf floris 
