@@ -530,8 +530,8 @@ class LookupBasedWakeSteeringController(ControllerBase):
                                                     for i in range(len(self.sorted_tids))]).T # [-int(self.controller_dt // self.simulation_dt), :]
                     wind_v = np.array([self._first_ord_filter(wind_v[:, i], self.wind_mag_lpf_alpha)
                                                     for i in range(len(self.sorted_tids))]).T
-                    wind_u = wind_u[-1, :]
-                    wind_v = wind_v[-1, :]
+                wind_u = wind_u[-1, :]
+                wind_v = wind_v[-1, :]
                 
                 wind_dirs = 180.0 + np.rad2deg(np.arctan2(wind_u, wind_v))
                 wind_mags = (wind_u**2 + wind_v**2)**0.5
