@@ -128,6 +128,7 @@ if __name__ == "__main__":
         
     if args.multiprocessor == "mpi":
         comm.Barrier()
+        
     # if GPUs are available, use one CPU and one GPU per task
     if "CUDA_VISIBLE_DEVICES" in os.environ:
         cuda_devices = os.environ["CUDA_VISIBLE_DEVICES"] # Note: must 'export' variable within nohup to find on Kestrel
