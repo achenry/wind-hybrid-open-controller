@@ -68,8 +68,25 @@ case_studies = {
                                     "use_upstream_wind": {"group": 5, "vals": [True, False]},
                                     "use_lut_filtered_wind_dir": {"group": 6, "vals": [False, False]},
                                     "use_lut_filtered_wind_mag": {"group": 6, "vals": [True, False]},
-                                    # "model_key": {"group": 3, "vals": ["informer"]},
-                                    # "wind_forecast_class": {"group": 3, "vals": ["MLForecast"]},
+    },
+    "baseline_controllers_ml_forecasters_test_awaken": {
+                                    "controller_dt": {"group": 0, "vals": [5]},
+                                    "simulation_dt": {"group": 0, "vals": [1]},
+                                    "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
+                                    "yaw_limits": {"group": 0, "vals": ["-15,15"]},
+                                    "uncertain": {"group": 0, "vals": [False]},
+                                    "model_key": {"group": 0, "vals": ["informer"]},
+                                    "wind_forecast_class": {"group": 0, "vals": ["MLForecast"]},
+                                    "model_checkpoint": {"group": 0, "vals": ["best"]},
+                                    "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
+                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
+                                    "prediction_timedelta": {"group": 1, "vals": [510]},
+                                    "interpolation_method": {"group": 3, "vals": ["linear", "nearest"]},
+                                    "filter_floris_wind": {"group": 4, "vals": [True, False]},
+                                    "use_upstream_wind": {"group": 5, "vals": [True, False]},
+                                    "use_lut_filtered_wind_dir": {"group": 6, "vals": [False, False]},
+                                    "use_lut_filtered_wind_mag": {"group": 6, "vals": [True, False]},
+                                    
     },
     "baseline_controllers_perfect_forecaster_awaken": {
         "controller_dt": {"group": 0, "vals": [5]},
@@ -970,7 +987,11 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             # rename this by index with only config updates from case inside, add dataframe csv linking case indices to names/params
             if case_lists[start_case_idx + c]["wind_case_idx"] == 0:
                 # only generate input_df row for one wind seed
-                input_df.append(pd.DataFrame(data={k: [v] for k, v in case.items() if k != "wind_case_idx"}))
+                # TODO also add other default attributes here
+                sim_data = {**{input_dicts[start_case_idx + c]["simulation_dt"]},
+                            **input_dicts[start_case_idx + c]["controller"],
+                            **input_dicts[start_case_idx + c]["wind_forecast"]}
+                input_df.append(pd.DataFrame(data={k: [v] for k, v in sim_data.items() if k != "wind_case_idx"}))
             
             # fn = f'input_config_case_{"_".join(
             #     [f"{key}_{val if (isinstance(val, str) or isinstance(val, np.str_) or isinstance(val, bool)) else np.round(val, 6)}" for key, val in case.items() \
@@ -1086,4 +1107,5 @@ case_families = [
      "baseline_controllers_spacetimeformer_forecasters_awaken", "baseline_controllers_tactis_forecasters_awaken", # 17, 18
      "baseline_controllers_baseline_det_forecasters_awaken", "baseline_controllers_baseline_prob_forecasters_awaken", # 19, 20
      "baseline_controllers_perfect_forecaster_flasc", "baseline_controllers_perfect_forecaster_awaken", # 21, 22
-     "baseline_controllers_forecasters_test_flasc", "baseline_controllers_forecasters_test_awaken"] # 23, 24
+     "baseline_controllers_forecasters_test_flasc", "baseline_controllers_forecasters_test_awaken", # 23, 24
+     "baseline_controllers_ml_forecasters_test_awaken"] # 25
