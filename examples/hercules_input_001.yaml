@@ -103,6 +103,7 @@ controller:
   target_turbine_indices:
   use_upstream_wind: True # given selection of target_turbine_indices, whether to use upstream turbine (vs mean) to feed to FLORIS and to LUT
   filter_floris_wind: False
+  interpolation_method: linear # linear or nearest
 
 wind_forecast:
   context_timedelta: 600 # seconds
