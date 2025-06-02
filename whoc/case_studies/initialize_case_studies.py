@@ -60,8 +60,8 @@ case_studies = {
                                     # "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73"]},
                                     # "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController"]},
                                     "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
-                                                            "model_config_path": {"group": 1, "vals": [
-                                    os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
+                                    "model_config_path": {"group": 1, "vals": [
+                                        os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
                                     "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
                                     "prediction_timedelta": {"group": 1, "vals": [510]},
                                     "wind_forecast_class": {"group": 2, "vals": ["SVRForecast"]}, #, "KalmanFilterForecast", "PersistenceForecast", "SpatialFilterForecast", "SVRForecast"]}, # "MLForecast"
@@ -81,6 +81,8 @@ case_studies = {
                                     "wind_forecast_class": {"group": 0, "vals": ["MLForecast"]},
                                     "model_checkpoint": {"group": 0, "vals": ["best"]},
                                     "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
+                                    "model_config_path": {"group": 1, "vals": [
+                                        os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
                                     "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
                                     "prediction_timedelta": {"group": 1, "vals": [510]},
                                     "interpolation_method": {"group": 3, "vals": ["linear", "nearest"]},
