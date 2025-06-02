@@ -91,11 +91,12 @@ class MLForecast(WindForecast):
         # "/Users/ahenry/Documents/toolboxes/wind_forecasting/logging/informer_aoifemac_awaken/wind_forecasting/z55orlbf/checkpoints/epoch=7-step=8000.ckpt"
         
         # "/Users/ahenry/Documents/toolboxes/wind_forecasting/logging/wind_forecasting_awaken_pred60_informer/20250506_152133_0_0/epoch=0-step=100-val_loss=0.15.ckpt"
+        log_dir = os.path.join(self.model_config["experiment"]["log_dir"], 
+                                 f"{self.model_config['experiment']['project_name']}_{self.model_key}")
         checkpoint_path = get_checkpoint(
             checkpoint=self.kwargs["model_checkpoint"], metric=metric, 
             mode=mode, 
-            log_dir=os.path.join(self.model_config["experiment"]["log_dir"], 
-                                 f"{self.model_config['experiment']['project_name']}_{self.model_key}"))
+            log_dir=log_dir)
         
         if checkpoint_path is not None:
             checkpoint_hparams = load_estimator_from_checkpoint(checkpoint_path, lightning_module_class, self.model_config, self.model_key)
@@ -228,7 +229,9 @@ class MLForecast(WindForecast):
             # self.data_module.freq = pd.Timedelta(self.data_module.freq).to_pytimedelta()
             self.sample_predictor = estimator.create_predictor(transformation, model,
                                                             forecast_generator=SampleForecastGenerator())
-    
+        else:
+            raise FileError(f"Cannot find checkpoint file in {log_dir}")
+        
     def reset(self, **kwargs):
         if "assigned_gpu" in kwargs and kwargs["assigned_gpu"]:
             # os.environ["CUDA_VISIBLE_DEVICES"] = self.kwargs["assigned_gpu"]
@@ -236,7 +239,6 @@ class MLForecast(WindForecast):
             logging.info(f"Using assigned_gpu = {self.assigned_gpu} in MLForecast for {self.model_key} and self.prediction_timedelta = {self.prediction_timedelta}.")
             # torch.cuda.set_device(self.assigned_gpu)
             self.device = f"cuda:{self.assigned_gpu}"
-            
             # Clear GPU memory before starting
             torch.cuda.empty_cache()
         elif "CUDA_VISIBLE_DEVICES" in os.environ:

@@ -61,6 +61,7 @@ case_studies = {
                                     # "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController"]},
                                     "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
                                     "model_config_path": {"group": 1, "vals": [
+                                        # os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predLUT.yaml")]},
                                         os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
                                     "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
                                     "prediction_timedelta": {"group": 1, "vals": [510]},
@@ -68,8 +69,8 @@ case_studies = {
                                     "interpolation_method": {"group": 3, "vals": ["linear", "nearest"]},
                                     "filter_floris_wind": {"group": 4, "vals": [True, False]},
                                     "use_upstream_wind": {"group": 5, "vals": [True, False]},
-                                    "use_lut_filtered_wind_dir": {"group": 6, "vals": [False, False]},
-                                    "use_lut_filtered_wind_mag": {"group": 6, "vals": [True, False]},
+                                    # "use_filtered_wind_dir": {"group": 6, "vals": [False, False]},
+                                    "use_lut_filtered_wind_mag": {"group": 6, "vals": [False, True]},
     },
     "baseline_controllers_ml_forecasters_test_awaken": {
                                     "controller_dt": {"group": 0, "vals": [5]},
@@ -83,13 +84,14 @@ case_studies = {
                                     "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
                                     "model_config_path": {"group": 1, "vals": [
                                         os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
+                                        # os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predLUT.yaml")]},
                                     "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
                                     "prediction_timedelta": {"group": 1, "vals": [510]},
                                     "interpolation_method": {"group": 3, "vals": ["linear", "nearest"]},
                                     "filter_floris_wind": {"group": 4, "vals": [True, False]},
                                     "use_upstream_wind": {"group": 5, "vals": [True, False]},
                                     "use_lut_filtered_wind_dir": {"group": 6, "vals": [False, False]},
-                                    "use_lut_filtered_wind_mag": {"group": 6, "vals": [True, False]},
+                                    "use_lut_filtered_wind_mag": {"group": 6, "vals": [False, True]},
                                     
     },
     "baseline_controllers_perfect_forecaster_awaken": {
