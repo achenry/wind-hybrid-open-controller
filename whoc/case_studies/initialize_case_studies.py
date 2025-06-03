@@ -212,8 +212,10 @@ case_studies = {
     "baseline_controllers_baseline_det_forecasters_awaken": {
         "n_horizon": {"group": 0, "vals": [0]},
         "controller_dt": {"group": 0, "vals": [5]},
-        "use_filtered_wind_dir": {"group": 0, "vals": [True]},
-        "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
+        "use_upstream_wind": {"group": 0, "vals": [True]},
+        "filter_floris_wind": {"group": 0, "vals": [False]},
+        "use_lut_filtered_wind_mag": {"group": 0, "vals": [True]},
+        "interpolation_method": {"group": 0, "vals": ["linear"]},
         "simulation_dt": {"group": 0, "vals": [1]},
         "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
         "lut_path": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4_lut.csv"]},
@@ -230,8 +232,10 @@ case_studies = {
     "baseline_controllers_baseline_prob_forecasters_awaken": {
         "n_horizon": {"group": 0, "vals": [0]},
         "controller_dt": {"group": 0, "vals": [5]},
-        "use_filtered_wind_dir": {"group": 0, "vals": [True]},
-        "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
+        "use_upstream_wind": {"group": 0, "vals": [True]},
+        "filter_floris_wind": {"group": 0, "vals": [False]},
+        "use_lut_filtered_wind_mag": {"group": 0, "vals": [True]},
+        "interpolation_method": {"group": 0, "vals": ["linear"]},
         "simulation_dt": {"group": 0, "vals": [1]},
         "floris_input_file": {"group": 0, "vals": [
             "../../examples/inputs/gch_KP_v4.yaml"

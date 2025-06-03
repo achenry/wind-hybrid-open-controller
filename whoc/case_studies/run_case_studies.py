@@ -564,7 +564,8 @@ if __name__ == "__main__":
             
             
             if (case_families.index("baseline_controllers_perfect_forecaster_awaken") in args.case_ids
-                or case_families.index("baseline_controllers_perfect_forecaster_flasc") in args.case_ids):
+                or case_families.index("baseline_controllers_perfect_forecaster_flasc") in args.case_ids
+                or case_families.index("baseline_controllers_forecasters_test_awaken") in args.case_ids):
                 # if case_families.index("baseline_controllers_perfect_forecaster_awaken") in args.case_ids:
                 #     forecaster_case_fam = "baseline_controllers_perfect_forecaster_awaken"
                 # elif case_families.index("baseline_controllers_perfect_forecaster_flasc") in args.case_ids:
@@ -574,7 +575,7 @@ if __name__ == "__main__":
                     
                 baseline_agg_df = agg_df #.loc[agg_df.index.get_level_values("CaseFamily") == forecaster_case_fam, :] #.reset_index(level="CaseFamily", drop=True)
                 
-                config_cols = ["controller_class", "wind_forecast_class", "prediction_timedelta", "uncertain", "use_upstream_wind", "filter_floris_wind"]
+                config_cols = ["controller_class", "wind_forecast_class", "prediction_timedelta", "uncertain", "use_upstream_wind", "filter_floris_wind", "use_lut_filtered_wind_mag", "interpolation_method"]
                 
                 for (case_family, case_name), _ in baseline_agg_df.iterrows():
                 # for case_name, _ in baseline_time_df.iterrows():    
@@ -588,7 +589,8 @@ if __name__ == "__main__":
                         baseline_agg_df.loc[(baseline_agg_df.index.get_level_values("CaseFamily") == case_family) & 
                                             (baseline_agg_df.index.get_level_values("CaseName") == case_name), col] = full_config[col]
 
-                x = baseline_agg_df[[("FarmPower", "mean"), ("FarmPower", "std"), ("controller_class", ""), ("use_upstream_wind", ""), ("filter_floris_wind", "")]].reset_index(drop=True).sort_values(("FarmPower", "mean"), ascending=False)
+                x = baseline_agg_df[[("FarmPower", "mean"), ("FarmPower", "std"), ("controller_class", ""), ("use_upstream_wind", ""), 
+                                     ("filter_floris_wind", ""), ("use_lut_filtered_wind_mag", ""), ("interpolation_method", "")]].reset_index(drop=True).sort_values(("FarmPower", "mean"), ascending=False)
                 
                 # Find best farm power per wind seed
                 extra_args = baseline_agg_df[config_cols]

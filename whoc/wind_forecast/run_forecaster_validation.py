@@ -11,6 +11,7 @@ from memory_profiler import profile
 import glob
 from itertools import cycle
 from psutil import virtual_memory
+from shutil import move
 
 from scipy.signal import lfilter
 
@@ -150,7 +151,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
     test_idx = 0
     
     forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.model_key.capitalize()}Forecast"
-    
+    save_paths = []
     for d, ds in enumerate(test_data):
         
         start = ds.select(pl.col("time").first()).item()
@@ -208,22 +209,23 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                     sp = save_path(splits[d])
                 else:
                     sp = save_path
-                logging.info(f"Used {ram_used}% RAM. Saving parquet of length {save_length} to {sp}.")
+                temp_sp = sp.replace(".csv", "_temp.csv")
+                save_paths.append(temp_sp)
+                logging.info(f"Used {ram_used}% RAM. Saving parquet of length {save_length} to {temp_sp}.")
                 
                 forecasts = pl.concat(forecasts, how="diagonal")
                 
-                # TODO change this to temp write then move
                 # logging.info(f"diagonal concat for {save_path} columns = {forecasts.columns}")
-                logging.info(f"Writing result to file {sp}.")
-                if not os.path.exists(sp):
-                    with open(sp, mode="w") as fp:
+                logging.info(f"Writing result to file {temp_sp}.")
+                if not os.path.exists(temp_sp):
+                    with open(temp_sp, mode="w") as fp:
                         forecasts.write_csv(fp, include_header=True)
-                    logging.info(f"File {sp} has size {os.path.getsize(sp)} after first write.")
+                    logging.info(f"File {temp_sp} has size {os.path.getsize(temp_sp)} after first write.")
                 else:
-                    logging.info(f"File {sp} has size {os.path.getsize(sp)} before appending.")
-                    with open(sp, mode="a") as fp:
+                    logging.info(f"File {temp_sp} has size {os.path.getsize(temp_sp)} before appending.")
+                    with open(temp_sp, mode="a") as fp:
                         forecasts.write_csv(fp, include_header=False)
-                    logging.info(f"File {sp} has size {os.path.getsize(sp)} after appending.")
+                    logging.info(f"File {temp_sp} has size {os.path.getsize(temp_sp)} after appending.")
                     
                 # TODO code seems to hang here for multiprocessing on HPC
                 n_saved += 1
@@ -236,6 +238,11 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
         
         if len(forecasts) == 0 and n_saved == 0:
             raise Exception(f"{d}th dataset in data does not have sufficient data points, with {ds.select(pl.len()).item()}, to collect predictions after context_timedelta {forecaster.context_timedelta}")
+    
+    for temp_sp in save_paths:
+        final_sp = sp.replace("_temp.csv", ".csv")
+        logging.info(f"Moving final result to {final_sp}.")
+        move(temp_sp, final_sp)
     
 def generate_wind_field_df(datasets, target_cols, feat_dynamic_real_cols):
     full_target = np.concatenate([ds[FieldName.TARGET] for ds in datasets], axis=-1)
@@ -732,9 +739,14 @@ if __name__ == "__main__":
                                     context_timedelta=ctd,
                                     fmodel=fmodel,
                                     true_wind_field=None,
-                                    kwargs=dict(kernel="rbf", C=1.0, degree=3, gamma="auto", epsilon=0.1, cache_size=200,
-                                                n_neighboring_turbines=5, max_n_samples=None,  # TODO move n_neighboring_turbines to cnofig
-                                                # study_name=f"svr_{mncf['experiment']['run_name']}",
+                                    kwargs=dict(kernel=mncf["model"]["svr"]["kernel"], 
+                                                C=mncf["model"]["svr"]["C"], 
+                                                degree=mncf["model"]["svr"]["degree"], 
+                                                gamma=mncf["model"]["svr"]["gamma"], 
+                                                epsilon=mncf["model"]["svr"]["epsilon"], 
+                                                cache_size=mncf["model"]["svr"]["cache_size"],
+                                                n_neighboring_turbines=mncf["model"]["svr"]["n_neighboring_turbines"], 
+                                                max_n_samples=None, 
                                                 use_trained_models=args.use_trained_models,
                                                 optuna_storage=None,
                                                 model_config=mncf),
@@ -909,23 +921,24 @@ if __name__ == "__main__":
             
             forecast_path = os.path.join(save_dir, "forecast_*.csv")
             agg_metric_path = os.path.join(save_dir, "agg_metrics.csv")       
-            # TODO won't reload if agg_metric_path doesn't contain all cgs
             
-            if args.rerun_validation or not os.path.exists(agg_metric_path):
+            # recomputes agg metrics if existing agg_metric_path doesn't contain all cgs
+            if os.path.exists(agg_metric_path):
                 logging.info(f"Loading forecast_df from {forecast_path}.")
                 forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
                             .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
-                # for fcst_df in forecast_df.sort("time").group_by(["test_idx", "continuity_group"], maintain_order=True).agg(pl.all().last()).partition_by("continuity_group"):
-                #     cg = fcst_df.select(pl.col("continuity_group").first()).item()
-                #     fcst_df.write_csv(os.path.join(save_dir, f"forecast_{cg}.csv"))
-                logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('continuity_group').unique()).to_numpy().flatten()} continuity_groups.")
-                agg_metrics = generate_forecaster_agg_results(forecaster, forecast_df, test_data, data_module, args.prediction_type)
-                agg_metrics.write_csv(agg_metric_path)
-            else:
+                available_fc_cgs = forecast_df.select(pl.col('continuity_group').unique()).to_numpy().flatten()
+                logging.info(f"Finished scanning CSV files at {forecast_path}. Found {available_fc_cgs} continuity_groups.")
+                
                 logging.info(f"Loading agg_metrics from {agg_metric_path}.")
                 agg_metrics =  pl.read_csv(agg_metric_path, schema_overrides={"turbine_id": pl.String, "test_idx": pl.Int32, "continuity_group": pl.Int32})
-                logging.info(f"Finished scanning CSV file at {agg_metric_path}. Found {agg_metrics.select(pl.col('continuity_group').unique()).to_numpy().flatten()} continuity groups.")
-                
+                available_agg_cgs = agg_metrics.select(pl.col('continuity_group').unique()).to_numpy().flatten()
+                logging.info(f"Finished scanning CSV file at {agg_metric_path}. Found {available_agg_cgs} continuity groups.")
+            
+            if args.rerun_validation or not os.path.exists(agg_metric_path) or (available_agg_cgs != available_fc_cgs):
+                agg_metrics = generate_forecaster_agg_results(forecaster, forecast_df, test_data, data_module, args.prediction_type)
+                agg_metrics.write_csv(agg_metric_path)
+
             results[f]["agg_metrics"] = agg_metrics
         
         all_metrics = results[0]["agg_metrics"].select(pl.col("metric").unique()).to_numpy().flatten()
