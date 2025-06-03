@@ -536,7 +536,7 @@ class MPC(ControllerBase):
         else:
             raise TypeError("solver must be have value of 'slsqp', 'sequential_slsqp', 'serial_refine', or 'zsgd")
         
-        self.use_filt = simulation_input_dict["controller"]["use_filtered_wind_dir"]
+        self.use_filt = simulation_input_dict["controller"]["use_filtered_lut_wind_dir"]
         
         self.wind_dir_lpf_time_const = simulation_input_dict["controller"]["wind_dir_lpf_time_const"]
         self.lpf_start_time = self.init_time + pd.Timedelta(seconds=simulation_input_dict["controller"]["lpf_start_time"])
