@@ -231,7 +231,7 @@ class GreedyController(ControllerBase):
                             hist_meas,
                             missing_forecasted_time, 
                             forecasted_wind_field.select(["time"] + self.target_mean_ws_horz_cols + self.target_mean_ws_vert_cols)], how="diagonal")\
-                             .select(pl.col("time"), cs.numeric().interpolate_by(self.interpolation_method))
+                             .select(pl.col("time"), cs.numeric().interpolate(self.interpolation_method))
                     else:
                         wind = pl.concat([
                             hist_meas, 
