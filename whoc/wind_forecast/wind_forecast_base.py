@@ -26,7 +26,7 @@ except ImportError as e:
     print(f"ERROR: Failed to import mpi4py. MPI will not be available. Error: {e}")
     print(traceback.format_exc())
     
-from wind_forecasting.utils.optuna_visualization import launch_optuna_dashboard
+# from wind_forecasting.utils.optuna_visualization import launch_optuna_dashboard
 
 import seaborn as sns
 import matplotlib.pyplot as plt
