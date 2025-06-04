@@ -565,7 +565,8 @@ if __name__ == "__main__":
             
             if (case_families.index("baseline_controllers_perfect_forecaster_awaken") in args.case_ids
                 or case_families.index("baseline_controllers_perfect_forecaster_flasc") in args.case_ids
-                or case_families.index("baseline_controllers_forecasters_test_awaken") in args.case_ids):
+                or case_families.index("baseline_controllers_forecasters_test_awaken") in args.case_ids
+                or case_families.index("baseline_controllers_ml_forecasters_test_awaken") in args.case_ids):
                 # if case_families.index("baseline_controllers_perfect_forecaster_awaken") in args.case_ids:
                 #     forecaster_case_fam = "baseline_controllers_perfect_forecaster_awaken"
                 # elif case_families.index("baseline_controllers_perfect_forecaster_flasc") in args.case_ids:
@@ -591,6 +592,8 @@ if __name__ == "__main__":
 
                 x = baseline_agg_df[[("FarmPower", "mean"), ("FarmPower", "std"), ("controller_class", ""), ("use_upstream_wind", ""), 
                                      ("filter_floris_wind", ""), ("use_lut_filtered_wind_mag", ""), ("interpolation_method", "")]].reset_index(drop=True).sort_values(("FarmPower", "mean"), ascending=False)
+                x[[("FarmPower", "mean"), ("use_upstream_wind", ""), 
+                   ("filter_floris_wind", ""), ("use_lut_filtered_wind_mag", ""), ("interpolation_method", "")]]
                 
                 # Find best farm power per wind seed
                 extra_args = baseline_agg_df[config_cols]
