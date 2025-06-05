@@ -920,16 +920,16 @@ if __name__ == "__main__":
                                     str(int(prediction_timedelta)))
             
             forecast_path = os.path.join(save_dir, "forecast_*.csv")
-            agg_metric_path = os.path.join(save_dir, "agg_metrics.csv")       
+            agg_metric_path = os.path.join(save_dir, "agg_metrics.csv") 
+            
+            logging.info(f"Loading forecast_df from {forecast_path}.")
+            forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
+                        .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns"))) 
+            available_fc_cgs = forecast_df.select(pl.col('continuity_group').unique()).to_numpy().flatten()
+            logging.info(f"Finished scanning CSV files at {forecast_path}. Found {available_fc_cgs} continuity_groups.")   
             
             # recomputes agg metrics if existing agg_metric_path doesn't contain all cgs
             if os.path.exists(agg_metric_path):
-                logging.info(f"Loading forecast_df from {forecast_path}.")
-                forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
-                            .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
-                available_fc_cgs = forecast_df.select(pl.col('continuity_group').unique()).to_numpy().flatten()
-                logging.info(f"Finished scanning CSV files at {forecast_path}. Found {available_fc_cgs} continuity_groups.")
-                
                 logging.info(f"Loading agg_metrics from {agg_metric_path}.")
                 agg_metrics =  pl.read_csv(agg_metric_path, schema_overrides={"turbine_id": pl.String, "test_idx": pl.Int32, "continuity_group": pl.Int32})
                 available_agg_cgs = agg_metrics.select(pl.col('continuity_group').unique()).to_numpy().flatten()
