@@ -75,8 +75,9 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     TRUNCATE_STEPS = 300 if kwargs["wf_source"] == "scada" else 0
     stoptime = simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"] - simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() - (simulation_input_dict["controller"]["n_horizon"] * simulation_input_dict["controller"]["controller_dt"]) # - 2*TRUNCATE_STEPS
     
-    load_from_checkpoint = not kwargs["rerun_simulations"] and os.path.exists(temp_save_path)
+    load_from_checkpoint = not kwargs["rerun_simulations"] and os.path.exists(temp_save_path) and not kwargs["skip_temps"]
     load_from_final = not kwargs["rerun_simulations"] and os.path.exists(save_path)
+    skip_temp = os.path.exists(temp_save_path) and kwargs["skip_temps"]
     if load_from_final:
         logging.info(f"Returning existing from final checkpoint {save_path}")
         results_df = pd.read_csv(save_path, low_memory=False)
@@ -93,6 +94,10 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
             
         t = 0
         k = 0
+    elif skip_temp:
+        logging.info(f"Skipping case for which temporary checkpoint exists {temp_save_path}")
+        return None
+    
     elif load_from_checkpoint:
         
         logging.info(f"Loading from checkpoint {temp_save_path}")
