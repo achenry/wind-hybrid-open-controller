@@ -89,6 +89,10 @@ class LookupBasedWakeSteeringController(ControllerBase):
         self.ws_vert_cols = [f"ws_vert_{tid}" for tid in self.tid2idx_mapping]
         self.nd_sin_cols = [f"nd_sin_{tid}" for tid in self.tid2idx_mapping]
         self.nd_cos_cols = [f"nd_cos_{tid}" for tid in self.tid2idx_mapping]
+        
+        self.target_ws_horz_cols = [f"ws_horz_{self.idx2tid_mapping[t_idx]}" for t_idx in self.sorted_tids]
+        self.target_ws_vert_cols = [f"ws_vert_{self.idx2tid_mapping[t_idx]}" for t_idx in self.sorted_tids]
+        
         if self.wind_forecast and self.uncertain:
             self.mean_ws_horz_cols = [f"loc_ws_horz_{tid}" for tid in self.tid2idx_mapping]
             self.mean_ws_vert_cols = [f"loc_ws_vert_{tid}" for tid in self.tid2idx_mapping]
@@ -485,7 +489,7 @@ class LookupBasedWakeSteeringController(ControllerBase):
                 # or only filter the historic measurements and not the forecasted ones
                 if use_wind_forecast:
                     # TODO should also interpolate if prediction is multistep
-                    hist_meas = self.historic_measurements.select(["time"] + self.target_mean_ws_horz_cols + self.target_mean_ws_vert_cols)
+                    hist_meas = self.historic_measurements.select(["time"] + self.target_ws_horz_cols + self.target_ws_vert_cols)
                     hist_meas = hist_meas.rename({re.search("(?<=loc_)\\w+", new_col).group(0): new_col for new_col in self.target_mean_ws_horz_cols + self.target_mean_ws_vert_cols}) if self.uncertain else hist_meas
                     last_historic_time = hist_meas.select(pl.col("time").last()).item()
                     first_forecasted_time = forecasted_wind_field.select(pl.col("time").first()).item()
