@@ -54,6 +54,7 @@ if __name__ == "__main__":
     parser.add_argument("-glut", "--generate_lut", action="store_true")
     parser.add_argument("-rs", "--run_simulations", action="store_true")
     parser.add_argument("-rrs", "--rerun_simulations", action="store_true")
+    parser.add_argument("-stmp", "--skip_temps", action="store_true")
     parser.add_argument("-ps", "--postprocess_simulations", action="store_true")
     parser.add_argument("-rps", "--reprocess_simulations", action="store_true")
     parser.add_argument("-ras", "--reaggregate_simulations", action="store_true")
@@ -183,6 +184,7 @@ if __name__ == "__main__":
                                                 verbose=args.verbose, 
                                                 save_dir=args.save_dir, 
                                                 rerun_simulations=args.rerun_simulations,
+                                                skip_temps=args.skip_temps,
                                                 multiprocessor=False, 
                                                 turbine_signature=turbine_signature, 
                                                 tid2idx_mapping=tid2idx_mapping,
@@ -207,7 +209,9 @@ if __name__ == "__main__":
                                     case_name=input_dicts[c]["case_name"],
                                     case_family=input_dicts[c]["case_family"],
                                     multiprocessor=False, 
-                                    wind_field_config=wind_field_config, verbose=args.verbose, save_dir=args.save_dir, rerun_simulations=args.rerun_simulations,
+                                    wind_field_config=wind_field_config, verbose=args.verbose, save_dir=args.save_dir, 
+                                    rerun_simulations=args.rerun_simulations,
+                                    skip_temps=args.skip_temps,
                                     turbine_signature=turbine_signature, tid2idx_mapping=tid2idx_mapping,
                                     use_tuned_params=True, model_config=model_config, ram_limit=args.ram_limit,
                                     include_prediction=not args.exclude_prediction,
