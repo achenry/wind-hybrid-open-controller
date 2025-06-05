@@ -230,7 +230,7 @@ class MLForecast(WindForecast):
             self.sample_predictor = estimator.create_predictor(transformation, model,
                                                             forecast_generator=SampleForecastGenerator())
         else:
-            raise FileError(f"Cannot find checkpoint file in {log_dir}")
+            raise FileNotFoundError(f"Cannot find checkpoint file in {log_dir}")
         
     def reset(self, **kwargs):
         if "assigned_gpu" in kwargs and kwargs["assigned_gpu"]:
