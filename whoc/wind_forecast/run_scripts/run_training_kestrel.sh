@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=model_training
 #SBATCH --account=ssc
-#SBATCH --output=model_tuning_%j.out
+#SBATCH --output=model_training_%j.out
 ##SBATCH --nodes=4
 #SBATCH --time=24:00:00
 #SBATCH --nodes=1
@@ -43,7 +43,7 @@ echo "TMPDIR=${TMPDIR}"
 module purge
 eval "$(conda shell.bash hook)"
 conda activate wind_forecasting_env
-module load PrgEnv-intel
+# module load PrgEnv-intel
 
 # TODO NOTE process gets stuck after writing these .dat files, so run this python first, then the loop
 export WORKER_SEED=0 # TODO does nothing atm

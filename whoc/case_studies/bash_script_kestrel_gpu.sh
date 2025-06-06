@@ -1,20 +1,25 @@
 #!/bin/bash
 #SBATCH --job-name=full_floris_case_studies.py
-#SBATCH --time=01:00:00
+#SBATCH --time=96:00:00
 #SBATCH --nodes=2
-#SBATCH --ntasks-per-node=4
+#SBATCH --ntasks-per-node=8
 #SBATCH --gres=gpu:4
-#SBATCH --mem-per-cpu=85G
+#SBATCH --mem-per-cpu=40G
 #SBATCH --account=ssc
 
 # salloc --account=ssc --time=01:00:00 --nodes=1 --ntasks-per-node=2 --gres=gpu:2 --mem-per-cpu=85G --account=ssc --partition=debug
-module purge
-module load mamba
-module load cuda
-mamba activate wind_forecasting_env
 
+module purge
+ml cuda
+eval "$(conda shell.bash hook)"
+conda activate wind_forecasting_env
+
+devices=$SLURM_JOB_GPUS
+n_devices=$((${#devices}/2 + 1))
+echo "N_GPU_DEVICES=${n_devices}"
+export CUDA_VISIBLE_DEVICES=$(seq -s, 0 $(($n_devices-1)))
 export CASE_IDX=$1
-export CUDA_VISIBLE_DEVICES=$(seq -s, 0 $(($SLURM_NTASKS_PER_NODE-1)))
+
 
 # Create the range string
 echo "Using GPUs ${CUDA_VISIBLE_DEVICES}"
@@ -24,4 +29,4 @@ srun python run_case_studies.py $CASE_IDX --exclude_prediction --multiprocessor 
         -sd /projects/ssc/ahenry/whoc/floris_case_studies/ \
        -wcnf $HOME/toolboxes/wind_forecasting_env/wind-hybrid-open-controller/examples/hercules_input_001.yaml \
        -dcnf $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/preprocessing/preprocessing_inputs_kestrel_awaken_new.yaml \
-       -mcnf $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred60.yaml -st auto -ns 10 
+       -mcnf $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_predGreedy.yaml -st auto -ns 10 -stmp #-rrs 
