@@ -1142,4 +1142,4 @@ case_families = [
      "baseline_controllers_baseline_det_forecasters_awaken", "baseline_controllers_baseline_prob_forecasters_awaken", # 19, 20
      "baseline_controllers_perfect_forecaster_flasc", "baseline_controllers_perfect_forecaster_awaken", # 21, 22
      "baseline_controllers_forecasters_test_flasc", "baseline_controllers_forecasters_test_awaken", # 23, 24
-     "baseline_controllers_ml_forecasters_test_awaken", "baseline_controllers_informer_forecaster_test_awaken", "baseline_controllers_svr_forecaster_test_awaken"] # 25, 26, 27
+     "baseline_controllers_informer_forecaster_test_awaken", "baseline_controllers_svr_forecaster_test_awaken"] # 25, 26
