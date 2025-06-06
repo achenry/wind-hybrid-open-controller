@@ -654,9 +654,9 @@ def write_df(wf_source, wind_field_ts,
     # import matplotlib.pyplot as plt
     # fig, ax = plt.subplots(1, 1)
     # # ax.plot(results_data["Time"], results_data["TurbineYawAngle_5"], label="5")
-    # ax.plot(results_data["Time"], results_data["TurbineYawAngle_7"], label="7")
-    # # ax.plot(results_data["Time"], results_data["TurbineYawAngle_74"], label="74")
-    # # ax.plot(results_data["Time"], results_data["TurbineYawAngle_75"], label="75")
+    # # ax.plot(results_data["Time"], results_data["TurbineYawAngle_7"], label="7")
+    # ax.plot(results_data["Time"], results_data["TurbineYawAngle_74"], label="74")
+    # ax.plot(results_data["Time"], results_data["TurbineYawAngle_75"], label="75")
     # ax.plot(results_data["Time"], results_data["FreestreamWindDir"], label="Raw wind dir.")
     # ax.plot(results_data["Time"], results_data["FreestreamWindMag"], label="Raw wind mag.")
     # # ax.plot(results_data["Time"], results_data["FilteredFreestreamWindDir"], label="Filtered wind dir.")
