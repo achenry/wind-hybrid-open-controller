@@ -16,7 +16,7 @@ module purge
 #module load conda
 eval "$(conda shell.bash hook)"
 conda activate wind_forecasting_env
-module load PrgEnv-intel # NOTE: DONT NEED THIS WHEN MPI4PY IS INSTALLED WITH MAMBA, SAME GOES FOR LIBRARY LINKING LINE BELOW, ALSO DONT MARK JOB AS EXCLUSIVE
+module load PrgEnv-intel mamba # NOTE: DONT NEED THIS WHEN MPI4PY IS INSTALLED WITH MAMBA, SAME GOES FOR LIBRARY LINKING LINE BELOW, ALSO DONT MARK JOB AS EXCLUSIVE
 module list
 
 #export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/projects/ssc/ahenry/conda/envs/wind_forecasting_env/lib
