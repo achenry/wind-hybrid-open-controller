@@ -75,8 +75,6 @@ echo "RESTART_TUNING_FLAG: '${RESTART_TUNING_FLAG}'"
 echo "AUTO_EXIT_WHEN_DONE: '${AUTO_EXIT_WHEN_DONE}'"
 echo "------------------------"
 
-
-
 # prepare training data first
 # --- Setup Main Environment ---
 echo "Setting up main environment..."
@@ -93,7 +91,7 @@ PYTHONPATH=$(which python)
 #srun -n ${SLURM_NTASKS} --export=ALL,WORKER_RANK=0 
 
 export WORKER_RANK=0
-python ${WORK_DIR}/tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --seed 0 #--restart_tuning # --reload_data
+python ${WORK_DIR}/tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --seed 0 --restart_tuning --reload_data
 
 # --- Parallel Worker Launch using nohup ---
 NUM_CPUS=${SLURM_NTASKS_PER_NODE}
@@ -104,19 +102,19 @@ echo "=== STARTING PARALLEL OPTUNA TUNING WORKERS ==="
 date +"%Y-%m-%d %H:%M:%S"
 
 for i in $(seq 1 $((${NTUNERS}))); do
-        # if [ $i -eq 1 ]; then #&& [ $j -eq 0 ]; then
-        #    export RESTART_FLAG="--restart_tuning"
-        # else
-        #    export RESTART_FLAG=""
-        # fi
+        if [ $i -eq 1 ]; then #&& [ $j -eq 0 ]; then
+            export RESTART_FLAG="--restart_tuning"
+         else
+            export RESTART_FLAG=""
+         fi
 
         # Create a unique seed for each worker to ensure they explore different areas
         export WORKER_SEED=$((42 + i*10)) #+ j))
 
         # Calculate worker index for logging
-        echo "Saving output for worker ${i} to '${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/worker_${i}_${SLURM_JOB_ID}.log'"
-        echo "Starting worker ${i} on assigned GPU ${i} with seed ${WORKER_SEED}"
-        export WORKER_RANK=${i} #$((i*NUM_WORKERS_PER_CPU + j))
+        echo "Saving output for worker ${i} to '${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/worker_${i}.out'"
+        echo "Starting worker ${i} with seed ${WORKER_SEED}"
+        declare -i WORKER_RANK=${i} #$((i*NUM_WORKERS_PER_CPU + j))
 
         echo "Starting worker ${WORKER_RANK} with seed ${WORKER_SEED}"
 
@@ -124,7 +122,15 @@ for i in $(seq 1 $((${NTUNERS}))); do
         #srun -n ${NTASKS_PER_TUNER}
         #taskset -c $start_core-$end_core
 
-        # Launch worker in the background using nohup and a dedicated bash shell
+	# --- Calculate start and end cores (assuming i is 1-based) ---
+	export start_core=$(( (${WORKER_RANK} - 1) * ${NTASKS_PER_TUNER} ))
+        export end_core=$(( ${WORKER_RANK} * ${NTASKS_PER_TUNER} - 1 ))
+	
+	# --- Create the range string ---
+        export CORES="${start_core}-${end_core}"
+        echo \"Using cores ${CORES}\"
+	
+	# Launch worker in the background using nohup and a dedicated bash shell
         nohup bash -c "
         
         echo \"Worker ${WORKER_RANK} starting environment setup...\"
@@ -137,26 +143,17 @@ for i in $(seq 1 $((${NTUNERS}))); do
         eval \"\$(conda shell.bash hook)\"
         conda activate wind_forecasting_env
         echo \"Worker ${WORKER_RANK}: Conda environment 'wind_forecasting_env' activated.\"
-
-        # --- Calculate start and end cores (assuming i is 1-based) ---
-        start_core=$(( ($i - 1) * $NTASKS_PER_TUNER ))
-        end_core=$(( $i * $NTASKS_PER_TUNER - 1 ))
-
-        # --- Create the range string ---
-        CORES=\"${start_core}-${end_core}\"
-        echo \"Using cores ${CORES}\"	
-
-
+        
         echo \"Worker ${WORKER_RANK}: Running python script...\"
-        taskset -c $start_core-$end_core python ${WORK_DIR}/tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} \
-                --multiprocessor cf --seed ${WORKER_SEED} --limit_train_val .1 --mode tune & #${RESTART_FLAG}
+        taskset -c $CORES python ${WORK_DIR}/tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} \
+                --multiprocessor cf --seed ${WORKER_SEED} --limit_train_val .1 --mode tune ${RESTART_FLAG}
 
         # Check exit status
         status=\$?
         if [ \$status -ne 0 ]; then
                 echo \"Worker ${WORKER_RANK} FAILED with status \$status\"
         else
-                echo \"Worker ${WORKER_RANK} STARTED RUNNING successfully\"
+        	echo \"Worker ${WORKER_RANK} STARTED RUNNING successfully\"
         fi
         exit \$status
         " > "${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/worker_${WORKER_RANK}.out" 2>&1 &
