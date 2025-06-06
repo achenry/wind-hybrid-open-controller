@@ -285,6 +285,7 @@ if __name__ == "__main__":
                     
                     # if args.reaggregate_simulations is true, or for any case family where doesn't agg_results_all.csv exist, compute the aggregate stats for each case families and case name, over all wind seeds
                     # TODO replace this with groupby (vectorize) for each case_family
+                    # TODO truncate greatest context length at beginning
                     futures = []
                     for i in args.case_ids:
                         if args.reaggregate_simulations or not os.path.exists(os.path.join(args.save_dir, case_families[i], "agg_results_all.csv")):
@@ -535,6 +536,7 @@ if __name__ == "__main__":
                 other_baseline_agg_df = baseline_agg_df.loc[baseline_agg_df["model_key"].isnull(), :]
                 other_baseline_agg_df["controller_class"] = other_baseline_agg_df["controller_class"] + other_baseline_agg_df["uncertain"].astype(str)
                 other_baseline_agg_df = other_baseline_agg_df.sort_values("controller_class")
+                # other_baseline_agg_df[["controller_class", "prediction_timedelta", "wind_forecast_class"]].sort_values(["controller_class", "prediction_timedelta", "wind_forecast_class"])
                 if other_baseline_agg_df.shape[0]:
                     plot_agg_metrics_vs_forecaster(other_baseline_agg_df,
                                                 save_dir=args.save_dir, label="baseline_forecasters_",
@@ -591,6 +593,8 @@ if __name__ == "__main__":
                         
                     full_config = {**input_config["controller"], **input_config["wind_forecast"]}
                     for col in config_cols:
+                        if col not in full_config:
+                            continue
                         baseline_agg_df.loc[(baseline_agg_df.index.get_level_values("CaseFamily") == case_family) & 
                                             (baseline_agg_df.index.get_level_values("CaseName") == case_name), col] = full_config[col]
 
