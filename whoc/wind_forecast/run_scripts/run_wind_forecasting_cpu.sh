@@ -4,9 +4,9 @@
 #SBATCH --output=%j_%x.out
 #SBATCH --nodes=1
 #SBATCH --mem=0
-##SBATCH --time=48:00:00
-#SBATCH --time=01:00:00
-#SBATCH --partition=debug
+#SBATCH --time=48:00:00
+##SBATCH --time=01:00:00
+##SBATCH --partition=debug
 #SBATCH --ntasks-per-node=104
 
 # salloc --partition=debug --nodes=1 --ntasks-per-node=104 --time=01:00:00 --mem=0 --account=ssc
@@ -25,7 +25,7 @@ echo "=== ENVIRONMENT ==="
 module list
 
 export MODELS="kf persistence sf svr"
-export MODEL_CONFIG_PATH="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred60_svr.yaml $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred300_svr.yaml"
+export MODEL_CONFIG_PATH="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_predGreedy.yaml $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_predLUT.yaml"
 export DATA_CONFIG_PATH="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/preprocessing/preprocessing_inputs_kestrel_awaken_new.yaml"
 
 echo "MODELS=${MODELS}"
@@ -43,5 +43,5 @@ conda activate wind_forecasting_env
 #mpirun -np $SLURM_NTASKS 
 python ../run_forecaster_validation.py --ram_limit 65 --model ${MODELS} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --simulation_timestep 1 \
 						--save_dir /projects/ssc/ahenry/wind_forecasting/logging --multiprocessor cf --prediction_type distribution \
-						--use_tuned_params --use_trained_models --max_splits 10 #--rerun_validation
+						--use_tuned_params --use_trained_models --max_splits 10 --rerun_validation #--max_steps 1600
 
