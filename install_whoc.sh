@@ -18,8 +18,10 @@ python -m pip install -e hercules
 python -m pip install -e moa_python
 
 # mamba install memory_profiler # matplotlib openmpi
-module load intel #impi
-mamba install -c conda-forge mpi4py pyoptsparse pandas pyyaml memory_profiler seaborn polars --y
+mamba install -c conda-forge pyoptsparse pandas pyyaml memory_profiler seaborn polars --y
+
+ml PrgEnv-intel mamba
+MPICC=`which mpicc` pip install --no-cache-dir mpi4py
 #conda install -c nrel nrel-pysam
 
 python -m pip install https://github.com/NREL/SEAS/blob/main/SEAS.tar.gz?raw=true
