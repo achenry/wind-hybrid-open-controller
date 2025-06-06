@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=full_floris_case_studies.py
-#SBATCH --time=96:00:00
+#SBATCH --time=48:00:00
 #SBATCH --nodes=2
 #SBATCH --ntasks-per-node=8
 #SBATCH --gres=gpu:4
@@ -29,4 +29,4 @@ srun python run_case_studies.py $CASE_IDX --exclude_prediction --multiprocessor 
         -sd /projects/ssc/ahenry/whoc/floris_case_studies/ \
        -wcnf $HOME/toolboxes/wind_forecasting_env/wind-hybrid-open-controller/examples/hercules_input_001.yaml \
        -dcnf $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/preprocessing/preprocessing_inputs_kestrel_awaken_new.yaml \
-       -mcnf $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_predGreedy.yaml -st auto -ns 10 -stmp #-rrs 
+       -mcnf $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_predGreedy.yaml -st auto -ns 10 --stoptime 10400 #-stmp #-rrs 
