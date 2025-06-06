@@ -59,24 +59,20 @@ case_studies = {
         "use_lut_filtered_wind_mag": {"group": 0, "vals": [True]},
         "interpolation_method": {"group": 0, "vals": ["nearest"]},
         "simulation_dt": {"group": 0, "vals": [1]},
-        "model_checkpoint": {"group": 0, "vals": ["best"]},
         "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
         "lut_path": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4_lut.csv",]},
         "yaw_limits": {"group": 0, "vals": ["-15,15"]},
-        "wind_forecast_class": {"group": 0, "vals": ["MLForecast"]},
-        "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
-        # "model_config_path": {"group": 1, "vals": [
-        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred60.yaml"),
-        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred510.yaml"), 
-        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred510.yaml")]},
+        "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController", "GreedyController"]},
         "model_config_path": {"group": 1, "vals": [
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predLUT.yaml")]},
-        "prediction_timedelta": {"group": 1, "vals": [510]},
-        "uncertain": {"group": 1, "vals": [True]},
-        "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
-        "model_key": {"group": 2, "vals": ["informer"]} # 
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predLUT.yaml"),
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predLUT.yaml"),
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predGreedy.yaml")]},
+        "prediction_timedelta": {"group": 1, "vals": [510, 510, 210]},
+        "uncertain": {"group": 1, "vals": [False, True, False]},
+        "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73", "4,"]},
+        "wind_forecast_class": {"group": 2, "vals": ["SVRForecast", "PerfectForecast"]}
     },
-    "baseline_controllers_ml_forecasters_test_awaken": {
+    "baseline_controllers_informer_forecaster_test_awaken": {
                                     "controller_dt": {"group": 0, "vals": [5]},
                                     "simulation_dt": {"group": 0, "vals": [1]},
                                     "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
@@ -91,12 +87,28 @@ case_studies = {
                                         # os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predLUT.yaml")]},
                                     "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
                                     "prediction_timedelta": {"group": 1, "vals": [510]},
-                                    "interpolation_method": {"group": 3, "vals": ["linear", "nearest"]},
-                                    "filter_floris_wind": {"group": 4, "vals": [True, False]},
-                                    "use_upstream_wind": {"group": 5, "vals": [True, False]},
-                                    "use_lut_filtered_wind_dir": {"group": 6, "vals": [False, False]},
-                                    "use_lut_filtered_wind_mag": {"group": 6, "vals": [False, True]},
-                                    
+                                    "interpolation_method": {"group": 2, "vals": ["linear", "nearest"]},
+                                    "filter_floris_wind": {"group": 3, "vals": [True, False]},
+                                    "use_upstream_wind": {"group": 4, "vals": [True, False]},
+                                    "use_lut_filtered_wind_mag": {"group": 5, "vals": [False, True]},                  
+    },
+    "baseline_controllers_svr_forecaster_test_awaken": {
+                                    "controller_dt": {"group": 0, "vals": [5]},
+                                    "simulation_dt": {"group": 0, "vals": [1]},
+                                    "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
+                                    "yaw_limits": {"group": 0, "vals": ["-15,15"]},
+                                    "uncertain": {"group": 0, "vals": [False]},
+                                    "wind_forecast_class": {"group": 0, "vals": ["SVRForecast"]},
+                                    "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
+                                    "model_config_path": {"group": 1, "vals": [
+                                        os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
+                                        # os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predLUT.yaml")]},
+                                    "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
+                                    "prediction_timedelta": {"group": 1, "vals": [510]},
+                                    "interpolation_method": {"group": 2, "vals": ["linear", "nearest"]},
+                                    "filter_floris_wind": {"group": 3, "vals": [True, False]},
+                                    "use_upstream_wind": {"group": 4, "vals": [True, False]},
+                                    "use_lut_filtered_wind_mag": {"group": 5, "vals": [False, True]},                  
     },
     "baseline_controllers_perfect_forecaster_awaken": {
         "controller_dt": {"group": 0, "vals": [5]},
@@ -1130,4 +1142,4 @@ case_families = [
      "baseline_controllers_baseline_det_forecasters_awaken", "baseline_controllers_baseline_prob_forecasters_awaken", # 19, 20
      "baseline_controllers_perfect_forecaster_flasc", "baseline_controllers_perfect_forecaster_awaken", # 21, 22
      "baseline_controllers_forecasters_test_flasc", "baseline_controllers_forecasters_test_awaken", # 23, 24
-     "baseline_controllers_ml_forecasters_test_awaken"] # 25
+     "baseline_controllers_ml_forecasters_test_awaken", "baseline_controllers_informer_forecaster_test_awaken", "baseline_controllers_svr_forecaster_test_awaken"] # 25, 26, 27
