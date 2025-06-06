@@ -871,7 +871,8 @@ class WindForecast:
                                     x="time", y="value", hue="turbine_id", ax=axs[0, f], dashes=[[4, 4]], marker="o", linestyle="--", err_style="bars")
                     else:
                         for t, tid in enumerate(turbine_ids):
-                            sns.lineplot(data=forecast_wf.filter((pl.col("feature") == f"loc_{feat}") & (pl.col("turbine_id") == tid)), 
+                            tid_df = forecast_wf.filter((pl.col("feature") == f"loc_{feat}") & (pl.col("turbine_id") == tid))
+                            sns.lineplot(data=tid_df, 
                                     x="time", y="value", ax=axs[t, f], dashes=[[4, 4]], marker="o", linestyle="--",
                                     hue="forecaster" if (multiple_forecasters and "forecaster" in forecast_wf.columns) else None, err_style="bars")
                     
@@ -884,22 +885,24 @@ class WindForecast:
                         if multiple_forecasters:
                             for ff, forecaster in enumerate(tid_df.select(pl.col("forecaster").unique(maintain_order=True)).to_numpy().flatten()):
                                 color = sns.color_palette()[ff]
-                                forecaster_df = tid_df.filter(pl.col("forecaster") == forecaster)
-                                if forecaster_df.filter(pl.col("feature") == f"sd_{feat}").select(pl.len()).item() == 0:
+                                forecaster_tid_df = tid_df.filter(pl.col("forecaster") == forecaster)
+                                if forecaster_tid_df.filter(pl.col("feature") == f"sd_{feat}").select(pl.len()).item() == 0:
                                     continue
                                 
                                 # this gets most uncertain predictions ie from earliest test_idx that captured it
-                                forecaster_df = forecaster_df.sort("time", "test_idx").group_by(["time", "feature", "turbine_id"], maintain_order=True).agg(pl.col("value").first())
+                                forecaster_tid_df = forecaster_tid_df.sort("time", "test_idx")\
+                                                                     .group_by(["time", "feature", "turbine_id"], maintain_order=True)\
+                                                                     .agg(pl.col("value").mean())
                                 ax.fill_between(
-                                    forecaster_df.filter(pl.col("feature") == f"loc_{feat}").select("time").to_numpy().flatten(), 
-                                    (forecaster_df.filter(pl.col("feature") == f"loc_{feat}").select(pl.col("value")) 
-                                    - forecaster_df.filter(pl.col("feature") == f"sd_{feat}").select(pl.col("value"))).to_numpy().flatten(), 
-                                    (forecaster_df.filter(pl.col("feature") == f"loc_{feat}").select(pl.col("value")) 
-                                    + forecaster_df.filter(pl.col("feature") == f"sd_{feat}").select(pl.col("value"))).to_numpy().flatten(), 
+                                    forecaster_tid_df.filter(pl.col("feature") == f"loc_{feat}").select("time").to_numpy().flatten(), 
+                                    (forecaster_tid_df.filter(pl.col("feature") == f"loc_{feat}").select(pl.col("value")) 
+                                    - forecaster_tid_df.filter(pl.col("feature") == f"sd_{feat}").select(pl.col("value"))).to_numpy().flatten(), 
+                                    (forecaster_tid_df.filter(pl.col("feature") == f"loc_{feat}").select(pl.col("value")) 
+                                    + forecaster_tid_df.filter(pl.col("feature") == f"sd_{feat}").select(pl.col("value"))).to_numpy().flatten(), 
                                     alpha=0.2, color=color
                                 )
                         else:
-                            tid_df = tid_df.sort("time", "test_idx").group_by(["time", "feature", "turbine_id"], maintain_order=True).agg(pl.col("value").first())
+                            tid_df = tid_df.sort("time", "test_idx").group_by(["time", "feature", "turbine_id"], maintain_order=True).agg(pl.col("value").mean())
                             ax.fill_between(
                                 tid_df.filter(pl.col("feature") == f"loc_{feat}").select("time").to_numpy().flatten(), 
                                 (tid_df.filter(pl.col("feature") == f"loc_{feat}").select(pl.col("value")) 

@@ -1097,7 +1097,7 @@ def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, 
     plt.tight_layout()
     fig.savefig(save_path)
     
-    new_xlim = (1200, 1200+3600)
+    new_xlim = (1200, 1200+3600*1)
     ax[0].set_xlim(new_xlim)
     for a in ax:
         ymin = min(l.get_ydata()[(l.get_xdata() >= new_xlim[0]) & (l.get_xdata() <= new_xlim[1])].min() for l in a.lines)
