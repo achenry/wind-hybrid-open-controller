@@ -3,12 +3,15 @@
 #SBATCH --account=ssc
 #SBATCH --output=%j_%x.out
 #SBATCH --nodes=1
-#SBATCH --time=12:00:00
 ##SBATCH --time=01:00:00
 ##SBATCH --partition=debug
-#SBATCH --ntasks-per-node=1
-#SBATCH --gres=gpu:1
-#SBATCH --mem-per-cpu=85G
+##SBATCH --ntasks-per-node=4
+##SBATCH --gres=gpu:2
+##SBATCH --mem-per-cpu=20G
+#SBATCH --time=36:00:00
+#SBATCH --ntasks-per-node=8
+#SBATCH --gres=gpu:4
+#SBATCH --mem-per-cpu=60G
 # salloc --partition=debug --gres=gpu:2 --ntasks-per-node=2 --time=01:00:00 --mem-per-cpu=85G --account=ssc
 
 # Print environment info
@@ -20,6 +23,9 @@ echo "SLURM_JOB_GPUS=${SLURM_JOB_GPUS}"
 echo "SLURM_JOB_GRES=${SLURM_JOB_GRES}"
 echo "SLURM_NTASKS=${SLURM_NTASKS}"
 echo "SLURM_NTASKS_PER_NODE=${SLURM_NTASKS_PER_NODE}"
+echo "SLURM_GPUS_PER_NODE=${SLURM_GPUS_PER_NODE}"
+echo "SLURM_GPUS_PER_TASK=${SLURM_GPUS_PER_TASK}"
+echo "SLURM_GPUS=${SLURM_GPUS}"
 
 echo "=== ENVIRONMENT ==="
 module list
@@ -39,11 +45,16 @@ export DATA_CONFIG_PATH="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/c
 # prepare training data first
 #date +"%Y-%m-%d %H:%M:%S"
 module purge
-module load mamba
+ml cuda
 # module load PrgEnv-intel
-mamba activate wind_forecasting_env
+eval "$(conda shell.bash hook)"
+conda activate wind_forecasting_env
 
-export CUDA_VISIBLE_DEVICES=$(seq -s, 0 $(($SLURM_NTASKS_PER_NODE-1)))
+devices=$SLURM_JOB_GPUS
+n_devices=$((${#devices}/2 + 1))
+echo "N_GPU_DEVICES=${n_devices}"
+export CUDA_VISIBLE_DEVICES=$(seq -s, 0 $(($n_devices-1)))
+#export CUDA_VISIBLE_DEVICES=$SLURM_JOB_GPUS
 
 # Calculate start and end cores (assuming i is 1-based)
 #start_core=$(( ($i - 1) * $SLURM_NTASKS_PER_NODE ))
@@ -55,4 +66,4 @@ export CUDA_VISIBLE_DEVICES=$(seq -s, 0 $(($SLURM_NTASKS_PER_NODE-1)))
 #echo "Using GPUs ${CUDA_VISIBLE_DEVICES}"
 
 # taskset -c $start_core-$end_core 
-python ../run_forecaster_validation.py --model ${MODELS} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --simulation_timestep 1 --save_dir /projects/ssc/ahenry/wind_forecasting/logging --checkpoint best --multiprocessor cf --prediction_type distribution --use_tuned_params --use_trained_models --rerun_validation --max_splits 10 # --max_steps 1080
+python ../run_forecaster_validation.py --run_validation --model ${MODELS} --run_name ml --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --simulation_timestep 1 --save_dir /projects/ssc/ahenry/wind_forecasting/logging --checkpoint best --multiprocessor cf --prediction_type distribution --use_tuned_params --use_trained_models --max_splits 10 # --rerun_validation # --max_steps 1080
