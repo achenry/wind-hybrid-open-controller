@@ -892,7 +892,7 @@ class WindForecast:
                                 # this gets most uncertain predictions ie from earliest test_idx that captured it
                                 forecaster_tid_df = forecaster_tid_df.sort("time", "test_idx")\
                                                                      .group_by(["time", "feature", "turbine_id"], maintain_order=True)\
-                                                                     .agg(pl.col("value").mean())
+                                                                        .agg(pl.col("value").mean())
                                 ax.fill_between(
                                     forecaster_tid_df.filter(pl.col("feature") == f"loc_{feat}").select("time").to_numpy().flatten(), 
                                     (forecaster_tid_df.filter(pl.col("feature") == f"loc_{feat}").select(pl.col("value")) 
@@ -902,7 +902,8 @@ class WindForecast:
                                     alpha=0.2, color=color
                                 )
                         else:
-                            tid_df = tid_df.sort("time", "test_idx").group_by(["time", "feature", "turbine_id"], maintain_order=True).agg(pl.col("value").mean())
+                            tid_df = tid_df.sort("time", "test_idx").group_by(["time", "feature", "turbine_id"], maintain_order=True)\
+                                                                    .agg(pl.col("value").mean())
                             ax.fill_between(
                                 tid_df.filter(pl.col("feature") == f"loc_{feat}").select("time").to_numpy().flatten(), 
                                 (tid_df.filter(pl.col("feature") == f"loc_{feat}").select(pl.col("value")) 
