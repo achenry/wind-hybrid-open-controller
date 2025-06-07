@@ -1004,7 +1004,7 @@ if __name__ == "__main__":
                         .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
         
         # plot continuity group with best rmse score
-        PLOT_INDIVIDUAL = True
+        PLOT_INDIVIDUAL = False
         forecasts_long = []
         for f, forecaster in enumerate(forecasters):
             forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.model_key.capitalize()}Forecast"

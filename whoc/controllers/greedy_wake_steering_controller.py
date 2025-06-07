@@ -50,8 +50,8 @@ class GreedyController(ControllerBase):
         self.previous_yaw_setpoints = None
         
         # [self.idx2tid_mapping[i] for i in self.sorted_tids]
-        self.target_mean_ws_horz_cols = [f"ws_horz_{self.idx2tid_mapping[t_idx]}" for t_idx in self.sorted_tids]
-        self.target_mean_ws_vert_cols = [f"ws_vert_{self.idx2tid_mapping[t_idx]}" for t_idx in self.sorted_tids]
+        self.target_ws_horz_cols = self.target_mean_ws_horz_cols = [f"ws_horz_{self.idx2tid_mapping[t_idx]}" for t_idx in self.sorted_tids]
+        self.target_ws_vert_cols = self.target_mean_ws_vert_cols = [f"ws_vert_{self.idx2tid_mapping[t_idx]}" for t_idx in self.sorted_tids]
         self.ws_horz_cols = self.mean_ws_horz_cols = [f"ws_horz_{tid}" for tid in self.tid2idx_mapping]
         self.ws_vert_cols = self.mean_ws_vert_cols = [f"ws_vert_{tid}" for tid in self.tid2idx_mapping]
         self.nd_sin_cols = [f"nd_sin_{tid}" for tid in self.tid2idx_mapping]

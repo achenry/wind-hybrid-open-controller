@@ -62,14 +62,14 @@ case_studies = {
         "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
         "lut_path": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4_lut.csv",]},
         "yaw_limits": {"group": 0, "vals": ["-15,15"]},
-        "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController", "GreedyController"]},
+        "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController"]},
         "model_config_path": {"group": 1, "vals": [
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predGreedy.yaml"),
             os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predLUT.yaml"),
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predLUT.yaml"),
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predGreedy.yaml")]},
-        "prediction_timedelta": {"group": 1, "vals": [510, 510, 210]},
-        "uncertain": {"group": 1, "vals": [False, True, False]},
-        "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73", "4,"]},
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predLUT.yaml")]},
+        "prediction_timedelta": {"group": 1, "vals": [210, 510, 510]},
+        "uncertain": {"group": 1, "vals": [False, False, True]},
+        "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73", "74,73"]},
         "wind_forecast_class": {"group": 2, "vals": ["SVRForecast", "PerfectForecast"]}
     },
     "baseline_controllers_informer_forecaster_test_awaken": {
