@@ -276,54 +276,6 @@ if __name__ == "__main__":
                                         if args.reaggregate_simulations or not os.path.exists(os.path.join(args.save_dir, case_families[i], "time_series_results_all.csv"))]
                         _ = [fut.result() for fut in write_futures]
                     
-                    time_series_df = pd.concat(existing_time_series_df + new_time_series_df)
-                    # time_series_df = time_series_df.loc[]
-                    unique_seeds = time_series_df.groupby(["CaseFamily", "CaseName"], level=0)["WindSeed"].unique().values
-                    common_seeds = set(unique_seeds[0])
-                    for sds in unique_seeds[1:]:
-                        common_seeds.intersection_update(sds)
-                    
-                    # if args.reaggregate_simulations is true, or for any case family where doesn't agg_results_all.csv exist, compute the aggregate stats for each case families and case name, over all wind seeds
-                    # TODO replace this with groupby (vectorize) for each case_family
-                    # TODO truncate greatest context length at beginning
-                    futures = []
-                    for i in args.case_ids:
-                        if args.reaggregate_simulations or not os.path.exists(os.path.join(args.save_dir, case_families[i], "agg_results_all.csv")):
-                            case_family_df = time_series_df.iloc[time_series_df.index.get_level_values("CaseFamily") == case_families[i], :]
-                            for case_name in pd.unique(time_series_df.iloc[(time_series_df.index.get_level_values("CaseFamily") == case_families[i])].index.get_level_values("CaseName")):
-                                case_name_df = case_family_df.iloc[(case_family_df.index.get_level_values("CaseName") == case_name), :]
-                                case_name_df = case_name_df.loc[case_name_df["WindSeed"].isin(common_seeds), :]
-                                futures.append(
-                                    run_simulations_exec.submit(
-                                        aggregate_time_series_data,
-                                            time_series_df=case_name_df,
-                                            input_dict_path=os.path.join(args.save_dir, case_families[i], f"input_config_case_{case_name}.pkl"),
-                                            n_seeds=len(common_seeds)))
-                                
-                    new_agg_df = [fut.result() for fut in futures]
-                    new_agg_df = [df for df in new_agg_df if df is not None]
-                    if len(new_agg_df):
-                        new_agg_df = pd.concat(new_agg_df)
-                    else:
-                        new_agg_df = pd.DataFrame()
-                    # if args.reaggregate_simulations is false, read the remaining aggregate data from each agg_results_all csv file
-                    read_futures = [run_simulations_exec.submit(read_case_family_agg_data, 
-                                                                case_family=case_families[i], save_dir=args.save_dir)
-                                    for i in args.case_ids 
-                                    if not args.reaggregate_simulations and os.path.exists(os.path.join(args.save_dir, case_families[i], "agg_results_all.csv"))]
-                    existing_agg_df = [fut.result() for fut in read_futures]
-
-                    if len(new_agg_df):
-                        write_futures = [run_simulations_exec.submit(write_case_family_agg_data,
-                                                                     case_family=case_families[i],
-                                                                     new_agg_df=new_agg_df,
-                                                                     save_dir=args.save_dir)
-                                        for i in args.case_ids
-                                        if args.reaggregate_simulations or not os.path.exists(os.path.join(args.save_dir, case_families[i], "agg_results_all.csv"))]
-                        _ = [fut.result() for fut in write_futures]
-
-                    agg_df = pd.concat(existing_agg_df + [new_agg_df])
-                    
             # else, run sequentially
             else:
                 new_time_series_df = []
@@ -348,9 +300,10 @@ if __name__ == "__main__":
                     if new_case_family_time_series_df:
                         new_time_series_df.append(pd.concat(new_case_family_time_series_df))
                         write_case_family_time_series_data(case_families[i], new_time_series_df[-1], args.save_dir)
-                
+            
+            if RUN_ONCE:    
                 time_series_df = pd.concat(existing_time_series_df + new_time_series_df)
-                
+                    
                 unique_seeds = time_series_df.groupby(["CaseFamily", "CaseName"], level=0)["WindSeed"].unique().values
                 common_seeds = set(unique_seeds[0])
                 for sds in unique_seeds[1:]:
@@ -359,38 +312,52 @@ if __name__ == "__main__":
                 
                 # common_seeds = pd.unique(time_series_df["WindSeed"])
                 # time_series_df = time_series_df.loc[time_series_df.index.get_level_values("CaseName").isin([str(i) for i in range(0, 20)]) | time_series_df.index.get_level_values("CaseName").isin([str(i) for i in range(20, 35)])]
+                
                 new_agg_df = []
-                for i in args.case_ids:
-                    if args.reaggregate_simulations or not os.path.exists(os.path.join(args.save_dir, case_families[i], "agg_results_all.csv")):
+                
+                if args.reaggregate_simulations or not all(os.path.exists(os.path.join(args.save_dir, case_families[i], "agg_results_all.csv")) for i in args.case_ids):
+                    max_ctx_steps = []
+                    min_stop_time = np.inf
+                    for i in args.case_ids:
                         # for case_name in set([re.findall(r"(?<=case_)(.*)(?=_seed)", fn)[0] for fn in case_family_case_names[case_families[i]]]):
                         case_family_df = time_series_df.iloc[time_series_df.index.get_level_values("CaseFamily") == case_families[i], :]
-                        for case_name in pd.unique(case_family_df.index.get_level_values("CaseName")):
-                            case_name_df = case_family_df.iloc[case_family_df.index.get_level_values("CaseName") == str(case_name), :]
-                            case_name_df = case_name_df.loc[case_name_df["WindSeed"].isin(common_seeds), :]
-                            res = aggregate_time_series_data(
-                                                            time_series_df=case_name_df,
-                                                            input_dict_path=os.path.join(args.save_dir, case_families[i], f"input_config_case_{case_name}.pkl"),
-                                                            # results_path=os.path.join(args.save_dir, case_families[i], f"agg_results_{case_name}.csv"),
-                                                            n_seeds=len(common_seeds))
-                            if res is not None:
-                                new_agg_df.append(res)
-
-                if len(new_agg_df):
-                    new_agg_df = pd.concat(new_agg_df)
-                else:
+                        case_desc = pd.read_csv(os.path.join(args.save_dir, case_families[i], "case_descriptions.csv"), index_col=0)
+                        
+                        
+                        for _, row in case_desc.iterrows():
+                            sim_dt = pd.to_timedelta(row["simulation_dt"], unit="s")
+                            mncf_path = row["model_config_path"]
+                            lpf_start_time = row["lpf_start_time"]
+                            
+                            with open(mncf_path, mode='r') as fp:
+                                mcnf = yaml.safe_load(fp)
+                            
+                            # longest_ctx_steps.append(int((pd.Timedelta(mcnf["dataset"]["context_length"], unit="s") / pd.Timedelta(row["simulation_dt"], unit="s"))))
+                            max_ctx_steps.append(int(mcnf["dataset"]["context_length"])) # in seconds
+                            max_ctx_steps.append(lpf_start_time)
+                            
+                        max_ctx_steps = max(max_ctx_steps)
+                        min_stop_time = min(min_stop_time, case_family_df.groupby(["CaseFamily", "CaseName", "WindSeed"], group_keys=False)["Time"].max().min())
+                        
+                # truncate greatest context length at beginning
+                trunc_time_series_df = time_series_df.groupby(["CaseFamily", "CaseName"], group_keys=False).apply(lambda sub_df: sub_df.loc[sub_df["Time"] <= min_stop_time, :].iloc[max_ctx_steps:])
+                trunc_time_series_df = trunc_time_series_df.loc[trunc_time_series_df["WindSeed"].isin(common_seeds), :]
+            
+                new_agg_df = aggregate_time_series_data(
+                                                time_series_df=case_family_df,
+                                                # input_dict_path=os.path.join(args.save_dir, case_families[i], f"input_config_case_{case_name}.pkl"),
+                                                # results_path=os.path.join(args.save_dir, case_families[i], f"agg_results_{case_name}.csv"),
+                                                n_seeds=len(common_seeds))
+                
+                if new_agg_df is None:
                     new_agg_df = pd.DataFrame()
 
                 existing_agg_df = []
                 for i in args.case_ids:
                     if not args.reaggregate_simulations and os.path.exists(os.path.join(args.save_dir, case_families[i], "agg_results_all.csv")):
-                        existing_agg_df.append(read_case_family_agg_data(case_families[i], save_dir=args.save_dir))
-                
-                for i in args.case_ids:
-                    # if reaggregate_simulations, or if the aggregated time series data doesn't exist for this case family, read the csv files for that case family
-                    # if any new time series data has been read, add it to the new_time_series_df list and save the aggregated time-series data
-                    if args.reaggregate_simulations or not os.path.exists(os.path.join(args.save_dir, case_families[i], "agg_results_all.csv")):
                         write_case_family_agg_data(case_families[i], new_agg_df, args.save_dir)
-                
+                        existing_agg_df.append(read_case_family_agg_data(case_families[i], save_dir=args.save_dir))
+            
                 all_agg_dfs = [df for df in existing_agg_df + [new_agg_df] if df.shape[0]]
                 agg_df = pd.concat(all_agg_dfs)
 
