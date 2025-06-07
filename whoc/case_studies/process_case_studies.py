@@ -624,7 +624,7 @@ def plot_yaw_power_distribution(data_df, save_path):
 
 #     return result_summary_df
 
-def aggregate_time_series_data(time_series_df, input_dict_path, n_seeds):
+def aggregate_time_series_data(time_series_df, n_seeds):
     """_summary_
     Process csv data (all wind seeds) for single case name and single case family, from single diretory in floris_case_studies
     Args:
@@ -636,93 +636,50 @@ def aggregate_time_series_data(time_series_df, input_dict_path, n_seeds):
         _type_: _description_
     """
     # x = time_series_df.reset_index(level=["CaseFamily", "CaseName"], drop=True)
-    time_series_df = time_series_df.drop(columns=[col for col in time_series_df.columns if "Predicted" in col or "Stddev" in col]).dropna(axis=1, how="all").dropna(subset=["FarmPower"])
-    case_seeds = pd.unique(time_series_df["WindSeed"])
-    case_family = time_series_df.index.get_level_values("CaseFamily")[0]
+    agg_df = time_series_df.drop(columns=[col for col in time_series_df.columns if "Predicted" in col or "Stddev" in col]).dropna(axis=1, how="all").dropna(subset=["FarmPower"])
+    case_seeds = pd.unique(agg_df["WindSeed"])
+    case_family = list(agg_df.index.get_level_values("CaseFamily").unique())
     # case_family = df_name.replace(f"_{results_df['CaseName'].iloc[0]}", "")
-    case_name = time_series_df.index.get_level_values("CaseName")[0]
+    case_name = list(agg_df.index.get_level_values("CaseName").unique())
     if len(case_seeds) < n_seeds:
        logging.warning(f"Data for {case_family}={case_name} has insufficient seed simulations.")
     #    return None
 
-    with open(input_dict_path, 'rb') as fp:
-        input_config = pickle.load(fp)
+    # with open(input_dict_path, 'rb') as fp:
+    #     input_config = pickle.load(fp)
     
-    stoptime = (np.ceil(input_config["hercules_comms"]["helics"]["config"]["stoptime"] / input_config["simulation_dt"]) * input_config["simulation_dt"]).astype(int)
-    time_series_df = time_series_df.loc[time_series_df["Time"] < stoptime, :]
-    time = pd.unique(time_series_df["Time"])
+    # stoptime = (np.ceil(input_config["hercules_comms"]["helics"]["config"]["stoptime"] / input_config["simulation_dt"]) * input_config["simulation_dt"]).astype(int)
+    # time_series_df = time_series_df.loc[time_series_df["Time"] < stoptime, :]
+    # time = pd.unique(time_series_df["Time"])
     
     # TODO differnt stop times have been added for each seed to same config file so this is not correct
-    if len(time) != int(stoptime // input_config["simulation_dt"]):
-       logging.warning(f"{case_family}={case_name} data has insufficient time steps.")
+    # if len(time) != int(stoptime // input_config["simulation_dt"]):
+    #    logging.warning(f"{case_family}={case_name} data has insufficient time steps.")
     #    return None
    
     result_summary = []
     # input_fn = f"input_config_case_{case_name}.yaml"
     logging.info(f"Aggregating data for {case_family}={case_name}")
     
-    if "lpf_start_time" in input_config["controller"]:
-        lpf_start_time = input_config["controller"]["lpf_start_time"]
-    else:
-        lpf_start_time = 180.0
+    # if "lpf_start_time" in input_config["controller"]:
+    #     lpf_start_time = input_config["controller"]["lpf_start_time"]
+    # else:
+    #     lpf_start_time = 180.0
         
-    if time_series_df["Time"].max() > lpf_start_time:
-        df = time_series_df.loc[(time_series_df["Time"] >= lpf_start_time), :]
+    # if time_series_df["Time"].max() > lpf_start_time:
+    #     df = time_series_df.loc[(time_series_df["Time"] >= lpf_start_time), :]
     
-    yaw_angle_change_cols = sorted([c for c in time_series_df.columns if "TurbineYawAngleChange_" in c], key=lambda s: int(s.split("_")[-1]))
+    yaw_angle_change_cols = sorted([c for c in agg_df.columns if "TurbineYawAngleChange_" in c], key=lambda s: int(s.split("_")[-1]))
     # offline_status_cols = sorted([c for c in time_series_df.columns if "TurbineOfflineStatus_" in c], key=lambda s: int(s.split("_")[-1]))
-    turbine_power_cols = sorted([c for c in time_series_df.columns if "TurbinePower_" in c], key=lambda s: int(s.split("_")[-1]))
-    df["FarmPower"] = df.loc[:, turbine_power_cols].sum(axis=1)
-    df["YawAngleChangeAbs"] = df.loc[:, yaw_angle_change_cols].abs().sum(axis=1)
-    df = df[["WindSeed", "YawAngleChangeAbs", "FarmPower", 
+    turbine_power_cols = sorted([c for c in agg_df.columns if "TurbinePower_" in c], key=lambda s: int(s.split("_")[-1]))
+    agg_df["FarmPower"] = agg_df.loc[:, turbine_power_cols].sum(axis=1)
+    agg_df["YawAngleChangeAbs"] = agg_df.loc[:, yaw_angle_change_cols].abs().sum(axis=1)
+    agg_df = agg_df[["WindSeed", "YawAngleChangeAbs", "FarmPower", 
             "TotalRunningOptimizationCost", "OptimizationConvergenceTime"]]
-    df = df.groupby(by=["CaseFamily", "CaseName"])[[col for col in df.columns if col not in ["CaseFamily", "CaseName", "WindSeed"]]]\
+    agg_df = agg_df.groupby(by=["CaseFamily", "CaseName"], group_keys=False)[[col for col in agg_df.columns if col not in ["WindSeed"]]]\
                     .agg(["mean", "std"])
     
-    # n_values = 0
-    # for seed in case_seeds:
-
-    #     if time_series_df["Time"].max() > lpf_start_time:
-    #         seed_df = time_series_df.loc[(time_series_df["WindSeed"] == seed) & (time_series_df["Time"] >= lpf_start_time), :]
-    #     else:
-    #         seed_df = time_series_df.loc[(time_series_df["WindSeed"] == seed), :]
-        
-    #     yaw_angles_change_ts = seed_df[sorted([c for c in time_series_df.columns if "TurbineYawAngleChange_" in c], key=lambda s: int(s.split("_")[-1]))]
-    #     turbine_offline_status_ts = seed_df[sorted([c for c in time_series_df.columns if "TurbineOfflineStatus_" in c], key=lambda s: int(s.split("_")[-1]))]
-        # turbine_power_ts = seed_df[sorted([c for c in time_series_df.columns if "TurbinePower_" in c], key=lambda s: int(s.split("_")[-1]))]
-        # n_values += seed_df.shape[0]
-        # try:
-        #     result_summary.append((seed_df.index.get_level_values("CaseFamily")[0], 
-        #                            seed_df.index.get_level_values("CaseName")[0], 
-        #                            seed, 
-        #                            yaw_angles_change_ts.abs().sum(axis=1).sum(), 
-        #                         #    ((yaw_angles_change_ts.abs().to_numpy() * np.logical_not(turbine_offline_status_ts)).sum(axis=1).divide((np.logical_not(turbine_offline_status_ts)).sum(axis=1))).mean(),
-        #                            turbine_power_ts.sum(axis=1).sum(), 
-        #                         #    ((turbine_power_ts.to_numpy() * np.logical_not(turbine_offline_status_ts)).sum(axis=1) / ((np.logical_not(turbine_offline_status_ts)).sum(axis=1))).mean(),
-        #                            seed_df["TotalRunningOptimizationCost"].sum(), 
-        #                         #    (seed_df["TotalRunningOptimizationCost"] / ((np.logical_not(turbine_offline_status_ts)).sum(axis=1))).mean(),
-        #                         #    (seed_df["RunningOptimizationCostTerm_0"] / ((np.logical_not(turbine_offline_status_ts)).sum(axis=1))).mean(),
-        #                         #    (seed_df["RunningOptimizationCostTerm_1"] / ((np.logical_not(turbine_offline_status_ts)).sum(axis=1))).mean(),
-        #                            seed_df["OptimizationConvergenceTime"].sum()))
-        # except ZeroDivisionError:
-        #     logging.error("All turbines are offline! Can't generate RelativeYawAngleChangeAbsMean or RelativeFarmPowerMean.")
-        
-    # print(f"Aggregated data for {case_family}={case_name}")
-    # agg_df = pd.DataFrame(result_summary, columns=["CaseFamily", "CaseName", "WindSeed",
-    #                                           "YawAngleChangeAbs", 
-    #                                         #   "RelativeYawAngleChangeAbsMean",
-    #                                           "FarmPower", 
-    #                                         #   "RelativeFarmPowerMean", 
-    #                                           "TotalRunningOptimizationCostMean", 
-    #                                         #   "RelativeTotalRunningOptimizationCostMean",
-    #                                         #   "RelativeRunningOptimizationCostTerm_0", 
-    #                                         #   "RelativeRunningOptimizationCostTerm_1",
-    #                                           "OptimizationConvergenceTime"])
-    
-    # agg_df = agg_df.groupby(by=["CaseFamily", "CaseName"])[[col for col in agg_df.columns if col not in ["CaseFamily", "CaseName", "WindSeed"]]]\
-    #                .agg([lambda df: df.sum() / n_values, "stddev"])
-    # agg_df.to_csv(results_path)
-    return df
+    return agg_df
 
 def plot_wind_field_ts(data_df, save_path, filter_func=None):
     fig_wind, ax_wind = plt.subplots(2, 1, sharex=True)
