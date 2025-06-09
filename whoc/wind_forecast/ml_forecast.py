@@ -99,7 +99,7 @@ class MLForecast(WindForecast):
             log_dir=log_dir)
         
         if checkpoint_path is not None:
-            checkpoint_hparams = load_estimator_from_checkpoint(checkpoint_path, lightning_module_class, self.model_config, self.model_key)
+            checkpoint_hparams = load_estimator_from_checkpoint(checkpoint_path, lightning_module_class, self.model_config, self.model_key, train=False)
             
             self.data_module = DataModule(data_path=self.model_config["dataset"]["data_path"],
                                         n_splits=self.model_config["dataset"]["n_splits"],
@@ -178,7 +178,7 @@ class MLForecast(WindForecast):
                 "scaling": "std" if checkpoint_hparams["init_args"]["model_config"]["scaling"] == "True" else False, # Scaling handled externally or internally by TACTiS
                 "lags_seq": checkpoint_hparams["init_args"]["model_config"]["lags_seq"], # TACTiS doesn't typically use lags
                 "time_features": [second_of_minute, minute_of_hour, hour_of_day, day_of_year],
-                "batch_size": self.data_module.batch_size, #self.model_config["dataset"].setdefault("batch_size", 128), 
+                "batch_size": len(self.data_module.target_suffixes) if self.data_module.per_turbine_target else 1, # self.data_module.batch_size, #self.model_config["dataset"].setdefault("batch_size", 128), 
                 "num_batches_per_epoch": self.model_config["trainer"].setdefault("limit_train_batches", 1000), 
                 "context_length": self.data_module.context_length,
                 "train_sampler": ExpectedNumInstanceSampler(num_instances=1.0, min_past=self.data_module.context_length, min_future=self.data_module.prediction_length),
