@@ -151,14 +151,14 @@ case_studies = {
         "yaw_limits": {"group": 0, "vals": ["-15,15"]},
         "wind_forecast_class": {"group": 0, "vals": ["MLForecast"]},
         "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController"]},
-        # "model_config_path": {"group": 1, "vals": [
-        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred60.yaml"),
-        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred510.yaml"), 
-        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred510.yaml")]},
         "model_config_path": {"group": 1, "vals": [
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predGreedy.yaml"),
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"), 
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predGreedy.yaml"),
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predLUT.yaml"), 
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predLUT.yaml")]},
+        # "model_config_path": {"group": 1, "vals": [
+        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predGreedy.yaml"),
+        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"), 
+        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
         "prediction_timedelta": {"group": 1, "vals": [210, 510, 510]},
         "uncertain": {"group": 1, "vals": [False, True, False]},
         "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73", "74,73"]},
@@ -178,10 +178,14 @@ case_studies = {
         "yaw_limits": {"group": 0, "vals": ["-15,15"]},
         "wind_forecast_class": {"group": 0, "vals": ["MLForecast"]},
         "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController", "GreedyController"]},
+        # "model_config_path": {"group": 1, "vals": [
+        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"), 
+        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"), 
+        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predGreedy.yaml")]},
         "model_config_path": {"group": 1, "vals": [
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"), 
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"), 
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predGreedy.yaml")]},
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predLUT.yaml"), 
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predLUT.yaml"),
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predGreedy.yaml")]},
         "prediction_timedelta": {"group": 1, "vals": [510, 510, 210]},
         "uncertain": {"group": 1, "vals": [True, False, False]},
         "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73", "4,"]},
@@ -239,7 +243,7 @@ case_studies = {
         "use_upstream_wind": {"group": 0, "vals": [True]},
         "filter_floris_wind": {"group": 0, "vals": [False]},
         "use_lut_filtered_wind_mag": {"group": 0, "vals": [True]},
-        "interpolation_method": {"group": 0, "vals": ["linear"]},
+        "interpolation_method": {"group": 0, "vals": ["nearest"]},
         "simulation_dt": {"group": 0, "vals": [1]},
         "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
         "lut_path": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4_lut.csv"]},
@@ -259,7 +263,7 @@ case_studies = {
         "use_upstream_wind": {"group": 0, "vals": [True]},
         "filter_floris_wind": {"group": 0, "vals": [False]},
         "use_lut_filtered_wind_mag": {"group": 0, "vals": [True]},
-        "interpolation_method": {"group": 0, "vals": ["linear"]},
+        "interpolation_method": {"group": 0, "vals": ["nearest"]},
         "simulation_dt": {"group": 0, "vals": [1]},
         "floris_input_file": {"group": 0, "vals": [
             "../../examples/inputs/gch_KP_v4.yaml"
@@ -537,7 +541,7 @@ def CaseGen_General(case_inputs, namebase=''):
 
 # @profile
 def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_field, 
-                           rerun_simulations, reprocess_simulations, 
+                           run_simulations, rerun_simulations, reprocess_simulations, 
                            n_seeds, stoptime, save_dir, wf_source, 
                            multiprocessor, whoc_config, base_model_config=None):
     """_summary_
@@ -828,15 +832,16 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         start_case_idx = len(input_dicts)
         input_dicts = input_dicts + [copy.deepcopy(whoc_config) for i in range(len(case_list))]
         
-        old2new_case_names = {}
-        all_ts_path = os.path.join(save_dir, case_study_key, "time_series_results_all.csv")
-        all_agg_path = os.path.join(save_dir, case_study_key, "agg_results_all.csv")
-        if not rerun_simulations and os.path.exists(all_ts_path):
-            existing_all_ts_df = pd.read_csv(all_ts_path, index_col=[0,1], low_memory=False)
-            existing_all_agg_df = pd.read_csv(all_agg_path, index_col=[0,1], header=[0,1], low_memory=False, skipinitialspace=True)
-        else:
-            existing_all_ts_df = None
-            existing_all_agg_df = None
+        if run_simulations:
+            old2new_case_names = {}
+            all_ts_path = os.path.join(save_dir, case_study_key, "time_series_results_all.csv")
+            all_agg_path = os.path.join(save_dir, case_study_key, "agg_results_all.csv")
+            if not rerun_simulations and os.path.exists(all_ts_path):
+                existing_all_ts_df = pd.read_csv(all_ts_path, index_col=[0,1], low_memory=False)
+                existing_all_agg_df = pd.read_csv(all_agg_path, index_col=[0,1], header=[0,1], low_memory=False, skipinitialspace=True)
+            else:
+                existing_all_ts_df = None
+                existing_all_agg_df = None
         
         input_df_path = os.path.join(save_dir, case_study_key, "case_descriptions.csv")
         if not rerun_simulations and os.path.exists(input_df_path):
@@ -1038,7 +1043,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             logging.info(f"Renaming {fn} to {new_fn}.")
             os.rename(fn, new_fn)
         
-        if existing_all_ts_df is not None:
+        if run_simulations and existing_all_ts_df is not None:
             # rename case numbers
             if len(old2new_case_names):
                 logging.info(f"Renaming case names in {all_ts_path} and {all_agg_path} by mapping {old2new_case_names}.")
@@ -1092,23 +1097,24 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                     continue
         
     # delete any input files/time series files that don't belong
-    pattern = "(?<=input_config_case_)(.*)(?=\\.pkl)"
-    ts_filenames = [tuple([csk, f"time_series_results_case_{case_name}_seed_{wind_case_idx}.csv"]) for csk, case_name, wind_case_idx, fn in input_filenames]
-    for case_study_key in case_study_keys:
-        allowed_input_files = set([fn for csk, _, _, fn in input_filenames if csk == case_study_key])
-        allowed_ts_files = set([fn for csk, fn in ts_filenames if csk == case_study_key])
-        allowed_ts_files |= set([fn.replace(".csv", "_temp.csv") for fn in allowed_ts_files])
-        # allowed_ts_files = set([
-        #     f"time_series_results_case_{re.search('(?<=input_config_case_)(.*)(?=\\.pkl)', fn).group()}_seed_{wind_case_idx}.csv".replace("/", "_") 
-        #     for csk, wind_case_idx, fn in input_filenames if csk == case_study_key])
-        
-        results_dir = os.path.join(save_dir, case_study_key)
-        for inp_file in glob(os.path.join(results_dir, "input_config_case_*.pkl")):
-            if os.path.basename(inp_file) not in allowed_input_files:
-                os.remove(inp_file)
-        for ts_file in glob(os.path.join(results_dir, "time_series_results_case_*.csv")):
-            if os.path.basename(ts_file) not in allowed_ts_files:
-                os.remove(ts_file)
+    if run_simulations:
+        pattern = "(?<=input_config_case_)(.*)(?=\\.pkl)"
+        ts_filenames = [tuple([csk, f"time_series_results_case_{case_name}_seed_{wind_case_idx}.csv"]) for csk, case_name, wind_case_idx, fn in input_filenames]
+        for case_study_key in case_study_keys:
+            allowed_input_files = set([fn for csk, _, _, fn in input_filenames if csk == case_study_key])
+            allowed_ts_files = set([fn for csk, fn in ts_filenames if csk == case_study_key])
+            allowed_ts_files |= set([fn.replace(".csv", "_temp.csv") for fn in allowed_ts_files])
+            # allowed_ts_files = set([
+            #     f"time_series_results_case_{re.search('(?<=input_config_case_)(.*)(?=\\.pkl)', fn).group()}_seed_{wind_case_idx}.csv".replace("/", "_") 
+            #     for csk, wind_case_idx, fn in input_filenames if csk == case_study_key])
+            
+            results_dir = os.path.join(save_dir, case_study_key)
+            for inp_file in glob(os.path.join(results_dir, "input_config_case_*.pkl")):
+                if os.path.basename(inp_file) not in allowed_input_files:
+                    os.remove(inp_file)
+            for ts_file in glob(os.path.join(results_dir, "time_series_results_case_*.csv")):
+                if os.path.basename(ts_file) not in allowed_ts_files:
+                    os.remove(ts_file)
     
     total_cases = int(len(input_filenames) / n_seeds)
     written_input_files = set()

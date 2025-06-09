@@ -832,33 +832,39 @@ if __name__ == "__main__":
     continuity_groups = test_data.group_by("prediction_timedelta").agg(pl.col("continuity_group").unique())
     continuity_groups = {row["prediction_timedelta"]: row["continuity_group"] for row in continuity_groups.iter_rows(named=True)}
     
-    validation_to_run = []
-    for forecaster in forecasters:
-        prediction_timedelta = int(forecaster.prediction_timedelta.total_seconds())
-        forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.model_key.capitalize()}Forecast"
-        save_dir = os.path.join(validation_save_dir, 
-                            forecaster_name,
-                            str(prediction_timedelta))
-        os.makedirs(save_dir, exist_ok=True)
-        for c, cg in enumerate(continuity_groups[prediction_timedelta]):
-            save_path = os.path.join(save_dir, f"forecast_{cg}.csv")
-            
-            if args.rerun_validation or not os.path.exists(save_path):
-                validation_to_run.append((forecaster, cg, save_path))
-                logging.info(f"Rerunning validation {forecaster_name, prediction_timedelta, save_path}")
+    if args.run_validation:
+        validation_to_run = []
+        for forecaster in forecasters:
+            prediction_timedelta = int(forecaster.prediction_timedelta.total_seconds())
+            forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.model_key.capitalize()}Forecast"
+            save_dir = os.path.join(validation_save_dir, 
+                                forecaster_name,
+                                str(prediction_timedelta))
+            os.makedirs(save_dir, exist_ok=True)
+            for c, cg in enumerate(continuity_groups[prediction_timedelta]):
+                save_path = os.path.join(save_dir, f"forecast_{cg}.csv")
                 
-                if os.path.exists(save_path):
-                    logging.info(f"Removing existing file {save_path}.")
-                    os.remove(save_path)
-            # elif os.path.exists(save_path):
-            #     # TODO also delete existing files if not rerun_validation but existing files have different number of time steps
-            #     forecast_df = pl.scan_csv(save_path, glob=True, try_parse_dates=True)\
-            #                     .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
-                # if (n_forecasted_timestamps := forecast_df.select(pl.col("time").n_unique()).collect().item()) < (n_true_timestamps := test_data.select(pl.col("time").n_unique()).item() - 1):
-                #     validation_to_run.append((forecaster, cg, save_path))
-                #     logging.info(f"Rerunning validation {forecaster_name, prediction_timedelta, save_path} since saved number of timestamps is only {n_forecasted_timestamps} whereas number in test data is {n_true_timestamps}.")
-                    # logging.info(f"Removing existing file {save_path}.")
-                    # os.remove.exists(save_path)
+                if args.rerun_validation or not os.path.exists(save_path):
+                    validation_to_run.append((forecaster, cg, save_path))
+                    logging.info(f"Rerunning validation {forecaster_name, prediction_timedelta, save_path}")
+                    
+                    temp_sp = save_path.replace(".csv", "_temp.csv")
+                    if os.path.exists(temp_sp):
+                        logging.info(f"Removing existing file {temp_sp}.")
+                        os.remove(temp_sp)
+                    
+                    # if os.path.exists(save_path):
+                    #     logging.info(f"Removing existing file {save_path}.")
+                    #     os.remove(save_path)
+                # elif os.path.exists(save_path):
+                #     # TODO also delete existing files if not rerun_validation but existing files have different number of time steps
+                #     forecast_df = pl.scan_csv(save_path, glob=True, try_parse_dates=True)\
+                #                     .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
+                    # if (n_forecasted_timestamps := forecast_df.select(pl.col("time").n_unique()).collect().item()) < (n_true_timestamps := test_data.select(pl.col("time").n_unique()).item() - 1):
+                    #     validation_to_run.append((forecaster, cg, save_path))
+                    #     logging.info(f"Rerunning validation {forecaster_name, prediction_timedelta, save_path} since saved number of timestamps is only {n_forecasted_timestamps} whereas number in test data is {n_true_timestamps}.")
+                        # logging.info(f"Removing existing file {save_path}.")
+                        # os.remove.exists(save_path)
     
     if args.run_validation:       
         if args.multiprocessor:
@@ -935,7 +941,7 @@ if __name__ == "__main__":
             # schema_overrides={"test_idx": pl.Int32, "continuity_group": pl.Int32}
             forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
                         .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns"))) 
-            available_fc_cgs = forecast_df.select(pl.col('continuity_group').unique()).to_numpy().flatten()
+            available_fc_cgs = forecast_df.select(pl.col('continuity_group').unique()).to_numpy().flatten().astype(int)
             logging.info(f"Finished scanning CSV files at {forecast_path}. Found {available_fc_cgs} continuity_groups.")   
             
             if prediction_timedelta in unique_cgs:
@@ -964,7 +970,7 @@ if __name__ == "__main__":
             logging.info(f"Finished scanning CSV files at {forecast_path}. Found {available_fc_cgs} continuity_groups.")
             
             # make sure comparing common continuity groups
-            logging.info(f"Filtering congtinuity groups to {unique_cgs[prediction_timedelta]}.")
+            logging.info(f"Filtering continuity groups to {unique_cgs[prediction_timedelta]}.")
             forecast_df = forecast_df.filter(pl.col("continuity_group").is_in(unique_cgs[prediction_timedelta]))
                     
             # recomputes agg metrics if existing agg_metric_path doesn't contain all cgs
@@ -974,8 +980,16 @@ if __name__ == "__main__":
                 available_agg_cgs = set(agg_metrics.select(pl.col('continuity_group').unique()).to_numpy().flatten())
                 logging.info(f"Finished scanning CSV file at {agg_metric_path}. Found {available_agg_cgs} continuity groups.")
             
+            # if available agg_metrics contains all the continuity groups we require
+            if (available_agg_cgs != unique_cgs[prediction_timedelta]) and unique_cgs[prediction_timedelta].issubset(available_agg_cgs):
+                agg_metrics = agg_metrics.filter(pl.col("continuity_group").is_in(unique_cgs[prediction_timedelta]))
+                agg_metrics.write_csv(agg_metric_path)
+                available_agg_cgs = set(agg_metrics.select(pl.col('continuity_group').unique()).to_numpy().flatten())
+
             if args.rerun_validation or not os.path.exists(agg_metric_path) or (available_agg_cgs != unique_cgs[prediction_timedelta]):
-                agg_metrics = generate_forecaster_agg_results(forecaster, forecast_df, test_data, data_module, args.prediction_type)
+                agg_metrics = generate_forecaster_agg_results(forecaster, 
+                                                              forecast_df, 
+                                                              test_data.filter(pl.col("continuity_group").is_in(unique_cgs[prediction_timedelta])), data_module, args.prediction_type)
                 agg_metrics.write_csv(agg_metric_path)
 
             results[f]["agg_metrics"] = agg_metrics
@@ -1004,7 +1018,7 @@ if __name__ == "__main__":
                         .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
         
         # plot continuity group with best rmse score
-        PLOT_INDIVIDUAL = False
+        PLOT_INDIVIDUAL = True
         forecasts_long = []
         for f, forecaster in enumerate(forecasters):
             forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.model_key.capitalize()}Forecast"
