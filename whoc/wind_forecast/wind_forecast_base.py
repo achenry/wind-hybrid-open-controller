@@ -781,6 +781,8 @@ class WindForecast:
                       per_turbine_target=False, turbine_ids="all", turbine_labels=None, label="", fig_dir="./", include_turbine_legend=False, multiple_forecasters=True,
                       use_common_timedelta=True, dt=None):
         
+        sns.set_palette("tab10")
+        
         # hue command either differentiates forecasters or turbines. When turbine != all, the turbines are shown on different plots
         assert (multiple_forecasters and turbine_ids != "all") or (not multiple_forecasters and turbine_ids == "all")
         
@@ -922,9 +924,11 @@ class WindForecast:
                                  hue="turbine_id", dashes=[[4, 4]], marker="o", linestyle="--", ax=axs[f], err_style="bars")
                 else:
                     for t, tid in enumerate(turbine_ids):
+                        # TODO HIGH WHY ERROR BARS FOR SINGLE POINT FORECASTERS eg SVR, Spatial Forecast
                         sns.lineplot(data=forecast_wf.filter((pl.col("feature") == feat) & (pl.col("turbine_id") == tid)), 
                                      x="time", y="value", dashes=[[4, 4]], marker="o", linestyle="--", ax=axs[t, f], 
-                                     hue="forecaster" if (multiple_forecasters and "forecaster" in forecast_wf.columns) else None, err_style="bars")
+                                     hue="forecaster" if (multiple_forecasters and "forecaster" in forecast_wf.columns) else None, 
+                                    err_style="bars")
                     
             elif prediction_type == "sample":
                 raise NotImplementedError()
