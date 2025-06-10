@@ -781,6 +781,8 @@ class WindForecast:
                       per_turbine_target=False, turbine_ids="all", turbine_labels=None, label="", fig_dir="./", include_turbine_legend=False, multiple_forecasters=True,
                       use_common_timedelta=True, dt=None):
         
+        sns.set_palette("tab10")
+        
         # hue command either differentiates forecasters or turbines. When turbine != all, the turbines are shown on different plots
         assert (multiple_forecasters and turbine_ids != "all") or (not multiple_forecasters and turbine_ids == "all")
         
@@ -824,6 +826,10 @@ class WindForecast:
             forecast_wf = forecast_wf.with_columns(pl.col("time").dt.round(f"{dt}s").alias("time").cast(pl.Datetime(time_unit="us")))\
                                      .group_by(["time", "test_idx", "feature", "turbine_id", "data_type", "forecaster"], maintain_order=True)\
                                      .agg(cs.numeric().first())
+                                     
+            true_wf = true_wf.with_columns(pl.col("time").dt.round(f"{dt}s").alias("time").cast(pl.Datetime(time_unit="us")))\
+                                     .group_by(["time", "feature", "turbine_id", "data_type"], maintain_order=True)\
+                                     .agg(cs.numeric().mean())
             
         assert forecast_wf.select(pl.col("time")).unique().select(pl.len()).item() > 1, "Need more than one data point to plot a time series, try adding more values to continuity_groups or setting it to None"
         forecast_wf = forecast_wf.sort("time")
@@ -918,9 +924,11 @@ class WindForecast:
                                  hue="turbine_id", dashes=[[4, 4]], marker="o", linestyle="--", ax=axs[f], err_style="bars")
                 else:
                     for t, tid in enumerate(turbine_ids):
+                        # TODO HIGH WHY ERROR BARS FOR SINGLE POINT FORECASTERS eg SVR, Spatial Forecast
                         sns.lineplot(data=forecast_wf.filter((pl.col("feature") == feat) & (pl.col("turbine_id") == tid)), 
                                      x="time", y="value", dashes=[[4, 4]], marker="o", linestyle="--", ax=axs[t, f], 
-                                     hue="forecaster" if (multiple_forecasters and "forecaster" in forecast_wf.columns) else None, err_style="bars")
+                                     hue="forecaster" if (multiple_forecasters and "forecaster" in forecast_wf.columns) else None, 
+                                    err_style="bars")
                     
             elif prediction_type == "sample":
                 raise NotImplementedError()
@@ -994,10 +1002,12 @@ class WindForecast:
         fig.savefig(fig_path)
         
         xlim_rng = axs[-1, -1].get_xlim()[1] - axs[-1, -1].get_xlim()[0]
+        new_x_start = forecast_wf.group_by(["forecaster", "turbine_id"]).agg(pl.all().sort_by("time").first())["time"].max()
         time_rng = x_end - x_start
         new_time_range = timedelta(minutes=15)
-        new_time_lim = (x_start, x_start + new_time_range)
-        new_xlim = (axs[-1, -1].get_xlim()[0], axs[-1, -1].get_xlim()[0] + (new_time_range/time_rng)*xlim_rng)
+        new_time_lim = (new_x_start, new_x_start + new_time_range)
+        x0 = axs[-1, -1].get_xlim()[0] + ((new_x_start - x_start)/time_rng)*xlim_rng
+        new_xlim = (x0, x0 + (new_time_range/time_rng)*xlim_rng)
         n_ticks = 5
         xdelta = int(np.round((new_time_range/n_ticks).total_seconds() / 30) * 30) / 60
         new_xticks = np.linspace(new_xlim[0], new_xlim[1], n_ticks)
@@ -1011,10 +1021,20 @@ class WindForecast:
         y_rng = int(new_time_range / forecast_wf.select(pl.col("time").diff().max()).item())
         for ax in axs.flatten():
             ymin = min(l.get_ydata()[(l.get_xdata() >= new_xlim[0]) & (l.get_xdata() <= new_xlim[1])].min() for l in ax.lines if len(l.get_xdata()))
-            ymin = ymin - abs(ymin*0.075)
+            ymin = ymin - abs(ymin*0.15)
             ymax = max(l.get_ydata()[(l.get_xdata() >= new_xlim[0]) & (l.get_xdata() <= new_xlim[1])].max() for l in ax.lines if len(l.get_xdata()))
-            ymax = ymax + abs(ymax*0.075)
+            ymax = ymax + abs(ymax*0.15)
             ax.set_ylim((ymin, ymax))
+            
+        # for ax in axs[:, 0]:
+            # (ymin, ymax) = ax.get_ylim()
+            # ax.set_ylim((ymin - abs(ymin*0.1), ymax + abs(ymax*0.1)))
+            
+        # ax = axs[2, 1]
+        # (ymin, ymax) = ax.get_ylim()
+        # # ax.set_ylim((ymin, ymax + abs(ymax*0.1)))
+        # ax.set_ylim((ymin + abs(ymin*0.05), ymax))
+            
         # plt.autoscale(enable=True, axis='y', tight=True)
         fig_path = fig_path.replace(".png", "_reduced.png")
         logging.info(f"Saving reduced plot_forecast to {fig_path}")

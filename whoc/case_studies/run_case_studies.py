@@ -110,22 +110,22 @@ if __name__ == "__main__":
             tid2idx_mapping = None
             # temp_storage_dir = None
             
-        if args.run_simulations:
-            logging.info(f"running initialize_simulations for case_ids {[case_families[i] for i in args.case_ids]}")
-            input_dicts, wind_field_config, wind_field_ts \
-                = initialize_simulations(case_study_keys=[case_families[i] for i in args.case_ids], 
-                                            regenerate_wind_field=args.generate_wind_field, 
-                                            regenerate_lut=args.generate_lut, 
-                                            rerun_simulations=args.rerun_simulations,
-                                            reprocess_simulations=args.reprocess_simulations,
-                                            n_seeds=args.n_seeds, 
-                                            stoptime=args.stoptime, 
-                                            save_dir=args.save_dir, 
-                                            wf_source=args.wf_source,
-                                            multiprocessor=args.multiprocessor, 
-                                            whoc_config=whoc_config, base_model_config=model_config)
-            logging.info(f"Resetting args.n_seeds to {len(wind_field_ts)}")
-            args.n_seeds = len(wind_field_ts)
+        logging.info(f"running initialize_simulations for case_ids {[case_families[i] for i in args.case_ids]}")
+        input_dicts, wind_field_config, wind_field_ts \
+            = initialize_simulations(case_study_keys=[case_families[i] for i in args.case_ids], 
+                                        regenerate_wind_field=args.generate_wind_field, 
+                                        regenerate_lut=args.generate_lut, 
+                                        run_simulations=args.run_simulations,
+                                        rerun_simulations=args.rerun_simulations,
+                                        reprocess_simulations=args.reprocess_simulations,
+                                        n_seeds=args.n_seeds, 
+                                        stoptime=args.stoptime, 
+                                        save_dir=args.save_dir, 
+                                        wf_source=args.wf_source,
+                                        multiprocessor=args.multiprocessor, 
+                                        whoc_config=whoc_config, base_model_config=model_config)
+        logging.info(f"Resetting args.n_seeds to {len(wind_field_ts)}")
+        args.n_seeds = len(wind_field_ts)
         
     if args.multiprocessor == "mpi":
         comm.Barrier()
@@ -313,8 +313,6 @@ if __name__ == "__main__":
                 # common_seeds = pd.unique(time_series_df["WindSeed"])
                 # time_series_df = time_series_df.loc[time_series_df.index.get_level_values("CaseName").isin([str(i) for i in range(0, 20)]) | time_series_df.index.get_level_values("CaseName").isin([str(i) for i in range(20, 35)])]
                 
-                new_agg_df = []
-                
                 if args.reaggregate_simulations or not all(os.path.exists(os.path.join(args.save_dir, case_families[i], "agg_results_all.csv")) for i in args.case_ids):
                     max_ctx_steps = []
                     min_stop_time = np.inf
@@ -323,40 +321,47 @@ if __name__ == "__main__":
                         case_family_df = time_series_df.iloc[time_series_df.index.get_level_values("CaseFamily") == case_families[i], :]
                         case_desc = pd.read_csv(os.path.join(args.save_dir, case_families[i], "case_descriptions.csv"), index_col=0)
                         
-                        
                         for _, row in case_desc.iterrows():
                             sim_dt = pd.to_timedelta(row["simulation_dt"], unit="s")
                             mncf_path = row["model_config_path"]
                             lpf_start_time = row["lpf_start_time"]
                             
-                            with open(mncf_path, mode='r') as fp:
-                                mcnf = yaml.safe_load(fp)
+                            if isinstance(row["model_config_path"], os.PathLike):
+                                with open(mncf_path, mode='r') as fp:
+                                    mcnf = yaml.safe_load(fp)
                             
-                            # longest_ctx_steps.append(int((pd.Timedelta(mcnf["dataset"]["context_length"], unit="s") / pd.Timedelta(row["simulation_dt"], unit="s"))))
-                            max_ctx_steps.append(int(mcnf["dataset"]["context_length"])) # in seconds
-                            max_ctx_steps.append(lpf_start_time)
+                                # longest_ctx_steps.append(int((pd.Timedelta(mcnf["dataset"]["context_length"], unit="s") / pd.Timedelta(row["simulation_dt"], unit="s"))))
+                                max_ctx_steps.append(int(mcnf["dataset"]["context_length"])) # in seconds
+                                
+                            max_ctx_steps.append(int(lpf_start_time))
                             
-                        max_ctx_steps = max(max_ctx_steps)
                         min_stop_time = min(min_stop_time, case_family_df.groupby(["CaseFamily", "CaseName", "WindSeed"], group_keys=False)["Time"].max().min())
+                    
+                    max_ctx_steps = max(max_ctx_steps)
                         
                 # truncate greatest context length at beginning
                 trunc_time_series_df = time_series_df.groupby(["CaseFamily", "CaseName"], group_keys=False).apply(lambda sub_df: sub_df.loc[sub_df["Time"] <= min_stop_time, :].iloc[max_ctx_steps:])
                 trunc_time_series_df = trunc_time_series_df.loc[trunc_time_series_df["WindSeed"].isin(common_seeds), :]
             
                 new_agg_df = aggregate_time_series_data(
-                                                time_series_df=case_family_df,
+                                                time_series_df=trunc_time_series_df,
                                                 # input_dict_path=os.path.join(args.save_dir, case_families[i], f"input_config_case_{case_name}.pkl"),
                                                 # results_path=os.path.join(args.save_dir, case_families[i], f"agg_results_{case_name}.csv"),
                                                 n_seeds=len(common_seeds))
                 
                 if new_agg_df is None:
                     new_agg_df = pd.DataFrame()
-
+                    
                 existing_agg_df = []
                 for i in args.case_ids:
                     if not args.reaggregate_simulations and os.path.exists(os.path.join(args.save_dir, case_families[i], "agg_results_all.csv")):
-                        write_case_family_agg_data(case_families[i], new_agg_df, args.save_dir)
                         existing_agg_df.append(read_case_family_agg_data(case_families[i], save_dir=args.save_dir))
+                
+                for i in args.case_ids:
+                    # if reaggregate_simulations, or if the aggregated time series data doesn't exist for this case family, read the csv files for that case family
+                    # if any new time series data has been read, add it to the new_time_series_df list and save the aggregated time-series data
+                    if args.reaggregate_simulations or not os.path.exists(os.path.join(args.save_dir, case_families[i], "agg_results_all.csv")):
+                        write_case_family_agg_data(case_families[i], new_agg_df, args.save_dir)
             
                 all_agg_dfs = [df for df in existing_agg_df + [new_agg_df] if df.shape[0]]
                 agg_df = pd.concat(all_agg_dfs)
@@ -426,7 +431,7 @@ if __name__ == "__main__":
                             and (case_families.index("baseline_controllers_perfect_forecaster_awaken") in args.case_ids):
                 from whoc.wind_forecast.run_forecaster_validation import WindForecast
                 from wind_forecasting.preprocessing.data_inspector import DataInspector
-                # TODO HIGH only compare time after context_length, since SVR/ML assume persistence until then
+                
                 # if case_families.index("baseline_controllers_ml_forecasters_awaken") in args.case_ids:
                 #     forecaster_case_fam = "baseline_controllers_ml_forecasters_awaken"
                 # elif case_families.index("baseline_controllers_baseline_det_forecasters_awaken") in args.case_ids:
@@ -448,7 +453,7 @@ if __name__ == "__main__":
                 baseline_det_case_desc = pd.read_csv(os.path.join(args.save_dir, "baseline_controllers_baseline_det_forecasters_awaken", "case_descriptions.csv"), index_col=0)
                 
                 # list(pd.unique(baseline_det_case_desc["prediction_timedelta"]))
-                base_val_idx = perfect_case_desc.loc[perfect_case_desc["prediction_timedelta"].isin([0]), :].index.astype(str)
+                base_val_idx = perfect_case_desc.loc[pd.to_timedelta(perfect_case_desc["prediction_timedelta"]).isin([pd.Timedelta(seconds=0)]), :].index.astype(str)
                 base_cond = (((baseline_time_df.index.get_level_values("CaseFamily") == "baseline_controllers_perfect_forecaster_awaken") &
                      baseline_time_df.index.get_level_values("CaseName").isin(base_val_idx)) |
                     ((baseline_time_df.index.get_level_values("CaseFamily") != "baseline_controllers_perfect_forecaster_awaken")))
@@ -491,11 +496,11 @@ if __name__ == "__main__":
                 # ml_baseline_agg_df = baseline_agg_df.loc[(~baseline_agg_df["model_key"].isnull()) | (baseline_agg_df["wind_forecast_class"] == "PersistenceForecast"), :]
                 ml_baseline_agg_df = baseline_agg_df.loc[(~baseline_agg_df["model_key"].isnull()) 
                                                          | ((baseline_agg_df["wind_forecast_class"] == "PerfectForecast") 
-                                                            & (baseline_agg_df["prediction_timedelta"] == 0)), :]
+                                                            & (baseline_agg_df["prediction_timedelta"] == pd.Timedelta(seconds=0))), :]
                 # if ml_baseline_agg_df.shape[0]:
                 ml_baseline_agg_df["controller_class"] = ml_baseline_agg_df["controller_class"] + ml_baseline_agg_df["uncertain"].astype(str)
                 ml_baseline_agg_df = ml_baseline_agg_df.sort_values("controller_class")
-                if (ml_baseline_agg_df["model_key"].apply(type) == str).any():
+                if (ml_baseline_agg_df["model_key"].apply(type) == np.str_).any():
                     plot_agg_metrics_vs_forecaster(ml_baseline_agg_df,
                                                 save_dir=args.save_dir, label="ml_forecasters_",
                                                 controller_labels=controller_labels)
@@ -539,7 +544,8 @@ if __name__ == "__main__":
             if (case_families.index("baseline_controllers_perfect_forecaster_awaken") in args.case_ids
                 or case_families.index("baseline_controllers_perfect_forecaster_flasc") in args.case_ids
                 or case_families.index("baseline_controllers_forecasters_test_awaken") in args.case_ids
-                or case_families.index("baseline_controllers_ml_forecasters_test_awaken") in args.case_ids):
+                or case_families.index("baseline_controllers_informer_forecaster_test_awaken") in args.case_ids
+                or case_families.index("baseline_controllers_svr_forecaster_test_awaken") in args.case_ids):
                 # if case_families.index("baseline_controllers_perfect_forecaster_awaken") in args.case_ids:
                 #     forecaster_case_fam = "baseline_controllers_perfect_forecaster_awaken"
                 # elif case_families.index("baseline_controllers_perfect_forecaster_flasc") in args.case_ids:
@@ -629,7 +635,7 @@ if __name__ == "__main__":
                 # label_mapping = {"7": "Greedy", "5": "LUT Ds", "7": "LUT Us"}
                 plot_simulations(
                     time_series_df, plotting_cases, args.save_dir, include_power=True, 
-                    legend_loc="outer", single_plot=False, label_mapping=label_mapping, seed_idx=22)
+                    legend_loc="outer", single_plot=False, label_mapping=label_mapping, seed_idx=0)
                 
                 # PLOT 2) Farm power ratio of other forecasters relative to perfect forecaster vs prediction timedela for different controllers (diff plots)
                 # plot_df = plot_df.set_index(["controller_class", "prediction_timedelta"])
