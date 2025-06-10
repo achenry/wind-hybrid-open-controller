@@ -191,6 +191,9 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                 pred = forecaster.predict_sample(
                     ds.filter(pl.col("time") <= current_time), current_time, n_samples=n_samples)
             
+            if test_idx == 232:
+                print("here")
+                
             pred = pred.with_columns(
                 test_idx=pl.lit(test_idx).cast(pl.Int32), 
                 continuity_group=pl.lit(splits[d]).cast(pl.Int32), 
@@ -540,6 +543,9 @@ if __name__ == "__main__":
     
     assert all(model in ["perfect", "persistence", "svr", "kf", "informer", "autoformer", "spacetimeformer", "tactis", "sf"] for model in args.model)
     
+    if args.rerun_validation:
+        args.run_validation = True
+    
     if not mpi_exists and args.multiprocessor == "mpi":
         raise RuntimeError("MPI was requested (--multiprocessor mpi) but mpi4py failed to import. Check previous logs for import error details.")
     elif not mpi_exists:
@@ -609,7 +615,8 @@ if __name__ == "__main__":
                                 n_splits=1, #model_config["dataset"]["n_splits"],
                                 continuity_groups=None, train_split=(1.0 - mcnf["dataset"]["val_split"] - mcnf["dataset"]["test_split"]),
                                 val_split=mcnf["dataset"]["val_split"], test_split=mcnf["dataset"]["test_split"],
-                                prediction_length=mcnf["dataset"]["prediction_length"], context_length=mcnf["dataset"]["context_length"],
+                                prediction_length=mcnf["dataset"]["prediction_length"], 
+                                context_length=mcnf["dataset"]["context_length"],
                                 target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                                 freq=f"{int(measurements_timedelta.total_seconds())}s", 
                                 target_suffixes=mcnf["dataset"]["target_turbine_ids"],
@@ -880,9 +887,8 @@ if __name__ == "__main__":
             
             logging.info(f"Running generate_forecaster_results with multiprocessor {args.multiprocessor} with {max_workers} workers.")
             with executor as ex:
-                
                 test_futures = [ex.submit(make_predictions, forecaster=forecaster,  
-                                    test_data=test_data.filter(pl.col("continuity_group") == cg), 
+                                    test_data=test_data.filter((pl.col("continuity_group") == cg) & (pl.col("prediction_timedelta") == forecaster.prediction_timedelta.total_seconds())), 
                                     prediction_type=args.prediction_type, single_cg=True, 
                                     save_path=save_path,
                                     assigned_gpu=next(gpu_cycler) if gpu_cycler else None, 
@@ -896,7 +902,8 @@ if __name__ == "__main__":
             results = []
             for forecaster, cg, save_path in validation_to_run:
                 make_predictions(
-                    forecaster=forecaster, test_data=test_data.filter(pl.col("continuity_group") == cg),
+                    forecaster=forecaster, 
+                    test_data=test_data.filter((pl.col("continuity_group") == cg) & (pl.col("prediction_timedelta") == forecaster.prediction_timedelta.total_seconds())),
                     prediction_type=args.prediction_type, single_cg=True,
                     # save_path=lambda cg: forecast_paths[continuity_groups.index(cg)],
                     save_path=save_path,
@@ -1034,7 +1041,7 @@ if __name__ == "__main__":
                 target_vars = ["ws_horz", "ws_vert"]
             
             forecast_long_path = os.path.join(save_dir, "long_df.csv")
-            if args.rerun_validation or not os.path.exists(forecast_long_path):
+            if True or args.rerun_validation or not os.path.exists(forecast_long_path):
                 forecast_path = os.path.join(save_dir, "forecast_*.csv")
                 forecast_df = pl.scan_csv(forecast_path, glob=True, try_parse_dates=True)\
                             .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
@@ -1043,8 +1050,14 @@ if __name__ == "__main__":
                     .unpivot(index=["time", "continuity_group", "test_idx"], variable_name="feature", value_name="value")\
                                          .with_columns(turbine_id=pl.col("feature").str.extract(f"(_)({forecaster.turbine_signature})$", group_index=2),
                                                        feature=pl.col("feature").str.extract(f"(.*)(_)({forecaster.turbine_signature})$", group_index=1),
-                                                       data_type=pl.lit("Forecast"), forecaster=pl.lit(forecaster_name))\
+                                                       data_type=pl.lit("Forecast"), 
+                                                       forecaster=pl.lit(forecaster_name),
+                                                       prediction_timedelta=pl.lit(prediction_timedelta))\
                                          .write_csv(forecast_long_path)
+            
+               
+            # forecast_df = forecast_df.with_columns(prediction_timedelta=pl.lit(prediction_timedelta))
+            # forecast_df.write_csv(forecast_long_path)
                 
             forecasts_long.append(
                 pl.scan_csv(forecast_long_path, schema_overrides={"turbine_id": pl.String}, glob=True, try_parse_dates=True)\
@@ -1075,13 +1088,14 @@ if __name__ == "__main__":
         mean_cols = [f"{feat_type}_{tid}" for feat_type in ["loc_ws_horz", "loc_ws_vert"] for tid in data_module.target_suffixes]
         point_cols = [f"{feat_type}_{tid}" for feat_type in ["ws_horz", "ws_vert"] for tid in data_module.target_suffixes]
         PLOT_ALL = True
+        
         if PLOT_ALL:
             logging.info("Concatenating forecasts together.")
             forecasts_long = pl.concat(forecasts_long, how="vertical")
             logging.info("Finished concatenating forecasts together.")
             logging.info("Plotting all forecasts.")
             forecast_fig = WindForecast.plot_forecast(
-                forecasts_long.with_columns(pl.col("feature").str.replace("^(ws_)", "loc_ws_")),
+                forecasts_long.filter(pl.col("prediction_timedelta") == int(prediction_timedeltas[-1].total_seconds())).with_columns(pl.col("feature").str.replace("^(ws_)", "loc_ws_")),
                 true_long,
                 continuity_groups=[cg], 
                 turbine_ids=turbine_ids,

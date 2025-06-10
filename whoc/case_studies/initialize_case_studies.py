@@ -684,7 +684,8 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                                     n_splits=1, #model_config["dataset"]["n_splits"],
                                     continuity_groups=None, train_split=(1.0 - base_model_config["dataset"]["val_split"] - base_model_config["dataset"]["test_split"]),
                                     val_split=base_model_config["dataset"]["val_split"], test_split=base_model_config["dataset"]["test_split"],
-                                    prediction_length=base_model_config["dataset"]["prediction_length"], context_length=base_model_config["dataset"]["context_length"],
+                                    prediction_length=base_model_config["dataset"]["prediction_length"], 
+                                    context_length=base_model_config["dataset"]["context_length"],
                                     target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                                     freq=f"{simulation_dt}s", target_suffixes=base_model_config["dataset"]["target_turbine_ids"],
                                     per_turbine_target=False, as_lazyframe=False, dtype=pl.Float32)
