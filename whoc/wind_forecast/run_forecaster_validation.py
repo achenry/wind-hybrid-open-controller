@@ -633,7 +633,6 @@ if __name__ == "__main__":
                                 freq=f"{int(measurements_timedelta.total_seconds())}s", 
                                 target_suffixes=mcnf["dataset"]["target_turbine_ids"],
                                 per_turbine_target=False, as_lazyframe=False, dtype=pl.Float32,
-                                verbose=True,
                                 workers=4,
                                 pin_memory=True,
                                 persistent_workers=True,
