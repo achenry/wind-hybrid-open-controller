@@ -1,0 +1,47 @@
+#!/bin/bash 
+#SBATCH --account=ssc
+#SBATCH --time=02:00:00
+#SBATCH --output=%j-%x.out
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=104
+#SBATCH --ntasks=104
+#SBATCH --mem=0
+#SBATCH --exclusive
+
+# salloc --account=ssc --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
+
+# Print environment info
+echo "SLURM_JOB_ID=${SLURM_JOB_ID}"
+echo "SLURM_JOB_NAME=${SLURM_JOB_NAME}"
+echo "SLURM_JOB_PARTITION=${SLURM_JOB_PARTITION}"
+echo "SLURM_JOB_NUM_NODES=${SLURM_JOB_NUM_NODES}"
+echo "SLURM_JOB_GPUS=${SLURM_JOB_GPUS}"
+echo "SLURM_JOB_GRES=${SLURM_JOB_GRES}"
+echo "SLURM_NTASKS=${SLURM_NTASKS}"
+echo "SLURM_NTASKS_PER_NODE=${SLURM_NTASKS_PER_NODE}"
+
+echo "=== ENVIRONMENT ==="
+module list
+
+export MODELS="kf persistence sf svr"
+export MODEL_CONFIG_PATH="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_predGreedy.yaml $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_predLUT.yaml"
+export DATA_CONFIG_PATH="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/preprocessing/preprocessing_inputs_kestrel_awaken_new.yaml"
+
+echo "MODELS=${MODELS}"
+echo "MODEL_CONFIG_PATH=${MODEL_CONFIG_PATH}"
+echo "DATA_CONFIG_PATH=${DATA_CONFIG_PATH}"
+#echo "TMPDIR=${TMPDIR}"
+
+# prepare training data first
+date +"%Y-%m-%d %H:%M:%S"
+module purge
+ml mamba
+# module load PrgEnv-intel
+#eval "$(conda shell.bash hook)"
+mamba activate wind_forecasting_env
+
+#mpirun -np $SLURM_NTASKS 
+python ../run_forecaster_validation.py --ram_limit 65 --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --simulation_timestep 1 \
+						--save_dir /projects/ssc/ahenry/wind_forecasting/logging --multiprocessor cf --prediction_type distribution \
+						--use_tuned_params --use_trained_models --max_splits 10
+
