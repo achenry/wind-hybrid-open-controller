@@ -19,16 +19,6 @@ from sklearn.utils.validation import check_is_fitted
 
 from whoc.wind_forecast.wind_forecast_base import WindForecast
 
-mpi_exists = False
-try:
-    from mpi4py import MPI
-    from mpi4py.futures import MPICommExecutor
-    mpi_exists = True
-except ImportError as e:
-    import traceback
-    print(f"ERROR: Failed to import mpi4py. MPI will not be available. Error: {e}")
-    print(traceback.format_exc())
-    
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing as mp
 
@@ -213,6 +203,15 @@ class SVRForecast(WindForecast):
                           scaler_params=None):
         if multiprocessor is not None:
             if multiprocessor == "mpi":
+                mpi_exists = False
+                try:
+                    from mpi4py import MPI
+                    from mpi4py.futures import MPICommExecutor
+                    mpi_exists = True
+                except ImportError as e:
+                    import traceback
+                    print(f"ERROR: Failed to import mpi4py. MPI will not be available. Error: {e}")
+                    print(traceback.format_exc())
                 comm_size = MPI.COMM_WORLD.Get_size()
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
             elif multiprocessor == "cf":
