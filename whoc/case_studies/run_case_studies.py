@@ -72,7 +72,11 @@ if __name__ == "__main__":
     args.case_ids = [int(i) for i in args.case_ids]
 
     # os.environ["PYOPTSPARSE_REQUIRE_MPI"] = "false"
-    comm = MPI.COMM_WORLD
+    if args.multiprocessor == "mpi":
+        comm = MPI.COMM_WORLD
+        from mpi4py import MPI
+        from mpi4py.futures import MPICommExecutor
+        
     RUN_ONCE = (args.multiprocessor == "mpi" and (comm_rank := comm.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
     PLOT = True #sys.platform != "linux"
     # run simulations
