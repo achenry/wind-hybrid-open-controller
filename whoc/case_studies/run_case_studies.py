@@ -7,8 +7,6 @@ import csv
 from itertools import cycle
 import polars as pl
 
-from mpi4py import MPI
-from mpi4py.futures import MPICommExecutor
 import multiprocessing as mp
 import numpy as np
 import pandas as pd
