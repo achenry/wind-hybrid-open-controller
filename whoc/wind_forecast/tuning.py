@@ -19,11 +19,6 @@ from wind_forecasting.run_scripts.tuning import generate_df_setup_params
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-try:
-    from mpi4py import MPI
-except Exception as e:
-    logging.warning("Could not import MPI.")
-
 def replace_env_vars(dirpath):
     env_vars = re.findall(r"(?:^|\/)\$(\w+)(?:\/|$)", dirpath)
     for env_var in env_vars:
@@ -53,8 +48,13 @@ if __name__ == "__main__":
     # pretrained_filename = "/Users/ahenry/Documents/toolboxes/wind_forecasting/logging/wf_forecasting/lznjshyo/checkpoints/epoch=0-step=50.ckpt"
     args = parser.parse_args()
     
-    comm = MPI.COMM_WORLD
-    RUN_ONCE = (args.multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
+    # if args.multiprocessor == "mpi":
+    #     try:
+    #         from mpi4py import MPI
+    #     except Exception as e:
+    #         logging.warning("Could not import MPI.")
+    #     comm = MPI.COMM_WORLD
+    # RUN_ONCE = (args.multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
     
     if RUN_ONCE:
         logging.info("Parsing arguments and configuration yaml.")
