@@ -18,15 +18,19 @@ from scipy.signal import lfilter
 
 # from joblib import parallel_backend
 
+import logging 
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
 mpi_exists = False
 try:
+    logging.info("Attempting to import MPI.")
     from mpi4py import MPI
     from mpi4py.futures import MPICommExecutor
     mpi_exists = True
 except ImportError as e:
     import traceback
-    print(f"ERROR: Failed to import mpi4py. MPI will not be available. Error: {e}")
-    print(traceback.format_exc())
+    logging.error(f"Failed to import mpi4py. MPI will not be available. Error: {e}")
+    # print(traceback.format_exc())
     
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing as mp
@@ -61,9 +65,6 @@ from whoc.wind_forecast.kalman_filter_forecast import KalmanFilterForecast
 from whoc.wind_forecast.spatial_filter_forecast import SpatialFilterForecast
 from whoc.wind_forecast.svr_forecast import SVRForecast
 from whoc.wind_forecast.ml_forecast import MLForecast
-
-import logging 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 sns.set_palette("Paired")
 
@@ -630,6 +631,10 @@ if __name__ == "__main__":
                                 freq=f"{int(measurements_timedelta.total_seconds())}s", 
                                 target_suffixes=mcnf["dataset"]["target_turbine_ids"],
                                 per_turbine_target=False, as_lazyframe=False, dtype=pl.Float32,
+                                verbose=True,
+                                workers=4,
+                                pin_memory=True,
+                                persistent_workers=True,
                                 verbose=True)
     
         if RUN_ONCE and not os.path.exists(data_module.train_ready_data_path) or args.reload_data:
