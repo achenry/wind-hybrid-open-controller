@@ -517,6 +517,9 @@ if __name__ == "__main__":
     parser.add_argument("-rp", "--run_processing",
                         action="store_true",
                         help="Whether to run aggregation and plotting on validation time series.")
+    parser.add_argument("-rd", "--reload_data",
+                        action="store_true",
+                        help="Whether to reload validation all_turbine simulation time step datasets or not.")
     # parser.add_argument("-pi", "--prediction_interval", 
     #                     required=False, nargs="+", default=None,
     #                     help="Number of seconds to use as prediction_timedelta..")
@@ -629,7 +632,7 @@ if __name__ == "__main__":
                                 per_turbine_target=False, as_lazyframe=False, dtype=pl.Float32,
                                 verbose=True)
     
-        if RUN_ONCE and not os.path.exists(data_module.train_ready_data_path):
+        if RUN_ONCE and not os.path.exists(data_module.train_ready_data_path) or args.reload_data:
             data_module.generate_datasets()
             logging.info("Reloading test datasets.")
             reload = True
@@ -712,34 +715,85 @@ if __name__ == "__main__":
     else:
         max_workers = MPI.COMM_WORLD.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
         gpu_cycler = None
-            
-    forecasters = []
-    ## GENERATE PERFECT PREVIEW \
-    if "perfect" in args.model:
-        for ctd, ptd in zip(context_timedeltas, prediction_timedeltas):
-            logging.info(f"Instantiating PerfectForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
-            forecaster = PerfectForecast(
-                measurements_timedelta=measurements_timedelta,
-                controller_timedelta=controller_timedelta,
-                prediction_timedelta=ptd,
-                context_timedelta=ctd,
-                true_wind_field=test_data,
-                fmodel=fmodel,
-                tid2idx_mapping=tid2idx_mapping,
-                turbine_signature=turbine_signature,
-                use_tuned_params=False,
-                kwargs={}
-            )
-                                
-            forecasters.append(forecaster)
     
-    ## GENERATE PERSISTENT PREVIEW
-    if "persistence" in args.model:
-        for ctd, ptd in zip(context_timedeltas, prediction_timedeltas):
-            logging.info(f"Instantiating PersistenceForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
-            forecaster = PersistenceForecast(measurements_timedelta=measurements_timedelta,
+    if args.run_validation or args.run_processing:
+        forecasters = []
+        ## GENERATE PERFECT PREVIEW \
+        if "perfect" in args.model:
+            for ctd, ptd in zip(context_timedeltas, prediction_timedeltas):
+                logging.info(f"Instantiating PerfectForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
+                forecaster = PerfectForecast(
+                    measurements_timedelta=measurements_timedelta,
+                    controller_timedelta=controller_timedelta,
+                    prediction_timedelta=ptd,
+                    context_timedelta=ctd,
+                    true_wind_field=test_data,
+                    fmodel=fmodel,
+                    tid2idx_mapping=tid2idx_mapping,
+                    turbine_signature=turbine_signature,
+                    use_tuned_params=False,
+                    kwargs={}
+                )
+                                    
+                forecasters.append(forecaster)
+        
+        ## GENERATE PERSISTENT PREVIEW
+        if "persistence" in args.model:
+            for ctd, ptd in zip(context_timedeltas, prediction_timedeltas):
+                logging.info(f"Instantiating PersistenceForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
+                forecaster = PersistenceForecast(measurements_timedelta=measurements_timedelta,
+                                                        controller_timedelta=controller_timedelta,
+                                                        prediction_timedelta=ptd,
+                                                        context_timedelta=ctd,
+                                                        fmodel=fmodel,
+                                                        true_wind_field=None,
+                                                        tid2idx_mapping=tid2idx_mapping,
+                                                        turbine_signature=turbine_signature,
+                                                        use_tuned_params=False,
+                                                        kwargs={})
+
+                forecasters.append(forecaster)
+            
+        ## GENERATE SVR PREVIEW
+        if "svr" in args.model:
+            for mncf, ctd, ptd in zip(model_configs, context_timedeltas, prediction_timedeltas):
+                
+                logging.info(f"Instantiating SVRForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
+                forecaster = SVRForecast(measurements_timedelta=measurements_timedelta,
+                                        controller_timedelta=controller_timedelta,
+                                        prediction_timedelta=ptd,
+                                        context_timedelta=ctd,
+                                        fmodel=fmodel,
+                                        true_wind_field=None,
+                                        kwargs=dict(kernel=mncf["model"]["svr"]["kernel"], 
+                                                    C=mncf["model"]["svr"]["C"], 
+                                                    degree=mncf["model"]["svr"]["degree"], 
+                                                    gamma=mncf["model"]["svr"]["gamma"], 
+                                                    epsilon=mncf["model"]["svr"]["epsilon"], 
+                                                    cache_size=mncf["model"]["svr"]["cache_size"],
+                                                    n_neighboring_turbines=mncf["model"]["svr"]["n_neighboring_turbines"], 
+                                                    max_n_samples=None, 
+                                                    use_trained_models=args.use_trained_models,
+                                                    optuna_storage=None,
+                                                    model_config=mncf),
+                                        tid2idx_mapping=tid2idx_mapping,
+                                        turbine_signature=turbine_signature,
+                                        use_tuned_params=args.use_tuned_params
+                                        )
+                
+                forecasters.append(forecaster)
+            
+            
+        ## GENERATE KF PREVIEW 
+        if "kf" in args.model:
+            # tune this use single, longer, prediction time, since we have only identity state transition matrix, and must use final posterior only prediction
+            for ctd, ptd in zip(context_timedeltas, prediction_timedeltas):
+                
+                logging.info(f"Instantiating KalmanFilterForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
+                
+                forecaster = KalmanFilterForecast(measurements_timedelta=measurements_timedelta,
                                                     controller_timedelta=controller_timedelta,
-                                                    prediction_timedelta=ptd,
+                                                    prediction_timedelta=ptd, 
                                                     context_timedelta=ctd,
                                                     fmodel=fmodel,
                                                     true_wind_field=None,
@@ -747,103 +801,53 @@ if __name__ == "__main__":
                                                     turbine_signature=turbine_signature,
                                                     use_tuned_params=False,
                                                     kwargs={})
-
-            forecasters.append(forecaster)
-        
-    ## GENERATE SVR PREVIEW
-    if "svr" in args.model:
-        for mncf, ctd, ptd in zip(model_configs, context_timedeltas, prediction_timedeltas):
-            
-            logging.info(f"Instantiating SVRForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
-            forecaster = SVRForecast(measurements_timedelta=measurements_timedelta,
-                                    controller_timedelta=controller_timedelta,
-                                    prediction_timedelta=ptd,
-                                    context_timedelta=ctd,
-                                    fmodel=fmodel,
-                                    true_wind_field=None,
-                                    kwargs=dict(kernel=mncf["model"]["svr"]["kernel"], 
-                                                C=mncf["model"]["svr"]["C"], 
-                                                degree=mncf["model"]["svr"]["degree"], 
-                                                gamma=mncf["model"]["svr"]["gamma"], 
-                                                epsilon=mncf["model"]["svr"]["epsilon"], 
-                                                cache_size=mncf["model"]["svr"]["cache_size"],
-                                                n_neighboring_turbines=mncf["model"]["svr"]["n_neighboring_turbines"], 
-                                                max_n_samples=None, 
-                                                use_trained_models=args.use_trained_models,
-                                                optuna_storage=None,
-                                                model_config=mncf),
-                                    tid2idx_mapping=tid2idx_mapping,
-                                    turbine_signature=turbine_signature,
-                                    use_tuned_params=args.use_tuned_params
-                                    )
-            
-            forecasters.append(forecaster)
-        
-        
-    ## GENERATE KF PREVIEW 
-    if "kf" in args.model:
-        # tune this use single, longer, prediction time, since we have only identity state transition matrix, and must use final posterior only prediction
-        for ctd, ptd in zip(context_timedeltas, prediction_timedeltas):
-            
-            logging.info(f"Instantiating KalmanFilterForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
-            
-            forecaster = KalmanFilterForecast(measurements_timedelta=measurements_timedelta,
-                                                controller_timedelta=controller_timedelta,
-                                                prediction_timedelta=ptd, 
-                                                context_timedelta=ctd,
-                                                fmodel=fmodel,
-                                                true_wind_field=None,
-                                                tid2idx_mapping=tid2idx_mapping,
-                                                turbine_signature=turbine_signature,
-                                                use_tuned_params=False,
-                                                kwargs={})
-            forecasters.append(forecaster)
-        
-    ## GENERATE KF PREVIEW 
-    if "sf" in args.model:
-        # tune this use single, longer, prediction time, since we have only identity state transition matrix, and must use final posterior only prediction
-        for ctd, ptd in zip(context_timedeltas, prediction_timedeltas):
-            
-            logging.info(f"Instantiating SpatialFilterForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
-            
-            forecaster = SpatialFilterForecast(measurements_timedelta=measurements_timedelta,
-                                                controller_timedelta=controller_timedelta,
-                                                prediction_timedelta=ptd, 
-                                                context_timedelta=ctd,
-                                                fmodel=fmodel,
-                                                true_wind_field=None,
-                                                tid2idx_mapping=tid2idx_mapping,
-                                                turbine_signature=turbine_signature,
-                                                use_tuned_params=False,
-                                                kwargs=dict(n_neighboring_turbines=6))
-            forecasters.append(forecaster)
-        
-    ## GENERATE ML PREVIEW
-    if any(ml_model in args.model for ml_model in ["informer", "autoformer", "spacetimeformer", "tactis"]):
-        ml_models = [ml_model for ml_model in args.model if ml_model in ["informer", "autoformer", "spacetimeformer", "tactis"]]
-           
-        for m, model in enumerate(ml_models):
-            for mncf, ctd, ptd in zip(model_configs, context_timedeltas, prediction_timedeltas):
-            
-                forecaster = MLForecast(measurements_timedelta=measurements_timedelta,
-                                        controller_timedelta=controller_timedelta,
-                                        prediction_timedelta=ptd,
-                                        context_timedelta=ctd,
-                                        fmodel=fmodel,
-                                        true_wind_field=None,
-                                        tid2idx_mapping=tid2idx_mapping,
-                                        turbine_signature=turbine_signature,
-                                        use_tuned_params=True,
-                                        kwargs=dict(model_key=model,
-                                                    model_checkpoint=args.checkpoint[0] if len(args.checkpoint) == 1 else args.checkpoint[m],
-                                                    optuna_storage=None,
-                                                    study_name=None,#db_setup_params["study_name"],
-                                                    model_config=mncf,
-                                                    resample=False))
                 forecasters.append(forecaster)
-    
-    continuity_groups = test_data.group_by("prediction_timedelta").agg(pl.col("continuity_group").unique())
-    continuity_groups = {row["prediction_timedelta"]: row["continuity_group"] for row in continuity_groups.iter_rows(named=True)}
+            
+        ## GENERATE KF PREVIEW 
+        if "sf" in args.model:
+            # tune this use single, longer, prediction time, since we have only identity state transition matrix, and must use final posterior only prediction
+            for ctd, ptd in zip(context_timedeltas, prediction_timedeltas):
+                
+                logging.info(f"Instantiating SpatialFilterForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
+                
+                forecaster = SpatialFilterForecast(measurements_timedelta=measurements_timedelta,
+                                                    controller_timedelta=controller_timedelta,
+                                                    prediction_timedelta=ptd, 
+                                                    context_timedelta=ctd,
+                                                    fmodel=fmodel,
+                                                    true_wind_field=None,
+                                                    tid2idx_mapping=tid2idx_mapping,
+                                                    turbine_signature=turbine_signature,
+                                                    use_tuned_params=False,
+                                                    kwargs=dict(n_neighboring_turbines=6))
+                forecasters.append(forecaster)
+            
+        ## GENERATE ML PREVIEW
+        if any(ml_model in args.model for ml_model in ["informer", "autoformer", "spacetimeformer", "tactis"]):
+            ml_models = [ml_model for ml_model in args.model if ml_model in ["informer", "autoformer", "spacetimeformer", "tactis"]]
+            
+            for m, model in enumerate(ml_models):
+                for mncf, ctd, ptd in zip(model_configs, context_timedeltas, prediction_timedeltas):
+                
+                    forecaster = MLForecast(measurements_timedelta=measurements_timedelta,
+                                            controller_timedelta=controller_timedelta,
+                                            prediction_timedelta=ptd,
+                                            context_timedelta=ctd,
+                                            fmodel=fmodel,
+                                            true_wind_field=None,
+                                            tid2idx_mapping=tid2idx_mapping,
+                                            turbine_signature=turbine_signature,
+                                            use_tuned_params=True,
+                                            kwargs=dict(model_key=model,
+                                                        model_checkpoint=args.checkpoint[0] if len(args.checkpoint) == 1 else args.checkpoint[m],
+                                                        optuna_storage=None,
+                                                        study_name=None,#db_setup_params["study_name"],
+                                                        model_config=mncf,
+                                                        resample=False))
+                    forecasters.append(forecaster)
+        
+        continuity_groups = test_data.group_by("prediction_timedelta").agg(pl.col("continuity_group").unique())
+        continuity_groups = {row["prediction_timedelta"]: row["continuity_group"] for row in continuity_groups.iter_rows(named=True)}
     
     if args.run_validation:
         validation_to_run = []
