@@ -500,7 +500,7 @@ if __name__ == "__main__":
                         help="Directory to save results to.", default="./")
     parser.add_argument("-m", "--model", #type=str, 
                         # choices=["perfect", "persistence", "svr", "kf", "informer", "autoformer", "spacetimeformer", "sf"], 
-                        required=True, nargs="+",
+                        default=None, nargs="+",
                         help="Which model(s) to simulate, compute score for, and plot.")
     parser.add_argument("-rn", "--run_name", #type=str, 
                         default="",
@@ -514,6 +514,9 @@ if __name__ == "__main__":
     parser.add_argument("-rrv", "--rerun_validation",
                         action="store_true",
                         help="Whether to repeat validation for results that have already been stored.")
+    parser.add_argument("-rp", "--run_processing",
+                        action="store_true",
+                        help="Whether to run aggregation and plotting on validation time series.")
     # parser.add_argument("-pi", "--prediction_interval", 
     #                     required=False, nargs="+", default=None,
     #                     help="Number of seconds to use as prediction_timedelta..")
@@ -541,7 +544,10 @@ if __name__ == "__main__":
                         help="Percentage of RAM usage, above which to store checkpoints.")
     args = parser.parse_args()
     
-    assert all(model in ["perfect", "persistence", "svr", "kf", "informer", "autoformer", "spacetimeformer", "tactis", "sf"] for model in args.model)
+    assert args.model is None or all(model in ["perfect", "persistence", "svr", "kf", "informer", "autoformer", "spacetimeformer", "tactis", "sf"] for model in args.model)
+    
+    if args.model is None:
+         args.run_validation = args.rerun_validation = False
     
     if args.rerun_validation:
         args.run_validation = True
@@ -911,7 +917,7 @@ if __name__ == "__main__":
                     ram_limit=args.ram_limit)
         
     # Load generated forecast dfs
-    if RUN_ONCE:
+    if args.run_processing and RUN_ONCE:
         results = []
         for forecaster in forecasters:
             prediction_timedelta = int(forecaster.prediction_timedelta.total_seconds())
@@ -932,7 +938,7 @@ if __name__ == "__main__":
             })
             # logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('continuity_group').unique()).to_numpy().flatten()} continuity_groups.")
     # TODO possible to replace long_df with reading from multiple files via glob?  
-    if RUN_ONCE:
+    if args.run_processing and RUN_ONCE:
         # Generate agg_metrics for each forecaster
         unique_cgs = {}
         for f, forecaster in enumerate(forecasters):
