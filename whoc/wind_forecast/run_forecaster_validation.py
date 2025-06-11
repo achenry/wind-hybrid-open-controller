@@ -20,18 +20,7 @@ from scipy.signal import lfilter
 
 import logging 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-mpi_exists = False
-try:
-    logging.info("Attempting to import MPI.")
-    from mpi4py import MPI
-    from mpi4py.futures import MPICommExecutor
-    mpi_exists = True
-except ImportError as e:
-    import traceback
-    logging.error(f"Failed to import mpi4py. MPI will not be available. Error: {e}")
-    # print(traceback.format_exc())
-    
+ 
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing as mp
 
@@ -556,18 +545,31 @@ if __name__ == "__main__":
     if args.rerun_validation:
         args.run_validation = True
     
-    if not mpi_exists and args.multiprocessor == "mpi":
-        raise RuntimeError("MPI was requested (--multiprocessor mpi) but mpi4py failed to import. Check previous logs for import error details.")
-    elif not mpi_exists:
-         # If MPI wasn't requested, we might not need it here, but accessing MPI.COMM_WORLD directly is still problematic.
-         # Depending on logic flow, this might need adjustment. For now, assume it's an error if MPI isn't available.
-         # If MPI is optional, this block might need refinement based on how `comm` is used later.
-         comm = None # Or handle appropriately if MPI is truly optional here
-         rank = -1   # Assign a default rank if MPI is not used
-         print("Warning: MPI not available, proceeding without it where possible.")
-    else:
-         comm = MPI.COMM_WORLD
-         rank = comm.Get_rank()
+    if args.multiprocessor == "mpi":
+        mpi_exists = False
+        try:
+            logging.info("Attempting to import MPI.")
+            from mpi4py import MPI
+            from mpi4py.futures import MPICommExecutor
+            mpi_exists = True
+        except ImportError as e:
+            import traceback
+            logging.error(f"Failed to import mpi4py. MPI will not be available. Error: {e}")
+            logging.error(traceback.format_exc())
+        
+        if not mpi_exists:
+            raise RuntimeError("MPI was requested (--multiprocessor mpi) but mpi4py failed to import. Check previous logs for import error details.")
+        
+    # elif not mpi_exists:
+    #      # If MPI wasn't requested, we might not need it here, but accessing MPI.COMM_WORLD directly is still problematic.
+    #      # Depending on logic flow, this might need adjustment. For now, assume it's an error if MPI isn't available.
+    #      # If MPI is optional, this block might need refinement based on how `comm` is used later.
+    #      comm = None # Or handle appropriately if MPI is truly optional here
+    #      rank = -1   # Assign a default rank if MPI is not used
+    #      print("Warning: MPI not available, proceeding without it where possible.")
+        else:
+            comm = MPI.COMM_WORLD
+            rank = comm.Get_rank()
 
     RUN_ONCE = (args.multiprocessor == "mpi" and rank == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
     
