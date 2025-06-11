@@ -16,16 +16,6 @@ import pickle
 
 # from joblib import parallel_backend
 
-mpi_exists = False
-try:
-    from mpi4py import MPI
-    from mpi4py.futures import MPICommExecutor
-    mpi_exists = True
-except ImportError as e:
-    import traceback
-    print(f"ERROR: Failed to import mpi4py. MPI will not be available. Error: {e}")
-    print(traceback.format_exc())
-    
 # from wind_forecasting.utils.optuna_visualization import launch_optuna_dashboard
 
 import seaborn as sns
@@ -158,6 +148,15 @@ class WindForecast:
         # max_cpus = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
         if multiprocessor:
             if multiprocessor == "mpi":
+                mpi_exists = False
+                try:
+                    from mpi4py import MPI
+                    from mpi4py.futures import MPICommExecutor
+                    mpi_exists = True
+                except ImportError as e:
+                    import traceback
+                    print(f"ERROR: Failed to import mpi4py. MPI will not be available. Error: {e}")
+                    print(traceback.format_exc())
                 comm_size = MPI.COMM_WORLD.Get_size()
                 logging.info(f"Starting MPICommExecutor in _tuning_objective with {comm_size} CPUs")
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
