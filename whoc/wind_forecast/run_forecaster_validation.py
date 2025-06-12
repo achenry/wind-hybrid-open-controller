@@ -181,9 +181,8 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                 pred = forecaster.predict_sample(
                     ds.filter(pl.col("time") <= current_time), current_time, n_samples=n_samples)
             
-            if test_idx == 232:
-                print("here")
-                
+            logging.info(f"pred['time'] = {pred.select("time")}")
+            logging.info(f"test_data_time = {test_data_time}")
             pred = pred.with_columns(
                 test_idx=pl.lit(test_idx).cast(pl.Int32), 
                 continuity_group=pl.lit(splits[d]).cast(pl.Int32), 
@@ -646,6 +645,8 @@ if __name__ == "__main__":
             logging.info("Reading saved test datasets.")
             reload = False
     
+        # reload = True
+        # data_module.train_ready_data_path=data_module.train_ready_data_path.replace("awaken_data/", "awaken_data/test/")
         # reload = True
         data_module.generate_splits(save=True, reload=reload, splits=["test"])
         
