@@ -73,9 +73,9 @@ if __name__ == "__main__":
 
     # os.environ["PYOPTSPARSE_REQUIRE_MPI"] = "false"
     if args.multiprocessor == "mpi":
-        comm = MPI.COMM_WORLD
         from mpi4py import MPI
         from mpi4py.futures import MPICommExecutor
+        comm = MPI.COMM_WORLD
         
     RUN_ONCE = (args.multiprocessor == "mpi" and (comm_rank := comm.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
     PLOT = True #sys.platform != "linux"
