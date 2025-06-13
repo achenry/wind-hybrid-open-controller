@@ -29,7 +29,8 @@ mkdir -p ${CASE_STUDY_OUTPUT_DIR}
 cd ${WORK_DIR} || exit 1
 
 # --- Set Shared Environment Variables ---
-export PYTHONPATH=${WHOC_DIR}:${WF_DIR}:${PYTHONPATH}
+# Add local FLORIS to PYTHONPATH to use development version instead of conda version
+export PYTHONPATH=${BASE_DIR}/floris:${WHOC_DIR}:${WF_DIR}:${PYTHONPATH}
 export NUMEXPR_MAX_THREADS=128
 
 # --- Print Job Info ---
@@ -86,6 +87,10 @@ except Exception as e:
 "
 
 echo "Total MPI tasks available: $SLURM_NTASKS"
+
+# --- Verify FLORIS Installation ---
+echo "Checking FLORIS installation:"
+python -c "import floris; print(f'FLORIS path: {floris.__file__}'); print(f'Expected: ${BASE_DIR}/floris/floris/__init__.py')"
 
 # --- Configuration Files ---
 # Using existing Storm-specific configurations
