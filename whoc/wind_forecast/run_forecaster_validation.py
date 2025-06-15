@@ -132,7 +132,6 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
     logging.info("Getting timestamps at which controller will call forecaster.")
     controller_times = test_data.gather_every(forecaster.n_controller).select(pl.col("time"))
     
-    test_data_time = test_data.select(pl.col("time"))
     if single_cg:
         splits = [test_data.select(pl.col("continuity_group").first()).item()]
         test_data = [test_data]
@@ -147,6 +146,8 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
     forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.model_key.capitalize()}Forecast"
     save_paths = []
     for d, ds in enumerate(test_data):
+        
+        test_data_time = ds.select(pl.col("time"))
         
         start = ds.select(pl.col("time").first()).item()
         end = ds.select(pl.col("time").last()).item()
@@ -184,14 +185,13 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                 pred = forecaster.predict_sample(
                     ds.filter(pl.col("time") <= current_time), current_time, n_samples=n_samples)
             
-            logging.info(f"pred['time'] = {pred.select("time")}")
-            logging.info(f"test_data_time = {test_data_time}")
-            pred = pred.with_columns(
-                test_idx=pl.lit(test_idx).cast(pl.Int32), 
-                continuity_group=pl.lit(splits[d]).cast(pl.Int32), 
-                time=pl.col("time").cast(pl.Datetime(time_unit="ns")))\
-                    .with_columns(cs.numeric().cast(pl.Float32))\
-                    .filter(pl.col("time").is_in(test_data_time))
+            # logging.info(f"pred['time'] = {pred.select("time")}")
+            # logging.info(f"test_data_time = {test_data_time}")
+            pred = pred.with_columns(cs.numeric().cast(pl.Float32))\
+                .with_columns(test_idx=pl.lit(test_idx).cast(pl.Int32),
+                    continuity_group=pl.lit(splits[d]).cast(pl.Int32))\
+                .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))\
+                .filter(pl.col("time").is_in(test_data_time))
             
             forecasts.append(pred)
             
