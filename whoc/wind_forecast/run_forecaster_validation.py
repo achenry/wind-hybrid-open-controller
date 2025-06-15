@@ -16,6 +16,9 @@ from functools import reduce
 
 from scipy.signal import lfilter
 
+import multiprocessing as mp
+mp.set_start_method(method="spawn", force=True)
+
 # from joblib import parallel_backend
 
 import logging 
@@ -506,9 +509,12 @@ if __name__ == "__main__":
     parser.add_argument("-rp", "--run_processing",
                         action="store_true",
                         help="Whether to run aggregation and plotting on validation time series.")
-    parser.add_argument("-rd", "--reload_data",
+    parser.add_argument("-rld", "--reload_data",
                         action="store_true",
                         help="Whether to reload validation all_turbine simulation time step datasets or not.")
+    parser.add_argument("-rsd", "--resplit_data",
+                        action="store_true",
+                        help="Whether to resplit all_turbine simulation time step datasets or not.")
     # parser.add_argument("-pi", "--prediction_interval", 
     #                     required=False, nargs="+", default=None,
     #                     help="Number of seconds to use as prediction_timedelta..")
@@ -645,10 +651,9 @@ if __name__ == "__main__":
             logging.info("Reading saved test datasets.")
             reload = False
     
-        # reload = True
         # data_module.train_ready_data_path=data_module.train_ready_data_path.replace("awaken_data/", "awaken_data/test/")
         # reload = True
-        data_module.generate_splits(save=True, reload=reload, splits=["test"])
+        data_module.generate_splits(save=True, reload=reload or args.resplit_data, splits=["test"])
         
         logging.info("Sorting test datasets by duration.")
         data_module.test_dataset = sorted(data_module.test_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
