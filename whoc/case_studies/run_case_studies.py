@@ -631,10 +631,9 @@ if __name__ == "__main__":
                 
                 plotting_cases = [("baseline_controllers_perfect_forecaster_flasc", str(baseline_agg_df.loc[(baseline_agg_df["controller_class"] == "GreedyController") & (baseline_agg_df["prediction_timedelta"] == pd.Timedelta(seconds=9*60))].index.get_level_values(1)[0])),
                                     ("baseline_controllers_perfect_forecaster_flasc", str(baseline_agg_df.loc[(baseline_agg_df["controller_class"] == "LookupBasedWakeSteeringController") & (baseline_agg_df["prediction_timedelta"] == pd.Timedelta(seconds=9*60))].index.get_level_values(1)[0]))]
-                # TODO can't have duplicate keys
-                label_mapping = {"5": "Greedy", "74": "LUT Ds", "75": "LUT Us"}
-                # "6,", "6,4"
-                # label_mapping = {"7": "Greedy", "5": "LUT Ds", "7": "LUT Us"}
+                # FLASC has 7 turbines (1-7), using turbine 7 for control
+                # Controller configurations: "6," (0-based) = turbine 7 (1-based)
+                label_mapping = {"7": "Greedy", "6": "LUT Ds", "5": "LUT Us"}  # Fixed for FLASC 7-turbine layout
                 plot_simulations(
                     time_series_df, plotting_cases, args.save_dir, include_power=True, 
                     legend_loc="outer", single_plot=False, label_mapping=label_mapping, seed_idx=0)
@@ -933,8 +932,8 @@ if __name__ == "__main__":
             if case_families.index("baseline_controllers_perfect_forecaster_flasc") in args.case_ids \
                 or case_families.index("baseline_controllers_perfect_forecaster_awaken") in args.case_ids:
 
-                if case_families.index("baseline_controllers_preview_flasc_perfect") in args.case_ids:
-                    mpc_df = agg_df.loc[agg_df.index.get_level_values("CaseFamily") == "baseline_controllers_preview_flasc_perfect", :]
+                if case_families.index("baseline_controllers_perfect_forecaster_flasc") in args.case_ids:
+                    mpc_df = agg_df.loc[agg_df.index.get_level_values("CaseFamily") == "baseline_controllers_perfect_forecaster_flasc", :]
                 elif case_families.index("baseline_controllers_perfect_forecaster_awaken") in args.case_ids:
                     mpc_df = agg_df.loc[agg_df.index.get_level_values("CaseFamily") == "baseline_controllers_perfect_forecaster_awaken", :]
 
@@ -962,18 +961,20 @@ if __name__ == "__main__":
                 forecasters_df = mpc_df.loc[mpc_df["wind_forecast_class"] != "PerfectForecast", :]
                 perfect_df = mpc_df.loc[mpc_df["wind_forecast_class"] == "PerfectForecast", :]
 
-                if "prediction_timedelta" in forecasters_df.columns and "prediction_timedelta" in perfect_df.columns:
+                # Only perform forecaster comparison analysis if non-perfect forecasters exist
+                if len(forecasters_df) > 0 and "prediction_timedelta" in forecasters_df.columns and "prediction_timedelta" in perfect_df.columns:
                     merged_df = forecasters_df.merge(
                         perfect_df,
                         on=["CaseFamily", "prediction_timedelta"],
                         suffixes=("_kalman", "_perfect")
                     )
 
+                    merged_df["power_ratio"] = (merged_df["FarmPowerMean_kalman", "mean"] / merged_df["FarmPowerMean_perfect", "mean"]) * 100
 
-                merged_df["power_ratio"] = (merged_df["FarmPowerMean_kalman", "mean"] / merged_df["FarmPowerMean_perfect", "mean"]) * 100
+                    plot_df = merged_df[["prediction_timedelta", "power_ratio"]]
 
-                plot_df = merged_df[["prediction_timedelta", "power_ratio"]]
-
-                # Display the prepared data (for debugging)
-                print(plot_df.head())
-                plot_power_increase_vs_prediction_time(plot_df, args.save_dir)
+                    # Display the prepared data (for debugging)
+                    print(plot_df.head())
+                    plot_power_increase_vs_prediction_time(plot_df, args.save_dir)
+                else:
+                    print(f"Skipping forecaster comparison analysis - only {len(forecasters_df)} non-perfect forecasters found")

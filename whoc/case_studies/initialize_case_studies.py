@@ -794,7 +794,25 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         
         del data_module
         gc.collect()
-    measurements_timedelta = wind_field_ts[0].select(pl.col("time").diff().slice(1,1)).item()
+    # Calculate time delta between measurements
+    logging.info(f"Wind field dataframe shape: {wind_field_ts[0].shape}")
+    logging.info(f"First few time values: {wind_field_ts[0].select('time').head(5)}")
+    
+    time_diffs = wind_field_ts[0].select(pl.col("time").diff()).drop_nulls()
+    logging.info(f"Time differences shape after drop_nulls: {time_diffs.shape}")
+    
+    if time_diffs.height == 0:
+        # Try a different approach - get first two time values
+        if wind_field_ts[0].height >= 2:
+            first_time = wind_field_ts[0]["time"][0]
+            second_time = wind_field_ts[0]["time"][1]
+            measurements_timedelta = second_time - first_time
+            logging.info(f"Calculated timedelta from first two rows: {measurements_timedelta}")
+        else:
+            raise ValueError(f"Cannot calculate time difference - dataframe has only {wind_field_ts[0].height} rows")
+    else:
+        measurements_timedelta = time_diffs[0, 0]
+        logging.info(f"Calculated timedelta from diff: {measurements_timedelta}")
     
     # TESTING START
     # wind_field_ts = [wind_field_ts[22]]#.slice(38400, None)]
