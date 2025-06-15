@@ -648,8 +648,8 @@ if __name__ == "__main__":
             logging.info("Reading saved test datasets.")
             reload = False
     
-        data_module.train_ready_data_path=data_module.train_ready_data_path.replace("awaken_data/", "awaken_data/test/")
-        reload = True
+        # data_module.train_ready_data_path=data_module.train_ready_data_path.replace("awaken_data/", "awaken_data/test/")
+        # reload = True
         data_module.generate_splits(save=True, reload=reload, splits=["test"])
         
         logging.info("Sorting test datasets by duration.")
