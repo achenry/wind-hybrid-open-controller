@@ -1,14 +1,14 @@
 #!/bin/bash
 
 #SBATCH --partition=cfds.p                # CPU partition for Storm HPC
-#SBATCH --nodes=1                         # Number of nodes
+#SBATCH --nodes=2                         # Number of nodes
 #SBATCH --ntasks-per-node=128              # CPUs per node on Storm (adjust based on cfds.p capacity)
 #SBATCH --cpus-per-task=1                 # CPUs per MPI task
 #SBATCH --mem-per-cpu=4096                # Memory per CPU in MB
 #SBATCH --time=5-00:00                   # Time limit
-#SBATCH --job-name=flasc_case_study_21    # Job name for case study 21
-#SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-hybrid-open-controller/logs/slurm_logs/flasc_case_study_21_%j.out
-#SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-hybrid-open-controller/logs/slurm_logs/flasc_case_study_21_%j.err
+#SBATCH --job-name=flasc_case_study_21_debug    # Job name for case study 21
+#SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-hybrid-open-controller/logs/slurm_logs/flasc_case_study_21_debug_%j.out
+#SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-hybrid-open-controller/logs/slurm_logs/flasc_case_study_21_debug_%j.err
 #SBATCH --hint=nomultithread              # Disable hyperthreading
 #SBATCH --distribution=block:block        # Improve CPU affinity
 #SBATCH --no-requeue                      # IMPORTANT: Disable automatic requeue to prevent looping
@@ -33,6 +33,11 @@ cd ${WORK_DIR} || exit 1
 # Add local FLORIS to PYTHONPATH to use development version instead of conda version
 export PYTHONPATH=${BASE_DIR}/floris:${WHOC_DIR}:${WF_DIR}:${PYTHONPATH}
 export NUMEXPR_MAX_THREADS=128
+
+# Enable MPI debugging
+export HYDRA_DEBUG=1
+export UCX_LOG_LEVEL=debug
+export OMPI_MCA_btl_base_verbose=30
 
 # --- Print Job Info ---
 echo "--- SLURM JOB INFO (FLASC Case Study) ---"
@@ -89,6 +94,26 @@ except Exception as e:
 
 echo "Total MPI tasks available: $SLURM_NTASKS"
 
+# Test MPI with a simple parallel hello world
+echo "Testing MPI parallel execution:"
+srun --mpi=pmi2 python -c "
+from mpi4py import MPI
+comm = MPI.COMM_WORLD
+rank = comm.Get_rank()
+size = comm.Get_size()
+print(f'Hello from rank {rank} of {size}', flush=True)
+comm.Barrier()
+if rank == 0:
+    print(f'All {size} ranks successfully initialized', flush=True)
+"
+
+MPI_TEST_EXIT=$?
+if [ $MPI_TEST_EXIT -ne 0 ]; then
+    echo "ERROR: MPI test failed with exit code $MPI_TEST_EXIT"
+    echo "MPI is not working correctly. Exiting."
+    exit 1
+fi
+
 # --- Verify FLORIS Installation ---
 echo "Checking FLORIS installation:"
 python -c "import floris; print(f'FLORIS path: {floris.__file__}'); print(f'Expected: ${BASE_DIR}/floris/floris/__init__.py')"
@@ -101,18 +126,18 @@ MCNF="${WF_DIR}/config/training/training_inputs_juan_flasc_tune_storm.yaml"  # M
 
 # Check if config files exist
 if [ ! -f "$WCNF" ]; then
-    echo "WARNING: Wind controller config not found: $WCNF"
-    # You may need to create this or use a different path
+    echo "ERROR: Wind controller config not found: $WCNF"
+    exit 1
 fi
 
 if [ ! -f "$DCNF" ]; then
-    echo "WARNING: Data preprocessing config not found: $DCNF"
-    echo "You may need to create this file based on preprocessing_inputs_kestrel_flasc.yaml"
+    echo "ERROR: Data preprocessing config not found: $DCNF"
+    exit 1
 fi
 
 if [ ! -f "$MCNF" ]; then
-    echo "WARNING: Model training config not found: $MCNF"
-    echo "You may need to create this file based on training_inputs_kestrel_flasc.yaml"
+    echo "ERROR: Model training config not found: $MCNF"
+    exit 1
 fi
 
 # Clean up any temporary files from previous runs
@@ -122,46 +147,57 @@ find ${WF_DIR}/examples/data/preprocessed_flasc_data/ -name "*_tmp.parquet" -del
 echo "=== STARTING CASE STUDY 21: baseline_controllers_perfect_forecaster_flasc ==="
 date +"%Y-%m-%d %H:%M:%S"
 
-# Run case study 21 with concurrent futures parallelization
+# Run case study 21 with MPI parallelization
 # Note: Reduced memory limit and use single-threaded Polars to avoid conflicts
 export POLARS_MAX_THREADS=1
+
+# First, try running without srun to see if the script itself works
+echo "First testing script without MPI..."
 python run_case_studies.py 21 \
     --exclude_prediction \
-    --multiprocessor cf \
+    --multiprocessor mpi \
     -rs \
     -ps \
     --ram_limit 32 \
     --wf_source scada \
-    -st auto \
-    -ns auto \
+    -st 1 \
+    -ns 1 \
     -sd ${CASE_STUDY_OUTPUT_DIR} \
     -wcnf ${WCNF} \
     -dcnf ${DCNF} \
-    -mcnf ${MCNF}
+    -mcnf ${MCNF} \
+    -rrs \
+    --verbose
 
-CASE_STUDY_EXIT_CODE=$?
+SCRIPT_TEST_EXIT=$?
+echo "Script test exit code: $SCRIPT_TEST_EXIT"
+
+if [ $SCRIPT_TEST_EXIT -eq 0 ]; then
+    echo "Script works without srun. Now trying with srun..."
+    
+    # Now run with srun
+    srun --mpi=pmi2 python run_case_studies.py 21 \
+        --exclude_prediction \
+        --multiprocessor mpi \
+        -rs \
+        -ps \
+        --ram_limit 32 \
+        --wf_source scada \
+        -st auto \
+        -ns auto \
+        -sd ${CASE_STUDY_OUTPUT_DIR} \
+        -wcnf ${WCNF} \
+        -dcnf ${DCNF} \
+        -mcnf ${MCNF} \
+        -rrs
+    
+    CASE_STUDY_EXIT_CODE=$?
+else
+    echo "Script failed without srun. Not attempting parallel execution."
+    CASE_STUDY_EXIT_CODE=$SCRIPT_TEST_EXIT
+fi
 
 echo "=== CASE STUDY FINISHED WITH EXIT CODE: ${CASE_STUDY_EXIT_CODE} ==="
 date +"%Y-%m-%d %H:%M:%S"
 
-# Optional: Additional case studies can be added here
-# For example, to run the AWAKEN version (case 22):
-# echo "=== STARTING CASE STUDY 22: baseline_controllers_perfect_forecaster_awaken ==="
-# srun python run_case_studies.py 22 \
-#   --exclude_prediction \
-#   --multiprocessor mpi \
-#   -rs \
-#   --ram_limit 65 \
-#   --wf_source scada \
-#   -st auto \
-#   -ns 10 \
-#   -sd ${CASE_STUDY_OUTPUT_DIR} \
-#   -wcnf ${WCNF} \
-#   -dcnf ${WF_DIR}/config/preprocessing/preprocessing_inputs_storm_awaken.yaml \
-#   -mcnf ${WF_DIR}/config/training/training_inputs_storm_awaken.yaml \
-#   -rrs
-
 exit $CASE_STUDY_EXIT_CODE
-
-# Example usage:
-# sbatch bash_script_storm_cpu.sh
