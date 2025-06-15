@@ -137,7 +137,8 @@ python run_case_studies.py 21 \
     -sd ${CASE_STUDY_OUTPUT_DIR} \
     -wcnf ${WCNF} \
     -dcnf ${DCNF} \
-    -mcnf ${MCNF}
+    -mcnf ${MCNF} \
+    -rrs
 
 CASE_STUDY_EXIT_CODE=$?
 
