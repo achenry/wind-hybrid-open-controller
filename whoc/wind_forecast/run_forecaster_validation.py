@@ -57,8 +57,6 @@ from whoc.wind_forecast.spatial_filter_forecast import SpatialFilterForecast
 from whoc.wind_forecast.svr_forecast import SVRForecast
 from whoc.wind_forecast.ml_forecast import MLForecast
 
-mp.set_start_method(method="spawn", force=True)
-
 sns.set_palette("Paired")
 
 def plot_wind_ts(data_df, save_path, turbine_ids="all", include_filtered_wind_dir=True, controller_timedelta=None, legend_loc="best", single_plot=False, fig=None, ax=None, case_label=None):
@@ -489,7 +487,7 @@ def plot_score_vs_forecaster(agg_df, metrics, ax_indices, prediction_intervals, 
     return fig
 
 if __name__ == "__main__":
-    
+    mp.set_start_method("spawn", force=True)
     parser = argparse.ArgumentParser(prog="ModelTuning")
     parser.add_argument("-mcnf", "--model_config", type=str, nargs="+",
                         help="Filepaths to model configurations with experiment, optuna, dataset, model, callbacks, trainer keys.")
