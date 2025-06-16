@@ -18,7 +18,6 @@ from scipy.signal import lfilter
 
 import multiprocessing as mp
 # from multiprocessing import get_context
-mp.set_start_method(method="spawn", force=True)
 
 # from joblib import parallel_backend
 
@@ -57,6 +56,8 @@ from whoc.wind_forecast.kalman_filter_forecast import KalmanFilterForecast
 from whoc.wind_forecast.spatial_filter_forecast import SpatialFilterForecast
 from whoc.wind_forecast.svr_forecast import SVRForecast
 from whoc.wind_forecast.ml_forecast import MLForecast
+
+mp.set_start_method(method="spawn", force=True)
 
 sns.set_palette("Paired")
 
@@ -731,7 +732,8 @@ if __name__ == "__main__":
         gpu_cycler = cycle(visible_gpus)
         
     else:
-        max_workers = MPI.COMM_WORLD.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
+        # max_workers = MPI.COMM_WORLD.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
+        max_workers = int(os.environ.get("N_PROCESSES", mp.cpu_count()))
         gpu_cycler = None
         
     logging.info(f"Using max_workers={max_workers}.")
@@ -911,8 +913,8 @@ if __name__ == "__main__":
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0, max_workers=max_workers)
             elif args.multiprocessor == "cf":
                 # max_workers = mp.cpu_count()
-                executor = ProcessPoolExecutor(max_workers=max_workers)
-                                                # mp_context=mp.get_context("spawn"))
+                executor = ProcessPoolExecutor(max_workers=max_workers,
+                                             mp_context=mp.get_context("spawn"))
                                                 # max_tasks_per_child=1)
                 # executor = get_context("spawn").Pool()
             
@@ -977,8 +979,9 @@ if __name__ == "__main__":
             
             logging.info(f"Loading forecast_df from {forecast_path}.")
             # schema_overrides={"test_idx": pl.Int32, "continuity_group": pl.Int32}
-            forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
-                        .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns"))) 
+            forecast_df = pl.scan_csv(forecast_path, glob=True, try_parse_dates=True)\
+                        .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))\
+                            .collect()
             available_fc_cgs = forecast_df.select(pl.col('continuity_group').unique()).to_numpy().flatten().astype(int)
             logging.info(f"Finished scanning CSV files at {forecast_path}. Found {available_fc_cgs} continuity_groups.")   
             
@@ -1002,8 +1005,9 @@ if __name__ == "__main__":
             
             logging.info(f"Loading forecast_df from {forecast_path}.")
             # schema_overrides={"test_idx": pl.Int32, "continuity_group": pl.Int32})\
-            forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
-                        .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns"))) 
+            forecast_df = pl.scan_csv(forecast_path, glob=True, try_parse_dates=True)\
+                        .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))\
+                            .collect()
             available_fc_cgs = set(forecast_df.select(pl.col('continuity_group').unique()).to_numpy().flatten())
             logging.info(f"Finished scanning CSV files at {forecast_path}. Found {available_fc_cgs} continuity_groups.")
             
@@ -1014,7 +1018,8 @@ if __name__ == "__main__":
             # recomputes agg metrics if existing agg_metric_path doesn't contain all cgs
             if os.path.exists(agg_metric_path):
                 logging.info(f"Loading agg_metrics from {agg_metric_path}.")
-                agg_metrics =  pl.read_csv(agg_metric_path, schema_overrides={"turbine_id": pl.String, "test_idx": pl.Int32, "continuity_group": pl.Int32})
+                agg_metrics =  pl.scan_csv(agg_metric_path, schema_overrides={"turbine_id": pl.String, "test_idx": pl.Int32, "continuity_group": pl.Int32})\
+                                 .collect()
                 available_agg_cgs = set(agg_metrics.select(pl.col('continuity_group').unique()).to_numpy().flatten())
                 logging.info(f"Finished scanning CSV file at {agg_metric_path}. Found {available_agg_cgs} continuity groups.")
             
@@ -1052,8 +1057,8 @@ if __name__ == "__main__":
                                                        data_type=pl.lit("True"))\
                                          .write_csv(true_long_path)
         
-        true_long = pl.read_csv(true_long_path, schema_overrides={"turbine_id": pl.String, "test_idx": pl.Int32, "continuity_group": pl.Int32}, glob=True, try_parse_dates=True)\
-                        .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
+        true_long = pl.scan_csv(true_long_path, schema_overrides={"turbine_id": pl.String, "test_idx": pl.Int32, "continuity_group": pl.Int32}, glob=True, try_parse_dates=True)\
+                        .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns"))).collect()
         
         # plot continuity group with best rmse score
         PLOT_INDIVIDUAL = True
