@@ -17,7 +17,8 @@ from functools import reduce
 from scipy.signal import lfilter
 
 import multiprocessing as mp
-# mp.set_start_method(method="spawn", force=True)
+# from multiprocessing import get_context
+mp.set_start_method(method="spawn", force=True)
 
 # from joblib import parallel_backend
 
@@ -195,6 +196,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
             pred = pred.with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
             logging.info(f"Formatting predictions 4.")
             pred = pred.filter(pl.col("time").is_in(test_data_time))
+            logging.info(f"Formatting predictions 5.")
             
             forecasts.append(pred)
             
@@ -907,9 +909,10 @@ if __name__ == "__main__":
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0, max_workers=max_workers)
             elif args.multiprocessor == "cf":
                 # max_workers = mp.cpu_count()
-                executor = ProcessPoolExecutor(max_workers=max_workers,
-                                                mp_context=mp.get_context("spawn"))
+                executor = ProcessPoolExecutor(max_workers=max_workers)
+                                                # mp_context=mp.get_context("spawn"))
                                                 # max_tasks_per_child=1)
+                # executor = get_context("spawn").Pool()
             
             logging.info(f"Running generate_forecaster_results with multiprocessor {args.multiprocessor} with {max_workers} workers.")
             with executor as ex:
