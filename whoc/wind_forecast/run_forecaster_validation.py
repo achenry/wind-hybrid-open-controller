@@ -197,9 +197,8 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
             
             save_length += pred.select(pl.len()).collect().item()
             
-            ram_used = virtual_memory().percent
             
-            if  (final := ((c == n_controller_times - 1) and (d == n_splits - 1))) or ((ram_used > ram_limit) and (save_length > 500)):
+            if  (final := ((c == n_controller_times - 1) and (d == n_splits - 1))) or (((ram_used := virtual_memory().percent) > ram_limit) and (save_length > 500)):
                 logging.info(f"In save conditional.")
                 # sub_save_path = save_path.replace(".parquet", f"_{splits[d]}_{n_saved}.parquet")
                 if callable(save_path):
@@ -208,7 +207,9 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                     sp = save_path
                 temp_sp = sp.replace(".parquet", "_temp.parquet")
                 save_paths.append(temp_sp)
-                logging.info(f"Used {ram_used}% RAM. Saving parquet of length {save_length} to {temp_sp}.")
+                
+                if not ((final := ((c == n_controller_times - 1) and (d == n_splits - 1)))):
+                    logging.info(f"Used {ram_used}% RAM. Saving parquet of length {save_length} to {temp_sp}.")
                 
                 forecasts = pl.concat(pl.collect_all(forecasts), how="diagonal")
                 
