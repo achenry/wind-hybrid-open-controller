@@ -464,8 +464,10 @@ class LookupBasedWakeSteeringController(ControllerBase):
                 
                 use_wind_forecast = True
                 
-                fcst_cols = ["time"] + self.target_ws_horz_cols + self.target_ws_vert_cols \
-                            + ((self.target_sd_ws_horz_cols + self.target_sd_ws_vert_cols) if self.uncertain else [])
+                # fcst_cols = ["time"] + self.target_ws_horz_cols + self.target_ws_vert_cols \
+                #             + ((self.target_sd_ws_horz_cols + self.target_sd_ws_vert_cols) if self.uncertain else [])
+                fcst_cols = ["time"] + self.target_mean_ws_horz_cols + self.target_mean_ws_vert_cols \
+                              + ((self.target_sd_ws_horz_cols + self.target_sd_ws_vert_cols) if self.uncertain else [])
                             
                 if self.forecasted_values is not None:
                     self.forecasted_values = pl.concat(
@@ -507,7 +509,7 @@ class LookupBasedWakeSteeringController(ControllerBase):
                 if use_wind_forecast:
                     hist_meas = self.historic_measurements.select(["time"] + self.target_ws_horz_cols + self.target_ws_vert_cols)
                     hist_meas = hist_meas.rename({re.search("(?<=loc_)\\w+", new_col).group(0): new_col for new_col in self.target_mean_ws_horz_cols + self.target_mean_ws_vert_cols}) if self.uncertain else hist_meas
-                    assume_persistence = (hist_meas.select(self.target_ws_horz_cols + self.target_ws_vert_cols).slice(-1, 1).to_numpy() == forecasted_wind_field.select(self.target_mean_ws_horz_cols + self.target_mean_ws_vert_cols).to_numpy()).all()
+                    assume_persistence = (hist_meas.select(self.target_mean_ws_horz_cols + self.target_mean_ws_vert_cols).slice(-1, 1).to_numpy() == forecasted_wind_field.select(self.target_mean_ws_horz_cols + self.target_mean_ws_vert_cols).to_numpy()).all()
                 else:
                     assume_persistence = True
                     
