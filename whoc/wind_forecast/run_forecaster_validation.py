@@ -186,12 +186,15 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
             
             # logging.info(f"pred['time'] = {pred.select("time")}")
             # logging.info(f"test_data_time = {test_data_time}")
-            logging.info(f"Formatting predictions.")
-            pred = pred.with_columns(cs.numeric().cast(pl.Float32))\
-                .with_columns(test_idx=pl.lit(test_idx).cast(pl.Int32),
-                              continuity_group=pl.lit(splits[d]).cast(pl.Int32))\
-                .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))\
-                .filter(pl.col("time").is_in(test_data_time))
+            logging.info(f"Formatting predictions 1.")
+            pred = pred.with_columns(cs.numeric().cast(pl.Float32))
+            logging.info(f"Formatting predictions 2.")
+            pred = pred.with_columns(test_idx=pl.lit(test_idx).cast(pl.Int32),
+                              continuity_group=pl.lit(splits[d]).cast(pl.Int32))
+            logging.info(f"Formatting predictions 3.")
+            pred = pred.with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
+            logging.info(f"Formatting predictions 4.")
+            pred = pred.filter(pl.col("time").is_in(test_data_time))
             
             forecasts.append(pred)
             
