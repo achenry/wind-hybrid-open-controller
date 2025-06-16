@@ -191,8 +191,8 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
             pred = pred.with_columns(cs.numeric().cast(pl.Float32))\
                        .with_columns(test_idx=pl.lit(test_idx).cast(pl.Int32),
                               continuity_group=pl.lit(splits[d]).cast(pl.Int32))\
-                       .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))\
-                       .filter(pl.col("time").is_in(test_data_time))
+                       .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
+            pred = pred.filter(pred["time"].is_in(test_data_time))
             
             forecasts.append(pred)
             
