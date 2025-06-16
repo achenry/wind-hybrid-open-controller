@@ -200,7 +200,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
             ram_used = virtual_memory().percent
             
             if  (final := ((c == n_controller_times - 1) and (d == n_splits - 1))) or ((ram_used > ram_limit) and (save_length > 500)):
-                logging.info(f"In save conditional".)
+                logging.info(f"In save conditional.")
                 # sub_save_path = save_path.replace(".csv", f"_{splits[d]}_{n_saved}.csv")
                 if callable(save_path):
                     sp = save_path(splits[d])
