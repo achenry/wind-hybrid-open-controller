@@ -146,7 +146,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
     save_paths = []
     for d, ds in enumerate(test_data):
         
-        test_data_time = ds.select(pl.col("time")).to_series().to_list()
+        test_data_time = ds["time"]
         
         start = ds.select(pl.col("time").first()).item()
         end = ds.select(pl.col("time").last()).item()
@@ -184,48 +184,44 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                 pred = forecaster.predict_sample(
                     ds.filter(pl.col("time") <= current_time), current_time, n_samples=n_samples)
             
+            pred = pred.lazy()
             # logging.info(f"pred['time'] = {pred.select("time")}")
             # logging.info(f"test_data_time = {test_data_time}")
-            logging.info(f"Formatting predictions 1.")
-            pred = pred.with_columns(cs.numeric().cast(pl.Float32))
-            logging.info(f"Formatting predictions 2.")
-            pred = pred.with_columns(test_idx=pl.lit(test_idx).cast(pl.Int32),
-                              continuity_group=pl.lit(splits[d]).cast(pl.Int32))
-            logging.info(f"Formatting predictions 3.")
-            pred = pred.with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
-            logging.info(f"Formatting predictions 4.")
-            pred = pred.filter(pl.col("time").is_in(test_data_time))
-            logging.info(f"Formatting predictions 5.")
+            pred = pred.with_columns(cs.numeric().cast(pl.Float32))\
+                       .with_columns(test_idx=pl.lit(test_idx).cast(pl.Int32),
+                              continuity_group=pl.lit(splits[d]).cast(pl.Int32))\
+                       .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))\
+                       .filter(pl.col("time").is_in(test_data_time))
             
             forecasts.append(pred)
             
-            save_length += pred.select(pl.len()).item()
+            save_length += pred.select(pl.len()).collect().item()
             
             ram_used = virtual_memory().percent
             
             if  (final := ((c == n_controller_times - 1) and (d == n_splits - 1))) or ((ram_used > ram_limit) and (save_length > 500)):
                 logging.info(f"In save conditional.")
-                # sub_save_path = save_path.replace(".csv", f"_{splits[d]}_{n_saved}.csv")
+                # sub_save_path = save_path.replace(".parquet", f"_{splits[d]}_{n_saved}.parquet")
                 if callable(save_path):
                     sp = save_path(splits[d])
                 else:
                     sp = save_path
-                temp_sp = sp.replace(".csv", "_temp.csv")
+                temp_sp = sp.replace(".parquet", "_temp.parquet")
                 save_paths.append(temp_sp)
                 logging.info(f"Used {ram_used}% RAM. Saving parquet of length {save_length} to {temp_sp}.")
                 
-                forecasts = pl.concat(forecasts, how="diagonal")
+                forecasts = pl.concat(pl.collect_all(forecasts), how="diagonal")
                 
                 # logging.info(f"diagonal concat for {save_path} columns = {forecasts.columns}")
                 logging.info(f"Writing result to file {temp_sp}.")
                 if not os.path.exists(temp_sp):
                     with open(temp_sp, mode="w") as fp:
-                        forecasts.write_csv(fp, include_header=True)
+                        forecasts.write_parquet(fp, include_header=True)
                     logging.info(f"File {temp_sp} has size {os.path.getsize(temp_sp)} after first write.")
                 else:
                     logging.info(f"File {temp_sp} has size {os.path.getsize(temp_sp)} before appending.")
                     with open(temp_sp, mode="a") as fp:
-                        forecasts.write_csv(fp, include_header=False)
+                        forecasts.write_parquet(fp, include_header=False)
                     logging.info(f"File {temp_sp} has size {os.path.getsize(temp_sp)} after appending.")
                     
                 # TODO code seems to hang here for multiprocessing on HPC
@@ -241,7 +237,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
             raise Exception(f"{d}th dataset in data does not have sufficient data points, with {ds.select(pl.len()).item()}, to collect predictions after context_timedelta {forecaster.context_timedelta}")
     
     for temp_sp in save_paths:
-        final_sp = sp.replace("_temp.csv", ".csv")
+        final_sp = temp_sp.replace("_temp.parquet", ".parquet")
         logging.info(f"Moving final result to {final_sp}.")
         move(temp_sp, final_sp)
     
@@ -879,13 +875,13 @@ if __name__ == "__main__":
                                 str(prediction_timedelta))
             os.makedirs(save_dir, exist_ok=True)
             for c, cg in enumerate(continuity_groups[prediction_timedelta]):
-                save_path = os.path.join(save_dir, f"forecast_{cg}.csv")
+                save_path = os.path.join(save_dir, f"forecast_{cg}.parquet")
                 
                 if args.rerun_validation or not os.path.exists(save_path):
                     validation_to_run.append((forecaster, cg, save_path))
                     logging.info(f"Rerunning validation {forecaster_name, prediction_timedelta, save_path}")
                     
-                    temp_sp = save_path.replace(".csv", "_temp.csv")
+                    temp_sp = save_path.replace(".parquet", "_temp.parquet")
                     if os.path.exists(temp_sp):
                         logging.info(f"Removing existing file {temp_sp}.")
                         os.remove(temp_sp)
@@ -895,7 +891,7 @@ if __name__ == "__main__":
                     #     os.remove(save_path)
                 # elif os.path.exists(save_path):
                 #     # TODO also delete existing files if not rerun_validation but existing files have different number of time steps
-                #     forecast_df = pl.scan_csv(save_path, glob=True, try_parse_dates=True)\
+                #     forecast_df = pl.scan_parquet(save_path, glob=True, try_parse_dates=True)\
                 #                     .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
                     # if (n_forecasted_timestamps := forecast_df.select(pl.col("time").n_unique()).collect().item()) < (n_true_timestamps := test_data.select(pl.col("time").n_unique()).item() - 1):
                     #     validation_to_run.append((forecaster, cg, save_path))
@@ -951,17 +947,17 @@ if __name__ == "__main__":
                                 forecaster_name,
                                 str(prediction_timedelta))
             
-            # forecast_path = os.path.join(save_dir, f"forecast_*.csv")
+            # forecast_path = os.path.join(save_dir, f"forecast_*.parquet")
                 
             # logging.info(f"Loading forecast_df from {forecast_path}.")
-            # forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
+            # forecast_df = pl.read_parquet(forecast_path, glob=True, try_parse_dates=True)\
             #                 .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
             results.append({
                 "forecaster_name": forecaster_name,
                 "prediction_timedelta": forecaster.prediction_timedelta.total_seconds(),
                 # "forecast_df": forecast_df
             })
-            # logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('continuity_group').unique()).to_numpy().flatten()} continuity_groups.")
+            # logging.info(f"Finished scanning parquet files at {forecast_path}. Found {forecast_df.select(pl.col('continuity_group').unique()).to_numpy().flatten()} continuity_groups.")
     # TODO possible to replace long_df with reading from multiple files via glob?  
     if args.run_processing and RUN_ONCE:
         # Generate agg_metrics for each forecaster
@@ -973,15 +969,15 @@ if __name__ == "__main__":
                                     forecaster_name,
                                     str(int(prediction_timedelta)))
             
-            forecast_path = os.path.join(save_dir, "forecast_*.csv")
+            forecast_path = os.path.join(save_dir, "forecast_*.parquet")
             
             logging.info(f"Loading forecast_df from {forecast_path}.")
             # schema_overrides={"test_idx": pl.Int32, "continuity_group": pl.Int32}
-            forecast_df = pl.scan_csv(forecast_path, glob=True, try_parse_dates=True)\
+            forecast_df = pl.scan_parquet(forecast_path, glob=True, try_parse_dates=True)\
                         .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))\
                             .collect()
             available_fc_cgs = forecast_df.select(pl.col('continuity_group').unique()).to_numpy().flatten().astype(int)
-            logging.info(f"Finished scanning CSV files at {forecast_path}. Found {available_fc_cgs} continuity_groups.")   
+            logging.info(f"Finished scanning parquet files at {forecast_path}. Found {available_fc_cgs} continuity_groups.")   
             
             if prediction_timedelta in unique_cgs:
                 unique_cgs[prediction_timedelta] = unique_cgs[prediction_timedelta].intersection(available_fc_cgs)
@@ -998,16 +994,16 @@ if __name__ == "__main__":
                                     forecaster_name,
                                     str(int(prediction_timedelta)))
             
-            forecast_path = os.path.join(save_dir, "forecast_*.csv")
-            agg_metric_path = os.path.join(save_dir, "agg_metrics.csv") 
+            forecast_path = os.path.join(save_dir, "forecast_*.parquet")
+            agg_metric_path = os.path.join(save_dir, "agg_metrics.parquet") 
             
             logging.info(f"Loading forecast_df from {forecast_path}.")
             # schema_overrides={"test_idx": pl.Int32, "continuity_group": pl.Int32})\
-            forecast_df = pl.scan_csv(forecast_path, glob=True, try_parse_dates=True)\
+            forecast_df = pl.scan_parquet(forecast_path, glob=True, try_parse_dates=True)\
                         .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))\
                             .collect()
             available_fc_cgs = set(forecast_df.select(pl.col('continuity_group').unique()).to_numpy().flatten())
-            logging.info(f"Finished scanning CSV files at {forecast_path}. Found {available_fc_cgs} continuity_groups.")
+            logging.info(f"Finished scanning parquet files at {forecast_path}. Found {available_fc_cgs} continuity_groups.")
             
             # make sure comparing common continuity groups
             logging.info(f"Filtering continuity groups to {unique_cgs[prediction_timedelta]}.")
@@ -1016,22 +1012,22 @@ if __name__ == "__main__":
             # recomputes agg metrics if existing agg_metric_path doesn't contain all cgs
             if os.path.exists(agg_metric_path):
                 logging.info(f"Loading agg_metrics from {agg_metric_path}.")
-                agg_metrics =  pl.scan_csv(agg_metric_path, schema_overrides={"turbine_id": pl.String, "test_idx": pl.Int32, "continuity_group": pl.Int32})\
+                agg_metrics =  pl.scan_parquet(agg_metric_path, schema_overrides={"turbine_id": pl.String, "test_idx": pl.Int32, "continuity_group": pl.Int32})\
                                  .collect()
                 available_agg_cgs = set(agg_metrics.select(pl.col('continuity_group').unique()).to_numpy().flatten())
-                logging.info(f"Finished scanning CSV file at {agg_metric_path}. Found {available_agg_cgs} continuity groups.")
+                logging.info(f"Finished scanning parquet file at {agg_metric_path}. Found {available_agg_cgs} continuity groups.")
             
             # if available agg_metrics contains all the continuity groups we require
             if (available_agg_cgs != unique_cgs[prediction_timedelta]) and unique_cgs[prediction_timedelta].issubset(available_agg_cgs):
                 agg_metrics = agg_metrics.filter(pl.col("continuity_group").is_in(unique_cgs[prediction_timedelta]))
-                agg_metrics.write_csv(agg_metric_path)
+                agg_metrics.write_parquet(agg_metric_path)
                 available_agg_cgs = set(agg_metrics.select(pl.col('continuity_group').unique()).to_numpy().flatten())
 
             if args.rerun_validation or not os.path.exists(agg_metric_path) or (available_agg_cgs != unique_cgs[prediction_timedelta]):
                 agg_metrics = generate_forecaster_agg_results(forecaster, 
                                                               forecast_df, 
                                                               test_data.filter(pl.col("continuity_group").is_in(unique_cgs[prediction_timedelta])), data_module, args.prediction_type)
-                agg_metrics.write_csv(agg_metric_path)
+                agg_metrics.write_parquet(agg_metric_path)
 
             results[f]["agg_metrics"] = agg_metrics
         
@@ -1047,15 +1043,15 @@ if __name__ == "__main__":
         turbine_ids = ["5", "74", "75"]
         best_cg = 9
         
-        true_long_path = os.path.join(validation_save_dir, f"true_long_df_{args.run_name}.csv")
+        true_long_path = os.path.join(validation_save_dir, f"true_long_df_{args.run_name}.parquet")
         if args.rerun_validation or not os.path.exists(true_long_path):
             test_data.unpivot(index=["time", "continuity_group"], variable_name="feature", value_name="value")\
                                          .with_columns(turbine_id=pl.col("feature").str.extract(f"(_)({forecaster.turbine_signature})$", group_index=2),
                                                        feature=pl.col("feature").str.extract(f"(.*)(_)({forecaster.turbine_signature})$", group_index=1),
                                                        data_type=pl.lit("True"))\
-                                         .write_csv(true_long_path)
+                                         .write_parquet(true_long_path)
         
-        true_long = pl.scan_csv(true_long_path, schema_overrides={"turbine_id": pl.String, "test_idx": pl.Int32, "continuity_group": pl.Int32}, glob=True, try_parse_dates=True)\
+        true_long = pl.scan_parquet(true_long_path, schema_overrides={"turbine_id": pl.String, "test_idx": pl.Int32, "continuity_group": pl.Int32}, glob=True, try_parse_dates=True)\
                         .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns"))).collect()
         
         # plot continuity group with best rmse score
@@ -1074,10 +1070,10 @@ if __name__ == "__main__":
                 value_vars = ["nd_cos", "nd_sin", "ws_horz", "ws_vert"]
                 target_vars = ["ws_horz", "ws_vert"]
             
-            forecast_long_path = os.path.join(save_dir, "long_df.csv")
+            forecast_long_path = os.path.join(save_dir, "long_df.parquet")
             if True or args.rerun_validation or not os.path.exists(forecast_long_path):
-                forecast_path = os.path.join(save_dir, "forecast_*.csv")
-                forecast_df = pl.scan_csv(forecast_path, glob=True, try_parse_dates=True)\
+                forecast_path = os.path.join(save_dir, "forecast_*.parquet")
+                forecast_df = pl.scan_parquet(forecast_path, glob=True, try_parse_dates=True)\
                             .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
                 forecast_df.filter(pl.col("continuity_group") == best_cg)\
                     .select(["time", "continuity_group", "test_idx"] + [cs.ends_with(f"_{tid}") for tid in turbine_ids]).collect()\
@@ -1087,14 +1083,14 @@ if __name__ == "__main__":
                                                        data_type=pl.lit("Forecast"), 
                                                        forecaster=pl.lit(forecaster_name),
                                                        prediction_timedelta=pl.lit(prediction_timedelta))\
-                                         .write_csv(forecast_long_path)
+                                         .write_parquet(forecast_long_path)
             
                
             # forecast_df = forecast_df.with_columns(prediction_timedelta=pl.lit(prediction_timedelta))
-            # forecast_df.write_csv(forecast_long_path)
+            # forecast_df.write_parquet(forecast_long_path)
                 
             forecasts_long.append(
-                pl.scan_csv(forecast_long_path, schema_overrides={"turbine_id": pl.String}, glob=True, try_parse_dates=True)\
+                pl.scan_parquet(forecast_long_path, schema_overrides={"turbine_id": pl.String}, glob=True, try_parse_dates=True)\
                         .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns"))))
             
             # best_cg = agg_df.filter((pl.col("forecaster") == forecaster_name) 
