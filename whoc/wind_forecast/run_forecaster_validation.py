@@ -733,6 +733,8 @@ if __name__ == "__main__":
     else:
         max_workers = MPI.COMM_WORLD.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
         gpu_cycler = None
+        
+    logging.info(f"Using max_workers={max_workers}.")
     
     if args.run_validation or args.run_processing:
         forecasters = []
