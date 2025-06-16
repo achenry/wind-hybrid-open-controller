@@ -194,7 +194,7 @@ class KalmanFilterForecast(WindForecast):
             # and update the posterior estimate xhat(t) with the measurement
             # then the prediction is the persistence of that measurment into the future
             for i, z in enumerate(zs):
-                logging.info(f"Adding new measurement {i} of {zs.shape[0]} to Kalman filter at time {current_time}.")
+                # logging.info(f"Adding new measurement {i} of {zs.shape[0]} to Kalman filter at time {current_time}.")
                 self.model.predict(Q=Qs[i]) # outputs new prior/prediction
                 # means_p[i, :] = self.model.x
                 # covariances_p[i, :, :] = self.model.P

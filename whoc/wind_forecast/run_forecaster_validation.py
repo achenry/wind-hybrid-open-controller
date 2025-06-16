@@ -17,7 +17,7 @@ from functools import reduce
 from scipy.signal import lfilter
 
 import multiprocessing as mp
-mp.set_start_method(method="spawn", force=True)
+# mp.set_start_method(method="spawn", force=True)
 
 # from joblib import parallel_backend
 
@@ -186,6 +186,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
             
             # logging.info(f"pred['time'] = {pred.select("time")}")
             # logging.info(f"test_data_time = {test_data_time}")
+            logging.info(f"Formatting predictions.")
             pred = pred.with_columns(cs.numeric().cast(pl.Float32))\
                 .with_columns(test_idx=pl.lit(test_idx).cast(pl.Int32),
                               continuity_group=pl.lit(splits[d]).cast(pl.Int32))\
@@ -199,6 +200,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
             ram_used = virtual_memory().percent
             
             if  (final := ((c == n_controller_times - 1) and (d == n_splits - 1))) or ((ram_used > ram_limit) and (save_length > 500)):
+                logging.info(f"In save conditional".)
                 # sub_save_path = save_path.replace(".csv", f"_{splits[d]}_{n_saved}.csv")
                 if callable(save_path):
                     sp = save_path(splits[d])
@@ -902,9 +904,9 @@ if __name__ == "__main__":
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0, max_workers=max_workers)
             elif args.multiprocessor == "cf":
                 # max_workers = mp.cpu_count()
-                executor = ProcessPoolExecutor(max_workers=max_workers,
-                                                mp_context=mp.get_context("spawn"),
-                                                max_tasks_per_child=1)
+                executor = ProcessPoolExecutor(max_workers=max_workers)
+                                                # mp_context=mp.get_context("spawn"),
+                                                # max_tasks_per_child=1)
             
             logging.info(f"Running generate_forecaster_results with multiprocessor {args.multiprocessor} with {max_workers} workers.")
             with executor as ex:
