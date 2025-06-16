@@ -146,7 +146,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
     save_paths = []
     for d, ds in enumerate(test_data):
         
-        test_data_time = ds.select(pl.col("time"))
+        test_data_time = ds.select(pl.col("time")).to_list()
         
         start = ds.select(pl.col("time").first()).item()
         end = ds.select(pl.col("time").last()).item()
