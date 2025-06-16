@@ -196,7 +196,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
             
             forecasts.append(pred)
             
-            save_length += pred.select(pl.len()).collect().item()
+            save_length += pred.select(pl.len()).item()
             
             
             if  (final := ((c == n_controller_times - 1) and (d == n_splits - 1))) or (((ram_used := virtual_memory().percent) > ram_limit) and (save_length > 500)):
