@@ -12,6 +12,6 @@ if __name__ == "__main__":
     executor = MPICommExecutor(comm, root=0, max_workers=max_workers)
     
     with executor as run_simulations_exec:
-        futures = [run_simulations_exec.submit(worker_idx) for worker_idx in range(10)]
+        futures = [run_simulations_exec.submit(f, worker_idx) for worker_idx in range(10)]
         
         _ = [fut.result() for fut in futures]
