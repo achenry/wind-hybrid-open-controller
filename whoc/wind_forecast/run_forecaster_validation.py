@@ -949,7 +949,7 @@ if __name__ == "__main__":
                 test_futures = [ex.submit(
                     make_predictions, 
                         forecaster=forecaster,  
-                        test_data=test_data.filter((pl.col("continuity_group") == cg) & (pl.col("prediction_timedelta").is_in([forecaster.prediction_timedelta.total_seconds(), -1]))), 
+                        test_data=test_data.filter((pl.col("continuity_group") == cg) & (pl.col("prediction_timedelta").is_in([forecaster.prediction_timedelta.total_seconds(), -1.0]))), 
                         prediction_type=args.prediction_type, single_cg=True, 
                         save_path=save_path,
                         assigned_gpu=next(gpu_cycler) if gpu_cycler else None, 
@@ -964,7 +964,7 @@ if __name__ == "__main__":
             for forecaster, cg, save_path in validation_to_run:
                 make_predictions(
                     forecaster=forecaster, 
-                    test_data=test_data.filter((pl.col("continuity_group") == cg) & (pl.col("prediction_timedelta").is_in([forecaster.prediction_timedelta.total_seconds(), -1]))),
+                    test_data=test_data.filter((pl.col("continuity_group") == cg) & (pl.col("prediction_timedelta").is_in([forecaster.prediction_timedelta.total_seconds(), -1.0]))),
                     prediction_type=args.prediction_type, single_cg=True,
                     # save_path=lambda cg: forecast_paths[continuity_groups.index(cg)],
                     save_path=save_path,
