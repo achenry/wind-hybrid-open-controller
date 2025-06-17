@@ -224,12 +224,13 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                 logging.info(f"Writing result to file {temp_sp}.")
                 if not os.path.exists(temp_sp):
                     with open(temp_sp, mode="w") as fp:
-                        forecasts.write_parquet(fp, include_header=True)
+                        forecasts.write_parquet(fp)
                     logging.info(f"File {temp_sp} has size {os.path.getsize(temp_sp)} after first write.")
                 else:
                     logging.info(f"File {temp_sp} has size {os.path.getsize(temp_sp)} before appending.")
-                    with open(temp_sp, mode="a") as fp:
-                        forecasts.write_parquet(fp, include_header=False)
+                    # with open(temp_sp, mode="a") as fp:
+                    with open(temp_sp, mode="w") as fp:
+                        pl.concat([pl.read_parquet(fp), forecasts], how="vertical").write_parquet(fp)
                     logging.info(f"File {temp_sp} has size {os.path.getsize(temp_sp)} after appending.")
                 
                 n_saved += 1
