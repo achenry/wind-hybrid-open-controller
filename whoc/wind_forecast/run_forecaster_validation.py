@@ -168,8 +168,8 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
             current_time = current_row["time"]
             
             # if current_time - start >= forecaster.context_timedelta:
-            logging.info(f"Predicting future wind field using {forecaster_name} with prediction_timedelta {forecaster.prediction_timedelta} at time {current_time}/{end} of split {splits[d]}.")
-            logging.info(f"RAM 172 = {virtual_memory().percent}")
+            logging.info(f"Predicting {c}/{n_controller_times} th future wind field using {forecaster_name} with prediction_timedelta {forecaster.prediction_timedelta} at time {current_time}/{end} of split {splits[d]}.")
+            # logging.info(f"RAM 172 = {virtual_memory().percent}")
             if prediction_type == "distribution" and forecaster.is_probabilistic:
                 pred = forecaster.predict_distr(
                     ds.filter(pl.col("time") <= current_time), current_time)
@@ -187,7 +187,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                 pred = forecaster.predict_sample(
                     ds.filter(pl.col("time") <= current_time), current_time, n_samples=n_samples)
             
-            logging.info(f"RAM 190 = {virtual_memory().percent}")
+            # logging.info(f"RAM 190 = {virtual_memory().percent}")
             
             # logging.info(f"pred['time'] = {pred.select("time")}")
             # logging.info(f"test_data_time = {test_data_time}")
@@ -197,7 +197,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                        .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
             pred = pred.filter(pred["time"].is_in(test_data_time))
             
-            logging.info(f"RAM 200 = {virtual_memory().percent}")
+            # logging.info(f"RAM 200 = {virtual_memory().percent}")
             
             forecasts.append(pred)
             
