@@ -168,7 +168,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
             current_time = current_row["time"]
             
             # if current_time - start >= forecaster.context_timedelta:
-            logging.info(f"Predicting {c}/{n_controller_times} th future wind field using {forecaster_name} with prediction_timedelta {forecaster.prediction_timedelta} at time {current_time}/{end} of split {splits[d]}.")
+            logging.info(f"Predicting {c} of {n_controller_times} future wind fields using {forecaster_name} with prediction_timedelta {forecaster.prediction_timedelta} at time {current_time}/{end} of split {splits[d]}.")
             # logging.info(f"RAM 172 = {virtual_memory().percent}")
             if prediction_type == "distribution" and forecaster.is_probabilistic:
                 pred = forecaster.predict_distr(
@@ -634,6 +634,8 @@ if __name__ == "__main__":
     # base_model_config = model_configs[np.argsort([ctd + ptd for ctd, ptd in zip(context_timedeltas, prediction_timedeltas)])[-1]]
     
     test_data = []
+    cgs = []
+    joint_cgs = set()
     for mcnf in model_configs:
         data_module = DataModule(data_path=mcnf["dataset"]["data_path"], 
                                 normalization_consts_path=mcnf["dataset"]["normalization_consts_path"],
@@ -666,22 +668,39 @@ if __name__ == "__main__":
         
         logging.info("Sorting test datasets by duration.")
         data_module.test_dataset = sorted(data_module.test_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
+        
         if args.max_splits:
-            test_data.append(data_module.test_dataset[:args.max_splits])
-        else:
-            test_data.append(data_module.test_dataset)
+            data_module.test_dataset = data_module.test_dataset[:args.max_splits]
         
-        if args.max_steps:
-            assert args.max_steps >= int((max(context_timedeltas) + max(prediction_timedeltas)) / measurements_timedelta), f"max_steps, if provided, must allow for context_timedelta + max(prediction_timedelta) = {int((max(context_timedeltas) + max(prediction_timedeltas)) / measurements_timedelta)}"
-            test_data[-1] = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in test_data[-1]]
+        new_ds = []
+        for ds in data_module.test_dataset:
+            cg = ds["item_id"]
+            if cg not in cgs:
+                new_ds.append(ds)
+                cgs.append(cg)
+                # new_idx = -1
+                # new_pred_len = mcnf["dataset"]["prediction_length"]
+            else:
+                joint_cgs.add(int(re.search("(?<=SPLIT)\\d+", cg).group()))
+        
+        if len(new_ds) > 0:
+            
+            if args.max_steps:
+                assert args.max_steps >= int((max(context_timedeltas) + max(prediction_timedeltas)) / measurements_timedelta), f"max_steps, if provided, must allow for context_timedelta + max(prediction_timedelta) = {int((max(context_timedeltas) + max(prediction_timedeltas)) / measurements_timedelta)}"
+                new_ds = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in new_ds]
+            
+            test_data.append(new_ds)
+            
+            logging.info(f"Generating dataframe with prediction_timedelta {mcnf['dataset']['prediction_length']}.")
+            # save_path = os.path.join(os.path.dirname( base_model_config["dataset"]["data_path"]), "test_data.parquet")
+            test_data[-1] = generate_wind_field_df(test_data[-1], data_module.target_cols, data_module.feat_dynamic_real_cols)
+        
+            test_data[-1] = test_data[-1].with_columns(prediction_timedelta=pl.lit(mcnf["dataset"]["prediction_length"]))
     
-        logging.info(f"Generating dataframe with prediction_timedelta {mcnf['dataset']['prediction_length']}.")
-        # save_path = os.path.join(os.path.dirname( base_model_config["dataset"]["data_path"]), "test_data.parquet")
-        test_data[-1] = generate_wind_field_df(test_data[-1], data_module.target_cols, data_module.feat_dynamic_real_cols)
-        test_data[-1] = test_data[-1].with_columns(prediction_timedelta=pl.lit(mcnf["dataset"]["prediction_length"]))
-        
-        
+
+
     test_data = pl.concat(test_data, how="vertical")
+    test_data = test_data.with_columns(prediction_timedelta=pl.when(pl.col("continuity_group").is_in(joint_cgs)).then(pl.lit(-1)).otherwise(pl.col("prediction_timedelta")))
     # .write_parquet(save_path, statistics=False)
     # test_data = pl.scan_parquet(save_path)
     
@@ -870,9 +889,14 @@ if __name__ == "__main__":
                                                         resample=False))
                     forecasters.append(forecaster)
         
-        continuity_groups = test_data.group_by("prediction_timedelta").agg(pl.col("continuity_group").unique())
-        continuity_groups = {row["prediction_timedelta"]: row["continuity_group"] for row in continuity_groups.iter_rows(named=True)}
-    
+    continuity_groups = test_data.group_by("prediction_timedelta").agg(pl.col("continuity_group").unique())
+    continuity_groups = {row["prediction_timedelta"]: row["continuity_group"] for row in continuity_groups.iter_rows(named=True)}
+    if -1 in continuity_groups:
+        joint_cgs = continuity_groups[-1]
+        del continuity_groups[-1]
+        for k in continuity_groups:
+            continuity_groups[k] += joint_cgs
+            
     if args.run_validation:
         validation_to_run = []
         for forecaster in forecasters:
@@ -922,12 +946,14 @@ if __name__ == "__main__":
             
             logging.info(f"Running generate_forecaster_results with multiprocessor {args.multiprocessor} with {max_workers} workers.")
             with executor as ex:
-                test_futures = [ex.submit(make_predictions, forecaster=forecaster,  
-                                    test_data=test_data.filter((pl.col("continuity_group") == cg) & (pl.col("prediction_timedelta") == forecaster.prediction_timedelta.total_seconds())), 
-                                    prediction_type=args.prediction_type, single_cg=True, 
-                                    save_path=save_path,
-                                    assigned_gpu=next(gpu_cycler) if gpu_cycler else None, 
-                                    ram_limit=args.ram_limit) for forecaster, cg, save_path in validation_to_run]
+                test_futures = [ex.submit(
+                    make_predictions, 
+                        forecaster=forecaster,  
+                        test_data=test_data.filter((pl.col("continuity_group") == cg) & (pl.col("prediction_timedelta").is_in([forecaster.prediction_timedelta.total_seconds(), -1]))), 
+                        prediction_type=args.prediction_type, single_cg=True, 
+                        save_path=save_path,
+                        assigned_gpu=next(gpu_cycler) if gpu_cycler else None, 
+                        ram_limit=args.ram_limit) for forecaster, cg, save_path in validation_to_run]
                         
                 res = [fut.result() for fut in test_futures]
                 
@@ -938,7 +964,7 @@ if __name__ == "__main__":
             for forecaster, cg, save_path in validation_to_run:
                 make_predictions(
                     forecaster=forecaster, 
-                    test_data=test_data.filter((pl.col("continuity_group") == cg) & (pl.col("prediction_timedelta") == forecaster.prediction_timedelta.total_seconds())),
+                    test_data=test_data.filter((pl.col("continuity_group") == cg) & (pl.col("prediction_timedelta").is_in([forecaster.prediction_timedelta.total_seconds(), -1]))),
                     prediction_type=args.prediction_type, single_cg=True,
                     # save_path=lambda cg: forecast_paths[continuity_groups.index(cg)],
                     save_path=save_path,
@@ -1079,7 +1105,7 @@ if __name__ == "__main__":
                 target_vars = ["ws_horz", "ws_vert"]
             
             forecast_long_path = os.path.join(save_dir, "long_df.parquet")
-            if True or args.rerun_validation or not os.path.exists(forecast_long_path):
+            if args.rerun_validation or not os.path.exists(forecast_long_path):
                 forecast_path = os.path.join(save_dir, "forecast_*.parquet")
                 forecast_df = pl.scan_parquet(forecast_path, glob=True, try_parse_dates=True)\
                             .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
