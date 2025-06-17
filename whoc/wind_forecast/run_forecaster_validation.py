@@ -169,6 +169,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
             
             # if current_time - start >= forecaster.context_timedelta:
             logging.info(f"Predicting future wind field using {forecaster_name} with prediction_timedelta {forecaster.prediction_timedelta} at time {current_time}/{end} of split {splits[d]}.")
+            logging.info(f"RAM 172 = {virtual_memory().percent}")
             if prediction_type == "distribution" and forecaster.is_probabilistic:
                 pred = forecaster.predict_distr(
                     ds.filter(pl.col("time") <= current_time), current_time)
@@ -186,6 +187,8 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                 pred = forecaster.predict_sample(
                     ds.filter(pl.col("time") <= current_time), current_time, n_samples=n_samples)
             
+            logging.info(f"RAM 190 = {virtual_memory().percent}")
+            
             # logging.info(f"pred['time'] = {pred.select("time")}")
             # logging.info(f"test_data_time = {test_data_time}")
             pred = pred.with_columns(cs.numeric().cast(pl.Float32))\
@@ -194,54 +197,56 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                        .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
             pred = pred.filter(pred["time"].is_in(test_data_time))
             
+            logging.info(f"RAM 200 = {virtual_memory().percent}")
+            
             forecasts.append(pred)
             
             save_length += pred.select(pl.len()).item()
             
             
-            if  (final := ((c == n_controller_times - 1) and (d == n_splits - 1))) or (((ram_used := virtual_memory().percent) > ram_limit) and (save_length > 500)):
-                logging.info(f"In save conditional.")
-                # sub_save_path = save_path.replace(".parquet", f"_{splits[d]}_{n_saved}.parquet")
-                if callable(save_path):
-                    sp = save_path(splits[d])
-                else:
-                    sp = save_path
-                temp_sp = sp.replace(".parquet", "_temp.parquet")
-                save_paths.append(temp_sp)
+    #         if  (final := ((c == n_controller_times - 1) and (d == n_splits - 1))) or (((ram_used := virtual_memory().percent) > ram_limit) and (save_length > 500)):
+    #             logging.info(f"In save conditional.")
+    #             # sub_save_path = save_path.replace(".parquet", f"_{splits[d]}_{n_saved}.parquet")
+    #             if callable(save_path):
+    #                 sp = save_path(splits[d])
+    #             else:
+    #                 sp = save_path
+    #             temp_sp = sp.replace(".parquet", "_temp.parquet")
+    #             save_paths.append(temp_sp)
                 
-                if not ((final := ((c == n_controller_times - 1) and (d == n_splits - 1)))):
-                    logging.info(f"Used {ram_used}% RAM. Saving parquet of length {save_length} to {temp_sp}.")
+    #             if not ((final := ((c == n_controller_times - 1) and (d == n_splits - 1)))):
+    #                 logging.info(f"Used {ram_used}% RAM. Saving parquet of length {save_length} to {temp_sp}.")
                 
-                forecasts = pl.concat(forecasts, how="diagonal")
+    #             forecasts = pl.concat(forecasts, how="diagonal")
                 
-                # logging.info(f"diagonal concat for {save_path} columns = {forecasts.columns}")
-                logging.info(f"Writing result to file {temp_sp}.")
-                if not os.path.exists(temp_sp):
-                    with open(temp_sp, mode="w") as fp:
-                        forecasts.write_parquet(fp, include_header=True)
-                    logging.info(f"File {temp_sp} has size {os.path.getsize(temp_sp)} after first write.")
-                else:
-                    logging.info(f"File {temp_sp} has size {os.path.getsize(temp_sp)} before appending.")
-                    with open(temp_sp, mode="a") as fp:
-                        forecasts.write_parquet(fp, include_header=False)
-                    logging.info(f"File {temp_sp} has size {os.path.getsize(temp_sp)} after appending.")
+    #             # logging.info(f"diagonal concat for {save_path} columns = {forecasts.columns}")
+    #             logging.info(f"Writing result to file {temp_sp}.")
+    #             if not os.path.exists(temp_sp):
+    #                 with open(temp_sp, mode="w") as fp:
+    #                     forecasts.write_parquet(fp, include_header=True)
+    #                 logging.info(f"File {temp_sp} has size {os.path.getsize(temp_sp)} after first write.")
+    #             else:
+    #                 logging.info(f"File {temp_sp} has size {os.path.getsize(temp_sp)} before appending.")
+    #                 with open(temp_sp, mode="a") as fp:
+    #                     forecasts.write_parquet(fp, include_header=False)
+    #                 logging.info(f"File {temp_sp} has size {os.path.getsize(temp_sp)} after appending.")
                     
-                # TODO code seems to hang here for multiprocessing on HPC
-                n_saved += 1
-                forecasts = []
-                save_length = 0
-                ram_used = virtual_memory().percent
-                logging.info(f"Used {ram_used}% RAM after saving {sp}.")
+    #             # TODO code seems to hang here for multiprocessing on HPC
+    #             n_saved += 1
+    #             forecasts = []
+    #             save_length = 0
+    #             ram_used = virtual_memory().percent
+    #             logging.info(f"Used {ram_used}% RAM after saving {sp}.")
             
-            test_idx += 1
+    #         test_idx += 1
         
-        if len(forecasts) == 0 and n_saved == 0:
-            raise Exception(f"{d}th dataset in data does not have sufficient data points, with {ds.select(pl.len()).item()}, to collect predictions after context_timedelta {forecaster.context_timedelta}")
+    #     if len(forecasts) == 0 and n_saved == 0:
+    #         raise Exception(f"{d}th dataset in data does not have sufficient data points, with {ds.select(pl.len()).item()}, to collect predictions after context_timedelta {forecaster.context_timedelta}")
     
-    for temp_sp in save_paths:
-        final_sp = temp_sp.replace("_temp.parquet", ".parquet")
-        logging.info(f"Moving final result to {final_sp}.")
-        move(temp_sp, final_sp)
+    # for temp_sp in save_paths:
+    #     final_sp = temp_sp.replace("_temp.parquet", ".parquet")
+    #     logging.info(f"Moving final result to {final_sp}.")
+    #     move(temp_sp, final_sp)
     
 def generate_wind_field_df(datasets, target_cols, feat_dynamic_real_cols):
     full_target = np.concatenate([ds[FieldName.TARGET] for ds in datasets], axis=-1)
