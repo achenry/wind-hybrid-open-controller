@@ -204,49 +204,49 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
             save_length += pred.select(pl.len()).item()
             
             
-    #         if  (final := ((c == n_controller_times - 1) and (d == n_splits - 1))) or (((ram_used := virtual_memory().percent) > ram_limit) and (save_length > 500)):
-    #             logging.info(f"In save conditional.")
-    #             # sub_save_path = save_path.replace(".parquet", f"_{splits[d]}_{n_saved}.parquet")
-    #             if callable(save_path):
-    #                 sp = save_path(splits[d])
-    #             else:
-    #                 sp = save_path
-    #             temp_sp = sp.replace(".parquet", "_temp.parquet")
-    #             save_paths.append(temp_sp)
+            if  (final := ((c == n_controller_times - 1) and (d == n_splits - 1))) or (((ram_used := virtual_memory().percent) > ram_limit) and (save_length > 500)):
+                logging.info(f"In save conditional.")
+                # sub_save_path = save_path.replace(".parquet", f"_{splits[d]}_{n_saved}.parquet")
+                if callable(save_path):
+                    sp = save_path(splits[d])
+                else:
+                    sp = save_path
+                temp_sp = sp.replace(".parquet", "_temp.parquet")
+                save_paths.append(temp_sp)
                 
-    #             if not ((final := ((c == n_controller_times - 1) and (d == n_splits - 1)))):
-    #                 logging.info(f"Used {ram_used}% RAM. Saving parquet of length {save_length} to {temp_sp}.")
+                if not final:
+                    logging.info(f"Used {ram_used}% RAM. Saving parquet of length {save_length} to {temp_sp}.")
                 
-    #             forecasts = pl.concat(forecasts, how="diagonal")
+                logging.info(f"Concatenating forecasts.")
+                forecasts = pl.concat(forecasts, how="diagonal")
                 
-    #             # logging.info(f"diagonal concat for {save_path} columns = {forecasts.columns}")
-    #             logging.info(f"Writing result to file {temp_sp}.")
-    #             if not os.path.exists(temp_sp):
-    #                 with open(temp_sp, mode="w") as fp:
-    #                     forecasts.write_parquet(fp, include_header=True)
-    #                 logging.info(f"File {temp_sp} has size {os.path.getsize(temp_sp)} after first write.")
-    #             else:
-    #                 logging.info(f"File {temp_sp} has size {os.path.getsize(temp_sp)} before appending.")
-    #                 with open(temp_sp, mode="a") as fp:
-    #                     forecasts.write_parquet(fp, include_header=False)
-    #                 logging.info(f"File {temp_sp} has size {os.path.getsize(temp_sp)} after appending.")
-                    
-    #             # TODO code seems to hang here for multiprocessing on HPC
-    #             n_saved += 1
-    #             forecasts = []
-    #             save_length = 0
-    #             ram_used = virtual_memory().percent
-    #             logging.info(f"Used {ram_used}% RAM after saving {sp}.")
+                # logging.info(f"diagonal concat for {save_path} columns = {forecasts.columns}")
+                logging.info(f"Writing result to file {temp_sp}.")
+                if not os.path.exists(temp_sp):
+                    with open(temp_sp, mode="w") as fp:
+                        forecasts.write_parquet(fp, include_header=True)
+                    logging.info(f"File {temp_sp} has size {os.path.getsize(temp_sp)} after first write.")
+                else:
+                    logging.info(f"File {temp_sp} has size {os.path.getsize(temp_sp)} before appending.")
+                    with open(temp_sp, mode="a") as fp:
+                        forecasts.write_parquet(fp, include_header=False)
+                    logging.info(f"File {temp_sp} has size {os.path.getsize(temp_sp)} after appending.")
+                
+                n_saved += 1
+                forecasts = []
+                save_length = 0
+                ram_used = virtual_memory().percent
+                logging.info(f"Used {ram_used}% RAM after saving {sp}.")
             
-    #         test_idx += 1
+            test_idx += 1
         
-    #     if len(forecasts) == 0 and n_saved == 0:
-    #         raise Exception(f"{d}th dataset in data does not have sufficient data points, with {ds.select(pl.len()).item()}, to collect predictions after context_timedelta {forecaster.context_timedelta}")
+        if len(forecasts) == 0 and n_saved == 0:
+            raise Exception(f"{d}th dataset in data does not have sufficient data points, with {ds.select(pl.len()).item()}, to collect predictions after context_timedelta {forecaster.context_timedelta}")
     
-    # for temp_sp in save_paths:
-    #     final_sp = temp_sp.replace("_temp.parquet", ".parquet")
-    #     logging.info(f"Moving final result to {final_sp}.")
-    #     move(temp_sp, final_sp)
+    for temp_sp in save_paths:
+        final_sp = temp_sp.replace("_temp.parquet", ".parquet")
+        logging.info(f"Moving final result to {final_sp}.")
+        move(temp_sp, final_sp)
     
 def generate_wind_field_df(datasets, target_cols, feat_dynamic_real_cols):
     full_target = np.concatenate([ds[FieldName.TARGET] for ds in datasets], axis=-1)
@@ -1007,7 +1007,7 @@ if __name__ == "__main__":
             
             logging.info(f"Loading forecast_df from {forecast_path}.")
             # schema_overrides={"test_idx": pl.Int32, "continuity_group": pl.Int32}
-            forecast_df = pl.scan_parquet(forecast_path, glob=True, try_parse_dates=True)\
+            forecast_df = pl.scan_parquet(forecast_path, glob=True)\
                         .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))\
                             .collect()
             available_fc_cgs = forecast_df.select(pl.col('continuity_group').unique()).to_numpy().flatten().astype(int)
@@ -1033,7 +1033,7 @@ if __name__ == "__main__":
             
             logging.info(f"Loading forecast_df from {forecast_path}.")
             # schema_overrides={"test_idx": pl.Int32, "continuity_group": pl.Int32})\
-            forecast_df = pl.scan_parquet(forecast_path, glob=True, try_parse_dates=True)\
+            forecast_df = pl.scan_parquet(forecast_path, glob=True)\
                         .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))\
                             .collect()
             available_fc_cgs = set(forecast_df.select(pl.col('continuity_group').unique()).to_numpy().flatten())
@@ -1085,7 +1085,7 @@ if __name__ == "__main__":
                                                        data_type=pl.lit("True"))\
                                          .write_parquet(true_long_path)
         
-        true_long = pl.scan_parquet(true_long_path, schema_overrides={"turbine_id": pl.String, "test_idx": pl.Int32, "continuity_group": pl.Int32}, glob=True, try_parse_dates=True)\
+        true_long = pl.scan_parquet(true_long_path, schema_overrides={"turbine_id": pl.String, "test_idx": pl.Int32, "continuity_group": pl.Int32}, glob=True)\
                         .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns"))).collect()
         
         # plot continuity group with best rmse score
@@ -1107,7 +1107,7 @@ if __name__ == "__main__":
             forecast_long_path = os.path.join(save_dir, "long_df.parquet")
             if args.rerun_validation or not os.path.exists(forecast_long_path):
                 forecast_path = os.path.join(save_dir, "forecast_*.parquet")
-                forecast_df = pl.scan_parquet(forecast_path, glob=True, try_parse_dates=True)\
+                forecast_df = pl.scan_parquet(forecast_path, glob=True)\
                             .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
                 forecast_df.filter(pl.col("continuity_group") == best_cg)\
                     .select(["time", "continuity_group", "test_idx"] + [cs.ends_with(f"_{tid}") for tid in turbine_ids]).collect()\
@@ -1124,7 +1124,7 @@ if __name__ == "__main__":
             # forecast_df.write_parquet(forecast_long_path)
                 
             forecasts_long.append(
-                pl.scan_parquet(forecast_long_path, schema_overrides={"turbine_id": pl.String}, glob=True, try_parse_dates=True)\
+                pl.scan_parquet(forecast_long_path, schema_overrides={"turbine_id": pl.String}, glob=True)\
                         .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns"))))
             
             # best_cg = agg_df.filter((pl.col("forecaster") == forecaster_name) 
