@@ -558,8 +558,8 @@ class LookupBasedWakeSteeringController(ControllerBase):
                 
                 # if (self.current_time - self.init_time).total_seconds() == 600: 
                 #     pass
-                #     import matplotlib.pyplot as plt
-                #     fig, ax = plt.subplots(2, 1, sharex=True)
+                    # import matplotlib.pyplot as plt
+                    # fig, ax = plt.subplots(2, 1, sharex=True)
                     
                     # ax[0].plot(wind.filter(pl.col("time") >= self.current_time)["time"], wind.filter(pl.col("time") >= self.current_time)[["ws_horz_74", "ws_horz_75"]])
                     # ax[1].plot(wind.filter(pl.col("time") >= self.current_time)["time"], wind.filter(pl.col("time") >= self.current_time)[["ws_vert_74", "ws_vert_75"]])

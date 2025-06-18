@@ -981,9 +981,9 @@ def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, 
                 else:
                     tid = f"T{tid}"
                 if single_plot:
-                    sns.lineplot(data=seed_df, x="Time", y=yaw_col, label=f"{tid} yaw setpoint, {1}".format(t + 1, case_label), linestyle=":", ax=ax[ax_idx])
+                    sns.lineplot(data=seed_df, x="Time", y=yaw_col, label=f"{tid} yaw setpoint, {1}".format(t + 1, case_label), linestyle=":", linewidth=3, ax=ax[ax_idx])
                 else:
-                    sns.lineplot(data=seed_df, x="Time", y=yaw_col, color=color, label=f"{tid} yaw setpoint".format(t + 1), linestyle=":", ax=ax[ax_idx])
+                    sns.lineplot(data=seed_df, x="Time", y=yaw_col, color=color, label=f"{tid} yaw setpoint".format(t + 1), linestyle=":", linewidth=3, ax=ax[ax_idx])
                 ax[ax_idx].set(ylabel="")
                 
                 if controller_dt is not None:
