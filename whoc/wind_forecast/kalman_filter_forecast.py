@@ -131,14 +131,15 @@ class KalmanFilterForecast(WindForecast):
         if self.last_measurement_time is None:
             # zs = historic_measurements.filter(pl.col("time") >= current_time)\
             #                           .gather_every(n=self.n_prediction_interval)
-            zs = historic_measurements.filter(pl.col("time") >= (current_time - self.controller_timedelta)) #.filter(((current_time - pl.col("time")).dt.total_microseconds().mod(self.prediction_interval.total_seconds() * 1e6) == 0))
+            zs = historic_measurements.filter(pl.col("time") >= (current_time - self.controller_timedelta))\
+                                      .filter(((current_time - pl.col("time")).dt.total_microseconds().mod(self.prediction_interval.total_seconds() * 1e6) == 0))
         else:
             # collect all the measurments, prediction_timedelta apart, taken in the last n_controller time steps since predict_point was last called
             # zs = historic_measurements.filter(pl.col("time") >= (self.last_measurement_time + self.prediction_interval))\
             #                           .gather_every(n=self.n_prediction_interval)
             # zs = historic_measurements.filter(pl.col("time") >= (self.last_measurement_time + self.prediction_interval))
-            zs = historic_measurements.filter(pl.col("time") >= (self.last_measurement_time + self.controller_timedelta))
-                                    #   .filter(((current_time - pl.col("time")).dt.total_microseconds().mod(self.prediction_interval.total_seconds() * 1e6) == 0))
+            zs = historic_measurements.filter(pl.col("time") >= (self.last_measurement_time + self.controller_timedelta))\
+                                       .filter(((current_time - pl.col("time")).dt.total_microseconds().mod(self.prediction_interval.total_seconds() * 1e6) == 0))
             assert zs.select(pl.len()).item() == 0 or zs.select(pl.col("time").last()).item() == self.last_measurement_time + self.controller_timedelta #self.prediction_interval
         
         if zs.select(pl.len()).item() == 0:
@@ -173,10 +174,10 @@ class KalmanFilterForecast(WindForecast):
                 # for r in Rs:
                 #     np.fill_diagonal(a=r, val=np.max([np.diag(r), np.ones(r.shape[0]) * 1e-2]))
             
-            Qs = [np.eye(self.model.dim_x)*1e-1 for j in range(zs.shape[0])] # TODO add to config
-            Rs = [np.eye(self.model.dim_z)*1e-3 for j in range(zs.shape[0])]
+            Qs = [np.eye(self.model.dim_x)*0.01 for j in range(zs.shape[0])] # TODO add to config
+            Rs = [np.eye(self.model.dim_z)*0.01 for j in range(zs.shape[0])]
             
-            init_x = self.model.x.copy()
+            # init_x = self.model.x.copy()
             # use batch_filter to, on each controller sampling time
             # mean estimates from Kalman Filter
             # means_p = np.zeros((zs.shape[0], self.model.dim_x)) # after predict step (prior)

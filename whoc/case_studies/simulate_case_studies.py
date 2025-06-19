@@ -305,6 +305,8 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     
     if wind_forecast_class:
         predicted_wind_speeds_ts = []
+        
+    controller_signals_ts = []
     
     convergence_time_ts = [np.nan] if k == 0 else []
 
@@ -368,6 +370,9 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
             
             if wind_forecast_class and kwargs["include_prediction"] and (simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() > 0) and (ctrl.controls_dict["predicted_wind_speeds"] is not None):
                 predicted_wind_speeds_ts += [ctrl.controls_dict["predicted_wind_speeds"]]
+                
+            if kwargs["include_controller_signals"]:
+                controller_signals_ts += [ctrl.controls_dict["controller_signals"]]
             
             turbine_offline_status_ts += [np.isclose(ctrl.measurements_dict["turbine_powers"], 0, atol=1e-3)]
             
@@ -474,6 +479,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
                      opt_cost_terms_ts=opt_cost_terms_ts, 
                      convergence_time_ts=convergence_time_ts,
                      predicted_wind_speeds_ts=predicted_wind_speeds_ts,
+                     controller_signals_ts=controller_signals_ts,
                      lower_state_cons_activated_ts=lower_state_cons_activated_ts,
                      upper_state_cons_activated_ts=upper_state_cons_activated_ts,
                      ctrl=ctrl, 
@@ -482,7 +488,8 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
                      idx2tid_mapping=idx2tid_mapping,
                      save_path=temp_save_path,
                      final=final,
-                     include_prediction=kwargs["include_prediction"])
+                     include_prediction=kwargs["include_prediction"],
+                     include_controller_signals=kwargs["include_controller_signals"])
             
             if final:
                 logging.info(f"Moving final result to {save_path}.")
@@ -510,10 +517,10 @@ def write_df(wf_source, wind_field_ts,
              start_time, simulation_mag, simulation_dir, fi_full, sorted_tids,
              turbine_wind_mag_ts, turbine_wind_dir_ts, turbine_offline_status_ts, yaw_angles_ts, turbine_powers_ts,
              opt_cost_terms_ts, convergence_time_ts,
-             predicted_wind_speeds_ts,
+             predicted_wind_speeds_ts, controller_signals_ts,
              lower_state_cons_activated_ts, upper_state_cons_activated_ts,
              ctrl, wind_forecast_class, simulation_input_dict, idx2tid_mapping, save_path, 
-             final=False, include_prediction=True):
+             final=False, include_prediction=True, include_controller_signals=True):
     
     turbine_wind_mag_ts = np.vstack(turbine_wind_mag_ts)
     turbine_wind_dir_ts = np.vstack(turbine_wind_dir_ts)
@@ -646,10 +653,16 @@ def write_df(wf_source, wind_field_ts,
                 src: f"StddevTurbineWindSpeed{re.search('(?<=ws_)\\w+(?=_\\d+)', src).group().capitalize()}_{re.search('(?<=_)\\d+$', src).group()}"
                 for src in ctrl.target_sd_ws_horz_cols + ctrl.target_sd_ws_vert_cols})
         
-        predicted_wind_speeds_ts = predicted_wind_speeds_ts.to_pandas()
-        results_data = results_data.merge(predicted_wind_speeds_ts, on=["Time"], how="outer")
+        results_data = results_data.merge(predicted_wind_speeds_ts.to_pandas(), on=["Time"], how="outer")
         del predicted_wind_speeds_ts
-        
+    
+    if include_controller_signals:
+        controller_signals_ts = pl.concat(controller_signals_ts, how="vertical")\
+            .with_columns(time=((pl.col("time") - ctrl.init_time).dt.total_seconds().cast(pl.Float32)))
+        controller_signals_ts = controller_signals_ts.rename({"time": "Time"})
+        results_data = results_data.merge(controller_signals_ts.to_pandas(), on=["Time"], how="outer")
+        del controller_signals_ts
+    
     # TESTING START
     # import matplotlib.pyplot as plt
     # fig, ax = plt.subplots(1, 1)

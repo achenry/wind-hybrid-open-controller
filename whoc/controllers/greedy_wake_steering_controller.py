@@ -104,6 +104,7 @@ class GreedyController(ControllerBase):
             self.controls_dict = {"yaw_angles": np.array([self.yaw_IC] * self.n_turbines)}
         
         self.previous_target_yaw_setpoints = self.controls_dict["yaw_angles"]
+        self.previous_control_signal = None
     
     # self.filtered_measurements["wind_direction"] = []
     
@@ -306,6 +307,8 @@ class GreedyController(ControllerBase):
             new_yaw_setpoints[is_target_changing] = new_yaw_setpoints[is_target_changing] + dir_setpoint_change[is_target_changing] * abs_setpoint_change[is_target_changing]
             self.is_yawing[is_target_changing] = True
             
+            self.previous_control_signal = wind_dirs
+            
             if self.verbose and any(is_target_changing):
                 logging.info(f"Greedy Controller starting to yaw turbines {np.where(is_target_changing)[0]} from {current_yaw_setpoints[is_target_changing]} to {target_yaw_setpoints[is_target_changing]} in direction {dir_setpoint_change[is_target_changing]} at time {self.current_time}")
         else:
@@ -330,7 +333,8 @@ class GreedyController(ControllerBase):
         # self.init_sol = {"states": list(constrained_yaw_setpoints / self.yaw_norm_const)}
         # self.init_sol["control_inputs"] = (constrained_yaw_setpoints - self.controls_dict["yaw_angles"]) * (self.yaw_norm_const / (self.yaw_rate * self.controller_dt))
 
-        self.controls_dict = {"yaw_angles": list(constrained_yaw_setpoints)} 
+        self.controls_dict = {"yaw_angles": list(constrained_yaw_setpoints),
+                              "controller_signals": self.previous_control_signal} 
         if self.wind_forecast:
             if use_wind_forecast:
                 # newest_predictions = forecasted_wind_field.filter(pl.col("time") <= self.current_time + self.prediction_timedelta_stored)\
