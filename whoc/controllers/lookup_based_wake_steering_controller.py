@@ -636,9 +636,6 @@ class LookupBasedWakeSteeringController(ControllerBase):
                     wd_inp, wm_inp, np.clip(wd_stddev_inp, self.wake_steering_interpolant.points[:, 2].min(), self.wake_steering_interpolant.points[:, 2].max()))
             else:
                 target_yaw_offsets = self.wake_steering_interpolant(wd_inp, wm_inp)
-            
-            if target_yaw_offsets.sum() != 0:
-                print("here")
                 
             target_yaw_setpoints = np.mod(np.rint((wind_dirs - target_yaw_offsets) / self.yaw_increment) * self.yaw_increment, 360.0)
             
