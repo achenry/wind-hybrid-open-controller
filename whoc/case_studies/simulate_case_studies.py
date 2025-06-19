@@ -156,8 +156,8 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
                 layout_y = fi.env.layout_y
                 # turbines_ordered_array = []
                 wd = np.array(180.0 + np.rad2deg(np.arctan2(
-                    np.mean(kwargs["wind_field_ts"].select([f"ws_horz_{idx2tid_mapping[t_idx]}" for t_idx in simulation_input_dict["controller"]["target_turbine_indices"]]).select(pl.mean_horizontal(pl.all())).to_numpy()),  
-                    np.mean(kwargs["wind_field_ts"].select([f"ws_vert_{idx2tid_mapping[t_idx]}" for t_idx in simulation_input_dict["controller"]["target_turbine_indices"]]).select(pl.mean_horizontal(pl.all())).to_numpy()))))
+                    np.mean(kwargs["wind_field_ts"].select([f"ws_horz_{idx2tid_mapping[t_idx]}" for t_idx in sorted_tids]).select(pl.mean_horizontal(pl.all())).to_numpy()),  
+                    np.mean(kwargs["wind_field_ts"].select([f"ws_vert_{idx2tid_mapping[t_idx]}" for t_idx in sorted_tids]).select(pl.mean_horizontal(pl.all())).to_numpy()))))
                 wd[wd < 0] = 360. + wd[wd < 0]
                 wd[wd > 360] = np.mod(wd[wd > 360], 360.)
         
@@ -166,15 +166,15 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
                     + np.sin(np.deg2rad(wd + 180.0)) * layout_x
                 )
                 upstream_turbine_idx = np.argsort(layout_x_rot)[0]
-                upstream_turbine_id = idx2tid_mapping[upstream_turbine_idx]
+                upstream_turbine_id = idx2tid_mapping[sorted_tids[upstream_turbine_idx]]
                 logging.info(f"Using turbine id {upstream_turbine_id} as upstream turbine for wind seed {kwargs['wind_case_idx']}.")
                 
                 simulation_u = kwargs["wind_field_ts"].select(f"ws_horz_{upstream_turbine_id}").to_numpy()[:, 0]
                 simulation_v = kwargs["wind_field_ts"].select(f"ws_vert_{upstream_turbine_id}").to_numpy()[:, 0]
             else:
                 # use mean
-                simulation_u = kwargs["wind_field_ts"].select([f"ws_horz_{idx2tid_mapping[t_idx]}" for t_idx in simulation_input_dict["controller"]["target_turbine_indices"]]).select(pl.mean_horizontal(pl.all())).to_numpy()[:, 0]
-                simulation_v = kwargs["wind_field_ts"].select([f"ws_vert_{idx2tid_mapping[t_idx]}" for t_idx in simulation_input_dict["controller"]["target_turbine_indices"]]).select(pl.mean_horizontal(pl.all())).to_numpy()[:, 0]
+                simulation_u = kwargs["wind_field_ts"].select([f"ws_horz_{idx2tid_mapping[t_idx]}" for t_idx in sorted_tids]).select(pl.mean_horizontal(pl.all())).to_numpy()[:, 0]
+                simulation_v = kwargs["wind_field_ts"].select([f"ws_vert_{idx2tid_mapping[t_idx]}" for t_idx in sorted_tids]).select(pl.mean_horizontal(pl.all())).to_numpy()[:, 0]
         
         if simulation_input_dict["controller"]["filter_floris_wind"]:
             logging.info("Filtering wind passed to FLORIS.")

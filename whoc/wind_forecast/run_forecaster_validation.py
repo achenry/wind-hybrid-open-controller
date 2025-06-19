@@ -1008,11 +1008,10 @@ if __name__ == "__main__":
             
             logging.info(f"Loading forecast_df from {forecast_path}.")
             # schema_overrides={"test_idx": pl.Int32, "continuity_group": pl.Int32}
-            forecast_df = pl.scan_parquet(forecast_path, glob=True)\
-                        .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))\
-                            .collect()
+            forecast_df = pl.read_parquet(forecast_path, glob=True)\
+                        .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
             available_fc_cgs = forecast_df.select(pl.col('continuity_group').unique()).to_numpy().flatten().astype(int)
-            logging.info(f"Finished scanning parquet files at {forecast_path}. Found {available_fc_cgs} continuity_groups.")   
+            logging.info(f"Finished reading parquet files at {forecast_path}. Found {available_fc_cgs} continuity_groups.")   
             
             if prediction_timedelta in unique_cgs:
                 unique_cgs[prediction_timedelta] = unique_cgs[prediction_timedelta].intersection(available_fc_cgs)
@@ -1034,11 +1033,11 @@ if __name__ == "__main__":
             
             logging.info(f"Loading forecast_df from {forecast_path}.")
             # schema_overrides={"test_idx": pl.Int32, "continuity_group": pl.Int32})\
-            forecast_df = pl.scan_parquet(forecast_path, glob=True)\
-                        .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))\
-                            .collect()
+            forecast_df = pl.read_parquet(forecast_path, glob=True)\
+                        .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
+                        
             available_fc_cgs = set(forecast_df.select(pl.col('continuity_group').unique()).to_numpy().flatten())
-            logging.info(f"Finished scanning parquet files at {forecast_path}. Found {available_fc_cgs} continuity_groups.")
+            logging.info(f"Finished reading parquet files at {forecast_path}. Found {available_fc_cgs} continuity_groups.")
             
             # make sure comparing common continuity groups
             logging.info(f"Filtering continuity groups to {unique_cgs[prediction_timedelta]}.")
