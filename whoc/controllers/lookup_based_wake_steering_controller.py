@@ -153,6 +153,7 @@ class LookupBasedWakeSteeringController(ControllerBase):
 
         # For startup
         self.previous_target_yaw_setpoints = self.controls_dict["yaw_angles"]
+        self.previous_control_signal = None
         self.yaw_norm_const = 360.0
     
     def _first_ord_filter(self, x, alpha):
@@ -167,6 +168,7 @@ class LookupBasedWakeSteeringController(ControllerBase):
             df_lut = pd.read_csv(lut_path, index_col=0)
             df_lut["yaw_angles_opt"] = df_lut["yaw_angles_opt"].apply(lambda s: np.array(re.findall(r"-*\d+\.\d*", s), dtype=float))
             
+            # np.where((np.vstack(df_lut["yaw_angles_opt"].values).sum(axis=1) != 0) & (df_lut["wd_stddev"].values != 0))
             # start LUT inspection code
             # import seaborn as sns
             # import matplotlib.pyplot as plt
@@ -631,6 +633,9 @@ class LookupBasedWakeSteeringController(ControllerBase):
                 else:
                     logging.info(f"Using mean turbine measurements as input to LUT at time {self.current_time}.")
                     wd_inp, wm_inp, wd_stddev_inp = wind_dirs.mean(), wind_mags.mean(), wind_dir_stddevs.mean() if self.uncertain else None
+                    
+            self.previous_control_signal = [wd_inp, wm_inp, wd_stddev_inp]
+            
             if self.uncertain:
                 target_yaw_offsets = self.wake_steering_interpolant(
                     wd_inp, wm_inp, np.clip(wd_stddev_inp, self.wake_steering_interpolant.points[:, 2].min(), self.wake_steering_interpolant.points[:, 2].max()))
@@ -683,7 +688,8 @@ class LookupBasedWakeSteeringController(ControllerBase):
         self.previous_yaw_setpoints = np.rint(constrained_yaw_setpoints / self.yaw_increment) * self.yaw_increment
         constrained_yaw_setpoints = np.mod(self.previous_yaw_setpoints, 360)
         
-        self.controls_dict = {"yaw_angles": list(constrained_yaw_setpoints)} 
+        self.controls_dict = {"yaw_angles": list(constrained_yaw_setpoints), 
+                              "controller_signals": self.previous_control_signal} 
         if self.wind_forecast:
             # wf.filter(pl.col("time") < pl.col("time").first() + preview_forecast.controller_timedelta)
             if use_wind_forecast:
