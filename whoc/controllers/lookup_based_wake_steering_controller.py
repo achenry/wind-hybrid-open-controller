@@ -637,6 +637,9 @@ class LookupBasedWakeSteeringController(ControllerBase):
             else:
                 target_yaw_offsets = self.wake_steering_interpolant(wd_inp, wm_inp)
             
+            if target_yaw_offsets.sum() != 0:
+                print("here")
+                
             target_yaw_setpoints = np.mod(np.rint((wind_dirs - target_yaw_offsets) / self.yaw_increment) * self.yaw_increment, 360.0)
             
             # change the turbine yaw setpoints that have surpassed the threshold difference AND are not already yawing towards a previous setpoint

@@ -74,6 +74,30 @@ case_studies = {
             os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
         "wind_forecast_class": {"group": 0, "vals": ["KalmanFilterForecast"]}
     },
+    "baseline_controllers_noforecast_test_awaken": {
+        "n_horizon": {"group": 0, "vals": [0]},
+        "controller_dt": {"group": 0, "vals": [5]},
+        "use_upstream_wind": {"group": 0, "vals": [True]},
+        "filter_floris_wind": {"group": 0, "vals": [False]},
+        "use_lut_filtered_wind_mag": {"group": 0, "vals": [True]},
+        "interpolation_method": {"group": 0, "vals": ["nearest"]},
+        "simulation_dt": {"group": 0, "vals": [1]},
+        "floris_input_file": {"group": 0, "vals": [
+            "../../examples/inputs/gch_KP_v4.yaml"
+                                                ]},
+        "lut_path": {"group": 0, "vals": [
+            "../../examples/inputs/gch_KP_v4_lut.csv",
+                                        ]},
+        "yaw_limits": {"group": 0, "vals": ["-15,15"]},
+        "prediction_timedelta": {"group": 0, "vals": [0]},
+        "uncertain": {"group": 0, "vals": [False]},
+        "target_turbine_indices": {"group": 0, "vals": ["74,73"]},
+        "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController"]},
+        "model_config_path": {"group": 1, "vals": [
+             os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predGreedy.yaml"),
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
+        "wind_forecast_class": {"group": 0, "vals": ["PerfectForecast"]}
+    },
     "baseline_controllers_informer_forecaster_test_awaken": {
                                     "controller_dt": {"group": 0, "vals": [5]},
                                     "simulation_dt": {"group": 0, "vals": [1]},
@@ -1172,4 +1196,5 @@ case_families = [
      "baseline_controllers_perfect_forecaster_flasc", "baseline_controllers_perfect_forecaster_awaken", # 21, 22
      "baseline_controllers_baseline_perfect0_forecasters_awaken", # 23
      "baseline_controllers_forecasters_test_flasc", "baseline_controllers_forecasters_test_awaken", # 24, 25
-     "baseline_controllers_informer_forecaster_test_awaken", "baseline_controllers_svr_forecaster_test_awaken"] # 26, 27
+     "baseline_controllers_informer_forecaster_test_awaken", "baseline_controllers_svr_forecaster_test_awaken",  # 26, 27
+     "baseline_controllers_noforecast_test_awaken"] # 28
