@@ -104,7 +104,7 @@ class GreedyController(ControllerBase):
             self.controls_dict = {"yaw_angles": np.array([self.yaw_IC] * self.n_turbines)}
         
         self.previous_target_yaw_setpoints = self.controls_dict["yaw_angles"]
-        self.previous_control_signal = None
+        self.previous_control_signal = np.ones((self.n_turbines,)) * np.nan
     
     # self.filtered_measurements["wind_direction"] = []
     

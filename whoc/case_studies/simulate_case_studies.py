@@ -371,7 +371,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
             if wind_forecast_class and kwargs["include_prediction"] and (simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() > 0) and (ctrl.controls_dict["predicted_wind_speeds"] is not None):
                 predicted_wind_speeds_ts += [ctrl.controls_dict["predicted_wind_speeds"]]
                 
-            if kwargs["include_controller_signals"] and ctrl.controls_dict["controller_signals"] is not None:
+            if kwargs["include_controller_signals"]:
                 controller_signals_ts += [ctrl.controls_dict["controller_signals"]]
             
             turbine_offline_status_ts += [np.isclose(ctrl.measurements_dict["turbine_powers"], 0, atol=1e-3)]
@@ -468,7 +468,6 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
             write_df(wf_source=kwargs["wf_source"],
                      wind_field_ts=kwargs["wind_field_ts"],
                      simulation_mag=all_freq_simulation_mag, simulation_dir=all_freq_simulation_dir,
-                     fi_full=fi_full,
                      sorted_tids=fi.sorted_tids,
                      start_time=(k-len(turbine_powers_ts)) * simulation_input_dict["simulation_dt"],
                      turbine_wind_mag_ts=turbine_wind_mag_ts, 
@@ -516,7 +515,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
 
 # @profile
 def write_df(wf_source, wind_field_ts,
-             start_time, simulation_mag, simulation_dir, fi_full, sorted_tids,
+             start_time, simulation_mag, simulation_dir, sorted_tids,
              turbine_wind_mag_ts, turbine_wind_dir_ts, turbine_offline_status_ts, yaw_angles_ts, turbine_powers_ts,
              opt_cost_terms_ts, convergence_time_ts,
              predicted_wind_speeds_ts, controller_signals_ts,
@@ -529,6 +528,7 @@ def write_df(wf_source, wind_field_ts,
     turbine_offline_status_ts = np.vstack(turbine_offline_status_ts)
     turbine_powers_ts = np.vstack(turbine_powers_ts)
     yaw_angles_ts = np.vstack(yaw_angles_ts)
+    controller_signals_ts = np.vstack(controller_signals_ts)
     
     # if final:
     #     n_truncate_steps = (int(ctrl.controller_dt - (simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"] % ctrl.controller_dt)) % ctrl.controller_dt) // simulation_input_dict["simulation_dt"]
@@ -636,6 +636,11 @@ def write_df(wf_source, wind_field_ts,
             "StateConsActivatedLower": lower_state_cons_activated_ts,
             "StateConsActivatedUpper": upper_state_cons_activated_ts,
         })
+        
+    if include_controller_signals:
+        results_data.update(**{
+            f"TurbineControllerSignal_{idx2tid_mapping[sorted_tids[i]]}": controller_signals_ts[:, i] for i in range(ctrl.n_turbines)
+        })
 
     results_data = pd.DataFrame(results_data)
     
@@ -657,13 +662,6 @@ def write_df(wf_source, wind_field_ts,
         
         results_data = results_data.merge(predicted_wind_speeds_ts.to_pandas(), on=["Time"], how="outer")
         del predicted_wind_speeds_ts
-    
-    if include_controller_signals:
-        controller_signals_ts = pl.concat(controller_signals_ts, how="vertical")\
-            .with_columns(time=((pl.col("time") - ctrl.init_time).dt.total_seconds().cast(pl.Float32)))
-        controller_signals_ts = controller_signals_ts.rename({"time": "Time"})
-        results_data = results_data.merge(controller_signals_ts.to_pandas(), on=["Time"], how="outer")
-        del controller_signals_ts
     
     # TESTING START
     # import matplotlib.pyplot as plt
