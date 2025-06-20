@@ -371,7 +371,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
             if wind_forecast_class and kwargs["include_prediction"] and (simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds() > 0) and (ctrl.controls_dict["predicted_wind_speeds"] is not None):
                 predicted_wind_speeds_ts += [ctrl.controls_dict["predicted_wind_speeds"]]
                 
-            if kwargs["include_controller_signals"]:
+            if kwargs["include_controller_signals"] and ctrl.controls_dict["controller_signals"] is not None:
                 controller_signals_ts += [ctrl.controls_dict["controller_signals"]]
             
             turbine_offline_status_ts += [np.isclose(ctrl.measurements_dict["turbine_powers"], 0, atol=1e-3)]
@@ -507,6 +507,8 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
             yaw_angles_ts = []
             if wind_forecast_class:
                 predicted_wind_speeds_ts = []
+            
+            controller_signals_ts = []
 
     # logging.info(f"Saved {save_path}")
     return
