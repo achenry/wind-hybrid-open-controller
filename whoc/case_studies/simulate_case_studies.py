@@ -306,7 +306,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     if wind_forecast_class:
         predicted_wind_speeds_ts = []
         
-    controller_signals_ts = []
+    controller_signals_ts = [[np.nan] * ctrl.n_turbines] if k == 0 else []
     
     convergence_time_ts = [np.nan] if k == 0 else []
 
