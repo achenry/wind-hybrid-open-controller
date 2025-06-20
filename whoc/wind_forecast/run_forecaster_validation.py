@@ -229,8 +229,9 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                 else:
                     logging.info(f"File {temp_sp} has size {os.path.getsize(temp_sp)} before appending.")
                     # with open(temp_sp, mode="a") as fp:
+                    forecasts = pl.concat([pl.read_parquet(fp), forecasts], how="vertical")
                     with open(temp_sp, mode="w") as fp:
-                        pl.concat([pl.read_parquet(fp), forecasts], how="vertical").write_parquet(fp)
+                        forecasts.write_parquet(fp)
                     logging.info(f"File {temp_sp} has size {os.path.getsize(temp_sp)} after appending.")
                 
                 n_saved += 1
@@ -850,7 +851,7 @@ if __name__ == "__main__":
         ## GENERATE KF PREVIEW 
         if "sf" in args.model:
             # tune this use single, longer, prediction time, since we have only identity state transition matrix, and must use final posterior only prediction
-            for ctd, ptd in zip(context_timedeltas, prediction_timedeltas):
+            for mncf, ctd, ptd in zip(model_configs, context_timedeltas, prediction_timedeltas):
                 
                 logging.info(f"Instantiating SpatialFilterForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
                 
@@ -863,7 +864,7 @@ if __name__ == "__main__":
                                                     tid2idx_mapping=tid2idx_mapping,
                                                     turbine_signature=turbine_signature,
                                                     use_tuned_params=False,
-                                                    kwargs=dict(n_neighboring_turbines=6))
+                                                    kwargs=dict(n_neighboring_turbines=mncf["model"]["sf"]["n_neighboring_turbines"]))
                 forecasters.append(forecaster)
             
         ## GENERATE ML PREVIEW
