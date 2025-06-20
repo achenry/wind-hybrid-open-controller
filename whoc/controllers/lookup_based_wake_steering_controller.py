@@ -153,7 +153,7 @@ class LookupBasedWakeSteeringController(ControllerBase):
 
         # For startup
         self.previous_target_yaw_setpoints = self.controls_dict["yaw_angles"]
-        self.previous_control_signal = None
+        self.previous_control_signal = np.ones((self.n_turbines,)) * np.nan
         self.yaw_norm_const = 360.0
     
     def _first_ord_filter(self, x, alpha):
