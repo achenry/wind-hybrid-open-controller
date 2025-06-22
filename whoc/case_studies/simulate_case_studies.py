@@ -528,7 +528,6 @@ def write_df(wf_source, wind_field_ts,
     turbine_offline_status_ts = np.vstack(turbine_offline_status_ts)
     turbine_powers_ts = np.vstack(turbine_powers_ts)
     yaw_angles_ts = np.vstack(yaw_angles_ts)
-    controller_signals_ts = np.vstack(controller_signals_ts)
     
     # if final:
     #     n_truncate_steps = (int(ctrl.controller_dt - (simulation_input_dict["hercules_comms"]["helics"]["config"]["stoptime"] % ctrl.controller_dt)) % ctrl.controller_dt) // simulation_input_dict["simulation_dt"]
@@ -638,6 +637,7 @@ def write_df(wf_source, wind_field_ts,
         })
         
     if include_controller_signals:
+        controller_signals_ts = np.vstack(controller_signals_ts)
         results_data.update(**{
             f"TurbineControllerSignal_{idx2tid_mapping[sorted_tids[i]]}": controller_signals_ts[:, i] for i in range(ctrl.n_turbines)
         })
