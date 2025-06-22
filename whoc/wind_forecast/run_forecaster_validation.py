@@ -229,7 +229,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                 else:
                     logging.info(f"File {temp_sp} has size {os.path.getsize(temp_sp)} before appending.")
                     # with open(temp_sp, mode="a") as fp:
-                    forecasts = pl.concat([pl.read_parquet(fp), forecasts], how="vertical")
+                    forecasts = pl.concat([pl.read_parquet(temp_sp), forecasts], how="vertical")
                     with open(temp_sp, mode="w") as fp:
                         forecasts.write_parquet(fp)
                     logging.info(f"File {temp_sp} has size {os.path.getsize(temp_sp)} after appending.")
