@@ -917,8 +917,12 @@ if __name__ == "__main__":
                     
                     temp_sp = save_path.replace(".parquet", "_temp.parquet")
                     if os.path.exists(temp_sp):
-                        logging.info(f"Removing existing file {temp_sp}.")
+                        logging.info(f"Removing existing temp file {temp_sp}.")
                         os.remove(temp_sp)
+                    
+                    if os.path.exists(save_path):
+                        logging.info(f"Removing existing final file {save_path}.")
+                        os.remove(save_path)
                     
                     # if os.path.exists(save_path):
                     #     logging.info(f"Removing existing file {save_path}.")
