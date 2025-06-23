@@ -632,8 +632,7 @@ if __name__ == "__main__":
                 # PLOT 1) Farm power of perfect forecaster vs prediction timedelta for different controllers
                 plot_power_vs_prediction_time(perfect_agg_df, args.save_dir, "perfect_forecaster_")
                 
-                plotting_cases = [("baseline_controllers_perfect_forecaster_flasc", str(baseline_agg_df.loc[(baseline_agg_df["controller_class"] == "GreedyController") & (baseline_agg_df["prediction_timedelta"] == pd.Timedelta(seconds=9*60))].index.get_level_values(1)[0])),
-                                    ("baseline_controllers_perfect_forecaster_flasc", str(baseline_agg_df.loc[(baseline_agg_df["controller_class"] == "LookupBasedWakeSteeringController") & (baseline_agg_df["prediction_timedelta"] == pd.Timedelta(seconds=9*60))].index.get_level_values(1)[0]))]
+                plotting_cases = [("baseline_controllers_svr_forecaster_test_awaken", str(11))]
                 # TODO can't have duplicate keys
                 label_mapping = {"5": "Greedy", "74": "LUT Ds", "75": "LUT Us"}
                 # "6,", "6,4"
