@@ -297,7 +297,7 @@ case_studies = {
         "use_upstream_wind": {"group": 0, "vals": [True]},
         "filter_floris_wind": {"group": 0, "vals": [False]},
         "use_lut_filtered_wind_mag": {"group": 0, "vals": [True]},
-        "interpolation_method": {"group": 0, "vals": ["nearest"]},
+        "interpolation_method": {"group": 0, "vals": ["linear"]},
         "simulation_dt": {"group": 0, "vals": [1]},
         "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
         "lut_path": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4_lut.csv"]},
@@ -950,7 +950,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                             input_dicts[start_case_idx + c]["controller"][property_name] = "all"
                             
                     elif property_name == "uncertain":
-                        if (case.setdefault("controller_class", whoc_config["controller"]["controller_class"])) == "GreedyController":
+                        if (case.get("controller_class", whoc_config["controller"]["controller_class"])) == "GreedyController":
                             # logging.info("GreedyController cannot be run for uncertain flag. Setting uncertain to False.")
                             input_dicts[start_case_idx + c]["controller"]["uncertain"] = False
                         else:
