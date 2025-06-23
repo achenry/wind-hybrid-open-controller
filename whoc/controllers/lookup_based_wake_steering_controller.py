@@ -633,14 +633,14 @@ class LookupBasedWakeSteeringController(ControllerBase):
                 else:
                     logging.info(f"Using mean turbine measurements as input to LUT at time {self.current_time}.")
                     wd_inp, wm_inp, wd_stddev_inp = wind_dirs.mean(), wind_mags.mean(), wind_dir_stddevs.mean() if self.uncertain else None
-                    
-            self.previous_control_signal = [wd_inp, wm_inp, wd_stddev_inp]
             
             if self.uncertain:
                 target_yaw_offsets = self.wake_steering_interpolant(
                     wd_inp, wm_inp, np.clip(wd_stddev_inp, self.wake_steering_interpolant.points[:, 2].min(), self.wake_steering_interpolant.points[:, 2].max()))
+                self.previous_control_signal = [wd_inp, wm_inp, wd_stddev_inp]
             else:
                 target_yaw_offsets = self.wake_steering_interpolant(wd_inp, wm_inp)
+                self.previous_control_signal = [wd_inp, wm_inp, 0]
                 
             target_yaw_setpoints = np.mod(np.rint((wind_dirs - target_yaw_offsets) / self.yaw_increment) * self.yaw_increment, 360.0)
             
@@ -690,6 +690,7 @@ class LookupBasedWakeSteeringController(ControllerBase):
         
         self.controls_dict = {"yaw_angles": list(constrained_yaw_setpoints), 
                               "controller_signals": self.previous_control_signal} 
+        
         if self.wind_forecast:
             # wf.filter(pl.col("time") < pl.col("time").first() + preview_forecast.controller_timedelta)
             if use_wind_forecast:

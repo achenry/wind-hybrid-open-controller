@@ -335,6 +335,7 @@ class GreedyController(ControllerBase):
 
         self.controls_dict = {"yaw_angles": list(constrained_yaw_setpoints),
                               "controller_signals": self.previous_control_signal} 
+        
         if self.wind_forecast:
             if use_wind_forecast:
                 # newest_predictions = forecasted_wind_field.filter(pl.col("time") <= self.current_time + self.prediction_timedelta_stored)\
