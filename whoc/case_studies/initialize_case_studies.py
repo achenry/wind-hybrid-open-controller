@@ -119,7 +119,8 @@ case_studies = {
         "prediction_timedelta": {"group": 0, "vals": [0]},
         "uncertain": {"group": 0, "vals": [False]},
         "target_turbine_indices": {"group": 0, "vals": ["74,73"]},
-        "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController"]},
+        # "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController"]},
+        # "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
         "model_config_path": {"group": 1, "vals": [
              os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predGreedy.yaml"),
             os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
