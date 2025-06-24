@@ -145,6 +145,7 @@ class GreedyController(ControllerBase):
                      current_ws_vert
                 )
             )
+            # current_wind_magnitudes = (current_ws_horz**2 + current_ws_vert**2)**0.5
         
         if len(self.measurements_dict["wind_directions"]) == 0 or np.all(np.isclose(self.measurements_dict["wind_directions"], 0)):
             # yaw angles will be set to initial values
@@ -207,6 +208,17 @@ class GreedyController(ControllerBase):
             if self.wind_forecast and self.wind_forecast.prediction_timedelta.total_seconds() > 0:
                 forecasted_wind_field = self.wind_forecast.predict_point(self.historic_measurements, self.current_time)\
                                             .with_columns(pl.col("time").cast(pl.Datetime(time_unit="ns")), cs.numeric().cast(pl.Float32))
+                
+                # forecasted_ws_horz = forecasted_wind_field.select([f"ws_horz_{self.idx2tid_mapping[i]}" for i in self.tgt_turbine_indices]).to_numpy()
+                # forecasted_ws_vert = forecasted_wind_field.select([f"ws_vert_{self.idx2tid_mapping[i]}" for i in self.tgt_turbine_indices]).to_numpy()   
+                # forecasted_wind_directions = 180.0 + np.rad2deg(
+                # np.arctan2(
+                #         forecasted_ws_horz, 
+                #         forecasted_ws_vert
+                #     )
+                # )
+                # forecasted_wind_magnitudes = (forecasted_ws_horz**2 + forecasted_ws_vert**2)**0.5
+                                            
                 single_forecasted_wind_field = forecasted_wind_field.filter(pl.col("time") == self.current_time + self.wind_forecast.prediction_timedelta)
                 use_wind_forecast = True
                 
@@ -219,7 +231,7 @@ class GreedyController(ControllerBase):
                         ], 
                         how="vertical")\
                                 .filter(pl.col("time") > self.current_time)\
-                                    .group_by("time").agg(pl.all().last()) # predictions closer to time when made are probably more accurate
+                                    .group_by("time", maintain_order=True).agg(pl.all().last()) # predictions closer to time when made are probably more accurate
                 else:
                     self.forecasted_values = forecasted_wind_field.select(fcst_cols)
                 
@@ -260,8 +272,8 @@ class GreedyController(ControllerBase):
                                                             .join(fcst_vals, on="time", how="left")\
                                                             .select(pl.col("time"), cs.numeric().interpolate(self.interpolation_method))
                     
-                    wind = pl.concat([hist_meas, fcst_vals], how="diagonal")\
-                            .select(pl.col("time"), cs.numeric().interpolate(self.interpolation_method))
+                    wind = pl.concat([hist_meas, fcst_vals], how="diagonal")
+                            # .select(pl.col("time"), cs.numeric().interpolate(self.interpolation_method))
                                         # forecasted_wind_field.select(["time"] + self.target_mean_ws_horz_cols + self.target_mean_ws_vert_cols)
                                         # ], how="vertical")
                     

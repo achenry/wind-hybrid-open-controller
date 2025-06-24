@@ -404,6 +404,7 @@ class LookupBasedWakeSteeringController(ControllerBase):
         
         # NOTE: current_measurements collects measurements corresponding to current time step, NOT since last controller call if wind_dt < controller_dt
         # pass greedy angles to all non target turbines
+        
         current_nd_cos = np.cos(np.deg2rad(current_wind_directions))
         current_nd_sin = np.sin(np.deg2rad(current_wind_directions))
         
@@ -455,6 +456,7 @@ class LookupBasedWakeSteeringController(ControllerBase):
         use_filt = self.wind_dir_use_filt or self.wind_mag_use_filt
         if (((self.current_time - self.init_time).total_seconds() % self.controller_dt) == 0.0) \
             and ((use_filt and (self.current_time >= self.lpf_start_time)) or not use_filt):
+                
             if self.wind_forecast and self.wind_forecast.prediction_timedelta.total_seconds() > 0:
                 if self.uncertain:
                     forecasted_wind_field = self.wind_forecast.predict_distr(self.historic_measurements, self.current_time)
@@ -462,6 +464,17 @@ class LookupBasedWakeSteeringController(ControllerBase):
                     forecasted_wind_field = self.wind_forecast.predict_point(self.historic_measurements, self.current_time)
                 
                 forecasted_wind_field = forecasted_wind_field.with_columns(pl.col("time").cast(pl.Datetime(time_unit="ns")), cs.numeric().cast(pl.Float32))
+                
+                # forecasted_ws_horz = forecasted_wind_field.select([f"ws_horz_{self.idx2tid_mapping[i]}" for i in self.tgt_turbine_indices]).to_numpy()
+                # forecasted_ws_vert = forecasted_wind_field.select([f"ws_vert_{self.idx2tid_mapping[i]}" for i in self.tgt_turbine_indices]).to_numpy()   
+                # forecasted_wind_directions = 180.0 + np.rad2deg(
+                # np.arctan2(
+                #         forecasted_ws_horz, 
+                #         forecasted_ws_vert
+                #     )
+                # )
+                # forecasted_wind_magnitudes = (forecasted_ws_horz**2 + forecasted_ws_vert**2)**0.5
+                
                 single_forecasted_wind_field = forecasted_wind_field.filter(pl.col("time") == self.current_time + self.wind_forecast.prediction_timedelta)
                 
                 use_wind_forecast = True
@@ -478,7 +491,7 @@ class LookupBasedWakeSteeringController(ControllerBase):
                         ], 
                         how="vertical")\
                                 .filter(pl.col("time") > self.current_time)\
-                                    .group_by("time").agg(pl.all().last()) # predictions closer to time when made are probably more accurate
+                                    .group_by("time", maintain_order=True).agg(pl.all().last()) # predictions closer to time when made are probably more accurate
                 else:
                     self.forecasted_values = forecasted_wind_field.select(fcst_cols)
                 
@@ -530,8 +543,8 @@ class LookupBasedWakeSteeringController(ControllerBase):
                                                             .join(fcst_vals, on="time", how="left")\
                                                             .select(pl.col("time"), cs.numeric().interpolate(self.interpolation_method))
                                                             
-                    wind = pl.concat([hist_meas, fcst_vals], how="diagonal")\
-                            .select(pl.col("time"), cs.numeric().interpolate(self.interpolation_method))
+                    wind = pl.concat([hist_meas, fcst_vals], how="diagonal")
+                            # .select(pl.col("time"), cs.numeric().interpolate(self.interpolation_method))
                                         # forecasted_wind_field.select(["time"] + self.target_mean_ws_horz_cols + self.target_mean_ws_vert_cols)
                                         # ], how="vertical")
                     

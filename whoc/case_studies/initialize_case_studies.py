@@ -90,6 +90,7 @@ case_studies = {
                                         ]},
         "yaw_limits": {"group": 0, "vals": ["-15,15"]},
         "uncertain": {"group": 0, "vals": [False]},
+        
         "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController",
                                                   "GreedyController", "LookupBasedWakeSteeringController"]},
         "prediction_timedelta": {"group": 1, "vals": [210, 510, 0, 0]},
@@ -99,6 +100,13 @@ case_studies = {
             os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"),
         os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predGreedy.yaml"),
             os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
+        
+        # "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
+        # "prediction_timedelta": {"group": 1, "vals": [0]},
+        # "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
+        # "model_config_path": {"group": 1, "vals": [
+        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
+        
         "wind_forecast_class": {"group": 0, "vals": ["PerfectForecast"]}
     },
     # "baseline_controllers_noforecast_test_awaken": {
@@ -165,9 +173,12 @@ case_studies = {
                                     "use_lut_filtered_wind_mag": {"group": 5, "vals": [False, True]},                  
     },
     "baseline_controllers_perfect_forecaster_awaken": {
+        "n_horizon": {"group": 0, "vals": [0]},
         "controller_dt": {"group": 0, "vals": [5]},
-        "use_filtered_wind_dir": {"group": 0, "vals": [True]},
-        "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
+        "use_upstream_wind": {"group": 0, "vals": [True]},
+        "filter_floris_wind": {"group": 0, "vals": [False]},
+        "use_lut_filtered_wind_mag": {"group": 0, "vals": [True]},
+        "interpolation_method": {"group": 0, "vals": ["linear"]},
         "simulation_dt": {"group": 0, "vals": [1]},
         "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
         # "lut_path": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4_lut.csv"]},
