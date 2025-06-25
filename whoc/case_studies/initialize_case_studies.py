@@ -116,6 +116,10 @@ case_studies = {
         "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
         "simulation_dt": {"group": 0, "vals": [1]},
         "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
+        "use_upstream_wind": {"group": 0, "vals": [True]},
+        "filter_floris_wind": {"group": 0, "vals": [False]},
+        "use_lut_filtered_wind_mag": {"group": 0, "vals": [True]},
+        "interpolation_method": {"group": 0, "vals": ["nearest"]},
         # "lut_path": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4_lut.csv"]},
         "yaw_limits": {"group": 0, "vals": ["-15,15"]},
         "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController"]},
@@ -126,8 +130,8 @@ case_studies = {
         },
     "baseline_controllers_perfect_forecaster_flasc": {
         "controller_dt": {"group": 0, "vals": [60]},
-        "use_filtered_wind_dir": {"group": 0, "vals": [True]},
-        "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
+        # "use_filtered_wind_dir": {"group": 0, "vals": [True]},
+        # "use_lut_filtered_wind_dir": {"group": 0, "vals": [True]},
         "simulation_dt": {"group": 0, "vals": [60]},
         "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/smarteole_farm.yaml"]},
         "yaw_limits": {"group": 0, "vals": ["-15,15"]},
@@ -136,6 +140,9 @@ case_studies = {
         "uncertain": {"group": 0, "vals": [False]}, #, False]},
         "wind_forecast_class": {"group": 0, "vals": ["PerfectForecast"]},
         "prediction_timedelta": {"group": 2, "vals": [0, 60, 120, 180, 240, 300, 360, 420, 480, 540, 600, 660, 720, 780]},
+        "model_config_path": {"group": 1, "vals": [
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predGreedy.yaml"),
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predLUT.yaml")]}
         },
     "baseline_controllers_informer_forecasters_awaken": {
         "n_horizon": {"group": 0, "vals": [0]},
