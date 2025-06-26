@@ -59,7 +59,8 @@ if __name__ == "__main__":
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("-st", "--stoptime", default="auto")
     parser.add_argument("-ns", "--n_seeds", default="auto")
-    parser.add_argument("-ep", "--exclude_prediction", action="store_true")
+    parser.add_argument("-ip", "--include_prediction", action="store_true")
+    parser.add_argument("-ics", "--include_controller_signals", action="store_true")
     parser.add_argument("-m", "--multiprocessor", type=str, choices=["mpi", "cf"], help="which multiprocessing backend to use, omit for sequential processing", default=None)
     parser.add_argument("-sd", "--save_dir", type=str, default=os.path.join(os.getcwd(), "simulation_results"))
     parser.add_argument("-wf", "--wf_source", type=str, choices=["floris", "scada"], required=True)
@@ -193,7 +194,8 @@ if __name__ == "__main__":
                                                 use_tuned_params=True, 
                                                 model_config=model_config, wind_field_config=wind_field_config, 
                                                 ram_limit=args.ram_limit,
-                                                include_prediction=not args.exclude_prediction,
+                                                include_prediction=args.include_prediction,
+                                                include_controller_signals=args.include_controller_signals,
                                                 assigned_gpu=next(gpu_cycler) if gpu_cycler else None)
 
                         for c, d in enumerate(input_dicts)]
@@ -216,7 +218,8 @@ if __name__ == "__main__":
                                     skip_temps=args.skip_temps,
                                     turbine_signature=turbine_signature, tid2idx_mapping=tid2idx_mapping,
                                     use_tuned_params=True, model_config=model_config, ram_limit=args.ram_limit,
-                                    include_prediction=not args.exclude_prediction,
+                                    include_prediction=args.include_prediction,
+                                    include_controller_signals=args.include_controller_signals,
                                     assigned_gpu=next(gpu_cycler) if gpu_cycler else None)
     
     if args.postprocess_simulations:
@@ -629,11 +632,11 @@ if __name__ == "__main__":
                 # PLOT 1) Farm power of perfect forecaster vs prediction timedelta for different controllers
                 plot_power_vs_prediction_time(perfect_agg_df, args.save_dir, "perfect_forecaster_")
                 
-                plotting_cases = [("baseline_controllers_perfect_forecaster_flasc", str(baseline_agg_df.loc[(baseline_agg_df["controller_class"] == "GreedyController") & (baseline_agg_df["prediction_timedelta"] == pd.Timedelta(seconds=9*60))].index.get_level_values(1)[0])),
-                                    ("baseline_controllers_perfect_forecaster_flasc", str(baseline_agg_df.loc[(baseline_agg_df["controller_class"] == "LookupBasedWakeSteeringController") & (baseline_agg_df["prediction_timedelta"] == pd.Timedelta(seconds=9*60))].index.get_level_values(1)[0]))]
-                # FLASC has 7 turbines (1-7), using turbine 7 for control
-                # Controller configurations: "6," (0-based) = turbine 7 (1-based)
-                label_mapping = {"7": "Greedy", "6": "LUT Ds", "5": "LUT Us"}  # Fixed for FLASC 7-turbine layout
+                plotting_cases = [("baseline_controllers_svr_forecaster_test_awaken", str(11))]
+                # TODO can't have duplicate keys
+                label_mapping = {"5": "Greedy", "74": "LUT Ds", "75": "LUT Us"}
+                # "6,", "6,4"
+                # label_mapping = {"7": "Greedy", "5": "LUT Ds", "7": "LUT Us"}
                 plot_simulations(
                     time_series_df, plotting_cases, args.save_dir, include_power=True, 
                     legend_loc="outer", single_plot=False, label_mapping=label_mapping, seed_idx=0)

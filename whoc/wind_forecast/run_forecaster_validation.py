@@ -17,7 +17,7 @@ from functools import reduce
 from scipy.signal import lfilter
 
 import multiprocessing as mp
-mp.set_start_method(method="spawn", force=True)
+# from multiprocessing import get_context
 
 # from joblib import parallel_backend
 
@@ -25,7 +25,6 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
  
 from concurrent.futures import ProcessPoolExecutor
-import multiprocessing as mp
 
 from gluonts.evaluation import MultivariateEvaluator
 from gluonts.dataset.util import period_index
@@ -124,6 +123,8 @@ def transform_wind(inp_df, added_wm=None, added_wd=None):
 
 def make_predictions(forecaster, test_data, prediction_type, single_cg, save_path, assigned_gpu, ram_limit):
     
+    logging.info(f"Worker process {os.getpid()} sees POLARS_MAX_THREADS={os.environ.get('POLARS_MAX_THREADS')}")
+    
     if assigned_gpu:
         os.environ["CUDA_VISIBLE_DEVICES"] = str(assigned_gpu)
     
@@ -132,7 +133,6 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
     logging.info("Getting timestamps at which controller will call forecaster.")
     controller_times = test_data.gather_every(forecaster.n_controller).select(pl.col("time"))
     
-    test_data_time = test_data.select(pl.col("time"))
     if single_cg:
         splits = [test_data.select(pl.col("continuity_group").first()).item()]
         test_data = [test_data]
@@ -147,6 +147,8 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
     forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.model_key.capitalize()}Forecast"
     save_paths = []
     for d, ds in enumerate(test_data):
+        
+        test_data_time = ds["time"]
         
         start = ds.select(pl.col("time").first()).item()
         end = ds.select(pl.col("time").last()).item()
@@ -166,7 +168,8 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
             current_time = current_row["time"]
             
             # if current_time - start >= forecaster.context_timedelta:
-            logging.info(f"Predicting future wind field using {forecaster_name} with prediction_timedelta {forecaster.prediction_timedelta} at time {current_time}/{end} of split {splits[d]}.")
+            logging.info(f"Predicting {c} of {n_controller_times} future wind fields using {forecaster_name} with prediction_timedelta {forecaster.prediction_timedelta} at time {current_time}/{end} of split {splits[d]}.")
+            # logging.info(f"RAM 172 = {virtual_memory().percent}")
             if prediction_type == "distribution" and forecaster.is_probabilistic:
                 pred = forecaster.predict_distr(
                     ds.filter(pl.col("time") <= current_time), current_time)
@@ -184,46 +187,53 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                 pred = forecaster.predict_sample(
                     ds.filter(pl.col("time") <= current_time), current_time, n_samples=n_samples)
             
-            logging.info(f"pred['time'] = {pred.select("time")}")
-            logging.info(f"test_data_time = {test_data_time}")
-            pred = pred.with_columns(
-                test_idx=pl.lit(test_idx).cast(pl.Int32), 
-                continuity_group=pl.lit(splits[d]).cast(pl.Int32), 
-                time=pl.col("time").cast(pl.Datetime(time_unit="ns")))\
-                    .with_columns(cs.numeric().cast(pl.Float32))\
-                    .filter(pl.col("time").is_in(test_data_time))
+            # logging.info(f"RAM 190 = {virtual_memory().percent}")
+            
+            # logging.info(f"pred['time'] = {pred.select("time")}")
+            # logging.info(f"test_data_time = {test_data_time}")
+            pred = pred.with_columns(cs.numeric().cast(pl.Float32))\
+                       .with_columns(test_idx=pl.lit(test_idx).cast(pl.Int32),
+                              continuity_group=pl.lit(splits[d]).cast(pl.Int32))\
+                       .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
+            pred = pred.filter(pred["time"].is_in(test_data_time))
+            
+            # logging.info(f"RAM 200 = {virtual_memory().percent}")
             
             forecasts.append(pred)
             
             save_length += pred.select(pl.len()).item()
             
-            ram_used = virtual_memory().percent
             
-            if  (final := ((c == n_controller_times - 1) and (d == n_splits - 1))) or ((ram_used > ram_limit) and (save_length > 500)):
-                # sub_save_path = save_path.replace(".csv", f"_{splits[d]}_{n_saved}.csv")
+            if  (final := ((c == n_controller_times - 1) and (d == n_splits - 1))) or (((ram_used := virtual_memory().percent) > ram_limit) and (save_length > 500)):
+                logging.info(f"In save conditional.")
+                # sub_save_path = save_path.replace(".parquet", f"_{splits[d]}_{n_saved}.parquet")
                 if callable(save_path):
                     sp = save_path(splits[d])
                 else:
                     sp = save_path
-                temp_sp = sp.replace(".csv", "_temp.csv")
+                temp_sp = sp.replace(".parquet", "_temp.parquet")
                 save_paths.append(temp_sp)
-                logging.info(f"Used {ram_used}% RAM. Saving parquet of length {save_length} to {temp_sp}.")
                 
+                if not final:
+                    logging.info(f"Used {ram_used}% RAM. Saving parquet of length {save_length} to {temp_sp}.")
+                
+                logging.info(f"Concatenating forecasts.")
                 forecasts = pl.concat(forecasts, how="diagonal")
                 
                 # logging.info(f"diagonal concat for {save_path} columns = {forecasts.columns}")
                 logging.info(f"Writing result to file {temp_sp}.")
                 if not os.path.exists(temp_sp):
                     with open(temp_sp, mode="w") as fp:
-                        forecasts.write_csv(fp, include_header=True)
+                        forecasts.write_parquet(fp)
                     logging.info(f"File {temp_sp} has size {os.path.getsize(temp_sp)} after first write.")
                 else:
                     logging.info(f"File {temp_sp} has size {os.path.getsize(temp_sp)} before appending.")
-                    with open(temp_sp, mode="a") as fp:
-                        forecasts.write_csv(fp, include_header=False)
+                    # with open(temp_sp, mode="a") as fp:
+                    forecasts = pl.concat([pl.read_parquet(temp_sp), forecasts], how="vertical")
+                    with open(temp_sp, mode="w") as fp:
+                        forecasts.write_parquet(fp)
                     logging.info(f"File {temp_sp} has size {os.path.getsize(temp_sp)} after appending.")
-                    
-                # TODO code seems to hang here for multiprocessing on HPC
+                
                 n_saved += 1
                 forecasts = []
                 save_length = 0
@@ -236,7 +246,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
             raise Exception(f"{d}th dataset in data does not have sufficient data points, with {ds.select(pl.len()).item()}, to collect predictions after context_timedelta {forecaster.context_timedelta}")
     
     for temp_sp in save_paths:
-        final_sp = sp.replace("_temp.csv", ".csv")
+        final_sp = temp_sp.replace("_temp.parquet", ".parquet")
         logging.info(f"Moving final result to {final_sp}.")
         move(temp_sp, final_sp)
     
@@ -460,7 +470,8 @@ def plot_score_vs_forecaster(agg_df, metrics, ax_indices, prediction_intervals, 
     new_xticks = ["".join(l.split(" ")) if all(l.isupper() or l.isspace() for l in l) else l for l in new_xticks]
     
     for p in range(ax.axes.shape[1]):
-        ax.axes[0, p].set_title(f"Prediction Length {re.search('(?<=prediction_timedelta = )(\\d+)', ax.axes[0, p].title.get_text()).group()} sec")
+        pred_len = re.search('(?<=prediction_timedelta = )(\\d+)', ax.axes[0, p].title.get_text()).group()
+        ax.axes[0, p].set_title(f"Prediction Length {pred_len} sec")
         ax.axes[0, p].set_ylabel("")
         ax.axes[0, p].set_xlabel("Forecaster")
         ax.axes[0, p].set_xticklabels(new_xticks, rotation=25)
@@ -482,7 +493,7 @@ def plot_score_vs_forecaster(agg_df, metrics, ax_indices, prediction_intervals, 
     return fig
 
 if __name__ == "__main__":
-    
+    mp.set_start_method("spawn", force=True)
     parser = argparse.ArgumentParser(prog="ModelTuning")
     parser.add_argument("-mcnf", "--model_config", type=str, nargs="+",
                         help="Filepaths to model configurations with experiment, optuna, dataset, model, callbacks, trainer keys.")
@@ -625,6 +636,8 @@ if __name__ == "__main__":
     # base_model_config = model_configs[np.argsort([ctd + ptd for ctd, ptd in zip(context_timedeltas, prediction_timedeltas)])[-1]]
     
     test_data = []
+    cgs = []
+    joint_cgs = set()
     for mcnf in model_configs:
         data_module = DataModule(data_path=mcnf["dataset"]["data_path"], 
                                 normalization_consts_path=mcnf["dataset"]["normalization_consts_path"],
@@ -657,22 +670,39 @@ if __name__ == "__main__":
         
         logging.info("Sorting test datasets by duration.")
         data_module.test_dataset = sorted(data_module.test_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
+        
         if args.max_splits:
-            test_data.append(data_module.test_dataset[:args.max_splits])
-        else:
-            test_data.append(data_module.test_dataset)
+            data_module.test_dataset = data_module.test_dataset[:args.max_splits]
         
-        if args.max_steps:
-            assert args.max_steps >= int((max(context_timedeltas) + max(prediction_timedeltas)) / measurements_timedelta), f"max_steps, if provided, must allow for context_timedelta + max(prediction_timedelta) = {int((max(context_timedeltas) + max(prediction_timedeltas)) / measurements_timedelta)}"
-            test_data[-1] = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in test_data[-1]]
+        new_ds = []
+        for ds in data_module.test_dataset:
+            cg = ds["item_id"]
+            if cg not in cgs:
+                new_ds.append(ds)
+                cgs.append(cg)
+                # new_idx = -1
+                # new_pred_len = mcnf["dataset"]["prediction_length"]
+            else:
+                joint_cgs.add(int(re.search("(?<=SPLIT)\\d+", cg).group()))
+        
+        if len(new_ds) > 0:
+            
+            if args.max_steps:
+                assert args.max_steps >= int((max(context_timedeltas) + max(prediction_timedeltas)) / measurements_timedelta), f"max_steps, if provided, must allow for context_timedelta + max(prediction_timedelta) = {int((max(context_timedeltas) + max(prediction_timedeltas)) / measurements_timedelta)}"
+                new_ds = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in new_ds]
+            
+            test_data.append(new_ds)
+            
+            logging.info(f"Generating dataframe with prediction_timedelta {mcnf['dataset']['prediction_length']}.")
+            # save_path = os.path.join(os.path.dirname( base_model_config["dataset"]["data_path"]), "test_data.parquet")
+            test_data[-1] = generate_wind_field_df(test_data[-1], data_module.target_cols, data_module.feat_dynamic_real_cols)
+        
+            test_data[-1] = test_data[-1].with_columns(prediction_timedelta=pl.lit(mcnf["dataset"]["prediction_length"]))
     
-        logging.info(f"Generating dataframe with prediction_timedelta {mcnf['dataset']['prediction_length']}.")
-        # save_path = os.path.join(os.path.dirname( base_model_config["dataset"]["data_path"]), "test_data.parquet")
-        test_data[-1] = generate_wind_field_df(test_data[-1], data_module.target_cols, data_module.feat_dynamic_real_cols)
-        test_data[-1] = test_data[-1].with_columns(prediction_timedelta=pl.lit(mcnf["dataset"]["prediction_length"]))
-        
-        
+
+
     test_data = pl.concat(test_data, how="vertical")
+    test_data = test_data.with_columns(prediction_timedelta=pl.when(pl.col("continuity_group").is_in(joint_cgs)).then(pl.lit(-1)).otherwise(pl.col("prediction_timedelta")))
     # .write_parquet(save_path, statistics=False)
     # test_data = pl.scan_parquet(save_path)
     
@@ -725,8 +755,11 @@ if __name__ == "__main__":
         gpu_cycler = cycle(visible_gpus)
         
     else:
-        max_workers = MPI.COMM_WORLD.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
+        # max_workers = MPI.COMM_WORLD.Get_size() if args.multiprocessor == "mpi" else mp.cpu_count()
+        max_workers = int(os.environ.get("N_PROCESSES", mp.cpu_count()))
         gpu_cycler = None
+        
+    logging.info(f"Using max_workers={max_workers}.")
     
     if args.run_validation or args.run_processing:
         forecasters = []
@@ -818,7 +851,7 @@ if __name__ == "__main__":
         ## GENERATE KF PREVIEW 
         if "sf" in args.model:
             # tune this use single, longer, prediction time, since we have only identity state transition matrix, and must use final posterior only prediction
-            for ctd, ptd in zip(context_timedeltas, prediction_timedeltas):
+            for mncf, ctd, ptd in zip(model_configs, context_timedeltas, prediction_timedeltas):
                 
                 logging.info(f"Instantiating SpatialFilterForecast with context_timedelta = {ctd}, prediction_timedelta = {ptd} seconds.")
                 
@@ -831,7 +864,7 @@ if __name__ == "__main__":
                                                     tid2idx_mapping=tid2idx_mapping,
                                                     turbine_signature=turbine_signature,
                                                     use_tuned_params=False,
-                                                    kwargs=dict(n_neighboring_turbines=6))
+                                                    kwargs=dict(n_neighboring_turbines=mncf["model"]["sf"]["n_neighboring_turbines"]))
                 forecasters.append(forecaster)
             
         ## GENERATE ML PREVIEW
@@ -858,9 +891,14 @@ if __name__ == "__main__":
                                                         resample=False))
                     forecasters.append(forecaster)
         
-        continuity_groups = test_data.group_by("prediction_timedelta").agg(pl.col("continuity_group").unique())
-        continuity_groups = {row["prediction_timedelta"]: row["continuity_group"] for row in continuity_groups.iter_rows(named=True)}
-    
+    continuity_groups = test_data.group_by("prediction_timedelta").agg(pl.col("continuity_group").unique())
+    continuity_groups = {row["prediction_timedelta"]: row["continuity_group"] for row in continuity_groups.iter_rows(named=True)}
+    if -1 in continuity_groups:
+        joint_cgs = continuity_groups[-1]
+        del continuity_groups[-1]
+        for k in continuity_groups:
+            continuity_groups[k] += joint_cgs
+            
     if args.run_validation:
         validation_to_run = []
         for forecaster in forecasters:
@@ -871,23 +909,27 @@ if __name__ == "__main__":
                                 str(prediction_timedelta))
             os.makedirs(save_dir, exist_ok=True)
             for c, cg in enumerate(continuity_groups[prediction_timedelta]):
-                save_path = os.path.join(save_dir, f"forecast_{cg}.csv")
+                save_path = os.path.join(save_dir, f"forecast_{cg}.parquet")
                 
                 if args.rerun_validation or not os.path.exists(save_path):
                     validation_to_run.append((forecaster, cg, save_path))
                     logging.info(f"Rerunning validation {forecaster_name, prediction_timedelta, save_path}")
                     
-                    temp_sp = save_path.replace(".csv", "_temp.csv")
+                    temp_sp = save_path.replace(".parquet", "_temp.parquet")
                     if os.path.exists(temp_sp):
-                        logging.info(f"Removing existing file {temp_sp}.")
+                        logging.info(f"Removing existing temp file {temp_sp}.")
                         os.remove(temp_sp)
+                    
+                    if os.path.exists(save_path):
+                        logging.info(f"Removing existing final file {save_path}.")
+                        os.remove(save_path)
                     
                     # if os.path.exists(save_path):
                     #     logging.info(f"Removing existing file {save_path}.")
                     #     os.remove(save_path)
                 # elif os.path.exists(save_path):
                 #     # TODO also delete existing files if not rerun_validation but existing files have different number of time steps
-                #     forecast_df = pl.scan_csv(save_path, glob=True, try_parse_dates=True)\
+                #     forecast_df = pl.scan_parquet(save_path, glob=True, try_parse_dates=True)\
                 #                     .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
                     # if (n_forecasted_timestamps := forecast_df.select(pl.col("time").n_unique()).collect().item()) < (n_true_timestamps := test_data.select(pl.col("time").n_unique()).item() - 1):
                     #     validation_to_run.append((forecaster, cg, save_path))
@@ -904,17 +946,20 @@ if __name__ == "__main__":
             elif args.multiprocessor == "cf":
                 # max_workers = mp.cpu_count()
                 executor = ProcessPoolExecutor(max_workers=max_workers,
-                                                mp_context=mp.get_context("spawn"),
-                                                max_tasks_per_child=1)
+                                             mp_context=mp.get_context("spawn"))
+                                                # max_tasks_per_child=1)
+                # executor = get_context("spawn").Pool()
             
             logging.info(f"Running generate_forecaster_results with multiprocessor {args.multiprocessor} with {max_workers} workers.")
             with executor as ex:
-                test_futures = [ex.submit(make_predictions, forecaster=forecaster,  
-                                    test_data=test_data.filter((pl.col("continuity_group") == cg) & (pl.col("prediction_timedelta") == forecaster.prediction_timedelta.total_seconds())), 
-                                    prediction_type=args.prediction_type, single_cg=True, 
-                                    save_path=save_path,
-                                    assigned_gpu=next(gpu_cycler) if gpu_cycler else None, 
-                                    ram_limit=args.ram_limit) for forecaster, cg, save_path in validation_to_run]
+                test_futures = [ex.submit(
+                    make_predictions, 
+                        forecaster=forecaster,  
+                        test_data=test_data.filter((pl.col("continuity_group") == cg) & (pl.col("prediction_timedelta").is_in([forecaster.prediction_timedelta.total_seconds(), -1.0]))), 
+                        prediction_type=args.prediction_type, single_cg=True, 
+                        save_path=save_path,
+                        assigned_gpu=next(gpu_cycler) if gpu_cycler else None, 
+                        ram_limit=args.ram_limit) for forecaster, cg, save_path in validation_to_run]
                         
                 res = [fut.result() for fut in test_futures]
                 
@@ -925,7 +970,7 @@ if __name__ == "__main__":
             for forecaster, cg, save_path in validation_to_run:
                 make_predictions(
                     forecaster=forecaster, 
-                    test_data=test_data.filter((pl.col("continuity_group") == cg) & (pl.col("prediction_timedelta") == forecaster.prediction_timedelta.total_seconds())),
+                    test_data=test_data.filter((pl.col("continuity_group") == cg) & (pl.col("prediction_timedelta").is_in([forecaster.prediction_timedelta.total_seconds(), -1.0]))),
                     prediction_type=args.prediction_type, single_cg=True,
                     # save_path=lambda cg: forecast_paths[continuity_groups.index(cg)],
                     save_path=save_path,
@@ -942,17 +987,17 @@ if __name__ == "__main__":
                                 forecaster_name,
                                 str(prediction_timedelta))
             
-            # forecast_path = os.path.join(save_dir, f"forecast_*.csv")
+            # forecast_path = os.path.join(save_dir, f"forecast_*.parquet")
                 
             # logging.info(f"Loading forecast_df from {forecast_path}.")
-            # forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
+            # forecast_df = pl.read_parquet(forecast_path, glob=True, try_parse_dates=True)\
             #                 .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
             results.append({
                 "forecaster_name": forecaster_name,
                 "prediction_timedelta": forecaster.prediction_timedelta.total_seconds(),
                 # "forecast_df": forecast_df
             })
-            # logging.info(f"Finished scanning CSV files at {forecast_path}. Found {forecast_df.select(pl.col('continuity_group').unique()).to_numpy().flatten()} continuity_groups.")
+            # logging.info(f"Finished scanning parquet files at {forecast_path}. Found {forecast_df.select(pl.col('continuity_group').unique()).to_numpy().flatten()} continuity_groups.")
     # TODO possible to replace long_df with reading from multiple files via glob?  
     if args.run_processing and RUN_ONCE:
         # Generate agg_metrics for each forecaster
@@ -964,14 +1009,14 @@ if __name__ == "__main__":
                                     forecaster_name,
                                     str(int(prediction_timedelta)))
             
-            forecast_path = os.path.join(save_dir, "forecast_*.csv")
+            forecast_path = os.path.join(save_dir, "forecast_*.parquet")
             
             logging.info(f"Loading forecast_df from {forecast_path}.")
             # schema_overrides={"test_idx": pl.Int32, "continuity_group": pl.Int32}
-            forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
-                        .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns"))) 
+            forecast_df = pl.read_parquet(forecast_path, glob=True)\
+                        .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
             available_fc_cgs = forecast_df.select(pl.col('continuity_group').unique()).to_numpy().flatten().astype(int)
-            logging.info(f"Finished scanning CSV files at {forecast_path}. Found {available_fc_cgs} continuity_groups.")   
+            logging.info(f"Finished reading parquet files at {forecast_path}. Found {available_fc_cgs} continuity_groups.")   
             
             if prediction_timedelta in unique_cgs:
                 unique_cgs[prediction_timedelta] = unique_cgs[prediction_timedelta].intersection(available_fc_cgs)
@@ -988,15 +1033,16 @@ if __name__ == "__main__":
                                     forecaster_name,
                                     str(int(prediction_timedelta)))
             
-            forecast_path = os.path.join(save_dir, "forecast_*.csv")
-            agg_metric_path = os.path.join(save_dir, "agg_metrics.csv") 
+            forecast_path = os.path.join(save_dir, "forecast_*.parquet")
+            agg_metric_path = os.path.join(save_dir, "agg_metrics.parquet") 
             
             logging.info(f"Loading forecast_df from {forecast_path}.")
             # schema_overrides={"test_idx": pl.Int32, "continuity_group": pl.Int32})\
-            forecast_df = pl.read_csv(forecast_path, glob=True, try_parse_dates=True)\
-                        .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns"))) 
+            forecast_df = pl.read_parquet(forecast_path, glob=True)\
+                        .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
+                        
             available_fc_cgs = set(forecast_df.select(pl.col('continuity_group').unique()).to_numpy().flatten())
-            logging.info(f"Finished scanning CSV files at {forecast_path}. Found {available_fc_cgs} continuity_groups.")
+            logging.info(f"Finished reading parquet files at {forecast_path}. Found {available_fc_cgs} continuity_groups.")
             
             # make sure comparing common continuity groups
             logging.info(f"Filtering continuity groups to {unique_cgs[prediction_timedelta]}.")
@@ -1005,21 +1051,22 @@ if __name__ == "__main__":
             # recomputes agg metrics if existing agg_metric_path doesn't contain all cgs
             if os.path.exists(agg_metric_path):
                 logging.info(f"Loading agg_metrics from {agg_metric_path}.")
-                agg_metrics =  pl.read_csv(agg_metric_path, schema_overrides={"turbine_id": pl.String, "test_idx": pl.Int32, "continuity_group": pl.Int32})
+                agg_metrics =  pl.scan_parquet(agg_metric_path, schema_overrides={"turbine_id": pl.String, "test_idx": pl.Int32, "continuity_group": pl.Int32})\
+                                 .collect()
                 available_agg_cgs = set(agg_metrics.select(pl.col('continuity_group').unique()).to_numpy().flatten())
-                logging.info(f"Finished scanning CSV file at {agg_metric_path}. Found {available_agg_cgs} continuity groups.")
+                logging.info(f"Finished scanning parquet file at {agg_metric_path}. Found {available_agg_cgs} continuity groups.")
             
             # if available agg_metrics contains all the continuity groups we require
             if (available_agg_cgs != unique_cgs[prediction_timedelta]) and unique_cgs[prediction_timedelta].issubset(available_agg_cgs):
                 agg_metrics = agg_metrics.filter(pl.col("continuity_group").is_in(unique_cgs[prediction_timedelta]))
-                agg_metrics.write_csv(agg_metric_path)
+                agg_metrics.write_parquet(agg_metric_path)
                 available_agg_cgs = set(agg_metrics.select(pl.col('continuity_group').unique()).to_numpy().flatten())
 
             if args.rerun_validation or not os.path.exists(agg_metric_path) or (available_agg_cgs != unique_cgs[prediction_timedelta]):
                 agg_metrics = generate_forecaster_agg_results(forecaster, 
                                                               forecast_df, 
                                                               test_data.filter(pl.col("continuity_group").is_in(unique_cgs[prediction_timedelta])), data_module, args.prediction_type)
-                agg_metrics.write_csv(agg_metric_path)
+                agg_metrics.write_parquet(agg_metric_path)
 
             results[f]["agg_metrics"] = agg_metrics
         
@@ -1035,16 +1082,16 @@ if __name__ == "__main__":
         turbine_ids = ["5", "74", "75"]
         best_cg = 9
         
-        true_long_path = os.path.join(validation_save_dir, f"true_long_df_{args.run_name}.csv")
+        true_long_path = os.path.join(validation_save_dir, f"true_long_df_{args.run_name}.parquet")
         if args.rerun_validation or not os.path.exists(true_long_path):
             test_data.unpivot(index=["time", "continuity_group"], variable_name="feature", value_name="value")\
                                          .with_columns(turbine_id=pl.col("feature").str.extract(f"(_)({forecaster.turbine_signature})$", group_index=2),
                                                        feature=pl.col("feature").str.extract(f"(.*)(_)({forecaster.turbine_signature})$", group_index=1),
                                                        data_type=pl.lit("True"))\
-                                         .write_csv(true_long_path)
+                                         .write_parquet(true_long_path)
         
-        true_long = pl.read_csv(true_long_path, schema_overrides={"turbine_id": pl.String, "test_idx": pl.Int32, "continuity_group": pl.Int32}, glob=True, try_parse_dates=True)\
-                        .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
+        true_long = pl.scan_parquet(true_long_path, schema_overrides={"turbine_id": pl.String, "test_idx": pl.Int32, "continuity_group": pl.Int32}, glob=True)\
+                        .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns"))).collect()
         
         # plot continuity group with best rmse score
         PLOT_INDIVIDUAL = True
@@ -1062,10 +1109,10 @@ if __name__ == "__main__":
                 value_vars = ["nd_cos", "nd_sin", "ws_horz", "ws_vert"]
                 target_vars = ["ws_horz", "ws_vert"]
             
-            forecast_long_path = os.path.join(save_dir, "long_df.csv")
-            if True or args.rerun_validation or not os.path.exists(forecast_long_path):
-                forecast_path = os.path.join(save_dir, "forecast_*.csv")
-                forecast_df = pl.scan_csv(forecast_path, glob=True, try_parse_dates=True)\
+            forecast_long_path = os.path.join(save_dir, "long_df.parquet")
+            if args.rerun_validation or not os.path.exists(forecast_long_path):
+                forecast_path = os.path.join(save_dir, "forecast_*.parquet")
+                forecast_df = pl.scan_parquet(forecast_path, glob=True)\
                             .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
                 forecast_df.filter(pl.col("continuity_group") == best_cg)\
                     .select(["time", "continuity_group", "test_idx"] + [cs.ends_with(f"_{tid}") for tid in turbine_ids]).collect()\
@@ -1075,14 +1122,14 @@ if __name__ == "__main__":
                                                        data_type=pl.lit("Forecast"), 
                                                        forecaster=pl.lit(forecaster_name),
                                                        prediction_timedelta=pl.lit(prediction_timedelta))\
-                                         .write_csv(forecast_long_path)
+                                         .write_parquet(forecast_long_path)
             
                
             # forecast_df = forecast_df.with_columns(prediction_timedelta=pl.lit(prediction_timedelta))
-            # forecast_df.write_csv(forecast_long_path)
+            # forecast_df.write_parquet(forecast_long_path)
                 
             forecasts_long.append(
-                pl.scan_csv(forecast_long_path, schema_overrides={"turbine_id": pl.String}, glob=True, try_parse_dates=True)\
+                pl.scan_parquet(forecast_long_path, schema_overrides={"turbine_id": pl.String}, glob=True)\
                         .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns"))))
             
             # best_cg = agg_df.filter((pl.col("forecaster") == forecaster_name) 
