@@ -126,7 +126,6 @@ date +"%Y-%m-%d %H:%M:%S"
 # Note: Reduced memory limit and use single-threaded Polars to avoid conflicts
 export POLARS_MAX_THREADS=1
 python run_case_studies.py 21 \
-    --exclude_prediction \
     --multiprocessor cf \
     -rs \
     -ps \
