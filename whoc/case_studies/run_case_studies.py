@@ -545,7 +545,7 @@ if __name__ == "__main__":
                         legend_loc="outer", single_plot=False, label_mapping=label_mapping,
                         fig_label_features=fig_label_features) 
             
-            
+            # NOTE USE THIS CONDITINOAL TO CHECK THE BEST PARAMETERS FOUND IN TERMS OF FAMR POWER FOR A SWEEP OVER PARAMS E.G. BEST PREDICTION HORIZON
             if (case_families.index("baseline_controllers_perfect_forecaster_awaken") in args.case_ids
                 or case_families.index("baseline_controllers_perfect_forecaster_flasc") in args.case_ids
                 or case_families.index("baseline_controllers_forecasters_test_awaken") in args.case_ids

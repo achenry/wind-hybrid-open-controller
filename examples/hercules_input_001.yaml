@@ -63,7 +63,7 @@ controller:
   yaw_increment: 0.05 # degrees
   lpf_start_time: 180.0 # seconds
   wind_dir_lpf_time_const: 30 # sec
-  wind_mag_lpf_time_const: 60 # sec
+  wind_mag_lpf_time_const: 30 # sec
   deadband_thr: 8 # degrees
   controller_dt: 15 # sec
   n_horizon: 24 # 24
@@ -104,6 +104,7 @@ controller:
   use_upstream_wind: True # given selection of target_turbine_indices, whether to use upstream turbine (vs mean) to feed to FLORIS and to LUT
   filter_floris_wind: False
   interpolation_method: linear # linear or nearest
+  use_last_fcst_only: False # whether to use only the last forecasted values after the current time step, or all forecasted values from the current time step
 # TODO move model params to training config
 wind_forecast:
   context_timedelta: 600 # seconds
