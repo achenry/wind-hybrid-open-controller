@@ -324,23 +324,24 @@ case_studies = {
     },
     "baseline_controllers_baseline_perfect0_forecasters_awaken": {
         "n_horizon": {"group": 0, "vals": [0]},
+        "use_last_fcst_only": {"group": 0, "vals": [True]},
         "controller_dt": {"group": 0, "vals": [5]},
         "use_upstream_wind": {"group": 0, "vals": [True]},
-        "filter_floris_wind": {"group": 0, "vals": [False]},
         "use_lut_filtered_wind_mag": {"group": 0, "vals": [True]},
-        "interpolation_method": {"group": 0, "vals": ["nearest"]},
         "simulation_dt": {"group": 0, "vals": [1]},
         "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
         "lut_path": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4_lut.csv"]},
         "yaw_limits": {"group": 0, "vals": ["-15,15"]},
         "uncertain": {"group": 0, "vals": [False]},
-        "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
-        "prediction_timedelta": {"group": 1, "vals": [0, 0]},
-        "target_turbine_indices": {"group": 1, "vals": ["74,73", "4,"]},
+        "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController"]},
+        "prediction_timedelta": {"group": 1, "vals": [60, 60]},
+        "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73"]},
         "model_config_path": {"group": 1, "vals": [
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"),
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predGreedy.yaml")]},
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predGreedy.yaml"),
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
         "wind_forecast_class": {"group": 2, "vals": ["PerfectForecast"]},
+        "filter_floris_wind": {"group": 3, "vals": [False, True]},
+        "interpolation_method": {"group": 4, "vals": ["nearest", "linear"]},
     },
     "baseline_controllers_baseline_prob_forecasters_awaken": {
         "n_horizon": {"group": 0, "vals": [0]},
@@ -796,7 +797,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             # reverse the order to start with the shortest
             wind_field_ts = wind_field_ts[:n_seeds]
             wind_field_ts.sort(reverse=False, key=lambda df: df.select(pl.col("time").last() - pl.col("time").first()).item()) 
-            logging.info(f"Durations in wind_field_ts = {[df.select((pl.col('time').last() - pl.col('time').first())).item() for df in wind_field_ts]}")
+            logging.info(f"Durations in wind_field_ts = {[np.round(df.select((pl.col('time').last() - pl.col('time').first())).item().total_seconds() / 3600, 2) for df in wind_field_ts]} hours")
         else:
             n_seeds = len(wind_field_ts)
         
