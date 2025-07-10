@@ -73,6 +73,7 @@ class GreedyController(ControllerBase):
         self.wind_mag_lpf_alpha = np.exp(-(1 / simulation_input_dict["controller"]["wind_mag_lpf_time_const"]) * simulation_input_dict["simulation_dt"])
         self.deadband_thr = simulation_input_dict["controller"]["deadband_thr"]
         self.interpolation_method = simulation_input_dict["controller"]["interpolation_method"]
+        self.use_last_fcst_only = simulation_input_dict["controller"]["use_last_fcst_only"]
         
         # self.deadband_thr = 0 
         self.wind_mag_use_filt = simulation_input_dict["controller"]["use_lut_filtered_wind_mag"]
@@ -132,8 +133,9 @@ class GreedyController(ControllerBase):
         # current_wind_directions = np.broadcast_to(self.wind_dir_ts[int(self.current_time // self.simulation_dt)], (self.n_turbines,))
         if self.wf_source == "floris":
             current_wind_directions = self.measurements_dict["wind_directions"]
-            current_ws_horz = self.measurements_dict["wind_speeds"] * np.sin(np.deg2rad(current_wind_directions + 180.0)) 
-            current_ws_vert = self.measurements_dict["wind_speeds"] * np.cos(np.deg2rad(current_wind_directions + 180.0))
+            current_wind_magnitudes = self.measurements_dict["wind_speeds"]
+            current_ws_horz = current_wind_magnitudes * np.sin(np.deg2rad(current_wind_directions + 180.0)) 
+            current_ws_vert = current_wind_magnitudes * np.cos(np.deg2rad(current_wind_directions + 180.0))
         else:
             current_row = self.wind_field_ts.filter(pl.col("time") == self.current_time)
             # self.wind_field_ts = self.wind_field_ts.filter(pl.col("time") > self.current_time)
@@ -145,7 +147,7 @@ class GreedyController(ControllerBase):
                      current_ws_vert
                 )
             )
-            # current_wind_magnitudes = (current_ws_horz**2 + current_ws_vert**2)**0.5
+            current_wind_magnitudes = np.sqrt(current_ws_horz**2 + current_ws_vert**2)
         
         if len(self.measurements_dict["wind_directions"]) == 0 or np.all(np.isclose(self.measurements_dict["wind_directions"], 0)):
             # yaw angles will be set to initial values
@@ -170,14 +172,15 @@ class GreedyController(ControllerBase):
         }).with_columns(pl.col("time").cast(pl.Datetime(time_unit="ns")), cs.numeric().cast(pl.Float32))
         
         # only get wind_dirs corresponding to target_turbine_ids
-        current_wind_directions = current_wind_directions[self.tgt_turbine_indices]
+        self.current_wind_directions = current_wind_directions[self.tgt_turbine_indices]
+        self.current_wind_magnitudes = current_wind_magnitudes[self.tgt_turbine_indices]
         
         if self.wind_mag_use_filt or self.wind_forecast:
             if self.historic_measurements is not None:
                 self.historic_measurements = pl.concat([self.historic_measurements, 
                                                         current_measurements.select(["time"] + self.ws_horz_cols + self.ws_vert_cols + self.nd_cos_cols + self.nd_sin_cols)
                                                         ], how="vertical")\
-                                                            .tail(max(int(np.ceil(self.wind_mag_lpf_time_const // self.simulation_dt) * 50), 
+                                                            .tail(max(int(np.ceil(self.wind_mag_lpf_time_const // self.simulation_dt) * 100), 
                                                                       self.wind_forecast.n_context))
             else:
                 self.historic_measurements = current_measurements.select(["time"] + self.ws_horz_cols + self.ws_vert_cols + self.nd_cos_cols + self.nd_sin_cols)
@@ -209,15 +212,20 @@ class GreedyController(ControllerBase):
                 forecasted_wind_field = self.wind_forecast.predict_point(self.historic_measurements, self.current_time)\
                                             .with_columns(pl.col("time").cast(pl.Datetime(time_unit="ns")), cs.numeric().cast(pl.Float32))
                 
+                if self.use_last_fcst_only:
+                    # if we are using only the last forecasted values, filter the forecasted wind field to only include the last prediction
+                    forecasted_wind_field = forecasted_wind_field.filter(pl.col("time") == self.current_time + self.prediction_timedelta_stored)
+                
+                # TESTING ONLY
                 # forecasted_ws_horz = forecasted_wind_field.select([f"ws_horz_{self.idx2tid_mapping[i]}" for i in self.tgt_turbine_indices]).to_numpy()
                 # forecasted_ws_vert = forecasted_wind_field.select([f"ws_vert_{self.idx2tid_mapping[i]}" for i in self.tgt_turbine_indices]).to_numpy()   
-                # forecasted_wind_directions = 180.0 + np.rad2deg(
+                # self.forecasted_wind_directions = 180.0 + np.rad2deg(
                 # np.arctan2(
                 #         forecasted_ws_horz, 
                 #         forecasted_ws_vert
                 #     )
                 # )
-                # forecasted_wind_magnitudes = (forecasted_ws_horz**2 + forecasted_ws_vert**2)**0.5
+                # self.forecasted_wind_magnitudes = np.sqrt(forecasted_ws_horz**2 + forecasted_ws_vert**2)
                                             
                 single_forecasted_wind_field = forecasted_wind_field.filter(pl.col("time") == self.current_time + self.wind_forecast.prediction_timedelta)
                 use_wind_forecast = True
@@ -248,7 +256,7 @@ class GreedyController(ControllerBase):
                     if self.wind_forecast:
                         logging.info(f"unfiltered forecasted wind directions = {wind_dirs}")
                     else:
-                        logging.info(f"unfiltered current wind directions = {current_wind_directions}")
+                        logging.info(f"unfiltered current wind directions = {self.current_wind_directions}")
                 
             else:
                 # use filtered wind direction and speed
@@ -263,19 +271,23 @@ class GreedyController(ControllerBase):
                 else:
                     last_historic_time = hist_meas.select(pl.col("time").last()).item()
                     fcst_vals = self.forecasted_values.sort("time")
+                    # first_forecasted_time = fcst_vals.select(pl.col("time").first()).item()
                     last_forecasted_time = fcst_vals.select(pl.col("time").last()).item()
                     
+                    # TESTING ONLY
+                    # assert last_historic_time == self.current_time
+                    # assert (last_forecasted_time - last_historic_time) == self.prediction_timedelta_stored
+                    
                     sim_timedelta = timedelta(seconds=self.simulation_dt)
+                    # TODO interpolation doesn't work when starts after last_historic_time
                     fcst_vals = fcst_vals.select(
                                         pl.datetime_range(start=last_historic_time, end=last_forecasted_time,
                                                         interval=sim_timedelta, time_unit="ns", closed="right").alias("time"))\
-                                                            .join(fcst_vals, on="time", how="left")\
-                                                            .select(pl.col("time"), cs.numeric().interpolate(self.interpolation_method))
+                                                            .join(fcst_vals, on="time", how="left")
+                                                            
                     
-                    wind = pl.concat([hist_meas, fcst_vals], how="diagonal")
-                            # .select(pl.col("time"), cs.numeric().interpolate(self.interpolation_method))
-                                        # forecasted_wind_field.select(["time"] + self.target_mean_ws_horz_cols + self.target_mean_ws_vert_cols)
-                                        # ], how="vertical")
+                    wind = pl.concat([hist_meas, fcst_vals], how="diagonal")\
+                             .select(pl.col("time"), cs.numeric().interpolate(self.interpolation_method))
                     
                     assert wind.select((pl.col("time").diff().slice(1) == sim_timedelta).all()).item() \
                         and (wind.select(pl.col("time").last()).item() == single_forecasted_wind_field.select(pl.col("time").last()).item()), "DataFrame passed to low pass filter must be continuous, with sampling time equal to simulation timestep, and must end on last forecasted value."
@@ -289,7 +301,7 @@ class GreedyController(ControllerBase):
                         unfilt_wind_dirs = 180.0 + np.rad2deg(np.arctan2(wind_u, wind_v))
                         logging.info(f"unfiltered forecasted wind directions = {unfilt_wind_dirs[-1, :]}")
                     else:
-                        logging.info(f"unfiltered current wind directions = {current_wind_directions}")
+                        logging.info(f"unfiltered current wind directions = {self.current_wind_directions}")
                 
                                
                 if self.wind_mag_use_filt:

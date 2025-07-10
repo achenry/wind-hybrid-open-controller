@@ -60,6 +60,8 @@ class LookupBasedWakeSteeringController(ControllerBase):
         self.wind_mag_lpf_alpha = np.exp(-(1 / simulation_input_dict["controller"]["wind_mag_lpf_time_const"]) * simulation_input_dict["simulation_dt"])
         self.deadband_thr = simulation_input_dict["controller"]["deadband_thr"]
         self.interpolation_method = simulation_input_dict["controller"]["interpolation_method"]
+        self.use_last_fcst_only = simulation_input_dict["controller"]["use_last_fcst_only"]
+        
         # self.deadband_thr = 0
         self.floris_input_file = simulation_input_dict["controller"]["floris_input_file"]
         self.yaw_limits = simulation_input_dict["controller"]["yaw_limits"]
@@ -420,8 +422,8 @@ class LookupBasedWakeSteeringController(ControllerBase):
         }).with_columns(pl.col("time").cast(pl.Datetime(time_unit="ns")), cs.numeric().cast(pl.Float32))
         
         # only get wind_dirs corresponding to target_turbine_ids
-        current_wind_directions = current_wind_directions[self.tgt_turbine_indices]
-        current_wind_magnitudes = current_wind_magnitudes[self.tgt_turbine_indices]
+        self.current_wind_directions = current_wind_directions[self.tgt_turbine_indices]
+        self.current_wind_magnitudes = current_wind_magnitudes[self.tgt_turbine_indices]
         
         # need historic measurements for filter or for wind forecast
         if self.wind_dir_use_filt or self.wind_mag_use_filt or self.wind_forecast:
@@ -432,7 +434,7 @@ class LookupBasedWakeSteeringController(ControllerBase):
                                                        how="vertical")\
                                                             .tail(max(int(np.ceil(
                                                                 max(self.wind_dir_lpf_time_const, self.wind_mag_lpf_time_const) 
-                                                                // self.simulation_dt) * 50), self.wind_forecast.n_context))
+                                                                // self.simulation_dt) * 100), self.wind_forecast.n_context))
             else:
                 self.historic_measurements = current_measurements.select(["time"] + self.ws_horz_cols + self.ws_vert_cols + self.nd_cos_cols + self.nd_sin_cols)
                 
@@ -465,15 +467,20 @@ class LookupBasedWakeSteeringController(ControllerBase):
                 
                 forecasted_wind_field = forecasted_wind_field.with_columns(pl.col("time").cast(pl.Datetime(time_unit="ns")), cs.numeric().cast(pl.Float32))
                 
+                if self.use_last_fcst_only:
+                    # if we are using only the last forecasted values, filter the forecasted wind field to only include the last prediction
+                    forecasted_wind_field = forecasted_wind_field.filter(pl.col("time") == self.current_time + self.prediction_timedelta_stored)
+                
+                # TESTING ONLY
                 # forecasted_ws_horz = forecasted_wind_field.select([f"ws_horz_{self.idx2tid_mapping[i]}" for i in self.tgt_turbine_indices]).to_numpy()
                 # forecasted_ws_vert = forecasted_wind_field.select([f"ws_vert_{self.idx2tid_mapping[i]}" for i in self.tgt_turbine_indices]).to_numpy()   
-                # forecasted_wind_directions = 180.0 + np.rad2deg(
+                # self.forecasted_wind_directions = 180.0 + np.rad2deg(
                 # np.arctan2(
                 #         forecasted_ws_horz, 
                 #         forecasted_ws_vert
                 #     )
                 # )
-                # forecasted_wind_magnitudes = (forecasted_ws_horz**2 + forecasted_ws_vert**2)**0.5
+                # self.forecasted_wind_magnitudes = np.sqrt(forecasted_ws_horz**2 + forecasted_ws_vert**2)
                 
                 single_forecasted_wind_field = forecasted_wind_field.filter(pl.col("time") == self.current_time + self.wind_forecast.prediction_timedelta)
                 
@@ -511,8 +518,8 @@ class LookupBasedWakeSteeringController(ControllerBase):
                         logging.info(f"unfiltered forecasted wind directions = {wind_dirs}")
                         logging.info(f"unfiltered forecasted wind directions = {wind_mags}")
                     else:
-                        logging.info(f"unfiltered current wind directions = {current_wind_directions}")
-                        logging.info(f"unfiltered current wind directions = {current_wind_magnitudes}")
+                        logging.info(f"unfiltered current wind directions = {self.current_wind_directions}")
+                        logging.info(f"unfiltered current wind directions = {self.current_wind_magnitudes}")
                 
             else:
                 # use filtered wind direction, NOTE historic_measurements includes controller_dt steps into the future such that we can run simulation in time batches
@@ -534,19 +541,17 @@ class LookupBasedWakeSteeringController(ControllerBase):
                     last_historic_time = hist_meas.select(pl.col("time").last()).item()
                     # first_forecasted_time = self.forecasted_values.select(pl.col("time").first()).item()
                     fcst_vals = self.forecasted_values.sort("time")
+                    # first_forecasted_time = fcst_vals.select(pl.col("time").first()).item()
                     last_forecasted_time = fcst_vals.select(pl.col("time").last()).item()
                     
                     sim_timedelta = timedelta(seconds=self.simulation_dt)
                     fcst_vals = fcst_vals.select(
                                         pl.datetime_range(start=last_historic_time, end=last_forecasted_time,
                                                         interval=sim_timedelta, time_unit="ns", closed="right").alias("time"))\
-                                                            .join(fcst_vals, on="time", how="left")\
-                                                            .select(pl.col("time"), cs.numeric().interpolate(self.interpolation_method))
+                                                            .join(fcst_vals, on="time", how="left")
                                                             
-                    wind = pl.concat([hist_meas, fcst_vals], how="diagonal")
-                            # .select(pl.col("time"), cs.numeric().interpolate(self.interpolation_method))
-                                        # forecasted_wind_field.select(["time"] + self.target_mean_ws_horz_cols + self.target_mean_ws_vert_cols)
-                                        # ], how="vertical")
+                    wind = pl.concat([hist_meas, fcst_vals], how="diagonal")\
+                             .select(pl.col("time"), cs.numeric().interpolate(self.interpolation_method))
                     
                     assert wind.select((pl.col("time").diff().slice(1) == sim_timedelta).all()).item() \
                         and (wind.select(pl.col("time").last()).item() == single_forecasted_wind_field.select(pl.col("time").last()).item()), "DataFrame passed to low pass filter must be continuous, with sampling time equal to simulation timestep, and must end on last forecasted value."
@@ -561,11 +566,34 @@ class LookupBasedWakeSteeringController(ControllerBase):
                         unfilt_wind_mags = (wind_u**2 + wind_v**2)**0.5
                         logging.info(f"unfiltered forecasted wind directions = {unfilt_wind_dirs[-1, :]}")
                         logging.info(f"unfiltered forecasted wind magnitudes = {unfilt_wind_mags[-1, :]}")
+                        del unfilt_wind_dirs, unfilt_wind_mags
                     else:
-                        logging.info(f"unfiltered current wind directions = {current_wind_directions}")
-                        logging.info(f"unfiltered current wind magnitudes = {current_wind_magnitudes}")
-                               
+                        logging.info(f"unfiltered current wind directions = {self.current_wind_directions}")
+                        logging.info(f"unfiltered current wind magnitudes = {self.current_wind_magnitudes}")
+                
+                
+                if self.target_turbine_indices != "all" and (len(self.target_turbine_indices) == 2):
+                    # feeds wind from feed just upstream turbine to LUT, could also do mean
+                    # upstream_turbine_idx = np.argsort(self.target_turbine_indices)[0]
+                    
+                    # rotate turbine coordinates based on most recent wind direction measurement
+                    # order turbines based on order of wind incidence
+                    layout_x = self.fi.layout_x
+                    layout_y = self.fi.layout_y
+                    
+                    wd = (180.0 + np.rad2deg(np.arctan2(wind_u[-1, :].mean(), wind_v[-1, :].mean()))) % 360.0
+                    layout_x_rot = (
+                        np.cos(np.deg2rad(wd + 180.0)) * layout_y
+                        + np.sin(np.deg2rad(wd + 180.0)) * layout_x
+                    )
+                    self.upstream_turbine_idx = np.argsort(layout_x_rot)[0]
+                             
                 if self.wind_mag_use_filt:
+                    # import matplotlib.pyplot as plt
+                    # fig, ax = plt.subplots(2, 1, sharex=True)
+                    # ax[0].plot(wind_u, linestyle="-")
+                    # ax[1].plot(wind_v, linestyle="-")
+                    
                     wind_u = np.array([self._first_ord_filter(wind_u[:, i], self.wind_mag_lpf_alpha)
                                                     for i in range(len(self.sorted_tids))]).T # [-int(self.controller_dt // self.simulation_dt), :]
                     wind_v = np.array([self._first_ord_filter(wind_v[:, i], self.wind_mag_lpf_alpha)
@@ -573,8 +601,9 @@ class LookupBasedWakeSteeringController(ControllerBase):
                 
                 # if (self.current_time - self.init_time).total_seconds() == 600: 
                 #     pass
-                    # import matplotlib.pyplot as plt
-                    # fig, ax = plt.subplots(2, 1, sharex=True)
+                    
+                    # ax[0].plot(wind_u, linestyle=":")
+                    # ax[1].plot(wind_v, linestyle=":")
                     
                     # ax[0].plot(wind.filter(pl.col("time") >= self.current_time)["time"], wind.filter(pl.col("time") >= self.current_time)[["ws_horz_74", "ws_horz_75"]])
                     # ax[1].plot(wind.filter(pl.col("time") >= self.current_time)["time"], wind.filter(pl.col("time") >= self.current_time)[["ws_vert_74", "ws_vert_75"]])
@@ -626,23 +655,8 @@ class LookupBasedWakeSteeringController(ControllerBase):
                 # feeds wind from feed just upstream turbine to LUT, could also do mean
                 # if self.use_upstream_wind:
                 if len(self.target_turbine_indices) == 2:
-                    # upstream_turbine_idx = np.argsort(self.target_turbine_indices)[0]
-                    
-                    # rotate turbine coordinates based on most recent wind direction measurement
-                    # order turbines based on order of wind incidence
-                    layout_x = self.fi.layout_x
-                    layout_y = self.fi.layout_y
-                    
-                    wd = (180.0 + np.rad2deg(np.arctan2(wind_u.mean(), wind_v.mean()))).mean()
-                    layout_x_rot = (
-                        np.cos(np.deg2rad(wd + 180.0)) * layout_y
-                        + np.sin(np.deg2rad(wd + 180.0)) * layout_x
-                    )
-                    upstream_turbine_idx = np.argsort(layout_x_rot)[0]
-                    logging.info(f"Using turbine idx {upstream_turbine_idx} as upstream turbine for input measurements to LUT at time {self.current_time}.")
-                    # if len(self.target_turbine_indices) > 2:
-                    #     logging.warning("There are more than 2 target turbines under study, but only the upstream wind direction is being used.")
-                    wd_inp, wm_inp, wd_stddev_inp = wind_dirs[upstream_turbine_idx], wind_mags[upstream_turbine_idx], wind_dir_stddevs[upstream_turbine_idx] if self.uncertain else None
+                    logging.info(f"Using turbine idx {self.upstream_turbine_idx} as upstream turbine for input measurements to LUT at time {self.current_time}.")
+                    wd_inp, wm_inp, wd_stddev_inp = wind_dirs[self.upstream_turbine_idx], wind_mags[self.upstream_turbine_idx], wind_dir_stddevs[self.upstream_turbine_idx] if self.uncertain else None
                 else:
                     logging.info(f"Using mean turbine measurements as input to LUT at time {self.current_time}.")
                     wd_inp, wm_inp, wd_stddev_inp = wind_dirs.mean(), wind_mags.mean(), wind_dir_stddevs.mean() if self.uncertain else None
