@@ -174,6 +174,7 @@ case_studies = {
     },
     "baseline_controllers_perfect_forecaster_awaken": {
         "n_horizon": {"group": 0, "vals": [0]},
+        "use_last_fcst_only": {"group": 0, "vals": [True]},
         "controller_dt": {"group": 0, "vals": [5]},
         "use_upstream_wind": {"group": 0, "vals": [True]},
         "filter_floris_wind": {"group": 0, "vals": [False]},

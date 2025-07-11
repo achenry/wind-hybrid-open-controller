@@ -652,30 +652,31 @@ def write_df(wf_source, wind_field_ts,
     # import matplotlib.pyplot as plt
     # fig, ax = plt.subplots(1, 1)
     
-    # ax.plot(results_data["Time"], results_data["TurbineYawAngle_74"], label="74 Yaw Angle", color="red", linestyle="-")
-    # ax.plot(results_data["Time"], results_data["TurbineYawAngle_75"], label="75 Yaw Angle", color="blue", linestyle="-")
-    
-    # u1 = np.sin(np.deg2rad(results_data["TurbineWindDir_74"] + 180.0)) * results_data["TurbineWindMag_74"]
-    # v1 = np.cos(np.deg2rad(results_data["TurbineWindDir_74"] + 180.0)) * results_data["TurbineWindMag_74"]
-    # u1 = first_ord_filter(u1[1:], alpha=np.exp(-(1 / simulation_input_dict["controller"]["wind_mag_lpf_time_const"]) * simulation_input_dict["simulation_dt"]))
-    # v1 = first_ord_filter(v1[1:], alpha=np.exp(-(1 / simulation_input_dict["controller"]["wind_mag_lpf_time_const"]) * simulation_input_dict["simulation_dt"]))
-    # wd1 = 180.0 + np.rad2deg(np.arctan2(u1, v1))
-    
-    # u2 = np.sin(np.deg2rad(results_data["TurbineWindDir_75"] + 180.0)) * results_data["TurbineWindMag_75"]
-    # v2 = np.cos(np.deg2rad(results_data["TurbineWindDir_75"] + 180.0)) * results_data["TurbineWindMag_75"]
-    # u2 = first_ord_filter(u2[1:], alpha=np.exp(-(1 / simulation_input_dict["controller"]["wind_mag_lpf_time_const"]) * simulation_input_dict["simulation_dt"]))
-    # v2 = first_ord_filter(v2[1:], alpha=np.exp(-(1 / simulation_input_dict["controller"]["wind_mag_lpf_time_const"]) * simulation_input_dict["simulation_dt"]))
-    # wd2 = 180.0 + np.rad2deg(np.arctan2(u2, v2))
-    # ax.plot(results_data["Time"][1:], wd1, label="74 Filt. Wind Dir.", color="red", linestyle=":")
-    # ax.plot(results_data["Time"][1:], wd2, label="75 Filt. Wind Dir.", color="blue", linestyle=":")
-    
-    # ax.plot(results_data["Time"], results_data["TurbineYawAngle_5"], label="5 Yaw Angle", color="blue", linestyle="-")
-    # u1 = np.sin(np.deg2rad(results_data["TurbineWindDir_5"] + 180.0)) * results_data["TurbineWindMag_5"]
-    # v1 = np.cos(np.deg2rad(results_data["TurbineWindDir_5"] + 180.0)) * results_data["TurbineWindMag_5"]
-    # u1 = first_ord_filter(u1[1:], alpha=np.exp(-(1 / simulation_input_dict["controller"]["wind_mag_lpf_time_const"]) * simulation_input_dict["simulation_dt"]))
-    # v1 = first_ord_filter(v1[1:], alpha=np.exp(-(1 / simulation_input_dict["controller"]["wind_mag_lpf_time_const"]) * simulation_input_dict["simulation_dt"]))
-    # wd1 = 180.0 + np.rad2deg(np.arctan2(u1, v1))
-    # ax.plot(results_data["Time"][1:], wd1, label="5 Filt. Wind Dir.", color="red", linestyle=":")
+    # if "TurbineYawAngle_74" in results_data.columns:
+    #     ax.plot(results_data["Time"], results_data["TurbineYawAngle_74"], label="74 Yaw Angle", color="red", linestyle="-")
+    #     ax.plot(results_data["Time"], results_data["TurbineYawAngle_75"], label="75 Yaw Angle", color="blue", linestyle="-")
+        
+    #     u1 = np.sin(np.deg2rad(results_data["TurbineWindDir_74"] + 180.0)) * results_data["TurbineWindMag_74"]
+    #     v1 = np.cos(np.deg2rad(results_data["TurbineWindDir_74"] + 180.0)) * results_data["TurbineWindMag_74"]
+    #     u1 = first_ord_filter(u1[1:], alpha=np.exp(-(1 / simulation_input_dict["controller"]["wind_mag_lpf_time_const"]) * simulation_input_dict["simulation_dt"]))
+    #     v1 = first_ord_filter(v1[1:], alpha=np.exp(-(1 / simulation_input_dict["controller"]["wind_mag_lpf_time_const"]) * simulation_input_dict["simulation_dt"]))
+    #     wd1 = 180.0 + np.rad2deg(np.arctan2(u1, v1))
+        
+    #     u2 = np.sin(np.deg2rad(results_data["TurbineWindDir_75"] + 180.0)) * results_data["TurbineWindMag_75"]
+    #     v2 = np.cos(np.deg2rad(results_data["TurbineWindDir_75"] + 180.0)) * results_data["TurbineWindMag_75"]
+    #     u2 = first_ord_filter(u2[1:], alpha=np.exp(-(1 / simulation_input_dict["controller"]["wind_mag_lpf_time_const"]) * simulation_input_dict["simulation_dt"]))
+    #     v2 = first_ord_filter(v2[1:], alpha=np.exp(-(1 / simulation_input_dict["controller"]["wind_mag_lpf_time_const"]) * simulation_input_dict["simulation_dt"]))
+    #     wd2 = 180.0 + np.rad2deg(np.arctan2(u2, v2))
+    #     ax.plot(results_data["Time"][1:], wd1, label="74 Filt. Wind Dir.", color="red", linestyle=":")
+    #     ax.plot(results_data["Time"][1:], wd2, label="75 Filt. Wind Dir.", color="blue", linestyle=":")
+    # else:
+    #     ax.plot(results_data["Time"], results_data["TurbineYawAngle_5"], label="5 Yaw Angle", color="blue", linestyle="-")
+    #     u1 = np.sin(np.deg2rad(results_data["TurbineWindDir_5"] + 180.0)) * results_data["TurbineWindMag_5"]
+    #     v1 = np.cos(np.deg2rad(results_data["TurbineWindDir_5"] + 180.0)) * results_data["TurbineWindMag_5"]
+    #     u1 = first_ord_filter(u1[1:], alpha=np.exp(-(1 / simulation_input_dict["controller"]["wind_mag_lpf_time_const"]) * simulation_input_dict["simulation_dt"]))
+    #     v1 = first_ord_filter(v1[1:], alpha=np.exp(-(1 / simulation_input_dict["controller"]["wind_mag_lpf_time_const"]) * simulation_input_dict["simulation_dt"]))
+    #     wd1 = 180.0 + np.rad2deg(np.arctan2(u1, v1))
+    #     ax.plot(results_data["Time"][1:], wd1, label="5 Filt. Wind Dir.", color="red", linestyle=":")
     
     # ax.legend()
     # TESTING END
