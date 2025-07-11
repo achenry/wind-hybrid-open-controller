@@ -319,6 +319,7 @@ if __name__ == "__main__":
                 # time_series_df = time_series_df.loc[time_series_df.index.get_level_values("CaseName").isin([str(i) for i in range(0, 20)]) | time_series_df.index.get_level_values("CaseName").isin([str(i) for i in range(20, 35)])]
                 
                 if args.reaggregate_simulations or not all(os.path.exists(os.path.join(args.save_dir, case_families[i], "agg_results_all.csv")) for i in args.case_ids):
+                    # trim time series to have common start/end time
                     max_ctx_steps = []
                     min_stop_time = np.inf
                     for i in args.case_ids:
@@ -547,6 +548,7 @@ if __name__ == "__main__":
             
             # NOTE USE THIS CONDITINOAL TO CHECK THE BEST PARAMETERS FOUND IN TERMS OF FAMR POWER FOR A SWEEP OVER PARAMS E.G. BEST PREDICTION HORIZON
             if (case_families.index("baseline_controllers_perfect_forecaster_awaken") in args.case_ids
+                or case_families.index("baseline_controllers_baseline_perfect0_forecasters_awaken") in args.case_ids
                 or case_families.index("baseline_controllers_perfect_forecaster_flasc") in args.case_ids
                 or case_families.index("baseline_controllers_forecasters_test_awaken") in args.case_ids
                 or case_families.index("baseline_controllers_informer_forecaster_test_awaken") in args.case_ids
@@ -575,11 +577,14 @@ if __name__ == "__main__":
                             continue
                         baseline_agg_df.loc[(baseline_agg_df.index.get_level_values("CaseFamily") == case_family) & 
                                             (baseline_agg_df.index.get_level_values("CaseName") == case_name), col] = full_config[col]
-
-                x = baseline_agg_df[[("FarmPower", "mean"), ("FarmPower", "std"), ("controller_class", ""), ("use_upstream_wind", ""), 
-                                     ("filter_floris_wind", ""), ("use_lut_filtered_wind_mag", ""), ("interpolation_method", "")]].reset_index(drop=True).sort_values(("FarmPower", "mean"), ascending=False)
-                x[[("FarmPower", "mean"), ("use_upstream_wind", ""), 
-                   ("filter_floris_wind", ""), ("use_lut_filtered_wind_mag", ""), ("interpolation_method", "")]]
+                
+                # sort cases by farm power averaged over seeds for each configuration
+                x = baseline_agg_df[[("FarmPower", "mean"), ("FarmPower", "std"), ("YawAngleChangeAbs", "mean"), ("controller_class", ""), ("use_upstream_wind", ""), 
+                                     ("filter_floris_wind", ""), ("use_lut_filtered_wind_mag", ""), ("interpolation_method", "")]]\
+                                         .reset_index(drop=True).sort_values(("FarmPower", "mean"), ascending=False)
+                x[[("FarmPower", "mean"), ("YawAngleChangeAbs", "mean"), 
+                   ("controller_class", ""), ("filter_floris_wind", ""), ("interpolation_method", "")]]
+                #    ("use_upstream_wind", ""), ("use_lut_filtered_wind_mag", "")]]
                 
                 # Find best farm power per wind seed
                 extra_args = baseline_agg_df[config_cols]
