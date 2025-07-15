@@ -306,9 +306,11 @@ if __name__ == "__main__":
                         new_time_series_df.append(pd.concat(new_case_family_time_series_df))
                         write_case_family_time_series_data(case_families[i], new_time_series_df[-1], args.save_dir)
             
-            if RUN_ONCE:    
+            if RUN_ONCE:
+                # time_series_df.loc[time_series_df["TurbinePower_75"].apply(lambda x: isinstance(x, str)), "TurbinePower_75"].iloc[0]
                 time_series_df = pd.concat(existing_time_series_df + new_time_series_df)
-                    
+                time_series_df = time_series_df.replace(to_replace=[None], value=np.nan)
+                
                 unique_seeds = time_series_df.groupby(["CaseFamily", "CaseName"], level=0)["WindSeed"].unique().values
                 common_seeds = set(unique_seeds[0])
                 for sds in unique_seeds[1:]:
@@ -320,8 +322,13 @@ if __name__ == "__main__":
                 
                 if args.reaggregate_simulations or not all(os.path.exists(os.path.join(args.save_dir, case_families[i], "agg_results_all.csv")) for i in args.case_ids):
                     # trim time series to have common start/end time
-                    max_ctx_steps = []
+                    max_ctx_time = []
                     min_stop_time = np.inf
+                    
+                    # find the minimum stop time for each wind seed to ensure length of time series used for aggregation is the uniform across cases
+                    min_stop_time_per_seed = time_series_df.groupby(["CaseFamily", "CaseName", "WindSeed"], group_keys=False)["Time"].max()\
+                                                           .groupby(["WindSeed"], group_keys=False).min()
+                    
                     for i in args.case_ids:
                         # for case_name in set([re.findall(r"(?<=case_)(.*)(?=_seed)", fn)[0] for fn in case_family_case_names[case_families[i]]]):
                         case_family_df = time_series_df.iloc[time_series_df.index.get_level_values("CaseFamily") == case_families[i], :]
@@ -337,17 +344,23 @@ if __name__ == "__main__":
                                     mcnf = yaml.safe_load(fp)
                             
                                 # longest_ctx_steps.append(int((pd.Timedelta(mcnf["dataset"]["context_length"], unit="s") / pd.Timedelta(row["simulation_dt"], unit="s"))))
-                                max_ctx_steps.append(int(mcnf["dataset"]["context_length"])) # in seconds
+                                max_ctx_time.append(int(mcnf["dataset"]["context_length"])) # in seconds
                                 
-                            max_ctx_steps.append(int(lpf_start_time))
-                            
-                        min_stop_time = min(min_stop_time, case_family_df.groupby(["CaseFamily", "CaseName", "WindSeed"], group_keys=False)["Time"].max().min())
-                    
-                    max_ctx_steps = max(max_ctx_steps)
+                            max_ctx_time.append(int(lpf_start_time)) # in seconds
+                        
+                    max_ctx_time = max(max_ctx_time)
                         
                 # truncate greatest context length at beginning
-                trunc_time_series_df = time_series_df.groupby(["CaseFamily", "CaseName"], group_keys=False).apply(lambda sub_df: sub_df.loc[sub_df["Time"] <= min_stop_time, :].iloc[max_ctx_steps:])
-                trunc_time_series_df = trunc_time_series_df.loc[trunc_time_series_df["WindSeed"].isin(common_seeds), :]
+                trunc_time_series_df = time_series_df.reset_index(drop=False).groupby(["CaseFamily", "CaseName", "WindSeed"], group_keys=True)
+                trunc_time_series_df = trunc_time_series_df.apply(
+                                          func=(lambda sub_df: sub_df[sub_df["Time"].between(max_ctx_time, min_stop_time_per_seed.iloc[sub_df.name[2]], inclusive="both")]),
+                                          include_groups=False)
+                trunc_time_series_df = trunc_time_series_df.reset_index(level="WindSeed", drop=False)
+                trunc_time_series_df = trunc_time_series_df[trunc_time_series_df["WindSeed"].isin(common_seeds)]
+                # trunc_time_series_df = trunc_time_series_df.droplevel("WindSeed")
+                # validate that there is a unique stop time for each wind seed
+                # trunc_time_series_df.groupby(["CaseFamily", "CaseName", "WindSeed"], group_keys=False)["Time"].max()\
+                #                                   .groupby(["WindSeed"], group_keys=False).unique()
             
                 new_agg_df = aggregate_time_series_data(
                                                 time_series_df=trunc_time_series_df,
@@ -587,27 +600,28 @@ if __name__ == "__main__":
                 #    ("use_upstream_wind", ""), ("use_lut_filtered_wind_mag", "")]]
                 
                 # Find best farm power per wind seed
-                extra_args = baseline_agg_df[config_cols]
-                extra_args.columns = extra_args.columns.droplevel(1)
-                time_series_df = pd.merge(time_series_df, extra_args, on=["CaseFamily", "CaseName"])
-                x = time_series_df.reset_index(drop=True)[["controller_class", "prediction_timedelta", "FarmPower", "Time", "WindSeed"]].set_index(["Time", "controller_class", "WindSeed"]).sort_values(["controller_class", "Time"])
-                
-                # get lowest end time available
-                end_times_per_seed = x.groupby(["WindSeed", "prediction_timedelta"]).apply(lambda x: x.sort_values("Time", ascending=True).tail(1)).reset_index(level=[0,1], drop=True).reset_index(0, drop=False)[["Time", "prediction_timedelta"]].groupby("WindSeed").agg("min")["Time"]
-                x = x.groupby("WindSeed", group_keys=False).apply(func=(lambda x: x.loc[x.index.get_level_values("Time") <= end_times_per_seed[x.index.get_level_values("WindSeed")[0]]]))
-                x = x[["prediction_timedelta", "FarmPower"]].groupby(["controller_class", "prediction_timedelta", "WindSeed"]).agg("mean").reset_index("prediction_timedelta")
-                zero_case = x.loc[x["prediction_timedelta"] == pd.Timedelta(seconds=0), :]
-                x = pd.merge(x, zero_case, on=["controller_class", "WindSeed"])
-                x["FarmPower_x"] = 100 * ((x["FarmPower_x"] / x["FarmPower_y"]) - 1)
-                
-                # find % increase in farm power for each controller class, prediction_timedelta, and WindSeed, averaged over all prediction_timedelta_values
-                x.loc[x["FarmPower_x"] > 0.5, :].groupby("controller_class", group_keys=False).apply(lambda x: x.sort_values("FarmPower_x", ascending=False))[["prediction_timedelta_x", "FarmPower_x"]] #.to_csv("/Users/ahenry/Desktop/perfect.csv")
-                
-                # find % increase in farm power for each controller class and Wind Seed, averaged over all prediction_timedelta_values
-                x.groupby(["controller_class", "WindSeed"])["FarmPower_x"].agg("mean").groupby("controller_class", group_keys=False).apply(lambda x: x.sort_values(ascending=False))
-                
-                # find % increase in farm power for each controller class and prediction_timedelta values, averaged over all Wind Seeds
-                x.groupby(["controller_class", "prediction_timedelta_x"])["FarmPower_x"].agg("mean").groupby("controller_class", group_keys=False).apply(lambda x: x.sort_values(ascending=False))
+                if False:
+                    extra_args = baseline_agg_df[config_cols]
+                    extra_args.columns = extra_args.columns.droplevel(1)
+                    time_series_df = pd.merge(time_series_df, extra_args, on=["CaseFamily", "CaseName"])
+                    x = time_series_df.reset_index(drop=True)[["controller_class", "prediction_timedelta", "FarmPower", "Time", "WindSeed"]].set_index(["Time", "controller_class", "WindSeed"]).sort_values(["controller_class", "Time"])
+                    
+                    # get lowest end time available
+                    end_times_per_seed = x.groupby(["WindSeed", "prediction_timedelta"]).apply(lambda x: x.sort_values("Time", ascending=True).tail(1)).reset_index(level=[0,1], drop=True).reset_index(0, drop=False)[["Time", "prediction_timedelta"]].groupby("WindSeed").agg("min")["Time"]
+                    x = x.groupby("WindSeed", group_keys=False).apply(func=(lambda x: x.loc[x.index.get_level_values("Time") <= end_times_per_seed[x.index.get_level_values("WindSeed")[0]]]))
+                    x = x[["prediction_timedelta", "FarmPower"]].groupby(["controller_class", "prediction_timedelta", "WindSeed"]).agg("mean").reset_index("prediction_timedelta")
+                    zero_case = x.loc[x["prediction_timedelta"] == pd.Timedelta(seconds=0), :]
+                    x = pd.merge(x, zero_case, on=["controller_class", "WindSeed"])
+                    x["FarmPower_x"] = 100 * ((x["FarmPower_x"] / x["FarmPower_y"]) - 1)
+                    
+                    # find % increase in farm power for each controller class, prediction_timedelta, and WindSeed, averaged over all prediction_timedelta_values
+                    x.loc[x["FarmPower_x"] > 0.5, :].groupby("controller_class", group_keys=False).apply(lambda x: x.sort_values("FarmPower_x", ascending=False))[["prediction_timedelta_x", "FarmPower_x"]] #.to_csv("/Users/ahenry/Desktop/perfect.csv")
+                    
+                    # find % increase in farm power for each controller class and Wind Seed, averaged over all prediction_timedelta_values
+                    x.groupby(["controller_class", "WindSeed"])["FarmPower_x"].agg("mean").groupby("controller_class", group_keys=False).apply(lambda x: x.sort_values(ascending=False))
+                    
+                    # find % increase in farm power for each controller class and prediction_timedelta values, averaged over all Wind Seeds
+                    x.groupby(["controller_class", "prediction_timedelta_x"])["FarmPower_x"].agg("mean").groupby("controller_class", group_keys=False).apply(lambda x: x.sort_values(ascending=False))
                 
                 
                 perfect_agg_df = baseline_agg_df.loc[baseline_agg_df["wind_forecast_class"] == "PerfectForecast", :]
