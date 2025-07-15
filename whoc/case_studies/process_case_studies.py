@@ -252,13 +252,14 @@ def read_case_family_time_series_data(case_family, save_dir):
     all_ts_df_path = os.path.join(save_dir, case_family, "time_series_results_all.csv") 
     logging.info(f"Reading combined case family {case_family} time-series dataframe.")
     
-    # with open(all_ts_df_path, 'r', newline='') as fp:
-    #     csv_reader = csv.reader(fp)
-    #     columns = next(csv_reader)
-    # [col for col in columns if "OfflineStatus" in col]
-    # **{col: object for col in columns if "OfflineStatus" in col}
-    df = pl.read_csv(all_ts_df_path,
-                     schema_overrides={**{"CaseName": str}})
+    with open(all_ts_df_path, 'r', newline='') as fp:
+        csv_reader = csv.reader(fp)
+        columns = next(csv_reader)
+
+    df = pl.read_csv(all_ts_df_path, 
+                     schema_overrides={**{"CaseName": pl.String}, 
+                                       **{col: pl.Float64 for col in columns if any(c in col for c in ["WindMag", "WindDir", "TurbinePower", "FarmPower", "YawAngle"])},
+                                       **{col: pl.Boolean for col in columns if any(c in col for c in ["OfflineStatus"])}}, infer_schema=True)
     df = df.to_pandas().set_index(["CaseFamily", "CaseName"])
     
     return df
@@ -672,8 +673,8 @@ def aggregate_time_series_data(time_series_df, n_seeds):
     yaw_angle_change_cols = sorted([c for c in agg_df.columns if "TurbineYawAngleChange_" in c], key=lambda s: int(s.split("_")[-1]))
     # offline_status_cols = sorted([c for c in time_series_df.columns if "TurbineOfflineStatus_" in c], key=lambda s: int(s.split("_")[-1]))
     turbine_power_cols = sorted([c for c in agg_df.columns if "TurbinePower_" in c], key=lambda s: int(s.split("_")[-1]))
-    agg_df["FarmPower"] = agg_df.loc[:, turbine_power_cols].sum(axis=1)
-    agg_df["YawAngleChangeAbs"] = agg_df.loc[:, yaw_angle_change_cols].abs().sum(axis=1)
+    agg_df["FarmPower"] = agg_df[turbine_power_cols].sum(axis=1)
+    agg_df["YawAngleChangeAbs"] = agg_df[yaw_angle_change_cols].abs().sum(axis=1)
     agg_df = agg_df[["WindSeed", "YawAngleChangeAbs", "FarmPower", 
             "TotalRunningOptimizationCost", "OptimizationConvergenceTime"]]
     agg_df = agg_df.groupby(by=["CaseFamily", "CaseName"], group_keys=False)[[col for col in agg_df.columns if col not in ["WindSeed"]]]\
