@@ -4,7 +4,7 @@
 ##SBATCH --partition=debug
 #SBATCH --nodes=2
 #SBATCH --ntasks-per-node=52
-#SBATCH --account=ssc
+#SBATCH --account=awaken
 
 # A lot of modules and conda stuff
 module purge

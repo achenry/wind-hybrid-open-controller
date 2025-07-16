@@ -5,9 +5,9 @@
 #SBATCH --ntasks-per-node=8
 #SBATCH --gres=gpu:4
 #SBATCH --mem-per-cpu=40G
-#SBATCH --account=ssc
+#SBATCH --account=awaken
 
-# salloc --account=ssc --time=01:00:00 --nodes=1 --ntasks-per-node=2 --gres=gpu:2 --mem-per-cpu=85G --account=ssc --partition=debug
+# salloc --account=awaken --time=01:00:00 --nodes=1 --ntasks-per-node=2 --gres=gpu:2 --mem-per-cpu=85G --account=awaken --partition=debug
 
 module purge
 ml cuda
