@@ -67,4 +67,4 @@ export CUDA_VISIBLE_DEVICES=$(seq -s, 0 $(($n_devices-1)))
 #echo "Using GPUs ${CUDA_VISIBLE_DEVICES}"
 
 # taskset -c $start_core-$end_core 
-python ../run_forecaster_validation.py --run_validation --model ${MODELS} --run_name ml --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --simulation_timestep 1 --save_dir /projects/ssc/ahenry/wind_forecasting/logging --checkpoint best --multiprocessor cf --prediction_type distribution --use_tuned_params --use_trained_models --max_splits 10 --run_validation --rerun_validation --run_processing # --max_steps 1080
+python ../run_forecaster_validation.py --run_validation --model ${MODELS} --run_name ml --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --simulation_timestep 1 --save_dir /projects/awaken/ahenry/wind_forecasting/logging --checkpoint best --multiprocessor cf --prediction_type distribution --use_tuned_params --use_trained_models --max_splits 10 --run_validation --rerun_validation --run_processing # --max_steps 1080
