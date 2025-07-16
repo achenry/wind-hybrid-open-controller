@@ -5,10 +5,10 @@
 ##SBATCH --exclusive
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=104
-#SBATCH --account=ssc
+#SBATCH --account=awaken
 #SBATCH --partition=debug
 
-# salloc --account=ssc --time=01:00:00 --partition=debug --nodes=1 --ntasks-per-node=104
+# salloc --account=awaken --time=01:00:00 --partition=debug --nodes=1 --ntasks-per-node=104
 module purge
 ml PrgEnv-intel mamba
 mamba activate wind_forecasting_env

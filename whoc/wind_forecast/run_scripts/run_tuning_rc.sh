@@ -11,7 +11,7 @@
 ##SBATCH --partition=atesting
 # salloc --nodes=1 --ntasks-per-node=12 --time=01:00:00 --partition=atesting
 #  srun -n 1 --exclusive python tuning.py --config $HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel.yaml --study_name "svr_tuning" --model "svr" &
-# salloc --account=ssc --job-name=model_tuning  --ntasks=104 --cpus-per-task=1 --time=01:00:00 --partition=debug
+# salloc --account=awaken --job-name=model_tuning  --ntasks=104 --cpus-per-task=1 --time=01:00:00 --partition=debug
 # python tuning.py --config $HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel.yaml --study_name "svr_tuning" --model "svr"
 
 # export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CUDA_HOME/lib64

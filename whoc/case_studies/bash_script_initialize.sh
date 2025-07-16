@@ -3,7 +3,7 @@
 #SBATCH --time=23:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=104
-#SBATCH --account=ssc
+#SBATCH --account=awaken
 
 module purge
 ml restore system

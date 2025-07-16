@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=baseline_wf_cpu
-#SBATCH --account=ssc
+#SBATCH --account=awaken
 #SBATCH --output=%j_%x.out
 #SBATCH --nodes=1
 #SBATCH --mem=0
@@ -10,7 +10,7 @@
 ##SBATCH --ntasks-per-node=104
 #SBATCH --cpus-per-task=104
 
-# salloc --partition=debug --nodes=1 --ntasks-per-node=104 --time=01:00:00 --mem=0 --account=ssc
+# salloc --partition=debug --nodes=1 --ntasks-per-node=104 --time=01:00:00 --mem=0 --account=awaken
 
 # Print environment info
 echo "SLURM_JOB_ID=${SLURM_JOB_ID}"
