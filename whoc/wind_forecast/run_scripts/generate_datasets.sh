@@ -1,5 +1,5 @@
 #!/bin/bash 
-#SBATCH --account=ssc
+#SBATCH --account=awaken
 #SBATCH --time=01:00:00
 #SBATCH --output=%j-%x.out
 #SBATCH --nodes=1
@@ -10,7 +10,7 @@
 #SBATCH --mem=0
 #SBATCH --partition=debug
 
-# salloc --account=ssc --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
+# salloc --account=awaken --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
 
 # Print environment info
 echo "SLURM_JOB_ID=${SLURM_JOB_ID}"

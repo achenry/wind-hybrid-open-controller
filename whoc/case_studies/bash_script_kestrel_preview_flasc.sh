@@ -4,7 +4,7 @@
 #SBATCH --mem=0
 #SBATCH --nodes=4
 #SBATCH --ntasks-per-node=104
-#SBATCH --account=ssc
+#SBATCH --account=awaken
 
 module purge
 module load mamba
