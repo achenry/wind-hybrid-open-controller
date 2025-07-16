@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=model_tuning
-#SBATCH --account=ssc
+#SBATCH --account=awaken
 #SBATCH --output=model_tuning_%j.out
 #SBATCH --time=24:00:00
 #SBATCH --nodes=1
@@ -11,7 +11,7 @@
 ##SBATCH --cpus-per-task=1
 
 #  srun -n 1 --exclusive python tuning.py --config $HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel.yaml --study_name "svr_tuning" --model "svr" &
-# salloc --account=ssc --job-name=model_tuning  --ntasks=104 --cpus-per-task=1 --time=01:00:00 --partition=debug
+# salloc --account=awaken --job-name=model_tuning  --ntasks=104 --cpus-per-task=1 --time=01:00:00 --partition=debug
 # python tuning.py --config $HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel.yaml --study_name "svr_tuning" --model "svr"
 
 export NTASKS_PER_TUNER=26
