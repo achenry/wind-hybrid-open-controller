@@ -44,6 +44,6 @@ mamba activate wind_forecasting_env
 #mpirun -np $SLURM_NTASKS
 WORKER_RANK=0
 python ../run_forecaster_validation.py --resplit_data --ram_limit 65 --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --simulation_timestep 1 \
-						--save_dir /projects/ssc/ahenry/wind_forecasting/logging --multiprocessor cf --prediction_type distribution \
+						--save_dir /projects/awaken/ahenry/wind_forecasting/logging --multiprocessor cf --prediction_type distribution \
 						--use_tuned_params --use_trained_models --max_splits 10
 
