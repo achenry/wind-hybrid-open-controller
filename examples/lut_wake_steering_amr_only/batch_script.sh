@@ -3,7 +3,7 @@
 #SBATCH --time=1:00:00
 #SBATCH --nodes=2
 #SBATCH --ntasks-per-node=36
-#SBATCH --account=ssc
+#SBATCH --account=awaken
 # #SBATCH --qos=high
 
 # A lot of modules and conda stuff

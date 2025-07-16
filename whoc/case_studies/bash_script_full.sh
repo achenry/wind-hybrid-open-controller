@@ -5,7 +5,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=104
 #SBATCH --partition=debug
-#SBATCH --account=ssc
+#SBATCH --account=awaken
 
 # load modules
 #source /nopt/nrel/apps/cpu_stack/change_modules

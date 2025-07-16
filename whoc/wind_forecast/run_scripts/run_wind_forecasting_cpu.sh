@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=baseline_wf_cpu
-#SBATCH --account=ssc
+#SBATCH --account=awaken
 #SBATCH --output=%j_%x.out
 #SBATCH --nodes=1
 #SBATCH --mem=0
@@ -11,7 +11,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=104
 
-# salloc --partition=debug --nodes=1 --ntasks-per-node=104 --time=01:00:00 --mem=0 --account=ssc
+# salloc --partition=debug --nodes=1 --ntasks-per-node=104 --time=01:00:00 --mem=0 --account=awaken
 
 # Print environment info
 echo "SLURM_JOB_ID=${SLURM_JOB_ID}"
@@ -55,6 +55,6 @@ conda activate wind_forecasting_env
 
 #mpirun -np $SLURM_NTASKS 
 python ../run_forecaster_validation.py --ram_limit 65 --model ${MODELS} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --run_name baseline_forecasters --simulation_timestep 1 \
-						--save_dir /projects/ssc/ahenry/wind_forecasting/logging --prediction_type distribution \
-						--use_tuned_params --use_trained_models --max_splits 10 --run_validation --rerun_validation --run_processing --multiprocessor cf # --max_steps 1600
+						--save_dir /projects/awaken/ahenry/wind_forecasting/logging --multiprocessor cf --prediction_type distribution \
+						--use_tuned_params --use_trained_models --max_splits 10 --run_validation --rerun_validation --run_processing #--max_steps 1600
 
