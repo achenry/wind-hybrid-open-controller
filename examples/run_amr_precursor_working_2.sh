@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --exclusive
 #SBATCH --mem=0
-#SBATCH --account=ssc
+#SBATCH --account=awaken
 #SBATCH --nodes=16
 #SBATCH --ntasks-per-node=104
 #SBATCH --time=60:00:00
