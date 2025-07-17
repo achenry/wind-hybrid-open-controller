@@ -14,8 +14,8 @@ from floris import FlorisModel
 import multiprocessing as mp
 import re
 import random
-from wind_forecasting.utils.optuna_db_utils import setup_optuna_storage
-from wind_forecasting.run_scripts.tuning import generate_df_setup_params
+from wind_forecasting.utils.optuna_storage import setup_optuna_storage
+from wind_forecasting.utils.optuna_config_utils import generate_db_setup_params
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -184,8 +184,9 @@ if __name__ == "__main__":
         db_setup_params = generate_df_setup_params(args.model, model_config)
         optuna_storage, _ = setup_optuna_storage(
             db_setup_params=db_setup_params,
-            restart_tuning=args.restart_tuning,
+            restart_tuning=args.restart_tuning, # Use the potentially overridden flag
             rank=0 if (worker_id == 0) else worker_id
+            # No force_sqlite_path argument anymore
         )
     
         logging.info("Running tune_hyperparameters_single")
