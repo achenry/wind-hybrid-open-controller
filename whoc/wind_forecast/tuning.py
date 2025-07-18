@@ -48,13 +48,13 @@ if __name__ == "__main__":
     # pretrained_filename = "/Users/ahenry/Documents/toolboxes/wind_forecasting/logging/wf_forecasting/lznjshyo/checkpoints/epoch=0-step=50.ckpt"
     args = parser.parse_args()
     
-    # if args.multiprocessor == "mpi":
-    #     try:
-    #         from mpi4py import MPI
-    #     except Exception as e:
-    #         logging.warning("Could not import MPI.")
-    #     comm = MPI.COMM_WORLD
-    # RUN_ONCE = (args.multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
+    if args.multiprocessor == "mpi":
+        try:
+            from mpi4py import MPI
+        except Exception as e:
+            logging.warning("Could not import MPI.")
+        comm = MPI.COMM_WORLD
+    RUN_ONCE = (args.multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
     
     if RUN_ONCE:
         logging.info("Parsing arguments and configuration yaml.")
@@ -181,7 +181,7 @@ if __name__ == "__main__":
     if RUN_ONCE:
         logging.info(f"Initializing storage with restart_tuning={args.restart_tuning} on worker {worker_id}")
         
-        db_setup_params = generate_df_setup_params(args.model, model_config)
+        db_setup_params = generate_db_setup_params(args.model, model_config)
         optuna_storage, _ = setup_optuna_storage(
             db_setup_params=db_setup_params,
             restart_tuning=args.restart_tuning, # Use the potentially overridden flag
@@ -190,7 +190,6 @@ if __name__ == "__main__":
         )
     
         logging.info("Running tune_hyperparameters_single")
-    
     
     elif args.multiprocessor == "mpi":
         optuna_storage = comm.bcast(optuna_storage, root=0)
