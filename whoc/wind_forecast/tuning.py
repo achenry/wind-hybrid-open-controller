@@ -54,8 +54,11 @@ if __name__ == "__main__":
         except Exception as e:
             logging.warning("Could not import MPI.")
         comm = MPI.COMM_WORLD
-    RUN_ONCE = (args.multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
-    
+        RUN_ONCE = (args.multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
+    else:
+        RUN_ONCE = True
+        comm_rank = 0
+        
     if RUN_ONCE:
         logging.info("Parsing arguments and configuration yaml.")
     
