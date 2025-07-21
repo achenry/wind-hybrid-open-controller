@@ -257,9 +257,17 @@ class WindForecast:
                                     max_cpus=None,
                                     optimize_callbacks=None):
         
-        comm = MPI.COMM_WORLD
-        RUN_ONCE = (multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (multiprocessor != "mpi") or (multiprocessor is None)
-        
+        if multiprocessor == "mpi":
+            try:
+                from mpi4py import MPI
+            except Exception as e:
+                logging.warning("Could not import MPI.")
+            comm = MPI.COMM_WORLD
+            RUN_ONCE = (multiprocessor == "mpi" and (comm_rank := comm.Get_rank()) == 0) or (multiprocessor != "mpi") or (multiprocessor is None)
+        else:
+            comm_rank = 0
+            RUN_ONCE = True
+            
         # for case when argument is list of multiple continuous time series AND to only get the training inputs/outputs relevant to this model
         # Log safely without credentials if they were included (they aren't for socket trust)
         if RUN_ONCE:
