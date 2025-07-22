@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 import os
 import datetime
-from datetime import timedelta
+from datetime import timedelta, datetime
 import time
 import re
 from concurrent.futures import ProcessPoolExecutor
@@ -30,6 +30,7 @@ from optuna.samplers import TPESampler
 from optuna.pruners import HyperbandPruner, PercentilePruner, PatientPruner, SuccessiveHalvingPruner, NopPruner
 from optuna.trial import TrialState # Added for checking trial status
 from optuna.study import MaxTrialsCallback
+from wind_forecasting.tuning.utils.optuna_utils import OptunaSamplerPrunerPersistence
 
 from floris import FlorisModel
 
@@ -52,10 +53,10 @@ sns.set_palette("Paired")
 @dataclass
 class WindForecast:
     """Wind speed component forecasting module that provides various prediction methods."""
-    context_timedelta: datetime.timedelta
-    prediction_timedelta: datetime.timedelta
-    measurements_timedelta: datetime.timedelta
-    controller_timedelta: Optional[datetime.timedelta]
+    context_timedelta: timedelta
+    prediction_timedelta: timedelta
+    measurements_timedelta: timedelta
+    controller_timedelta: Optional[timedelta]
     fmodel: FlorisModel 
     tid2idx_mapping: dict
     turbine_signature: str
@@ -393,6 +394,39 @@ class WindForecast:
             else:
                 logging.info("Pruning is disabled, using NopPruner")
                 pruner = NopPruner()
+                
+            # Generate unique study name based on restart_tuning flag
+            base_study_prefix = self.study_name
+            if restart_tuning:
+                job_id = os.environ.get('SLURM_JOB_ID')
+                if job_id:
+                    # If running in SLURM, use the job ID
+                    final_study_name = f"{base_study_prefix}_{job_id}"
+                else:
+                    # Otherwise use a timestamp
+                    timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+                    final_study_name = f"{base_study_prefix}_{timestamp}"
+                logging.info(f"Creating a new study with unique name: {final_study_name}")
+            else:
+                # If not restarting, use the base name to resume existing study
+                final_study_name = base_study_prefix
+                logging.info(f"Using existing study name to resume: {final_study_name}")
+
+            # Define pickle directory for sampler/pruner persistence
+            pickle_dir = self.model_save_dir
+            
+            # Instantiate the persistence utility
+            sampler_pruner_persistence = OptunaSamplerPrunerPersistence(config, seed)
+
+            # Get sampler and pruner objects using pickling logic
+            try:
+                sampler, pruner_for_study = sampler_pruner_persistence.get_sampler_pruner_objects(
+                    worker_id, pruner, restart_tuning, final_study_name, optuna_storage, pickle_dir
+                )
+            except Exception as e:
+                logging.error(f"Worker {worker_id}: Error getting sampler/pruner objects: {str(e)}", exc_info=True)
+                raise
+
         
         # Create study on Worker 1, load on other Worker
         study = None # Initialize study variable
@@ -400,69 +434,42 @@ class WindForecast:
         direction = "minimize" # minimize mean_squared_error
         if RUN_ONCE:  
             try:
-                        
                 if worker_id == 1:
+                    logging.info(f"Rank 1: Creating/loading Optuna study '{final_study_name}' with pruner: {type(pruner_for_study).__name__}")
+                    study = create_study(
+                        study_name=final_study_name,
+                        storage=optuna_storage,
+                        direction=config["optuna"].get("direction", "minimize"),
+                        load_if_exists=not restart_tuning, # Only load if not restarting
+                        sampler=sampler,
+                        pruner=pruner_for_study
+                    )
+                    logging.info(f"Rank 1: Study '{final_study_name}' created or loaded successfully.")
                     
-                    if not restart_tuning and os.path.exists(os.path.join(self.model_save_dir, f"{self.study_name}_sampler.pkl")):
-                        logging.info(f"Rank 1: Loading existing sampler for study '{self.study_name}' from {self.model_save_dir}")
-                        sampler = pickle.load(open(os.path.join(self.model_save_dir, f"{self.study_name}_sampler.pkl"), "rb"))
-                    else:
-                        logging.info(f"Rank 1: Creating new sampler for study '{self.study_name}' and saving it to {self.model_save_dir}")
-                        sampler = TPESampler(
-                            seed=seed,
-                            n_startup_trials=config["optuna"]["sampler_params"]["tpe"].get("n_startup_trials", 16),
-                            multivariate=config["optuna"]["sampler_params"]["tpe"].get("multivariate", True),
-                            constant_liar=config["optuna"]["sampler_params"]["tpe"].get("constant_liar", True),
-                            group=config["optuna"]["sampler_params"]["tpe"].get("group", False)
-                        )
-                            # Save the sampler with pickle to be loaded later. 
-                        with open(os.path.join(self.model_save_dir, f"{self.study_name}_sampler.pkl"), "wb") as fp:
-                            pickle.dump(sampler, fp)
-                    
-                    if restart_tuning:
-                        try:
-                            # Attempt to delete the existing study if it exists
-                            logging.info(f"Rank 1: Attempting to delete existing study '{self.study_name}'")
-                            delete_study(study_name=self.study_name, storage=optuna_storage)
-                            logging.info(f"Rank 1: Study '{self.study_name}' deleted successfully.")
-                        except KeyError as e: 
-                            logging.info(f"Rank 1: Study '{self.study_name}' does not exist.")
-            
-                    logging.info(f"Rank 1: Creating/loading Optuna study '{self.study_name}' with pruner: {type(pruner).__name__}")
-                    
-                    study = create_study(study_name=self.study_name,
-                                            storage=optuna_storage,
-                                            direction=direction,
-                                            load_if_exists=not restart_tuning, # Only load if not restarting
-                                            sampler=sampler,
-                                            pruner=pruner) # minimize mse ie minimize mse
-                    
-                    logging.info(f"Rank 1: Study '{self.study_name}' created or loaded successfully with sampler {study.sampler} and pruner {study.pruner}.")
                     
                 else:
-                    # Non-rank-1 workers MUST load the study created by Rank 1
+                    # all non-rank 1 workers MUST load the study created by Rank 1
                     
-                    logging.info(f"Rank {worker_id}: Attempting to load existing Optuna study '{self.study_name}'")
+                    logging.info(f"Rank {worker_id}: Attempting to load existing Optuna study '{final_study_name}'")
                     # Add a small delay and retry mechanism for loading, in case Rank 1 is slightly delayed
                     max_retries = 6 # Increased retries slightly
                     retry_delay = 10 # Increased delay slightly
                     for attempt in range(max_retries):
                         try:
-                            sampler = pickle.load(open(os.path.join(self.model_save_dir, f"{self.study_name}_sampler.pkl"), "rb"))
                             study = load_study(
-                                study_name=self.study_name,
+                                study_name=final_study_name,
                                 storage=optuna_storage,
                                 sampler=sampler, # Sampler might be needed for load_study too
-                                pruner=pruner
+                                pruner=pruner_for_study
                             )
-                            logging.info(f"Rank {worker_id}: Study '{self.study_name}' loaded successfully on attempt {attempt+1} with sampler {study.sampler} and pruner {study.pruner}.")
+                            logging.info(f"Rank {worker_id}: Study '{final_study_name}' loaded successfully on attempt {attempt+1}.")
                             break # Exit loop on success
                         except KeyError as e: # Optuna <3.0 raises KeyError if study doesn't exist yet
                             if attempt < max_retries - 1:
-                                logging.warning(f"Rank {worker_id}: Study '{self.study_name}' not found yet (attempt {attempt+1}/{max_retries}). Retrying in {retry_delay}s... Error: {e}")
+                                logging.warning(f"Rank {worker_id}: Study '{final_study_name}' not found yet (attempt {attempt+1}/{max_retries}). Retrying in {retry_delay}s... Error: {e}")
                                 time.sleep(retry_delay)
                             else:
-                                logging.error(f"Rank {worker_id}: Failed to load study '{self.study_name}' after {max_retries} attempts (KeyError). Aborting.")
+                                logging.error(f"Rank {worker_id}: Failed to load study '{final_study_name}' after {max_retries} attempts (KeyError). Aborting.")
                                 raise
                         except Exception as e: # Catch other potential loading errors (e.g., DB connection issues)
                             logging.error(f"Rank {worker_id}: An unexpected error occurred while loading study '{self.study_name}' on attempt {attempt+1}: {e}", exc_info=True)
@@ -471,17 +478,17 @@ class WindForecast:
                                 logging.warning(f"Retrying in {retry_delay}s...")
                                 time.sleep(retry_delay)
                             else:
-                                logging.error(f"Rank {worker_id}: Failed to load study '{self.study_name}' after {max_retries} attempts due to persistent errors. Aborting.")
+                                logging.error(f"Rank {worker_id}: Failed to load study '{final_study_name}' after {max_retries} attempts due to persistent errors. Aborting.")
                                 raise # Re-raise other errors after retries
-                    
+                
                     # Check if study was successfully loaded after the loop
                     if study is None:
                         # This condition should ideally be caught by the error handling within the loop, but added for safety.
-                        raise RuntimeError(f"Rank {worker_id}: Could not load study '{self.study_name}' after multiple retries.")
+                        raise RuntimeError(f"Rank {worker_id}: Could not load study '{final_study_name}' after multiple retries.")
         
             except Exception as e:
                 # Log error with rank information
-                logging.error(f"Rank {worker_id}: Error creating/loading study '{self.study_name}': {str(e)}", exc_info=True)
+                logging.error(f"Rank {worker_id}: Error creating/loading study '{final_study_name}': {str(e)}", exc_info=True)
                 # Log optuna_storage URL safely
                 if hasattr(optuna_storage, "url"):
                     log_storage_url_safe = str(optuna_storage.url).split('@')[0] + '@...' if '@' in str(optuna_storage.url) else str(optuna_storage.url)
