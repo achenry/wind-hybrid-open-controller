@@ -26,8 +26,9 @@ from pytorch_transformer_ts.informer.lightning_module import InformerLightningMo
 from pytorch_transformer_ts.informer.estimator import InformerEstimator
 from pytorch_transformer_ts.autoformer.estimator import AutoformerEstimator
 from pytorch_transformer_ts.autoformer.lightning_module import AutoformerLightningModule
-from pytorch_transformer_ts.spacetimeformer.estimator import SpacetimeformerEstimator
-from pytorch_transformer_ts.spacetimeformer.lightning_module import SpacetimeformerLightningModule
+# Temporarily commenting out spacetimeformer imports due to import error
+# from pytorch_transformer_ts.spacetimeformer.estimator import SpacetimeformerEstimator
+# from pytorch_transformer_ts.spacetimeformer.lightning_module import SpacetimeformerLightningModule
 from pytorch_transformer_ts.tactis_2.estimator import TACTiS2Estimator as TactisEstimator
 from pytorch_transformer_ts.tactis_2.lightning_module import TACTiS2LightningModule as TactisLightningModule
 
@@ -114,7 +115,7 @@ class MLForecast(WindForecast):
                                         target_prefixes=["ws_horz", "ws_vert"],
                                         feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                                         freq=checkpoint_hparams["freq_str"], # Use original freq string
-                                        normalized=True, # Assume True based on previous context, adjust if needed
+                                        normalized=self.model_config["dataset"]["normalize"], # Use actual normalize setting from config
                                         target_suffixes=self.model_config["dataset"]["target_turbine_ids"],
                                         per_turbine_target=self.model_config["dataset"]["per_turbine_target"], dtype=None,
                                         normalization_consts_path=self.model_config["dataset"]["normalization_consts_path"])
