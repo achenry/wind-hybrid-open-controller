@@ -303,18 +303,47 @@ def generate_sample_based_metrics_per_cg(pred_df, true, metric_name, metric_func
     for cg in cg_vals:
         cg_metrics = []
         for target_col, true_col in zip(target_cols, true_cols):
-            # Get base column name without sample suffix
-            base_col = target_col.split('_sample_')[0]
+            # For TACTiS format: pivot the sample column to get samples as columns
+            cg_data = pred_df.filter(pl.col("continuity_group") == cg)
             
-            # Get all sample columns for this target
-            sample_cols = [col for col in pred_df.columns if col.startswith(f"{base_col}_sample_")]
+            if cg_data.is_empty():
+                continue
+                
+            # Check if we have sample-based data (TACTiS format) or already wide format
+            if "sample" in cg_data.columns:
+                # TACTiS format: pivot to get samples as separate rows for each time/target
+                pivoted = cg_data.pivot(
+                    index=["time", "test_idx", "continuity_group"],
+                    columns="sample", 
+                    values=target_col
+                ).sort("time")
+                
+                # Extract sample columns (all numeric columns after pivot)
+                sample_cols = [col for col in pivoted.columns if isinstance(col, (int, str)) and str(col).isdigit()]
+                if not sample_cols:
+                    continue
+                    
+                samples = pivoted.select(sample_cols).to_numpy()
+            else:
+                # Legacy format: look for columns with _sample_ suffix
+                base_col = target_col.split('_sample_')[0] if '_sample_' in target_col else target_col
+                sample_cols = [col for col in cg_data.columns if col.startswith(f"{base_col}_sample_")]
+                
+                if not sample_cols:
+                    continue
+                    
+                samples = cg_data.select(sample_cols).to_numpy()
             
-            # Extract samples and reshape to (n, num_samples)
-            samples = pred_df.filter(pl.col("continuity_group") == cg).select(sample_cols).to_numpy()
-            samples = samples.reshape(samples.shape[0], -1)  # Reshape to (n, num_samples)
-            
-            # Get true values
-            true_values = true.filter(pl.col("continuity_group") == cg).select(true_col).to_numpy().flatten()
+            # Get true values - match the same time points as the predictions
+            if "sample" in cg_data.columns:
+                # For TACTiS format, get true values for the same time points as pivoted data
+                true_cg_data = true.filter(pl.col("continuity_group") == cg).sort("time")
+                # Get unique time points from predictions to match
+                pred_times = pivoted.select("time").to_series().to_list()
+                true_values = true_cg_data.filter(pl.col("time").is_in(pred_times)).select(true_col).to_numpy().flatten()
+            else:
+                # Legacy format
+                true_values = true.filter(pl.col("continuity_group") == cg).select(true_col).to_numpy().flatten()
             
             # Calculate metric
             metric_value = metric_func(true_values, samples)
@@ -1049,18 +1078,19 @@ if __name__ == "__main__":
             forecast_df = forecast_df.filter(pl.col("continuity_group").is_in(unique_cgs[prediction_timedelta]))
                     
             # recomputes agg metrics if existing agg_metric_path doesn't contain all cgs
+            available_agg_cgs = set()  # Initialize to empty set
             if os.path.exists(agg_metric_path):
                 logging.info(f"Loading agg_metrics from {agg_metric_path}.")
                 agg_metrics =  pl.scan_parquet(agg_metric_path, schema_overrides={"turbine_id": pl.String, "test_idx": pl.Int32, "continuity_group": pl.Int32})\
                                  .collect()
                 available_agg_cgs = set(agg_metrics.select(pl.col('continuity_group').unique()).to_numpy().flatten())
                 logging.info(f"Finished scanning parquet file at {agg_metric_path}. Found {available_agg_cgs} continuity groups.")
-            
-            # if available agg_metrics contains all the continuity groups we require
-            if (available_agg_cgs != unique_cgs[prediction_timedelta]) and unique_cgs[prediction_timedelta].issubset(available_agg_cgs):
-                agg_metrics = agg_metrics.filter(pl.col("continuity_group").is_in(unique_cgs[prediction_timedelta]))
-                agg_metrics.write_parquet(agg_metric_path)
-                available_agg_cgs = set(agg_metrics.select(pl.col('continuity_group').unique()).to_numpy().flatten())
+                
+                # if available agg_metrics contains all the continuity groups we require
+                if (available_agg_cgs != unique_cgs[prediction_timedelta]) and unique_cgs[prediction_timedelta].issubset(available_agg_cgs):
+                    agg_metrics = agg_metrics.filter(pl.col("continuity_group").is_in(unique_cgs[prediction_timedelta]))
+                    agg_metrics.write_parquet(agg_metric_path)
+                    available_agg_cgs = set(agg_metrics.select(pl.col('continuity_group').unique()).to_numpy().flatten())
 
             if args.rerun_validation or not os.path.exists(agg_metric_path) or (available_agg_cgs != unique_cgs[prediction_timedelta]):
                 agg_metrics = generate_forecaster_agg_results(forecaster, 
