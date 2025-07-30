@@ -114,7 +114,7 @@ class MLForecast(WindForecast):
                                         target_prefixes=["ws_horz", "ws_vert"],
                                         feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                                         freq=checkpoint_hparams["freq_str"], # Use original freq string
-                                        normalized=True, # Assume True based on previous context, adjust if needed
+                                        normalized=self.model_config["dataset"]["normalize"], # Use actual normalize setting from config
                                         target_suffixes=self.model_config["dataset"]["target_turbine_ids"],
                                         per_turbine_target=self.model_config["dataset"]["per_turbine_target"], dtype=None,
                                         normalization_consts_path=self.model_config["dataset"]["normalization_consts_path"])
@@ -229,6 +229,60 @@ class MLForecast(WindForecast):
             # self.data_module.freq = pd.Timedelta(self.data_module.freq).to_pytimedelta()
             self.sample_predictor = estimator.create_predictor(transformation, model,
                                                             forecast_generator=SampleForecastGenerator())
+            
+            # CRITICAL FIX: Enable copula for TACTiS models that should be in Stage 2
+            if (self.model_key == "tactis" and 
+                correct_stage == 2 and 
+                hasattr(self.predictor, 'network')):
+                
+                logging.info("🔧 APPLYING TACTIS COPULA FIX - Enabling copula for Stage 2 inference")
+                
+                try:
+                    # Access the TACTiS model through the predictor
+                    tactis_model = self.predictor.network
+                    
+                    # Enable copula at multiple levels to ensure it's properly activated  
+                    if hasattr(tactis_model, 'model') and hasattr(tactis_model.model, 'tactis'):
+                        tactis_core = tactis_model.model.tactis
+                        
+                        # Set stage to 2 and disable skip_copula flag
+                        tactis_core.stage = 2
+                        tactis_core.skip_copula = False
+                        logging.info(f"✅ Set tactis_core.stage = {tactis_core.stage}, skip_copula = {tactis_core.skip_copula}")
+                        
+                        # Enable copula in decoder if it exists
+                        if hasattr(tactis_core, 'decoder') and hasattr(tactis_core.decoder, 'skip_copula'):
+                            tactis_core.decoder.skip_copula = False
+                            logging.info("✅ Set decoder.skip_copula = False")
+                            
+                            # Ensure copula component is created if missing
+                            if (tactis_core.decoder.copula is None and 
+                                hasattr(tactis_core.decoder, 'create_attentional_copula')):
+                                tactis_core.decoder.create_attentional_copula()
+                                if tactis_core.decoder.copula is not None:
+                                    logging.info("✅ Successfully created missing copula component")
+                                else:
+                                    logging.warning("⚠️  Failed to create copula component")
+                        
+                        # Apply same fix to sample_predictor
+                        if (hasattr(self.sample_predictor, 'network') and
+                            hasattr(self.sample_predictor.network, 'model') and 
+                            hasattr(self.sample_predictor.network.model, 'tactis')):
+                            sample_tactis = self.sample_predictor.network.model.tactis
+                            sample_tactis.stage = 2
+                            sample_tactis.skip_copula = False
+                            if hasattr(sample_tactis, 'decoder') and hasattr(sample_tactis.decoder, 'skip_copula'):
+                                sample_tactis.decoder.skip_copula = False
+                                if (sample_tactis.decoder.copula is None and 
+                                    hasattr(sample_tactis.decoder, 'create_attentional_copula')):
+                                    sample_tactis.decoder.create_attentional_copula()
+                            logging.info("✅ Applied copula fix to sample_predictor as well")
+                        
+                        logging.info("🎯 TACTiS copula fix completed - probabilistic sampling should now work properly")
+                        
+                except Exception as e:
+                    logging.error(f"❌ Failed to apply TACTiS copula fix: {e}")
+                    logging.error("Model will use Stage 1 (deterministic-like) sampling", exc_info=True)
         else:
             raise FileNotFoundError(f"Cannot find checkpoint file in {log_dir}")
         
@@ -394,7 +448,7 @@ class MLForecast(WindForecast):
             if self.measurements_timedelta > data_module_freq_td: # Use Timedelta here
                 pred_df = pred_df.with_columns(time=pl.col("time").dt.round(data_module_freq_td) # Use Timedelta here
                                                + pl.duration(seconds=pred_df.select(pl.col("time").last().dt.second() % data_module_freq_td.total_seconds()).item()))\
-                                                               .group_by("time").agg(cs.numeric().mean()).sort("time")
+                                                               .group_by("time", "sample").agg(cs.numeric().exclude("sample").mean()).sort(["sample", "time"])
             else:
                 pred_df = pred_df.upsample(time_column="time", every=data_module_freq_td).fill_null(strategy="forward") # Use Timedelta here
         
