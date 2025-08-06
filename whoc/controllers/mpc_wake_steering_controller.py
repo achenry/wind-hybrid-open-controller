@@ -631,11 +631,16 @@ class MPC(ControllerBase):
                             std_divisions = np.linspace(0, max_std_dev, (n_intervals // 2) + 1)[:, np.newaxis]
                         else:
                             std_divisions = np.array([0])[:, np.newaxis]
+                        
+                        # dev_u/v is 0,1,2 (for example) * std_dev, so nonnegative
                         dev_u = np.matmul(std_divisions, std_u)
                         dev_v = np.matmul(std_divisions, std_v)
+                        
                         # multiple of 4 number of angular intervals, equally divided over each quadrature
                         theta = np.linspace(0, 2 * np.pi, int((n_intervals // 4) + np.ceil((n_intervals % 4) / 4)) * 4)[:-1, np.newaxis] 
-                        u_vals = np.vstack([distribution_params[0] + dev_u[0, :], 
+                        
+                        # TODO HIGH dev_u/v * cos/sin(theta) could be negative, but will be cancelled out by angles in other quadratures
+                        u_vals = np.vstack([distribution_params[0] + dev_u[0, :],
                                               distribution_params[0] + (
                                                   dev_u[1:, :] * np.cos(theta)[:, np.newaxis]).reshape(-1, self.n_horizon)])
                         v_vals = np.vstack([distribution_params[1] + dev_v[0, :], 
