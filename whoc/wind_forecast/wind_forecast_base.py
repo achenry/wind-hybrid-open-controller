@@ -431,7 +431,7 @@ class WindForecast:
         # Create study on Worker 1, load on other Worker
         study = None # Initialize study variable
         objective_fn = None
-        direction = "minimize" # minimize mean_squared_error
+        # direction = "minimize" # minimize mean_squared_error
         if RUN_ONCE:  
             try:
                 if worker_id == 1:
@@ -445,7 +445,6 @@ class WindForecast:
                         pruner=pruner_for_study
                     )
                     logging.info(f"Rank 1: Study '{final_study_name}' created or loaded successfully.")
-                    
                     
                 else:
                     # all non-rank 1 workers MUST load the study created by Rank 1
@@ -538,6 +537,7 @@ class WindForecast:
         
             # Let Optuna handle trial distribution - each worker will ask the storage for a trial
             # Show progress bar only on rank 0 to avoid cluttered logs
+            # TODO is maxtrialscallback or n_trials_per_worker pausing trials prematurely? Seems like most workers stop without error while another continues...or because one worker is hogging all of CPUs so other workers can't use them?
             study.optimize(objective_fn,
                            n_trials=n_trials_setting_for_optimize, 
                            callbacks=optimize_callbacks,
