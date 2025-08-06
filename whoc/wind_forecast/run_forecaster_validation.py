@@ -698,8 +698,6 @@ if __name__ == "__main__":
             test_data[-1] = generate_wind_field_df(test_data[-1], data_module.target_cols, data_module.feat_dynamic_real_cols)
         
             test_data[-1] = test_data[-1].with_columns(prediction_timedelta=pl.lit(mcnf["dataset"]["prediction_length"]))
-    
-
 
     test_data = pl.concat(test_data, how="vertical")
     test_data = test_data.with_columns(prediction_timedelta=pl.when(pl.col("continuity_group").is_in(joint_cgs)).then(pl.lit(-1)).otherwise(pl.col("prediction_timedelta")))
