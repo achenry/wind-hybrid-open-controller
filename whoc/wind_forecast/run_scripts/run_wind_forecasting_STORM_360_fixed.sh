@@ -7,9 +7,9 @@
 #SBATCH --mem-per-cpu=8192          # Memory per CPU (Total Mem = 1 * 4 * 8192 = 32GB)
 #SBATCH --gres=gpu:H100:1           # Request 1 H100 GPU (Matches ntasks-per-node)
 #SBATCH --time=7-00:00              # Time limit (2 days for comprehensive validation)
-#SBATCH --job-name=flasc_valid_360s_tactis_fixed
-#SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/flasc_valid_360s_fixed_%j.out
-#SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/flasc_valid_360s_fixed_%j.err
+#SBATCH --job-name=flasc_valid_360s_tactis_improved
+#SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/flasc_valid_360s_improved_%j.out
+#SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/flasc_valid_360s_improved_%j.err
 #SBATCH --hint=nomultithread        # Disable hyperthreading
 #SBATCH --distribution=block:block  # Improve GPU-CPU affinity
 #SBATCH --gres-flags=enforce-binding # Enforce binding of GPU to task
@@ -25,13 +25,13 @@ export WHOC_SCRIPT_DIR="${WHOC_DIR}/whoc/wind_forecast"
 export MODELS="tactis"
 export MODEL_CONFIG_PATH_ARG="${WF_DIR}/config/training/storm_configs/training_inputs_juan_flasc_tune_storm_local_db_360.yaml"
 export DATA_CONFIG_PATH_ARG="${WF_DIR}/config/preprocessing/preprocessing_inputs_flasc_STORM.yaml"
-export CHECKPOINT_ARG="/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/tune_tactis_flasc_3_local_tactis/20250722_210704_0_0/epoch=72-step=716422-val_loss=-41.45.ckpt" # Specific 360s checkpoint
+export CHECKPOINT_ARG="/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/tune_tactis_flasc_3_local_tactis/20250730_202151_0_0/epoch=72-step=716422-val_loss=-41.45.ckpt" # Improved 360s checkpoint with random permutations + decoder_num_bins=200
 export MAX_STEPS_ARG=2160     # 360s prediction + 600s context + buffer
 export PREDICTION_TYPE_ARG="sample"
 
 # --- Create Logging Directories ---
 mkdir -p ${LOG_DIR}/slurm_logs
-mkdir -p ${LOG_DIR}/inference_results/flasc_validation_360s_fixed_${SLURM_JOB_ID}
+mkdir -p ${LOG_DIR}/inference_results/flasc_validation_360s_improved_${SLURM_JOB_ID}
 
 # --- Change to Working Directory ---
 cd ${WHOC_SCRIPT_DIR} || { echo "ERROR: Failed to change directory to ${WHOC_SCRIPT_DIR}"; exit 1; }
@@ -43,7 +43,7 @@ export WANDB_DIR=${LOG_DIR}
 export NUMEXPR_MAX_THREADS=${SLURM_CPUS_PER_TASK}
 
 # --- Print Job Info ---
-echo "--- SLURM JOB INFO (360s Validation Fixed) ---"
+echo "--- SLURM JOB INFO (360s Validation Improved) ---"
 echo "JOB ID: ${SLURM_JOB_ID}"
 echo "JOB NAME: ${SLURM_JOB_NAME}"
 echo "PARTITION: ${SLURM_JOB_PARTITION}"
@@ -92,7 +92,7 @@ echo "python version: $(python --version)"
 echo "------------------------"
 
 # --- Run Inference Script ---
-echo "Starting WindForecast validation for 360s horizon (fixed)..."
+echo "Starting WindForecast validation for 360s horizon (improved - random permutations + decoder_num_bins=200)..."
 date +"%Y-%m-%d %H:%M:%S"
 
 # Execute the Python script with comprehensive validation options
@@ -105,7 +105,7 @@ python run_forecaster_validation.py \
     --model_config "${MODEL_CONFIG_PATH_ARG}" \
     --data_config "${DATA_CONFIG_PATH_ARG}" \
     --simulation_timestep 60 \
-    --save_dir "${LOG_DIR}/inference_results/flasc_validation_360s_fixed_${SLURM_JOB_ID}" \
+    --save_dir "${LOG_DIR}/inference_results/flasc_validation_360s_improved_${SLURM_JOB_ID}" \
     --checkpoint "${CHECKPOINT_ARG}" \
     --prediction_type "${PREDICTION_TYPE_ARG}" \
     --use_tuned_params \
@@ -120,9 +120,9 @@ EXIT_CODE=$?
 
 date +"%Y-%m-%d %H:%M:%S"
 if [ ${EXIT_CODE} -eq 0 ]; then
-  echo "360s validation completed successfully."
+  echo "360s improved validation completed successfully."
 else
-  echo "ERROR: 360s validation failed with exit code ${EXIT_CODE}." >&2
+  echo "ERROR: 360s improved validation failed with exit code ${EXIT_CODE}." >&2
 fi
 echo "---------------------------------------"
 
