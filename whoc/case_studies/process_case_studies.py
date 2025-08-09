@@ -1359,7 +1359,7 @@ def plot_cost_function_pareto_curve(data_summary_df, save_dir):
     """
     plot mean farm level power vs mean sum of absolute yaw changes for different values of alpha
     """
-    sns.set(font_scale=2)
+    sns.set(font_scale=3)
 
     fig, ax = plt.subplots(1)
     baseline_df = data_summary_df.loc[data_summary_df.index.get_level_values("CaseFamily").str.contains("baseline_controllers"), :].copy().reset_index(level="CaseName")

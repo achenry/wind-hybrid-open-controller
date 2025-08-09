@@ -730,8 +730,6 @@ if __name__ == "__main__":
             test_data[-1] = generate_wind_field_df(test_data[-1], data_module.target_cols, data_module.feat_dynamic_real_cols)
         
             test_data[-1] = test_data[-1].with_columns(prediction_timedelta=pl.lit(mcnf["dataset"]["prediction_length"]))
-    
-
 
     test_data = pl.concat(test_data, how="vertical")
     test_data = test_data.with_columns(prediction_timedelta=pl.when(pl.col("continuity_group").is_in(joint_cgs)).then(pl.lit(-1)).otherwise(pl.col("prediction_timedelta")))
@@ -1091,7 +1089,7 @@ if __name__ == "__main__":
                                  ).collect()
                 available_agg_cgs = set(agg_metrics.select(pl.col('continuity_group').unique()).to_numpy().flatten())
                 logging.info(f"Finished scanning parquet file at {agg_metric_path}. Found {available_agg_cgs} continuity groups.")
-                
+            
                 # if available agg_metrics contains all the continuity groups we require
                 if (available_agg_cgs != unique_cgs[prediction_timedelta]) and unique_cgs[prediction_timedelta].issubset(available_agg_cgs):
                     agg_metrics = agg_metrics.filter(pl.col("continuity_group").is_in(unique_cgs[prediction_timedelta]))

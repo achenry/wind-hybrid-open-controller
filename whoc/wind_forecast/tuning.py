@@ -207,6 +207,16 @@ if __name__ == "__main__":
         
         if args.multiprocessor:
             logging.info(f"Using multiprocessor {args.multiprocessor}")
+        
+        try:
+            allowed_cores = os.sched_getaffinity(0)
+            num_allowed_cores = len(allowed_cores)
+            logging.info(f"os.sched_getaffinity(0) reports: {num_allowed_cores} allowed cores.")
+            logging.info(f"Allowed core list: {sorted(list(allowed_cores))}")
+        except AttributeError:
+            # os.sched_getaffinity is not available on all OSes (e.g., Windows)
+            logging.warning("os.sched_getaffinity not available. Falling back to NTASKS_PER_TUNER.")
+            num_allowed_cores = int(os.environ.get("NTASKS_PER_TUNER", None))
             
         forecaster.tune_hyperparameters_single(optuna_storage=optuna_storage,
                                                 n_trials_per_worker=model_config["optuna"]["n_trials_per_worker"], 
@@ -216,8 +226,8 @@ if __name__ == "__main__":
                                                 multiprocessor=args.multiprocessor,
                                                 limit_train_val=args.limit_train_val,
                                                 restart_tuning=args.restart_tuning,
-                                                # max_cpus=mp.cpu_count())
-                                                max_cpus=int(os.environ.get("NTASKS_PER_TUNER", None)))
+                                                max_cpus=num_allowed_cores)
+                                                # max_cpus=int(os.environ.get("NTASKS_PER_TUNER", None)))
                                         #  trial_protection_callback=handle_trial_with_oom_protection)
         # %% After tuning completes
         logging.info("Optuna hyperparameter tuning completed.")
