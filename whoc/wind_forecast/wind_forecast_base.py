@@ -1034,11 +1034,21 @@ class WindForecast:
         
         y_rng = int(new_time_range / forecast_wf.select(pl.col("time").diff().max()).item())
         for ax in axs.flatten():
-            ymin = min(l.get_ydata()[(l.get_xdata() >= new_xlim[0]) & (l.get_xdata() <= new_xlim[1])].min() for l in ax.lines if len(l.get_xdata()))
-            ymin = ymin - abs(ymin*0.15)
-            ymax = max(l.get_ydata()[(l.get_xdata() >= new_xlim[0]) & (l.get_xdata() <= new_xlim[1])].max() for l in ax.lines if len(l.get_xdata()))
-            ymax = ymax + abs(ymax*0.15)
-            ax.set_ylim((ymin, ymax))
+            # Get y-data within x-axis range, with safe handling for empty data
+            y_values_in_range = []
+            for l in ax.lines:
+                if len(l.get_xdata()) > 0:
+                    mask = (l.get_xdata() >= new_xlim[0]) & (l.get_xdata() <= new_xlim[1])
+                    y_data_filtered = l.get_ydata()[mask]
+                    if len(y_data_filtered) > 0:
+                        y_values_in_range.extend([y_data_filtered.min(), y_data_filtered.max()])
+            
+            if len(y_values_in_range) > 0:
+                ymin = min(y_values_in_range)
+                ymin = ymin - abs(ymin*0.15)
+                ymax = max(y_values_in_range)
+                ymax = ymax + abs(ymax*0.15)
+                ax.set_ylim((ymin, ymax))
             
         # for ax in axs[:, 0]:
             # (ymin, ymax) = ax.get_ylim()

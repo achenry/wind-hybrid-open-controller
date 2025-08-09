@@ -25,7 +25,7 @@ export WHOC_SCRIPT_DIR="${WHOC_DIR}/whoc/wind_forecast"
 export MODELS="tactis"
 export MODEL_CONFIG_PATH_ARG="${WF_DIR}/config/training/storm_configs/training_inputs_juan_flasc_tune_storm_local_db_360.yaml"
 export DATA_CONFIG_PATH_ARG="${WF_DIR}/config/preprocessing/preprocessing_inputs_flasc_STORM.yaml"
-export CHECKPOINT_ARG="/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/tune_tactis_flasc_3_local_tactis/20250730_202151_0_0/epoch=72-step=716422-val_loss=-41.45.ckpt" # Improved 360s checkpoint with random permutations + decoder_num_bins=200
+export CHECKPOINT_ARG="/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/tune_tactis_flasc_3_local_tactis/20250806_145545_0_0/epoch=72-step=716422-val_loss=-41.45.ckpt" # Fixed TACTiS-2 implementation (3 critical bugs fixed)
 export MAX_STEPS_ARG=2160     # 360s prediction + 600s context + buffer
 export PREDICTION_TYPE_ARG="sample"
 
