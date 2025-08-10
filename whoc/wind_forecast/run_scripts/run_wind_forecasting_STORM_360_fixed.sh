@@ -7,9 +7,9 @@
 #SBATCH --mem-per-cpu=8192          # Memory per CPU (Total Mem = 1 * 4 * 8192 = 32GB)
 #SBATCH --gres=gpu:H100:1           # Request 1 H100 GPU (Matches ntasks-per-node)
 #SBATCH --time=7-00:00              # Time limit (2 days for comprehensive validation)
-#SBATCH --job-name=flasc_valid_360s_tactis_improved
-#SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/flasc_valid_360s_improved_%j.out
-#SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/flasc_valid_360s_improved_%j.err
+#SBATCH --job-name=flasc_valid_360s_job9849221
+#SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/flasc_valid_360s_job9849221_%j.out
+#SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/flasc_valid_360s_job9849221_%j.err
 #SBATCH --hint=nomultithread        # Disable hyperthreading
 #SBATCH --distribution=block:block  # Improve GPU-CPU affinity
 #SBATCH --gres-flags=enforce-binding # Enforce binding of GPU to task
@@ -25,7 +25,7 @@ export WHOC_SCRIPT_DIR="${WHOC_DIR}/whoc/wind_forecast"
 export MODELS="tactis"
 export MODEL_CONFIG_PATH_ARG="${WF_DIR}/config/training/storm_configs/training_inputs_juan_flasc_tune_storm_local_db_360.yaml"
 export DATA_CONFIG_PATH_ARG="${WF_DIR}/config/preprocessing/preprocessing_inputs_flasc_STORM.yaml"
-export CHECKPOINT_ARG="/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/tune_tactis_flasc_3_local_tactis/20250806_145545_0_0/epoch=72-step=716422-val_loss=-41.45.ckpt" # Fixed TACTiS-2 implementation (3 critical bugs fixed)
+export CHECKPOINT_ARG="latest" # Use latest checkpoint since NLL doesn't decrease during Stage 2 copula training
 export MAX_STEPS_ARG=2160     # 360s prediction + 600s context + buffer
 export PREDICTION_TYPE_ARG="sample"
 
