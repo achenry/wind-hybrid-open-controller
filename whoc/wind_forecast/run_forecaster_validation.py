@@ -669,14 +669,16 @@ if __name__ == "__main__":
         data_module.generate_splits(save=True, reload=reload or args.resplit_data, splits=["test"])
         
         logging.info("Sorting test datasets by duration.")
-        data_module.test_dataset = sorted(data_module.test_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
+        # data_module.test_dataset = sorted(data_module.test_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
+        # data_module.test_dataset = sorted(data_module.test_dataset.partition_by("item_id"), key=lambda ds: ds.select(pl.len()).item(), reverse=True)
+        data_module.test_dataset = data_module.test_dataset.with_columns(pl.count().over("item_id").alias("cg_size")).sort("cg_size", descending=True).drop("cg_size").partition_by("item_id")
         
         if args.max_splits:
             data_module.test_dataset = data_module.test_dataset[:args.max_splits]
         
         new_ds = []
         for ds in data_module.test_dataset:
-            cg = ds["item_id"]
+            cg = ds["item_id"].first()
             if cg not in cgs:
                 new_ds.append(ds)
                 cgs.append(cg)
@@ -689,15 +691,21 @@ if __name__ == "__main__":
             
             if args.max_steps:
                 assert args.max_steps >= int((max(context_timedeltas) + max(prediction_timedeltas)) / measurements_timedelta), f"max_steps, if provided, must allow for context_timedelta + max(prediction_timedelta) = {int((max(context_timedeltas) + max(prediction_timedeltas)) / measurements_timedelta)}"
-                new_ds = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in new_ds]
+                # new_ds = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in new_ds]
+                new_ds = [ds.slice(0, args.max_steps) for ds in new_ds]
             
             test_data.append(new_ds)
             
             logging.info(f"Generating dataframe with prediction_timedelta {mcnf['dataset']['prediction_length']}.")
             # save_path = os.path.join(os.path.dirname( base_model_config["dataset"]["data_path"]), "test_data.parquet")
-            test_data[-1] = generate_wind_field_df(test_data[-1], data_module.target_cols, data_module.feat_dynamic_real_cols)
-        
-            test_data[-1] = test_data[-1].with_columns(prediction_timedelta=pl.lit(mcnf["dataset"]["prediction_length"]))
+            # test_data[-1] = generate_wind_field_df(test_data[-1], data_module.target_cols, data_module.feat_dynamic_real_cols)
+            test_data[-1] = pl.concat(test_data[-1], how="vertical")\
+                .rename({**{f"target_{i}": col for i, col in enumerate(data_module.target_cols)}, **{f"feat_dynamic_real_{i}": col for i, col in enumerate(data_module.feat_dynamic_real_cols)}})\
+                .with_columns(continuity_group=pl.col("item_id").str.extract("SPLIT(\\d+)")\
+                    .cast(int))\
+                        .drop("item_id")\
+                            .with_columns(prediction_timedelta=pl.lit(mcnf["dataset"]["prediction_length"]))
+            # test_data[-1] = test_data[-1].with_columns(prediction_timedelta=pl.lit(mcnf["dataset"]["prediction_length"]))
 
     test_data = pl.concat(test_data, how="vertical")
     test_data = test_data.with_columns(prediction_timedelta=pl.when(pl.col("continuity_group").is_in(joint_cgs)).then(pl.lit(-1)).otherwise(pl.col("prediction_timedelta")))

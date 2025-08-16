@@ -213,6 +213,7 @@ class MLForecast(WindForecast):
             estimator = estimator_class(**estimator_kwargs)
             self.self_scaled = (estimator_kwargs["scaling"] == "False") or not estimator_kwargs["scaling"]
             
+            # TODO replace this with pytorch_dataloader?
             transformation = estimator.create_transformation(use_lazyframe=False)
             
             # Conditionally Create Forecast Generator
@@ -453,6 +454,7 @@ class MLForecast(WindForecast):
             
             if self.data_module.per_turbine_target:
                 # Handle multiple forecast objects if per_turbine_target is True
+                
                 pred_list = list(pred_iter)
                 
                 # logging.info(f"pred_list[0] is on device {pred_list[0].samples.device}")
