@@ -203,6 +203,11 @@ class MLForecast(WindForecast):
             if self.model_key != "tactis":
                 estimator_kwargs["distr_output"] = distr_output_class(dim=self.data_module.num_target_vars, **self.model_config["model"]["distr_output"]["kwargs"])
             
+            # Add use_pytorch_dataloader flag if specified in dataset config
+            if "use_pytorch_dataloader" in config["dataset"]:
+                estimator_kwargs["use_pytorch_dataloader"] = config["dataset"]["use_pytorch_dataloader"]
+                logging.info(f"Setting use_pytorch_dataloader={config['dataset']['use_pytorch_dataloader']} from config")
+            
             logging.info(f"Using final estimator_kwargs:\n {estimator_kwargs}")
             estimator = estimator_class(**estimator_kwargs)
             self.self_scaled = (estimator_kwargs["scaling"] == "False") or not estimator_kwargs["scaling"]
