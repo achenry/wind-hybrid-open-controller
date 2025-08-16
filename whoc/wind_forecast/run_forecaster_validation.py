@@ -346,8 +346,7 @@ def generate_forecaster_agg_results(forecaster, forecast_df, test_data, data_mod
         fdf = fdf.group_by("time", maintain_order=True).first()
         # otherwise we include the errors for the same timestamp multiple times
     
-    logging.info(f"forecast_df time type={forecast_df.select(pl.col('time'))}, test_data time type={test_data.select(pl.col('time'))}")
-    tdf = test_data.filter(pl.col("time").is_in(forecast_df.select(pl.col("time"))))\
+    tdf = test_data.filter(pl.col("time").is_in(forecast_df["time"]))\
                        .select(["time", "continuity_group"] + data_module.target_cols)
     combined_df = fdf.rename(lambda col: re.search("(?<=loc_)(\\w+)$", col).group() if col.startswith("loc_") else col)\
                      .join(tdf, on=["time"], suffix="_true", coalesce=False)
@@ -1005,8 +1004,8 @@ if __name__ == "__main__":
                 # "forecast_df": forecast_df
             })
             # logging.info(f"Finished scanning parquet files at {forecast_path}. Found {forecast_df.select(pl.col('continuity_group').unique()).to_numpy().flatten()} continuity_groups.")
-    # TODO possible to replace long_df with reading from multiple files via glob?  
-    if args.run_processing and RUN_ONCE:
+        # TODO possible to replace long_df with reading from multiple files via glob?  
+    
         # Generate agg_metrics for each forecaster
         unique_cgs = {}
         for f, forecaster in enumerate(forecasters):
