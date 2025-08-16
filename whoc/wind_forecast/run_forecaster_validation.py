@@ -248,7 +248,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
     for temp_sp in save_paths:
         final_sp = temp_sp.replace("_temp.parquet", ".parquet")
         logging.info(f"Moving final result to {final_sp}.")
-        move(temp_sp, final_sp)
+        os.replace(temp_sp, final_sp)
     
 def generate_wind_field_df(datasets, target_cols, feat_dynamic_real_cols):
     full_target = np.concatenate([ds[FieldName.TARGET] for ds in datasets], axis=-1)
@@ -1049,7 +1049,9 @@ if __name__ == "__main__":
             # recomputes agg metrics if existing agg_metric_path doesn't contain all cgs
             if os.path.exists(agg_metric_path):
                 logging.info(f"Loading agg_metrics from {agg_metric_path}.")
-                agg_metrics =  pl.scan_parquet(agg_metric_path, schema_overrides={"turbine_id": pl.String, "test_idx": pl.Int32, "continuity_group": pl.Int32})\
+                agg_metrics =  pl.scan_parquet(
+                    agg_metric_path, 
+                    schema={"turbine_id": pl.String, "test_idx": pl.Int32, "continuity_group": pl.Int64, "metric": pl.String, "feature_type": pl.String, "score": pl.Float64})\
                                  .collect()
                 available_agg_cgs = set(agg_metrics.select(pl.col('continuity_group').unique()).to_numpy().flatten())
                 logging.info(f"Finished scanning parquet file at {agg_metric_path}. Found {available_agg_cgs} continuity groups.")
@@ -1078,7 +1080,7 @@ if __name__ == "__main__":
             for res in results], how="vertical_relaxed")
         
         turbine_ids = ["5", "74", "75"]
-        best_cg = 9
+        best_cg = 19
         
         true_long_path = os.path.join(validation_save_dir, f"true_long_df_{args.run_name}.parquet")
         if args.rerun_validation or not os.path.exists(true_long_path):
@@ -1088,8 +1090,9 @@ if __name__ == "__main__":
                                                        data_type=pl.lit("True"))\
                                          .write_parquet(true_long_path)
         
-        true_long = pl.scan_parquet(true_long_path, schema_overrides={"turbine_id": pl.String, "test_idx": pl.Int32, "continuity_group": pl.Int32}, glob=True)\
-                        .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns"))).collect()
+        true_long = pl.scan_parquet(true_long_path, 
+                                    schema={"time": pl.Datetime(time_unit="ns"), "turbine_id": pl.String, "continuity_group": pl.Int64, "feature": pl.String, "value": pl.Float64, "turbine_id": pl.String, "data_type": pl.String}, glob=True)\
+                                        .collect()
         
         # plot continuity group with best rmse score
         PLOT_INDIVIDUAL = True
@@ -1112,6 +1115,8 @@ if __name__ == "__main__":
                 forecast_path = os.path.join(save_dir, "forecast_*.parquet")
                 forecast_df = pl.scan_parquet(forecast_path, glob=True)\
                             .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
+                
+                assert forecast_df.select((pl.col("continuity_group") == pl.lit(best_cg)).any()).collect().item(), f"Chosen value of best_cg {best_cg} not found in forecast_df continuity_group column."
                 forecast_df.filter(pl.col("continuity_group") == best_cg)\
                     .select(["time", "continuity_group", "test_idx"] + [cs.ends_with(f"_{tid}") for tid in turbine_ids]).collect()\
                     .unpivot(index=["time", "continuity_group", "test_idx"], variable_name="feature", value_name="value")\
@@ -1127,8 +1132,9 @@ if __name__ == "__main__":
             # forecast_df.write_parquet(forecast_long_path)
                 
             forecasts_long.append(
-                pl.scan_parquet(forecast_long_path, schema_overrides={"turbine_id": pl.String}, glob=True)\
-                        .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns"))))
+                pl.scan_parquet(forecast_long_path, glob=True)\
+                        .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")),
+                                      turbine_id=pl.col("turbine_id").cast(pl.String)))
             
             # best_cg = agg_df.filter((pl.col("forecaster") == forecaster_name) 
             #                         & (pl.col("prediction_timedelta")== forecaster.prediction_timedelta.total_seconds())
@@ -1147,11 +1153,11 @@ if __name__ == "__main__":
                                                 feature_types=["ws_horz", "ws_vert"],
                                                 feature_labels=["$u$ Wind Speed (m/s)", "$v$ Wind Speed (m/s)"],
                                                 prediction_type="distribution" if plot_distr else "point",
-                                                dt=30)
+                                                dt=15)
         
         # plot combined
         # cg = agg_df.select(pl.col("continuity_group").first()).item()
-        cg = 9
+        cg = 19
         mean_cols = [f"{feat_type}_{tid}" for feat_type in ["loc_ws_horz", "loc_ws_vert"] for tid in data_module.target_suffixes]
         point_cols = [f"{feat_type}_{tid}" for feat_type in ["ws_horz", "ws_vert"] for tid in data_module.target_suffixes]
         PLOT_ALL = True
@@ -1173,7 +1179,7 @@ if __name__ == "__main__":
                 feature_labels=["$u$ Wind Speed (m/s)", "$v$ Wind Speed (m/s)"],
                 prediction_type="distribution",
                 multiple_forecasters=True,
-                dt=30)
+                dt=15)
         
         PLOT_METRICS = True
         if PLOT_METRICS:
