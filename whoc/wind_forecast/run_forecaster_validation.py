@@ -545,8 +545,8 @@ if __name__ == "__main__":
                         help="Wind direction to add to all values (after transformation to wind magnitude and direction).")
     parser.add_argument("-p", "--plot", action="store_true",
                         help="Plot time series outputs.")
-    parser.add_argument("-tp", "--use_tuned_params", action="store_true",
-                        help="Use parameters tuned from Optuna optimization, otherwise use defaults set in Module class.")
+    # parser.add_argument("-tp", "--use_tuned_params", action="store_true",
+    #                     help="Use parameters tuned from Optuna optimization, otherwise use defaults set in Module class.")
     parser.add_argument("-tm", "--use_trained_models", action="store_true",
                         help="Use parameters trained and stored for models that require training, e.g. SVR, read existing trained models from file.")
     parser.add_argument("-rl", "--ram_limit", type=int, default=75,
@@ -650,7 +650,7 @@ if __name__ == "__main__":
                                 target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                                 freq=f"{int(measurements_timedelta.total_seconds())}s", 
                                 target_suffixes=mcnf["dataset"]["target_turbine_ids"],
-                                per_turbine_target=False, as_lazyframe=False, dtype=pl.Float32,
+                                per_turbine_target=False, as_lazyframe=True, dtype=pl.Float32,
                                 workers=4,
                                 pin_memory=True,
                                 persistent_workers=True,
@@ -821,7 +821,7 @@ if __name__ == "__main__":
                                                     model_config=mncf),
                                         tid2idx_mapping=tid2idx_mapping,
                                         turbine_signature=turbine_signature,
-                                        use_tuned_params=args.use_tuned_params
+                                        use_tuned_params=True
                                         )
                 
                 forecasters.append(forecaster)
