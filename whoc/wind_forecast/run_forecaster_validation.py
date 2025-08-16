@@ -345,6 +345,8 @@ def generate_forecaster_agg_results(forecaster, forecast_df, test_data, data_mod
         # select the first prediction found for each timestamp, i.e. the one farthest from current time
         fdf = fdf.group_by("time", maintain_order=True).first()
         # otherwise we include the errors for the same timestamp multiple times
+    
+    logging.info(f"forecast_df time type={forecast_df.select(pl.col('time'))}, test_data time type={test_data.select(pl.col('time'))}")
     tdf = test_data.filter(pl.col("time").is_in(forecast_df.select(pl.col("time"))))\
                        .select(["time", "continuity_group"] + data_module.target_cols)
     combined_df = fdf.rename(lambda col: re.search("(?<=loc_)(\\w+)$", col).group() if col.startswith("loc_") else col)\
