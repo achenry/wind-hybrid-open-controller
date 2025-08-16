@@ -165,7 +165,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
                 )
                 upstream_turbine_idx = np.argsort(layout_x_rot, axis=1)[:, 0]
                 upstream_turbine_id = [idx2tid_mapping[fi.sorted_tids[t_idx]] for t_idx in upstream_turbine_idx]
-                logging.info(f"Using turbine id {np.unique(upstream_turbine_id, return_counts=True)} as upstream turbine for wind seed {kwargs['wind_case_idx']}.")
+                logging.info(f"Using turbine id {np.unique(upstream_turbine_id, return_counts=False)} as upstream turbine for wind seed {kwargs['wind_case_idx']}.")
                 
                 simulation_u = kwargs["wind_field_ts"].select([f"ws_horz_{idx2tid_mapping[t_idx]}" for t_idx in fi.sorted_tids]).to_numpy()[np.arange(kwargs["wind_field_ts"].select(pl.len()).item()), upstream_turbine_idx]
                 simulation_v = kwargs["wind_field_ts"].select([f"ws_vert_{idx2tid_mapping[t_idx]}" for t_idx in fi.sorted_tids]).to_numpy()[np.arange(kwargs["wind_field_ts"].select(pl.len()).item()), upstream_turbine_idx]
