@@ -818,7 +818,7 @@ class WindForecast:
                 
         if continuity_groups is not None and "continuity_group" in true_wf.collect_schema().names():
             true_wf = true_wf.filter(pl.col("continuity_group").is_in(continuity_groups))
-            forecast_wf = forecast_wf.filter(pl.col("time").is_in(true_wf.select(pl.col("time"))))
+            forecast_wf = forecast_wf.filter(pl.col("time").is_in(true_wf["time"].implode()))
         
         if turbine_ids != "all":
             forecast_wf = forecast_wf.filter(pl.col("turbine_id").is_in(turbine_ids))
