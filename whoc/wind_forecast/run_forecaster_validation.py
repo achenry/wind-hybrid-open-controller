@@ -701,8 +701,7 @@ if __name__ == "__main__":
             # test_data[-1] = generate_wind_field_df(test_data[-1], data_module.target_cols, data_module.feat_dynamic_real_cols)
             test_data[-1] = pl.concat(test_data[-1], how="vertical")\
                 .rename({**{f"target_{i}": col for i, col in enumerate(data_module.target_cols)}, **{f"feat_dynamic_real_{i}": col for i, col in enumerate(data_module.feat_dynamic_real_cols)}})\
-                .with_columns(continuity_group=pl.col("item_id").str.extract("SPLIT(\\d+)")\
-                    .cast(int))\
+                .with_columns(continuity_group=pl.col("item_id").str.extract("SPLIT(\\d+)").cast(int))\
                         .drop("item_id")\
                             .with_columns(prediction_timedelta=pl.lit(mcnf["dataset"]["prediction_length"]))
             # test_data[-1] = test_data[-1].with_columns(prediction_timedelta=pl.lit(mcnf["dataset"]["prediction_length"]))
