@@ -346,7 +346,7 @@ def generate_forecaster_agg_results(forecaster, forecast_df, test_data, data_mod
         fdf = fdf.group_by("time", maintain_order=True).first()
         # otherwise we include the errors for the same timestamp multiple times
     
-    tdf = test_data.filter(pl.col("time").is_in(forecast_df["time"]))\
+    tdf = test_data.filter(pl.col("time").is_in(forecast_df["time"].implode()))\
                        .select(["time", "continuity_group"] + data_module.target_cols)
     combined_df = fdf.rename(lambda col: re.search("(?<=loc_)(\\w+)$", col).group() if col.startswith("loc_") else col)\
                      .join(tdf, on=["time"], suffix="_true", coalesce=False)
