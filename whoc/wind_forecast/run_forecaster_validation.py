@@ -652,6 +652,7 @@ if __name__ == "__main__":
                                 target_suffixes=mcnf["dataset"]["target_turbine_ids"],
                                 per_turbine_target=False, as_lazyframe=False, dtype=pl.Float32,
                                 workers=4,
+                                 as_lazyframe=True,
                                 pin_memory=True,
                                 persistent_workers=True,
                                 verbose=True)
