@@ -371,7 +371,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
             # check historic measurements updated correctly
             kk = int(tt / simulation_input_dict["simulation_dt"])
 
-            if not simulation_input_dict["controller"]["filter_floris_wind"]:
+            if not simulation_input_dict["controller"]["filter_floris_wind"] and (wind_forecast_class is None or wind_forecast_class.__name__ == "PerfectForecast"):
                 if (simulation_input_dict["controller"]["target_turbine_indices"] != "all") and use_upstream_wind:
                     hist_len = min(kk+1, ctrl.historic_measurements.select(pl.len()).item())
                     hist_u = ctrl.historic_measurements.select(ctrl.target_ws_horz_cols).to_numpy()[
@@ -380,7 +380,11 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
                         np.arange(hist_len), upstream_turbine_idx[:kk+1][-hist_len:]].flatten()
                     assert np.all(simulation_u[:kk+1][-hist_len:] == hist_u)
                     assert np.all(simulation_v[:kk+1][-hist_len:] == hist_v)
-                    assert (not hasattr(ctrl, "upstream_turbine_idx")) or (((ctrl.current_time - ctrl.init_time).total_seconds() % ctrl.controller_dt) != 0) or (ctrl.upstream_turbine_idx == upstream_turbine_idx[kk + int(ctrl.wind_forecast.prediction_timedelta / timedelta(seconds=simulation_input_dict["simulation_dt"]))])
+                    
+                    assert (not hasattr(ctrl, "upstream_turbine_idx")) \
+                        or (((ctrl.current_time - ctrl.init_time).total_seconds() % ctrl.controller_dt) != 0) \
+                            or (ctrl.upstream_turbine_idx == upstream_turbine_idx[kk + int(ctrl.wind_forecast.prediction_timedelta / timedelta(seconds=simulation_input_dict["simulation_dt"]))]), \
+                                "if not at a controller sampling time, ctrl.upstream_turbine_idx should equal upstream_turbine_idx[kk + pred_step] where pred_step is the number of steps in the prediction horizon"
             
                 # check current_wind_magnitudes, current_wind_directions from within compute_controls method of controllers are correct i.e.
                 assert ctrl.current_wind_directions[upstream_turbine_idx[kk]] == simulation_dir[kk]
