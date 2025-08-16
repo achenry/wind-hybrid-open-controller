@@ -769,6 +769,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
                                     normalization_consts_path=base_model_config["dataset"]["normalization_consts_path"],
                                     normalized=False, 
                                     n_splits=1, #model_config["dataset"]["n_splits"],
+                                     as_lazyframe=True,
                                     continuity_groups=None, train_split=(1.0 - base_model_config["dataset"]["val_split"] - base_model_config["dataset"]["test_split"]),
                                     val_split=base_model_config["dataset"]["val_split"], test_split=base_model_config["dataset"]["test_split"],
                                     prediction_length=base_model_config["dataset"]["prediction_length"], 

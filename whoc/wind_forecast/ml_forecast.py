@@ -108,6 +108,7 @@ class MLForecast(WindForecast):
                                         val_split=self.model_config["dataset"]["val_split"],
                                         test_split=self.model_config["dataset"]["test_split"],
                                         batch_size=self.model_config["dataset"]["batch_size"],
+                                        as_lazyframe=True,
                                         # Use lengths determined above, converted to seconds
                                         prediction_length=(checkpoint_hparams["prediction_length_int"] * checkpoint_hparams["freq"]).total_seconds(),
                                         context_length=(checkpoint_hparams["context_length_int"] * checkpoint_hparams["freq"]).total_seconds(),
