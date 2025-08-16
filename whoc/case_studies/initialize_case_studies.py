@@ -68,7 +68,7 @@ case_studies = {
         "yaw_limits": {"group": 0, "vals": ["-15,15"]},
         "uncertain": {"group": 1, "vals": [True]},
         "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
-        "prediction_timedelta": {"group": 1, "vals": [510]},
+        "prediction_timedelta": {"group": 1, "vals": [60]},
         "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
         "model_config_path": {"group": 1, "vals": [
             os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
@@ -93,7 +93,7 @@ case_studies = {
         
         "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController",
                                                   "GreedyController", "LookupBasedWakeSteeringController"]},
-        "prediction_timedelta": {"group": 1, "vals": [210, 510, 0, 0]},
+        "prediction_timedelta": {"group": 1, "vals": [60, 60, 0, 0]},
         "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73", "4,", "74,73"]},
         "model_config_path": {"group": 1, "vals": [
             os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predGreedy.yaml"),
@@ -148,7 +148,7 @@ case_studies = {
                                         os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
                                         # os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predLUT.yaml")]},
                                     "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
-                                    "prediction_timedelta": {"group": 1, "vals": [510]},
+                                    "prediction_timedelta": {"group": 1, "vals": [60]},
                                     "interpolation_method": {"group": 2, "vals": ["linear", "nearest"]},
                                     "filter_floris_wind": {"group": 3, "vals": [True, False]},
                                     "use_upstream_wind": {"group": 4, "vals": [True, False]},
@@ -166,7 +166,7 @@ case_studies = {
                                         os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
                                         # os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predLUT.yaml")]},
                                     "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
-                                    "prediction_timedelta": {"group": 1, "vals": [510]},
+                                    "prediction_timedelta": {"group": 1, "vals": [60]},
                                     "interpolation_method": {"group": 2, "vals": ["linear", "nearest"]},
                                     "filter_floris_wind": {"group": 3, "vals": [True, False]},
                                     "use_upstream_wind": {"group": 4, "vals": [True, False]},
@@ -225,7 +225,7 @@ case_studies = {
         #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predGreedy.yaml"),
         #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"), 
         #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
-        "prediction_timedelta": {"group": 1, "vals": [210, 510, 510]},
+        "prediction_timedelta": {"group": 1, "vals": [60, 60, 60]},
         "uncertain": {"group": 1, "vals": [False, True, False]},
         "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73", "74,73"]},
         "model_key": {"group": 2, "vals": ["informer"]} # 
@@ -252,7 +252,7 @@ case_studies = {
             os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predLUT.yaml"), 
             os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predLUT.yaml"),
             os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predGreedy.yaml")]},
-        "prediction_timedelta": {"group": 1, "vals": [510, 510, 210]},
+        "prediction_timedelta": {"group": 1, "vals": [60, 60, 60]},
         "uncertain": {"group": 1, "vals": [True, False, False]},
         "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73", "4,"]},
         "model_key": {"group": 2, "vals": ["autoformer"]} # 
@@ -275,7 +275,7 @@ case_studies = {
             os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"), 
             os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"), 
             os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predGreedy.yaml")]},
-        "prediction_timedelta": {"group": 1, "vals": [510, 510, 210]},
+        "prediction_timedelta": {"group": 1, "vals": [60, 60, 60]},
         "uncertain": {"group": 1, "vals": [True, False, False]},
         "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73", "4,"]},
         "model_key": {"group": 2, "vals": ["spacetimeformer"]} # 
@@ -298,7 +298,7 @@ case_studies = {
             os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"), 
             os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"), 
             os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predGreedy.yaml")]},
-        "prediction_timedelta": {"group": 1, "vals": [510, 510, 210]},
+        "prediction_timedelta": {"group": 1, "vals": [60, 60, 60]},
         "uncertain": {"group": 1, "vals": [True, False, False]},
         "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73", "4,"]},
         "model_key": {"group": 2, "vals": ["tactis"]} # 
@@ -316,7 +316,7 @@ case_studies = {
         "yaw_limits": {"group": 0, "vals": ["-15,15"]},
         "uncertain": {"group": 0, "vals": [False]},
         "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "GreedyController"]},
-        "prediction_timedelta": {"group": 1, "vals": [510, 210]},
+        "prediction_timedelta": {"group": 1, "vals": [60, 60]},
         "target_turbine_indices": {"group": 1, "vals": ["74,73", "4,"]},
         "model_config_path": {"group": 1, "vals": [
             os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"),
@@ -361,7 +361,7 @@ case_studies = {
         "yaw_limits": {"group": 0, "vals": ["-15,15"]},
         "uncertain": {"group": 1, "vals": [True, False, False]},
         "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController", "GreedyController"]},
-        "prediction_timedelta": {"group": 1, "vals": [510, 510, 210]},
+        "prediction_timedelta": {"group": 1, "vals": [60, 60, 60]},
         "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73", "4,"]},
         "model_config_path": {"group": 1, "vals": [
             os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"),

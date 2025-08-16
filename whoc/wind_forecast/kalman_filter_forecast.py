@@ -6,6 +6,7 @@ import seaborn as sns
 import numpy as np
 import pandas as pd
 import polars as pl
+import polars.selectors as cs
 
 from filterpy.kalman import KalmanFilter
 
@@ -131,16 +132,41 @@ class KalmanFilterForecast(WindForecast):
         if self.last_measurement_time is None:
             # zs = historic_measurements.filter(pl.col("time") >= current_time)\
             #                           .gather_every(n=self.n_prediction_interval)
-            zs = historic_measurements.filter(pl.col("time") >= (current_time - self.controller_timedelta))\
-                                      .filter(((current_time - pl.col("time")).dt.total_microseconds().mod(self.prediction_interval.total_seconds() * 1e6) == 0))
+            # .filter(pl.col("time") >= (current_time - self.controller_timedelta))\
+            # if this is the first call to predict_point, we can use all measurements in the historic_measurements dataframe
+            # zs = historic_measurements.filter(((current_time - pl.col("time")).dt.total_microseconds().mod(self.prediction_interval.total_seconds() * 1e6) == 0))
+            
+            # reduce historic measurements to a rolling average over each prediction interval
+            # zs = historic_measurements.with_columns(pl.col("time").dt.round(f"{int(self.prediction_interval.total_seconds())}s").alias("time").cast(pl.Datetime(time_unit="ns")))\
+            #                          .group_by(["time", "continuity_group", "prediction_timedelta"], maintain_order=True)\
+            #                          .agg(cs.numeric().mean())
+            zs = historic_measurements.with_columns(cs.numeric().rolling_mean_by("time", window_size=self.prediction_interval))\
+                                    .filter(((current_time - pl.col("time")).dt.total_microseconds().mod(self.prediction_interval.total_seconds() * 1e6) == 0))
+                                    
+            # import matplotlib.pyplot as plt
+            # y_og = historic_measurements.select(["time", "ws_horz_1", "ws_vert_1"])
+            # y_avg = y_og.with_columns(cs.numeric().rolling_mean_by("time", window_size=self.prediction_interval))
+            # y_filt = y_avg.filter(((current_time - pl.col("time")).dt.total_microseconds().mod(self.prediction_interval.total_seconds() * 1e6) == 0))
+            # fig, ax = plt.subplots(2, 1, figsize=(10, 5), sharex=True)
+            # ax[0].plot(y_og.select("time").to_numpy(), y_og.select("ws_horz_1").to_numpy(), label="Original")
+            # ax[0].plot(y_avg.select("time").to_numpy(), y_avg.select("ws_horz_1").to_numpy(), label="Averaged")
+            # ax[0].plot(y_filt.select("time").to_numpy(), y_filt.select("ws_horz_1").to_numpy(), label="Time-Filtered")
+            # ax[1].plot(y_og.select("time").to_numpy(), y_og.select("ws_vert_1").to_numpy(), label="Original")
+            # ax[1].plot(y_avg.select("time").to_numpy(), y_avg.select("ws_vert_1").to_numpy(), label="Averaged")
+            # ax[1].plot(y_filt.select("time").to_numpy(), y_filt.select("ws_vert_1").to_numpy(), label="Time-Filtered")
+            # ax[0].legend()
+            
         else:
             # collect all the measurments, prediction_timedelta apart, taken in the last n_controller time steps since predict_point was last called
             # zs = historic_measurements.filter(pl.col("time") >= (self.last_measurement_time + self.prediction_interval))\
             #                           .gather_every(n=self.n_prediction_interval)
             # zs = historic_measurements.filter(pl.col("time") >= (self.last_measurement_time + self.prediction_interval))
-            zs = historic_measurements.filter(pl.col("time") >= (self.last_measurement_time + self.controller_timedelta))\
-                                       .filter(((current_time - pl.col("time")).dt.total_microseconds().mod(self.prediction_interval.total_seconds() * 1e6) == 0))
-            assert zs.select(pl.len()).item() == 0 or zs.select(pl.col("time").last()).item() == self.last_measurement_time + self.controller_timedelta #self.prediction_interval
+            zs = historic_measurements.with_columns(cs.numeric().rolling_mean_by("time", window_size=self.prediction_interval))\
+                                      .filter(((pl.col("time") - self.last_measurement_time).dt.total_microseconds().mod(self.prediction_interval.total_seconds() * 1e6) == 0))\
+                                      .filter(pl.col("time") >= (self.last_measurement_time + self.controller_timedelta))
+                            
+                                    #    .filter(((pl.col("time") - self.last_measurement_time).dt.total_microseconds().mod(self.prediction_interval.total_seconds() * 1e6) == 0))
+            assert zs.select(pl.len()).item() == 0 or zs.select(pl.col("time").last()).item() == self.last_measurement_time + self.prediction_timedelta #self.prediction_interval
         
         if zs.select(pl.len()).item() == 0:
             # forecaster is called every n_controller time steps
@@ -163,10 +189,10 @@ class KalmanFilterForecast(WindForecast):
                 # Qs = [np.eye(self.model.dim_x)*1e-2 for j in range(zs.shape[0])]
                 # Rs = [np.eye(self.model.dim_z)*1e-2 for j in range(zs.shape[0])]
                 self.initialized = True
-            else:
-                # update Qt and Rt based on previous value s of process and measurement noise
-                len_w = self.historic_w.shape[0]
-                len_v = self.historic_v.shape[0]
+            # else:
+            #     # update Qt and Rt based on previous value s of process and measurement noise
+            #     len_w = self.historic_w.shape[0]
+            #     len_v = self.historic_v.shape[0]
                 # Qs = [self._init_covariance(
                 #     historic_noise=self.historic_w[len_w - j - self.n_context:len_w - j, :]) for j in range(zs.shape[0]-1, -1, -1)]
                 # Rs = [self._init_covariance(
@@ -175,7 +201,7 @@ class KalmanFilterForecast(WindForecast):
                 #     np.fill_diagonal(a=r, val=np.max([np.diag(r), np.ones(r.shape[0]) * 1e-2]))
             
             Qs = [np.eye(self.model.dim_x)*0.01 for j in range(zs.shape[0])] # TODO add to config
-            Rs = [np.eye(self.model.dim_z)*0.01 for j in range(zs.shape[0])]
+            Rs = [np.eye(self.model.dim_z)*0.001 for j in range(zs.shape[0])]
             
             # init_x = self.model.x.copy()
             # use batch_filter to, on each controller sampling time

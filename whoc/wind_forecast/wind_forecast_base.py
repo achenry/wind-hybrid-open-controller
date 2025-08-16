@@ -938,7 +938,6 @@ class WindForecast:
                                  hue="turbine_id", dashes=[[4, 4]], marker="o", linestyle="--", ax=axs[f], err_style="bars")
                 else:
                     for t, tid in enumerate(turbine_ids):
-                        # TODO HIGH WHY ERROR BARS FOR SINGLE POINT FORECASTERS eg SVR, Spatial Forecast
                         sns.lineplot(data=forecast_wf.filter((pl.col("feature") == feat) & (pl.col("turbine_id") == tid)), 
                                      x="time", y="value", dashes=[[4, 4]], marker="o", linestyle="--", ax=axs[t, f], 
                                      hue="forecaster" if (multiple_forecasters and "forecaster" in forecast_wf.columns) else None, 
