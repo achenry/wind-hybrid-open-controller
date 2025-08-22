@@ -145,7 +145,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
     test_idx = 0
     
     forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.model_key.capitalize()}Forecast"
-    save_paths = []
+    save_paths = set()
     for d, ds in enumerate(test_data):
         
         test_data_time = ds["time"]
@@ -155,11 +155,11 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
         logging.info(f"Getting predictions for {splits[d]}th split starting at {start} and ending at {end} using {forecaster_name} with prediction_timedelta {forecaster.prediction_timedelta}.")
         forecasts = []
         # split_true_wf = true_wind_field.filter(pl.col("time").is_between(start, end, closed="both"))
-        logging.info(f"Getting controller times for {splits[d]}th split.")
+        # logging.info(f"Getting controller times for {splits[d]}th split.")
         split_controller_times = controller_times.filter(pl.col("time").is_between(start, end, closed="both"))\
                                                  .filter((pl.col("time") - start) >= forecaster.context_timedelta)
         n_controller_times = split_controller_times.select(pl.len()).item()
-        logging.info(f"Resetting forecaster state.")
+        # logging.info(f"Resetting forecaster state.")
         forecaster.reset(assigned_gpu=assigned_gpu)
         save_length = 0
         n_saved = 0
@@ -201,8 +201,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
             
             forecasts.append(pred)
             
-            save_length += pred.select(pl.len()).item()
-            
+            save_length += pred.select(pl.len()).item()   
             
             if  (final := ((c == n_controller_times - 1) and (d == n_splits - 1))) or (((ram_used := virtual_memory().percent) > ram_limit) and (save_length > 500)):
                 logging.info(f"In save conditional.")
@@ -212,16 +211,17 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                 else:
                     sp = save_path
                 temp_sp = sp.replace(".parquet", "_temp.parquet")
-                save_paths.append(temp_sp)
+                save_paths.add(temp_sp)
                 
                 if not final:
                     logging.info(f"Used {ram_used}% RAM. Saving parquet of length {save_length} to {temp_sp}.")
+                else:
+                    logging.info(f"Final save for split {splits[d]}. Saving parquet of length {save_length} to {temp_sp}.")
                 
-                logging.info(f"Concatenating forecasts.")
+                # logging.info(f"Concatenating forecasts.")
                 forecasts = pl.concat(forecasts, how="diagonal")
                 
                 # logging.info(f"diagonal concat for {save_path} columns = {forecasts.columns}")
-                logging.info(f"Writing result to file {temp_sp}.")
                 if not os.path.exists(temp_sp):
                     with open(temp_sp, mode="w") as fp:
                         forecasts.write_parquet(fp)
