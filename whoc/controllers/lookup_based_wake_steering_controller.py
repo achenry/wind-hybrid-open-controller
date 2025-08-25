@@ -537,6 +537,8 @@ class LookupBasedWakeSteeringController(ControllerBase):
                     
                 if assume_persistence:
                     wind = self.historic_measurements
+                    wind_u = wind.select(self.target_ws_horz_cols).to_numpy()
+                    wind_v = wind.select(self.target_ws_vert_cols).to_numpy()
                 else:
                     last_historic_time = hist_meas.select(pl.col("time").last()).item()
                     # first_forecasted_time = self.forecasted_values.select(pl.col("time").first()).item()
@@ -557,8 +559,8 @@ class LookupBasedWakeSteeringController(ControllerBase):
                         and (wind.select(pl.col("time").last()).item() == single_forecasted_wind_field.select(pl.col("time").last()).item()), "DataFrame passed to low pass filter must be continuous, with sampling time equal to simulation timestep, and must end on last forecasted value."
                     del hist_meas, fcst_vals
                                             
-                wind_u = wind.select(self.target_mean_ws_horz_cols).to_numpy()
-                wind_v = wind.select(self.target_mean_ws_vert_cols).to_numpy()
+                    wind_u = wind.select(self.target_mean_ws_horz_cols).to_numpy()
+                    wind_v = wind.select(self.target_mean_ws_vert_cols).to_numpy()
                 
                 if self.verbose:
                     if self.wind_forecast:
