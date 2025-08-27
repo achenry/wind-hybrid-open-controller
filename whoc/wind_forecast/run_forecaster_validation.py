@@ -249,6 +249,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
         final_sp = temp_sp.replace("_temp.parquet", ".parquet")
         logging.info(f"Moving final result to {final_sp}.")
         os.replace(temp_sp, final_sp)
+        logging.info(f"Moved final result to {final_sp}.")
     
 def generate_wind_field_df(datasets, target_cols, feat_dynamic_real_cols):
     full_target = np.concatenate([ds[FieldName.TARGET] for ds in datasets], axis=-1)
@@ -968,7 +969,6 @@ if __name__ == "__main__":
                         ram_limit=args.ram_limit) for forecaster, cg, save_path in validation_to_run]
                         
                 res = [fut.result() for fut in test_futures]
-                
 
         else:
             logging.info(f"Running generate_forecaster_results with loop.")
@@ -982,17 +982,22 @@ if __name__ == "__main__":
                     save_path=save_path,
                     assigned_gpu=next(gpu_cycler) if gpu_cycler else None,
                     ram_limit=args.ram_limit)
+                
+        logging.info("Finished all make_predictions tasks.")
         
     # Load generated forecast dfs
     if args.run_processing and RUN_ONCE:
+        
         results = []
         for forecaster in forecasters:
+            
             prediction_timedelta = int(forecaster.prediction_timedelta.total_seconds())
             forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.model_key.capitalize()}Forecast"
             save_dir = os.path.join(validation_save_dir, 
                                 forecaster_name,
                                 str(prediction_timedelta))
             
+            logging.info(f"Preparing results for forecaster {forecaster_name} and prediction_timedelta {prediction_timedelta}.")
             # forecast_path = os.path.join(save_dir, f"forecast_*.parquet")
                 
             # logging.info(f"Loading forecast_df from {forecast_path}.")
