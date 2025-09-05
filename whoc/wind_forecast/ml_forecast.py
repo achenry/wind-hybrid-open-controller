@@ -186,7 +186,7 @@ class MLForecast(WindForecast):
                 "trainer_kwargs": self.model_config["trainer"],
                 # Include distr_output initially, will be removed conditionally
     #             "distr_output": distr_output_class(dim=self.data_module.num_target_vars, **self.model_config["model"]["distr_output"]["kwargs"]),
-                "num_parallel_samples": self.model_config["model"][self.model_key].get("num_parallel_samples", 100) if self.model_key == 'tactis' else 100, # Default 100 if not specified
+                "num_parallel_samples": self.model_config["model"][self.model_key].get("num_parallel_samples", 200) if self.model_key == 'tactis' else 100, # Default 200 for TACTiS
             
             }
             estimator_sig = inspect.signature(estimator_class.__init__)
@@ -230,12 +230,12 @@ class MLForecast(WindForecast):
             self.sample_predictor = estimator.create_predictor(transformation, model,
                                                             forecast_generator=SampleForecastGenerator())
             
-            # CRITICAL FIX: Enable copula for TACTiS models that should be in Stage 2
+            # ENHANCED CRITICAL FIX: Enable copula for TACTiS models that should be in Stage 2
             if (self.model_key == "tactis" and 
                 correct_stage == 2 and 
                 hasattr(self.predictor, 'network')):
                 
-                logging.info("🔧 APPLYING TACTIS COPULA FIX - Enabling copula for Stage 2 inference")
+                logging.info("🔧 APPLYING ENHANCED TACTIS COPULA FIX - Enabling copula for Stage 2 inference")
                 
                 try:
                     # Access the TACTiS model through the predictor
@@ -251,34 +251,60 @@ class MLForecast(WindForecast):
                         logging.info(f"✅ Set tactis_core.stage = {tactis_core.stage}, skip_copula = {tactis_core.skip_copula}")
                         
                         # Enable copula in decoder if it exists
-                        if hasattr(tactis_core, 'decoder') and hasattr(tactis_core.decoder, 'skip_copula'):
-                            tactis_core.decoder.skip_copula = False
+                        if hasattr(tactis_core, 'decoder'):
+                            decoder = tactis_core.decoder
+                            decoder.skip_copula = False
                             logging.info("✅ Set decoder.skip_copula = False")
                             
-                            # Ensure copula component is created if missing
-                            if (tactis_core.decoder.copula is None and 
-                                hasattr(tactis_core.decoder, 'create_attentional_copula')):
-                                tactis_core.decoder.create_attentional_copula()
-                                if tactis_core.decoder.copula is not None:
-                                    logging.info("✅ Successfully created missing copula component")
+                            # Force copula creation if missing
+                            if decoder.copula is None:
+                                if hasattr(decoder, 'create_attentional_copula'):
+                                    decoder.create_attentional_copula()
+                                    logging.info("🔧 Attempted to create missing copula component")
                                 else:
-                                    logging.warning("⚠️  Failed to create copula component")
+                                    logging.error("❌ Decoder missing create_attentional_copula method")
+                                    
+                            # Validate copula state
+                            if decoder.copula is not None:
+                                logging.info("✅ Copula component validated - probabilistic sampling enabled")
+                                # Set copula to evaluation mode
+                                decoder.copula.eval()
+                            else:
+                                logging.error("❌ CRITICAL: Copula is still None after initialization attempts!")
+                                logging.error("This will cause fallback to uniform sampling (Stage 1 behavior)")
                         
-                        # Apply same fix to sample_predictor
+                        # Apply same enhanced fix to sample_predictor
                         if (hasattr(self.sample_predictor, 'network') and
                             hasattr(self.sample_predictor.network, 'model') and 
                             hasattr(self.sample_predictor.network.model, 'tactis')):
                             sample_tactis = self.sample_predictor.network.model.tactis
                             sample_tactis.stage = 2
                             sample_tactis.skip_copula = False
-                            if hasattr(sample_tactis, 'decoder') and hasattr(sample_tactis.decoder, 'skip_copula'):
-                                sample_tactis.decoder.skip_copula = False
-                                if (sample_tactis.decoder.copula is None and 
-                                    hasattr(sample_tactis.decoder, 'create_attentional_copula')):
-                                    sample_tactis.decoder.create_attentional_copula()
-                            logging.info("✅ Applied copula fix to sample_predictor as well")
+                            
+                            if hasattr(sample_tactis, 'decoder'):
+                                sample_decoder = sample_tactis.decoder
+                                sample_decoder.skip_copula = False
+                                if sample_decoder.copula is None and hasattr(sample_decoder, 'create_attentional_copula'):
+                                    sample_decoder.create_attentional_copula()
+                                if sample_decoder.copula is not None:
+                                    sample_decoder.copula.eval()
+                                    logging.info("✅ Sample predictor copula validated")
+                                else:
+                                    logging.error("❌ Sample predictor copula is None")
                         
-                        logging.info("🎯 TACTiS copula fix completed - probabilistic sampling should now work properly")
+                        # Final validation
+                        logging.info("🔍 COPULA VALIDATION SUMMARY:")
+                        logging.info(f"   - tactis_core.stage = {tactis_core.stage}")
+                        logging.info(f"   - tactis_core.skip_copula = {tactis_core.skip_copula}")
+                        logging.info(f"   - decoder.skip_copula = {tactis_core.decoder.skip_copula if hasattr(tactis_core, 'decoder') else 'N/A'}")
+                        logging.info(f"   - decoder.copula exists = {tactis_core.decoder.copula is not None if hasattr(tactis_core, 'decoder') else False}")
+                        
+                        if (hasattr(tactis_core, 'decoder') and 
+                            tactis_core.decoder.copula is not None and 
+                            not tactis_core.skip_copula):
+                            logging.info("🎯 TACTiS COPULA FIX SUCCESSFUL - True probabilistic sampling enabled!")
+                        else:
+                            logging.warning("⚠️  TACTiS copula fix incomplete - may fallback to uniform sampling")
                         
                 except Exception as e:
                     logging.error(f"❌ Failed to apply TACTiS copula fix: {e}")

@@ -177,12 +177,18 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                 pred = forecaster.predict_point(
                     ds.filter(pl.col("time") <= current_time), current_time)
             elif prediction_type == "sample":
-                n_samples = 100  # Default value
+                n_samples = 200  # Default value for proper probabilistic analysis
                 if hasattr(forecaster, 'model_config'):
                     try:
-                        n_samples = forecaster.model_config['model'][forecaster.model_key].get('num_parallel_samples', 100)
+                        n_samples = forecaster.model_config['model'][forecaster.model_key].get('num_parallel_samples', 200)
+                        logging.info(f"Using {n_samples} samples from model config for {forecaster.model_key}")
                     except (KeyError, AttributeError) as e:
-                        pass
+                        logging.warning(f"Could not get num_parallel_samples from config: {e}. Using default {n_samples}")
+                
+                # For TACTiS models, ensure we have enough samples for meaningful statistics
+                if hasattr(forecaster, 'model_key') and forecaster.model_key == 'tactis':
+                    n_samples = max(n_samples, 200)  # Minimum 200 samples for TACTiS
+                    logging.info(f"TACTiS model detected - ensuring minimum {n_samples} samples")
                 
                 pred = forecaster.predict_sample(
                     ds.filter(pl.col("time") <= current_time), current_time, n_samples=n_samples)
