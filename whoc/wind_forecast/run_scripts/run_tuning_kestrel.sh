@@ -91,7 +91,7 @@ PYTHONPATH=$(which python)
 #srun -n ${SLURM_NTASKS} --export=ALL,WORKER_RANK=0 
 
 export WORKER_RANK=0
-python ${WORK_DIR}/tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --seed 0 --restart_tuning --reload_data
+python ${WORK_DIR}/tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --seed 0 --restart_tuning #--reload_data
 
 # --- Parallel Worker Launch using nohup ---
 NUM_CPUS=${SLURM_NTASKS_PER_NODE}
@@ -102,11 +102,12 @@ echo "=== STARTING PARALLEL OPTUNA TUNING WORKERS ==="
 date +"%Y-%m-%d %H:%M:%S"
 
 for i in $(seq 1 $((${NTUNERS}))); do
-        if [ $i -eq 1 ]; then #&& [ $j -eq 0 ]; then
+        #if [ $i -eq 1 ]; then #&& [ $j -eq 0 ]; then
             export RESTART_FLAG="--restart_tuning"
-         else
-            export RESTART_FLAG=""
-         fi
+	#    echo "Restarting tuning..."
+        # else
+        #    export RESTART_FLAG=""
+        # fi
 
         # Create a unique seed for each worker to ensure they explore different areas
         export WORKER_SEED=$((42 + i*10)) #+ j))
