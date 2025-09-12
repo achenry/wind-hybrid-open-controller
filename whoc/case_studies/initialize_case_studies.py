@@ -801,7 +801,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         if n_seeds != "auto":
             # reverse the order to start with the shortest
             wind_field_ts = wind_field_ts[:n_seeds]
-            wind_field_ts.sort(reverse=False, key=lambda df: df.select(pl.col("time").last() - pl.col("time").first()).item()) 
+            wind_field_ts.sort(reverse=False, key=lambda df: df.select(pl.col("time").last() - pl.col("time").first()).item()) # TODO REMOVE THIS
             logging.info(f"Durations in wind_field_ts = {[np.round(df.select((pl.col('time').last() - pl.col('time').first())).item().total_seconds() / 3600, 2) for df in wind_field_ts]} hours")
         else:
             n_seeds = len(wind_field_ts)
