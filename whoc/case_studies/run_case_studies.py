@@ -349,25 +349,28 @@ if __name__ == "__main__":
                         
                     max_ctx_time = max(max_ctx_time)
                         
-                # truncate greatest context length at beginning
-                trunc_time_series_df = time_series_df.reset_index(drop=False).groupby(["CaseFamily", "CaseName", "WindSeed"], group_keys=True)
-                trunc_time_series_df = trunc_time_series_df.apply(
-                                          func=(lambda sub_df: sub_df[sub_df["Time"].between(max_ctx_time, min_stop_time_per_seed.iloc[sub_df.name[2]], inclusive="both")]),
-                                          include_groups=False)
-                trunc_time_series_df = trunc_time_series_df.reset_index(level="WindSeed", drop=False)
-                trunc_time_series_df = trunc_time_series_df[trunc_time_series_df["WindSeed"].isin(common_seeds)]
-                # trunc_time_series_df = trunc_time_series_df.droplevel("WindSeed")
-                # validate that there is a unique stop time for each wind seed
-                # trunc_time_series_df.groupby(["CaseFamily", "CaseName", "WindSeed"], group_keys=False)["Time"].max()\
-                #                                   .groupby(["WindSeed"], group_keys=False).unique()
-            
-                new_agg_df = aggregate_time_series_data(
-                                                time_series_df=trunc_time_series_df,
-                                                # input_dict_path=os.path.join(args.save_dir, case_families[i], f"input_config_case_{case_name}.pkl"),
-                                                # results_path=os.path.join(args.save_dir, case_families[i], f"agg_results_{case_name}.csv"),
-                                                n_seeds=len(common_seeds))
+                    # truncate greatest context length at beginning
+                    trunc_time_series_df = time_series_df.reset_index(drop=False).groupby(["CaseFamily", "CaseName", "WindSeed"], group_keys=True)
+                    trunc_time_series_df = trunc_time_series_df.apply(
+                                            func=(lambda sub_df: sub_df[sub_df["Time"].between(max_ctx_time, min_stop_time_per_seed.iloc[sub_df.name[2]], inclusive="both")]),
+                                            include_groups=False)
+                    trunc_time_series_df = trunc_time_series_df.reset_index(level="WindSeed", drop=False)
+                    trunc_time_series_df = trunc_time_series_df[trunc_time_series_df["WindSeed"].isin(common_seeds)]
+                    # trunc_time_series_df = trunc_time_series_df.droplevel("WindSeed")
+                    # validate that there is a unique stop time for each wind seed
+                    # trunc_time_series_df.groupby(["CaseFamily", "CaseName", "WindSeed"], group_keys=False)["Time"].max()\
+                    #                                   .groupby(["WindSeed"], group_keys=False).unique()
                 
-                if new_agg_df is None:
+                    new_agg_df = aggregate_time_series_data(
+                                                    time_series_df=trunc_time_series_df,
+                                                    # input_dict_path=os.path.join(args.save_dir, case_families[i], f"input_config_case_{case_name}.pkl"),
+                                                    # results_path=os.path.join(args.save_dir, case_families[i], f"agg_results_{case_name}.csv"),
+                                                    n_seeds=len(common_seeds))
+                    
+                    if new_agg_df is None:
+                        new_agg_df = pd.DataFrame()
+                        
+                else:
                     new_agg_df = pd.DataFrame()
                     
                 existing_agg_df = []
@@ -383,6 +386,7 @@ if __name__ == "__main__":
             
                 all_agg_dfs = [df for df in existing_agg_df + [new_agg_df] if df.shape[0]]
                 agg_df = pd.concat(all_agg_dfs)
+                agg_df.index = pd.MultiIndex.from_frame(agg_df.index.to_frame().astype({"CaseFamily": str, "CaseName": str}))
 
         elif RUN_ONCE:
             time_series_df = []
@@ -437,18 +441,20 @@ if __name__ == "__main__":
                     agg_df.append(df)
 
             agg_df = pd.concat(agg_df)
+            # agg_df.index = pd.MultiIndex.from_frame(agg_df.index.to_frame().astype({"CaseFamily": str, "CaseName": str}))
             # agg_df = pl.concat(agg_df, how="vertical").to_pandas().set_index(["CaseFamily", "CaseName"])
 
         if RUN_ONCE and PLOT:
             
+            # NOTE this conditional is used to generate results for transformer/baseline model forecast-enabled yaw control cases
             if any(case_families.index(cf) in args.case_ids for cf in 
                    ["baseline_controllers_informer_forecasters_awaken", "baseline_controllers_autoformer_forecasters_awaken",
                     "baseline_controllers_spacetimeformer_forecasters_awaken", "baseline_controllers_tactis_forecasters_awaken",
                     "baseline_controllers_baseline_det_forecasters_awaken", "baseline_controllers_baseline_prob_forecasters_awaken"]) \
                         and (case_families.index("baseline_controllers_baseline_det_forecasters_awaken") in args.case_ids) \
                             and (case_families.index("baseline_controllers_perfect_forecaster_awaken") in args.case_ids):
-                from whoc.wind_forecast.run_forecaster_validation import WindForecast
-                from wind_forecasting.preprocessing.data_inspector import DataInspector
+                # from whoc.wind_forecast.run_forecaster_validation import WindForecast
+                # from wind_forecasting.preprocessing.data_inspector import DataInspector
                 
                 # if case_families.index("baseline_controllers_ml_forecasters_awaken") in args.case_ids:
                 #     forecaster_case_fam = "baseline_controllers_ml_forecasters_awaken"
@@ -532,15 +538,16 @@ if __name__ == "__main__":
                                                 save_dir=args.save_dir, label="baseline_forecasters_",
                                                 controller_labels=controller_labels)
                 
+                
                 # PLOT 1) Farm power of perfect forecaster vs prediction timedela for different controllers
                 # plot_power_vs_prediction_time(baseline_agg_df, args.save_dir, "all_forecasters_")
                 
                 # PLOT 2) Yaw angles/power for persistent vs. other forecasters for best lead times
-                best_forecaster_prediction_delta = forecasters_agg_df.groupby("wind_forecast_class", group_keys=False).apply(lambda x: x.sort_values(by=("FarmPower", "mean"), ascending=False).head(10)) #[("FarmPower", "mean")] 
-                best_perfect_prediction_delta = perfect_agg_df.groupby("wind_forecast_class", group_keys=False).apply(lambda x: x.sort_values(by=("FarmPower", "mean"), ascending=False).head(10))
+                best_forecaster_prediction_delta = forecasters_agg_df.groupby("wind_forecast_class", group_keys=False).apply(lambda x: x.sort_values(by=("FarmPower", "mean"), ascending=False).head(10), include_groups=False) #[("FarmPower", "mean")] 
+                best_perfect_prediction_delta = perfect_agg_df.groupby("wind_forecast_class", group_keys=False).apply(lambda x: x.sort_values(by=("FarmPower", "mean"), ascending=False).head(10), include_groups=False) #[("FarmPower", "mean")]
                 
                 # find best performing forecasters
-                forecasters_agg_df.groupby("prediction_timedelta", group_keys=False).apply(lambda x: x.sort_values(by=("FarmPower", "mean"), ascending=False).head(10))
+                forecasters_agg_df.groupby("prediction_timedelta", group_keys=False).apply(lambda x: x.sort_values(by=("FarmPower", "mean"), ascending=False).head(10), include_groups=False) #[("FarmPower", "mean")]
                 
                 # plot forecasters, persistent, perfect for 60/300sec predictions
                 perfect_case_names = perfect_agg_df.loc[perfect_agg_df["prediction_timedelta"].isin(pd.unique(forecasters_agg_df["prediction_timedelta"]))].index.get_level_values("CaseName")
