@@ -251,6 +251,8 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
         os.replace(temp_sp, final_sp)
         logging.info(f"Moved final result to {final_sp}.")
     
+    return
+    
 def generate_wind_field_df(datasets, target_cols, feat_dynamic_real_cols):
     full_target = np.concatenate([ds[FieldName.TARGET] for ds in datasets], axis=-1)
     full_feat_dynamic_reals = np.concatenate([ds[FieldName.FEAT_DYNAMIC_REAL] for ds in datasets], axis=-1)[:, :full_target.shape[1]]
@@ -958,6 +960,7 @@ if __name__ == "__main__":
                 # executor = get_context("spawn").Pool()
             
             logging.info(f"Running generate_forecaster_results with multiprocessor {args.multiprocessor} with {max_workers} workers.")
+            
             with executor as ex:
                 test_futures = [ex.submit(
                     make_predictions, 
@@ -969,6 +972,8 @@ if __name__ == "__main__":
                         ram_limit=args.ram_limit) for forecaster, cg, save_path in validation_to_run]
                         
                 res = [fut.result() for fut in test_futures]
+                
+                logging.info(f"Collected all generate_forecaster_results.")
 
         else:
             logging.info(f"Running generate_forecaster_results with loop.")
