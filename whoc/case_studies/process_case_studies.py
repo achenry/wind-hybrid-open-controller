@@ -658,7 +658,7 @@ def aggregate_time_series_data(time_series_df, n_seeds):
     #    logging.warning(f"{case_family}={case_name} data has insufficient time steps.")
     #    return None
    
-    result_summary = []
+    # result_summary = []
     # input_fn = f"input_config_case_{case_name}.yaml"
     logging.info(f"Aggregating data for {case_family}={case_name}")
     
