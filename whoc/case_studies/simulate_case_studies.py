@@ -79,12 +79,12 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
     skip_temp = os.path.exists(temp_save_path) and kwargs["skip_temps"]
     if load_from_final:
         logging.info(f"Returning existing from final checkpoint {save_path}")
-        results_df = pd.read_csv(save_path, low_memory=False)
+        # results_df = pd.read_csv(save_path, low_memory=False)
         # check if this saved df completed successfully TODO add back in when all sims are uniform
         # if (results_df.shape[0] - 2) == int((stoptime - simulation_input_dict["simulation_dt"]) / simulation_input_dict["simulation_dt"]): #simulation_input_dict["controller"]["controller_dt"] + simulation_input_dict["wind_forecast"]["prediction_timedelta"].total_seconds():
         #     logging.info(f"Loaded existing {fn} since rerun_simulations argument is false")
         #     return
-        return results_df
+        return 
         if os.path.exists(save_path):
             os.remove(save_path)
             
@@ -106,7 +106,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         k = int(t // simulation_input_dict["simulation_dt"])
         simulation_input_dict["controller"]["initial_conditions"]["yaw"] = \
             list(results_df.dropna(subset="FreestreamWindMag").iloc[-1][[f"TurbineYawAngle_{idx2tid_mapping[i]}" for i in fi.sorted_tids]].astype(float).values)
-    
+        del results_df
     else:
         t = 0
         k = 0
