@@ -101,12 +101,48 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         
         logging.info(f"Loading from checkpoint {temp_save_path}")
         # set t, k to value after last in file, see how ctrl_dict is set in step, don't start save arrs with nans
-        results_df = pd.read_csv(temp_save_path, low_memory=False)
-        t = results_df.dropna(subset="FreestreamWindMag")["Time"].max() + simulation_input_dict["simulation_dt"]
-        k = int(t // simulation_input_dict["simulation_dt"])
-        simulation_input_dict["controller"]["initial_conditions"]["yaw"] = \
-            list(results_df.dropna(subset="FreestreamWindMag").iloc[-1][[f"TurbineYawAngle_{idx2tid_mapping[i]}" for i in fi.sorted_tids]].astype(float).values)
-        del results_df
+        # results_df = pd.read_csv(temp_save_path, chunksize=100) #low_memory=False)
+        # with open(temp_save_path, 'r') as f:
+        #     header = f.readline().strip().split(',')
+        
+        df_len = pl.scan_csv(temp_save_path).select(pl.len()).collect().item()
+        
+        for offset in range(df_len - 100, -1, -100):
+            chunk_df = pl.scan_csv(temp_save_path).select(["Time", "FreestreamWindMag"] + [f"TurbineYawAngle_{idx2tid_mapping[i]}" for i in fi.sorted_tids]).slice(offset, 100).drop_nulls(subset="FreestreamWindMag").tail(1).collect()
+            if chunk_df.shape[0] == 0:
+                continue
+            else:
+                # chunk_df = chunk_df.with_columns(pl.col("Time").cast(pl.Datetime(time_unit="ns")))
+                t = chunk_df["Time"].item() + simulation_input_dict["simulation_dt"]
+                k = int(t // simulation_input_dict["simulation_dt"])
+                simulation_input_dict["controller"]["initial_conditions"]["yaw"] = \
+                         list(chunk_df[[f"TurbineYawAngle_{idx2tid_mapping[i]}" for i in fi.sorted_tids]].to_numpy().flatten())
+                break
+            
+        # for chunk in pl.scan_csv(temp_save_path).collect(streaming=True).iter_slices(n_rows=100):
+        #     if chunk.drop_nulls(subset="FreestreamWindMag").shape[0] == 0:
+        #         continue
+        #     else:
+                # chunk = chunk.with_columns(pl.col("time").cast(pl.Datetime(time_unit="ns")))
+                # t = chunk.drop_nulls(subset="FreestreamWindMag")["time"].max().timestamp() + simulation_input_dict["simulation_dt"]
+                # k = int(t // simulation_input_dict["simulation_dt"])
+                # simulation_input_dict["controller"]["initial_conditions"]["yaw"] = \
+                #          list(chunk.dropna(subset="FreestreamWindMag").iloc[-1][[f"TurbineYawAngle_{idx2tid_mapping[i]}" for i in fi.sorted_tids]].astype(float).values)
+        
+        # with pd.read_csv(temp_save_path, chunksize=20) as results_df:
+        #     for chunk in reversed(results_df):
+        #         if chunk.dropna(subset="FreestreamWindMag").shape[0] == 0:
+        #             continue
+        #         else:
+        #             # pl.scan_csv(temp_save_path). 
+        #             chunk = chunk.with_columns(pl.col("time").cast(pl.Datetime(time_unit="ns")))
+        #             t = results_df.dropna(subset="FreestreamWindMag")["Time"].max() + simulation_input_dict["simulation_dt"]
+        #             k = int(t // simulation_input_dict["simulation_dt"])
+        #             simulation_input_dict["controller"]["initial_conditions"]["yaw"] = \
+        #                 list(chunk.dropna(subset="FreestreamWindMag").iloc[-1][[f"TurbineYawAngle_{idx2tid_mapping[i]}" for i in fi.sorted_tids]].astype(float).values)
+        #             break
+        
+        # del chunk
     else:
         t = 0
         k = 0
