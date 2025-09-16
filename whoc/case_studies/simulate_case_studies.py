@@ -116,7 +116,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
                 t = chunk_df["Time"].item() + simulation_input_dict["simulation_dt"]
                 k = int(t // simulation_input_dict["simulation_dt"])
                 simulation_input_dict["controller"]["initial_conditions"]["yaw"] = \
-                         list(chunk_df[[f"TurbineYawAngle_{idx2tid_mapping[i]}" for i in fi.sorted_tids]].to_numpy().flatten())
+                         chunk_df[[f"TurbineYawAngle_{idx2tid_mapping[i]}" for i in fi.sorted_tids]].to_numpy().flatten()
                 break
             
         # for chunk in pl.scan_csv(temp_save_path).collect(streaming=True).iter_slices(n_rows=100):
