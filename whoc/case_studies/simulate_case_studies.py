@@ -723,11 +723,12 @@ def write_df(wf_source, wind_field_ts,
     
     logging.info(f"Writing {'final' if final else 'intermediary'} result to file.")
     if final and os.path.exists(save_path):
-        results_data = pd.concat([pd.read_csv(save_path, index_col=None, low_memory=False),
-                                  results_data], axis=0).groupby("Time").last().reset_index(drop=False)
+        pd.concat([pd.read_csv(save_path, index_col=None, low_memory=False),
+                                  results_data], axis=0).groupby("Time").last().reset_index(drop=False)\
+           .to_csv(save_path, mode="w", header=True, index=False)
         # set case family and case_name first, then time etc.
         # results_data = results_data.iloc[:, [1, 2, 0] + list(range(3, len(results_data.columns)))]
-        results_data.to_csv(save_path, mode="w", header=True, index=False)
+        
     elif os.path.exists(save_path):
         results_data.to_csv(save_path, mode="a", header=False, index=False)
     else:
