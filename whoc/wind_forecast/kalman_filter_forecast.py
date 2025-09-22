@@ -200,7 +200,7 @@ class KalmanFilterForecast(WindForecast):
                 # for r in Rs:
                 #     np.fill_diagonal(a=r, val=np.max([np.diag(r), np.ones(r.shape[0]) * 1e-2]))
             
-            Qs = [np.eye(self.model.dim_x)*0.01 for j in range(zs.shape[0])] # TODO add to config
+            Qs = [np.eye(self.model.dim_x)*0.01 for j in range(zs.shape[0])]
             Rs = [np.eye(self.model.dim_z)*0.001 for j in range(zs.shape[0])]
             
             # init_x = self.model.x.copy()
