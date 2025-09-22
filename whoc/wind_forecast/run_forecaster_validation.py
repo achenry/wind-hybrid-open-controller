@@ -465,7 +465,6 @@ def plot_score_vs_forecaster(agg_df, metrics, ax_indices, prediction_intervals, 
     
     sns.set_style("whitegrid")
     
-    
     ax = sns.catplot(agg_df.filter((pl.col("metric").is_in(metrics))),
                 kind="bar", col="prediction_timedelta", row=0,
                 hue="metric", x="forecaster", y="score", hue_order=metrics)
