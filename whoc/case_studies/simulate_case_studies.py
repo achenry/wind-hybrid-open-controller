@@ -518,7 +518,8 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         # if RAM is running low, write existing data to dataframe and continue
         # turn data into arrays, pandas dataframe, and export to csv
         final = (t>=stoptime)
-        if (len(turbine_powers_ts) > 100) and (((ram_used := virtual_memory().percent) > kwargs["ram_limit"]) or final or (len(turbine_powers_ts) >= int(3600 / simulation_input_dict["simulation_dt"]))):
+        # save for final save, or if more than 100 time-steps collected and RAM above limit, or if running for 1 hour of simulation time
+        if final or ((len(turbine_powers_ts) > 100) and ((ram_used := virtual_memory().percent) > kwargs["ram_limit"])) or (len(turbine_powers_ts) >= int(3600 / simulation_input_dict["simulation_dt"])):
             logging.info(f"Used {ram_used}% RAM.")
             
             # turn data into arrays, pandas dataframe, and export to csv
