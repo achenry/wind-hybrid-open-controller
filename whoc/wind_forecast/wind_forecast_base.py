@@ -1026,6 +1026,7 @@ class WindForecast:
         new_xticks = np.linspace(new_xlim[0], new_xlim[1], n_ticks)
         new_xticklabels = [int(i * xdelta) for i in range(n_ticks)]
         
+        # TODO for all ML figure, this is truncated!!
         for ax in axs[-1, :]:
             ax.set_xlim(new_xlim)
             ax.set_xticks(new_xticks)
