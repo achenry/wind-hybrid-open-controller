@@ -520,7 +520,7 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
         final = (t>=stoptime)
         # save for final save, or if more than 100 time-steps collected and RAM above limit, or if running for 1 hour of simulation time
         if final or ((len(turbine_powers_ts) > 100) and ((ram_used := virtual_memory().percent) > kwargs["ram_limit"])) or (len(turbine_powers_ts) >= int(3600 / simulation_input_dict["simulation_dt"])):
-            logging.info(f"Used {ram_used}% RAM.")
+            logging.info(f"Using {ram_used}% RAM before write_df.")
             
             # turn data into arrays, pandas dataframe, and export to csv
             write_df(wf_source=kwargs["wf_source"],
@@ -543,14 +543,14 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
                      wind_forecast_class=wind_forecast_class, 
                      simulation_input_dict=simulation_input_dict,
                      idx2tid_mapping=idx2tid_mapping,
-                     save_path=temp_save_path,
+                     temp_save_path=temp_save_path,
                      final=final,
                      include_prediction=kwargs["include_prediction"],
                      include_controller_signals=kwargs["include_controller_signals"])
             
             if final:
                 logging.info(f"Moving final result to {save_path}.")
-                move(temp_save_path, save_path)
+                os.replace(temp_save_path, save_path)
             
             turbine_powers_ts = []
             turbine_wind_mag_ts = []
@@ -566,6 +566,8 @@ def simulate_controller(controller_class, wind_forecast_class, simulation_input_
                 predicted_wind_speeds_ts = []
             
             controller_signals_ts = []
+            
+            logging.info(f"Using {virtual_memory().percent}% RAM after write_df.")
 
     return
 
@@ -763,7 +765,7 @@ def write_df(wf_source, wind_field_ts,
             # existing_results_data = existing_results_data.collect()
         
         results_data.to_csv(temp_save_path, mode="a", header=False, index=False)
-        os.replace(temp_save_path, temp_save_path.replace("_temp.csv", ".csv"))
+        # os.replace(temp_save_path, temp_save_path.replace("_temp.csv", ".csv"))
         # pd.concat([pd.read_csv(save_path, index_col=None, low_memory=False),
         #                           results_data], axis=0).groupby("Time").last().reset_index(drop=False)\
         #    .to_csv(save_path, mode="w", header=True, index=False)
