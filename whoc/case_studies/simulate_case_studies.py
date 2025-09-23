@@ -576,7 +576,7 @@ def write_df(wf_source, wind_field_ts,
              opt_cost_terms_ts, convergence_time_ts,
              predicted_wind_speeds_ts, controller_signals_ts,
              lower_state_cons_activated_ts, upper_state_cons_activated_ts,
-             ctrl, wind_forecast_class, simulation_input_dict, idx2tid_mapping, save_path, 
+             ctrl, wind_forecast_class, simulation_input_dict, idx2tid_mapping, temp_save_path, 
              final=False, include_prediction=True, include_controller_signals=True):
     
     turbine_wind_mag_ts = np.vstack(turbine_wind_mag_ts)
@@ -739,8 +739,8 @@ def write_df(wf_source, wind_field_ts,
     # ax.legend()
     # TESTING END
     
-    logging.info(f"Writing {'final' if final else 'intermediary'} result to file.")
-    if final and os.path.exists(save_path):
+    logging.info(f"Writing {'final' if final else 'intermediary'} result to file {temp_save_path}.")
+    if final and os.path.exists(temp_save_path):
         # existing_results_data = pl.scan_csv(save_path).group_by("Time", maintain_order=True).last()
         # existing_results_data.sink_csv(path=save_path.replace(".csv", "_x.csv"), maintain_order=True)
         # results_data.to_csv(save_path.replace(".csv", "_x.csv"), mode="a", header=False, index=False)
@@ -753,25 +753,24 @@ def write_df(wf_source, wind_field_ts,
         #     logging.info(f"Dropping {len(results_data) - nunq} duplicate time entries before writing final results to file.")
         #     results_data = results_data.groupby("Time").last().reset_index(drop=False)
         
-        existing_results_data = pl.scan_csv(save_path)
+        existing_results_data = pl.scan_csv(temp_save_path)
         if (existing_len := existing_results_data.select(pl.len()).item()) > (existing_unique := existing_results_data["Time"].n_unique().item()):
-            logging.warning(f"results file {save_path} has {existing_len - existing_unique} duplicate time entries.")
+            logging.warning(f"results file {temp_save_path} has {existing_len - existing_unique} duplicate time entries.")
             # logging.info(f"Dropping {existing_results_data.select(pl.len()).item() - existing_results_data["Time"].n_unique().item()} duplicate time entries in existing results before merging final results to file.")
             # existing_results_data = existing_results_data.group_by("Time", maintain_order=True).last().sort("Time")
             # existing_results_data.sink_csv(path=save_path.replace(".csv", "_temp.csv"), maintain_order=True)
             # move(save_path.replace(".csv", "_temp.csv"), save_path)
             # existing_results_data = existing_results_data.collect()
         
-        results_data.to_csv(save_path, mode="a", header=False, index=False)
-        
-        
+        results_data.to_csv(temp_save_path, mode="a", header=False, index=False)
+        os.replace(temp_save_path, temp_save_path.replace("_temp.csv", ".csv"))
         # pd.concat([pd.read_csv(save_path, index_col=None, low_memory=False),
         #                           results_data], axis=0).groupby("Time").last().reset_index(drop=False)\
         #    .to_csv(save_path, mode="w", header=True, index=False)
         # set case family and case_name first, then time etc.
         # results_data = results_data.iloc[:, [1, 2, 0] + list(range(3, len(results_data.columns)))]
         
-    elif os.path.exists(save_path):
-        results_data.to_csv(save_path, mode="a", header=False, index=False)
+    elif os.path.exists(temp_save_path):
+        results_data.to_csv(temp_save_path, mode="a", header=False, index=False)
     else:
-        results_data.to_csv(save_path, mode="w", header=True, index=False)
+        results_data.to_csv(temp_save_path, mode="w", header=True, index=False)
