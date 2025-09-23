@@ -1097,7 +1097,7 @@ if __name__ == "__main__":
             for res in results], how="vertical_relaxed")
         
         turbine_ids = ["5", "74", "75"]
-        best_cg = 19
+        best_cg = 0
         
         true_long_path = os.path.join(validation_save_dir, f"true_long_df_{args.run_name}.parquet")
         if args.rerun_validation or not os.path.exists(true_long_path):
@@ -1112,7 +1112,7 @@ if __name__ == "__main__":
                                         .collect()
         
         # plot continuity group with best rmse score
-        PLOT_INDIVIDUAL = True
+        PLOT_INDIVIDUAL = False
         forecasts_long = []
         for f, forecaster in enumerate(forecasters):
             forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.model_key.capitalize()}Forecast"
@@ -1128,7 +1128,7 @@ if __name__ == "__main__":
                 target_vars = ["ws_horz", "ws_vert"]
             
             forecast_long_path = os.path.join(save_dir, "long_df.parquet")
-            if args.rerun_validation or not os.path.exists(forecast_long_path):
+            if args.rerun_validation or not os.path.exists(forecast_long_path) or pl.scan_parquet(forecast_long_path, glob=True).select(pl.col("continuity_group").unique.contains(best_cg)).collect().item() == False:
                 forecast_path = os.path.join(save_dir, "forecast_*.parquet")
                 forecast_df = pl.scan_parquet(forecast_path, glob=True)\
                             .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
@@ -1174,7 +1174,6 @@ if __name__ == "__main__":
         
         # plot combined
         # cg = agg_df.select(pl.col("continuity_group").first()).item()
-        cg = 19
         mean_cols = [f"{feat_type}_{tid}" for feat_type in ["loc_ws_horz", "loc_ws_vert"] for tid in data_module.target_suffixes]
         point_cols = [f"{feat_type}_{tid}" for feat_type in ["ws_horz", "ws_vert"] for tid in data_module.target_suffixes]
         PLOT_ALL = True
@@ -1187,7 +1186,7 @@ if __name__ == "__main__":
             forecast_fig = WindForecast.plot_forecast(
                 forecasts_long.filter(pl.col("prediction_timedelta") == int(prediction_timedeltas[-1].total_seconds())).with_columns(pl.col("feature").str.replace("^(ws_)", "loc_ws_")),
                 true_long,
-                continuity_groups=[cg], 
+                continuity_groups=[best_cg], 
                 turbine_ids=turbine_ids,
                 turbine_labels=["Greedy", "LUT Ds", "LUT Us"],
                 label=f"_{args.run_name}_{data_config['config_label']}",
@@ -1230,7 +1229,7 @@ if __name__ == "__main__":
             
             # best_prediction_dt = totals_agg_df.filter(pl.col("metric").is_in(["RMSE", "MAE", "CWC", "CRPS", "PINAW"])).group_by("prediction_timedelta").agg(pl.col("score").mean()).select(pl.col("prediction_timedelta").sort_by("score").first()).item()
             # totals_agg_df.filter(pl.col("prediction_timedelta") == best_prediction_dt),
-            if True:
+            if False:
                 plot_score_vs_forecaster(totals_agg_df.filter(pl.col("metric").is_in([
                     "RMSE", "MAE", "CWC", "PINAW", "PICP", "CRPS",
                     "CWC_samples", "PINAW_samples", "PICP_samples", "CRPS_samples"
