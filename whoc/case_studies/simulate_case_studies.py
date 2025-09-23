@@ -755,9 +755,9 @@ def write_df(wf_source, wind_field_ts,
         #     logging.info(f"Dropping {len(results_data) - nunq} duplicate time entries before writing final results to file.")
         #     results_data = results_data.groupby("Time").last().reset_index(drop=False)
         
-        existing_results_data = pl.scan_csv(temp_save_path)
-        if (existing_len := existing_results_data.select(pl.len()).item()) > (existing_unique := existing_results_data["Time"].n_unique().item()):
-            logging.warning(f"results file {temp_save_path} has {existing_len - existing_unique} duplicate time entries.")
+        # existing_results_data = pl.scan_csv(temp_save_path)
+        # if (existing_len := existing_results_data.select(pl.len()).item()) > (existing_unique := existing_results_data["Time"].n_unique().item()):
+        #     logging.warning(f"results file {temp_save_path} has {existing_len - existing_unique} duplicate time entries.")
             # logging.info(f"Dropping {existing_results_data.select(pl.len()).item() - existing_results_data["Time"].n_unique().item()} duplicate time entries in existing results before merging final results to file.")
             # existing_results_data = existing_results_data.group_by("Time", maintain_order=True).last().sort("Time")
             # existing_results_data.sink_csv(path=save_path.replace(".csv", "_temp.csv"), maintain_order=True)
