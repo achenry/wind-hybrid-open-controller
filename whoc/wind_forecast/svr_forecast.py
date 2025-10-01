@@ -7,13 +7,14 @@ import re
 import pickle
 from dataclasses import dataclass
 from memory_profiler import profile
+import inspect
 
 import pandas as pd
 import polars as pl
 import numpy as np
 
 
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from sklearn.svm import SVR
 from sklearn.utils.validation import check_is_fitted
 
@@ -41,6 +42,8 @@ class SVRForecast(WindForecast):
         self.measurement_layout = np.vstack([self.fmodel.layout_x, self.fmodel.layout_y]).T
         
         self.n_neighboring_turbines = self.kwargs["n_neighboring_turbines"] 
+        self.dataset_hparams = {"n_neighboring_turbines": self.n_neighboring_turbines}
+        self.dataset_hparams_choices = {"n_neighboring_turbines": [1, 3, 5]}
         if self.n_neighboring_turbines:
             self.cluster_turbines = [sorted(np.arange(self.n_turbines), 
                         key=lambda t: np.linalg.norm(self.measurement_layout[tid, :] - self.measurement_layout[t, :]))[:self.n_neighboring_turbines]
@@ -114,10 +117,11 @@ class SVRForecast(WindForecast):
         pass
     
     def create_scaler(self):
-        return MinMaxScaler(feature_range=(-1, 1))
+        # return MinMaxScaler(feature_range=(-1, 1))
+        return StandardScaler()
     
     def create_model(self, **kwargs):
-        return SVR(**kwargs)
+        return SVR(**{k: v for k, v in kwargs.items() if k in inspect.signature(SVR).parameters})
    
     def _prepare_arrays(self, training_inputs, feat_type, tid, output_idx):
         
@@ -141,9 +145,11 @@ class SVRForecast(WindForecast):
         #     **{f"gamma_{output}": trial.suggest_categorical(f"gamma_{output}", ["scale", "auto"]) for output in self.outputs}
         # }
         return {
-            "C": trial.suggest_float(f"C", 1e-6, 1e6, log=True),
-            "epsilon": trial.suggest_float(f"epsilon", 1e-6, 1e-1, log=True),
-            "gamma": trial.suggest_categorical(f"gamma", ["scale", "auto"])
+            "C": trial.suggest_float(f"C", 1e-3, 10, log=True),
+            "epsilon": trial.suggest_float(f"epsilon", 1e-3, 10, log=True),
+            "gamma": trial.suggest_categorical(f"gamma", ["scale", "auto"]),
+            "kernel": trial.suggest_categorical("kernel", ["linear", "poly", "rbf", "sigmoid"]),
+            "n_neighboring_turbines": trial.suggest_categorical("n_neighboring_turbines", self.dataset_hparams_choices["n_neighboring_turbines"]),
         }
     
 
@@ -169,7 +175,7 @@ class SVRForecast(WindForecast):
         else:
             
             X_train, y_train, self.scaler[output] = self._get_output_data(measurements=training_measurements, output=output, split="train", reload=False, 
-                                                                          scale=scale, return_scaler=True)
+                                                                          scale=scale, return_scaler=True, dataset_hparams=self.dataset_hparams)
             logging.info(f"Fitting SVR model for output {output} with {X_train.shape[0]} data points.")
             self.model[output].fit(X_train, y_train)
             
@@ -295,7 +301,8 @@ class SVRForecast(WindForecast):
     def _inverse_scale(self, pred, output):
         tid = re.search(f"(?<=_){self.turbine_signature}$", output).group()
         output_idx = self.cluster_turbines[self.tid2idx_mapping[tid]].index(self.tid2idx_mapping[tid]) 
-        return (pred[output][np.newaxis, :] - self.scaler[output].min_[output_idx]) / self.scaler[output].scale_[output_idx]
+        # return (pred[output][np.newaxis, :] - self.scaler[output].min_[output_idx]) / self.scaler[output].scale_[output_idx]
+        return (pred[output][np.newaxis, :] * self.scaler[output].scale_[output_idx]) + self.scaler[output].mean_[output_idx]
 
     def _get_inputs(self, training_measurements, scaler, feat_type, tid, scale):
         input_turbine_indices = self.cluster_turbines[self.tid2idx_mapping[tid]] 

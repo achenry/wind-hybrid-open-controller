@@ -115,7 +115,7 @@ class MLForecast(WindForecast):
                                         target_prefixes=["ws_horz", "ws_vert"],
                                         feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                                         freq=checkpoint_hparams["freq_str"], # Use original freq string
-                                        normalized=True, # Assume True based on previous context, adjust if needed
+                                        use_normalization=True, # Assume True based on previous context, adjust if needed
                                         target_suffixes=self.model_config["dataset"]["target_turbine_ids"],
                                         per_turbine_target=self.model_config["dataset"]["per_turbine_target"], dtype=None,
                                         normalization_consts_path=self.model_config["dataset"]["normalization_consts_path"])

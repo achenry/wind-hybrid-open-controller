@@ -767,7 +767,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         # NOTE: we use the model config with the highest prediction length to instantiate the DataModule
         data_module = DataModule(data_path=base_model_config["dataset"]["data_path"], 
                                     normalization_consts_path=base_model_config["dataset"]["normalization_consts_path"],
-                                    normalized=False, 
+                                    use_normalization=False, 
                                     n_splits=1, #model_config["dataset"]["n_splits"],
                                     continuity_groups=None, train_split=(1.0 - base_model_config["dataset"]["val_split"] - base_model_config["dataset"]["test_split"]),
                                     val_split=base_model_config["dataset"]["val_split"], test_split=base_model_config["dataset"]["test_split"],
@@ -801,7 +801,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         if n_seeds != "auto":
             # reverse the order to start with the shortest
             wind_field_ts = wind_field_ts[:n_seeds]
-            wind_field_ts.sort(reverse=False, key=lambda df: df.select(pl.col("time").last() - pl.col("time").first()).item()) # TODO REMOVE THIS ST CASES W/ DIFF NUMBER OF SEEDS ASSIGN SAME WIND_CASE_IDX
+            # wind_field_ts.sort(reverse=False, key=lambda df: df.select(pl.col("time").last() - pl.col("time").first()).item())
             logging.info(f"Durations in wind_field_ts = {[np.round(df.select((pl.col('time').last() - pl.col('time').first())).item().total_seconds() / 3600, 2) for df in wind_field_ts]} hours")
         else:
             n_seeds = len(wind_field_ts)
