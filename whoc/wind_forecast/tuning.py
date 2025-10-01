@@ -16,6 +16,7 @@ import re
 import random
 from wind_forecasting.utils.optuna_storage import setup_optuna_storage
 from wind_forecasting.utils.optuna_config_utils import generate_db_setup_params
+from itertools import product
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -33,6 +34,7 @@ if __name__ == "__main__":
     parser.add_argument("-md", "--model", type=str, choices=["svr", "kf", "preview", "informer", "autoformer", "spacetimeformer"], required=True)
     parser.add_argument("-mcnf", "--model_config", type=str)
     parser.add_argument("-dcnf", "--data_config", type=str)
+    parser.add_argument("-utp", "--use_tuned_params", action="store_true")
     parser.add_argument("-mp", "--multiprocessor", choices=["mpi", "cf", None], default=None)
     parser.add_argument("-msp", "--max_splits", type=int, required=False, default=None,
                         help="Number of test splits to use.")
@@ -84,14 +86,21 @@ if __name__ == "__main__":
         
     data_module = DataModule(data_path=model_config["dataset"]["data_path"], 
                             normalization_consts_path=model_config["dataset"]["normalization_consts_path"],
-                            normalized=True, 
+                            use_normalization=True, 
                             n_splits=1, #model_config["dataset"]["n_splits"],
-                            continuity_groups=None, train_split=(1.0 - model_config["dataset"]["val_split"] - model_config["dataset"]["test_split"]),
-                                val_split=model_config["dataset"]["val_split"], test_split=model_config["dataset"]["test_split"],
-                                prediction_length=model_config["dataset"]["prediction_length"], context_length=model_config["dataset"]["context_length"],
-                                target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
-                                freq=model_config["dataset"]["resample_freq"], target_suffixes=model_config["dataset"]["target_turbine_ids"],
-                                    per_turbine_target=False, as_lazyframe=False, dtype=pl.Float32)
+                            continuity_groups=None, 
+                            train_split=(1.0 - model_config["dataset"]["val_split"] - model_config["dataset"]["test_split"]),
+                            val_split=model_config["dataset"]["val_split"], 
+                            test_split=model_config["dataset"]["test_split"],
+                            prediction_length=model_config["dataset"]["prediction_length"], 
+                            context_length=model_config["dataset"]["context_length"],
+                            target_prefixes=["ws_horz", "ws_vert"], 
+                            feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
+                            freq=model_config["dataset"]["resample_freq"], 
+                            target_suffixes=model_config["dataset"]["target_turbine_ids"],
+                            per_turbine_target=False, 
+                            as_lazyframe=False, 
+                            dtype=pl.Float32)
         
     # %% SETUP SEED
     if RUN_ONCE:
@@ -148,8 +157,10 @@ if __name__ == "__main__":
     else:
         data_module.get_dataset_info()
 
+
     # get max_splits longest datasets
-    num_Xy_paths = len(glob.glob(os.path.join(forecaster.model_save_dir, f"Xy_{forecaster.study_name}_*_*.dat")))
+    suffix = ("_" + "_".join([f"{k}{v}" for k, v in forecaster.dataset_hparams.items()])) if len(forecaster.dataset_hparams) else ""
+    num_Xy_paths = len(glob.glob(os.path.join(forecaster.model_save_dir, f"Xy_{forecaster.study_name}_*_*{suffix}.dat")))
     required_num_Xy_paths = data_module.num_target_vars * 2 # val and train
     if worker_id == 0 and (args.reload_data or reload or num_Xy_paths < required_num_Xy_paths):
         logging.info(f"Number of Xy paths: {num_Xy_paths} out of required {required_num_Xy_paths}")
@@ -172,11 +183,35 @@ if __name__ == "__main__":
         delattr(data_module, "train_dataset")
         delattr(data_module, "val_dataset")
 
-        forecaster.prepare_data(dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, 
-                                scale=False, multiprocessor=args.multiprocessor, reload=args.reload_data or reload)
+        forecaster.prepare_data(
+            dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, 
+            scale=False, 
+            multiprocessor=args.multiprocessor, 
+            reload=args.reload_data or reload)
 
         if RUN_ONCE:
             logging.info("Finished preparing data for tuning.")
+
+    if args.mode == "tune":
+        # check that all data corresponding to forecaster dataset_hparams is saved
+        dataset_hparams = list(forecaster.dataset_hparams_choices.keys())
+        for hparam_set in product(forecaster.dataset_hparams_choices.values()):
+            suffix = ("_" + "_".join([f"{k}{v}" for k, v in zip(dataset_hparams, hparam_set)])) if len(forecaster.dataset_hparams) else ""
+            num_Xy_paths = len(glob.glob(os.path.join(forecaster.model_save_dir, f"Xy_{forecaster.study_name}_*_*{suffix}.dat")))
+            required_num_Xy_paths = data_module.num_target_vars * 2 # val and train
+            
+            if worker_id == 0 and (args.reload_data or reload or num_Xy_paths < required_num_Xy_paths):
+                logging.info(f"Preparing data with suffix {suffix} for tuning")
+                
+                forecaster.prepare_data(
+                    dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, 
+                    scale=False, 
+                    multiprocessor=args.multiprocessor, 
+                    reload=args.reload_data or reload,
+                    dataset_hparams={k: v for k, v in zip(dataset_hparams, hparam_set)})
+            
+                if RUN_ONCE:
+                    logging.info(f"Finished preparing data with suffix {suffix} for tuning.")
 
     # %% TUNING MODEL
     
@@ -234,10 +269,19 @@ if __name__ == "__main__":
         
     elif args.mode == "train":
         # %% TRAINING MODEL
-        logging.info("Training model using best hyperparameters.")
-        forecaster.set_tuned_params(optuna_storage=optuna_storage, study_name=forecaster.study_name)
+        logging.info("Training model.")
+        if args.use_tuned_params:
+            logging.info("Using tuned hyperparameters.")
+            forecaster.set_tuned_params(optuna_storage=optuna_storage, study_name=forecaster.study_name)
+        elif len(model_config["model"][args.model]):
+            logging.info("Using model config hyperparameters.")
+            forecaster.set_tuned_params(config_params=model_config["model"][args.model])
+        else:
+            logging.info("Using default hyperparameters.")
+            forecaster.set_tuned_params()
+            
         forecaster.train_all_outputs(scale=False, 
-                                    multiprocessor=args.multiprocessor, 
+                                    multiprocessor=args.multiprocessor,
                                     retrain_models=True,
                                     scaler_params=scaler_params)
         # %% After training completes

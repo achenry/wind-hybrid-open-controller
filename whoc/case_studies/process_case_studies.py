@@ -167,7 +167,6 @@ def plot_agg_metrics_vs_forecaster(agg_df, save_dir, label, controller_labels, a
     if agg_metrics is None:
         agg_metrics = [("FarmPower", "mean"), ("YawAngleChangeAbs",  "mean")]
         
-    
     sns.set_style("whitegrid")
     plot_df = agg_df.copy()
     plot_df["prediction_timedelta"] = plot_df["prediction_timedelta"].dt.total_seconds()
@@ -185,9 +184,10 @@ def plot_agg_metrics_vs_forecaster(agg_df, save_dir, label, controller_labels, a
     for v, var in enumerate(reduced_agg_metrics):
         for c, ctrl in enumerate(controllers):
             base_cond = (plot_df["controller_class"] == ctrl.replace("True", "False")) & (plot_df["variable"] == var) # fetch static case for persistent
-            # base_val = plot_df.loc[(plot_df["wind_forecast_class"] == "PersistenceForecast") & persistent_cond, "value"].iloc[0]
+            # base_val = plot_df.loc[(plot_df["wind_forecast_class"] == "PersistenceForecast") & base_cond, "value"].iloc[0]
             base_val = plot_df.loc[(plot_df["wind_forecast_class"] == "PerfectForecast") & (plot_df["prediction_timedelta"] == 0) & base_cond, "value"].iloc[0]
-            cond = (plot_df["controller_class"] == ctrl) & (plot_df["variable"] == var) & ((plot_df["wind_forecast_class"] != "PerfectForecast") | (plot_df["prediction_timedelta"] != 0))
+            cond = (plot_df["controller_class"] == ctrl) & (plot_df["variable"] == var) & ~((plot_df["wind_forecast_class"] == "PerfectForecast") & (plot_df["prediction_timedelta"] == 0))
+            # cond = (plot_df["controller_class"] == ctrl) & (plot_df["variable"] == var) & ((plot_df["wind_forecast_class"] != "PersistenceForecast"))
             # forecast_cond = (plot_df["wind_forecast_class"] != "PerfectForecast")
             plot_df.loc[cond, "value"] = 100 * (plot_df.loc[cond, "value"] - base_val) / base_val
 
@@ -484,7 +484,7 @@ def plot_simulations(time_series_df, plotting_cases, save_dir,
                                     #    controller_dt=input_config["controller"]["dt"])
 
     if False:
-        # TODO why is the target setpoint always 252? If the equality across turbines is due to the dynamic constraint, why are the differences across time-steps not equal?
+        # TODO why is the target set point always 252? If the equality across turbines is due to the dynamic constraint, why are the differences across time-steps not equal?
         x = results_dfs["baseline_controllers_LUT"][[col for col in results_dfs["baseline_controllers_LUT"] if "TurbineYawAngle_" in col]]
         (x.nunique(axis=1) == 1).all()
         print(np.where(~(x.nunique(axis=1) == 1))) # all equal at all indices
@@ -982,9 +982,9 @@ def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, 
                 else:
                     tid = f"T{tid}"
                 if single_plot:
-                    sns.lineplot(data=seed_df, x="Time", y=yaw_col, label=f"{tid} yaw setpoint, {1}".format(t + 1, case_label), linestyle=":", linewidth=3, ax=ax[ax_idx])
+                    sns.lineplot(data=seed_df, x="Time", y=yaw_col, label=f"{tid} yaw set point, {1}".format(t + 1, case_label), linestyle=":", linewidth=3, ax=ax[ax_idx])
                 else:
-                    sns.lineplot(data=seed_df, x="Time", y=yaw_col, color=color, label=f"{tid} yaw setpoint".format(t + 1), linestyle=":", linewidth=3, ax=ax[ax_idx])
+                    sns.lineplot(data=seed_df, x="Time", y=yaw_col, color=color, label=f"{tid} yaw set point".format(t + 1), linestyle=":", linewidth=3, ax=ax[ax_idx])
                 ax[ax_idx].set(ylabel="")
                 
                 if controller_dt is not None:
@@ -1055,7 +1055,8 @@ def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, 
     plt.tight_layout()
     fig.savefig(save_path)
     
-    new_xlim = (1200, 1200+3600*1)
+    # new_xlim = (1200, 1200+3600*1)
+    new_xlim = (0, 3600)
     ax[0].set_xlim(new_xlim)
     for a in ax:
         ymin = min(l.get_ydata()[(l.get_xdata() >= new_xlim[0]) & (l.get_xdata() <= new_xlim[1])].min() for l in a.lines)
