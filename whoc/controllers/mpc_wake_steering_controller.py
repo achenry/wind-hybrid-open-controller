@@ -572,7 +572,7 @@ class MPC(ControllerBase):
         if self.wind_preview_type == "stochastic_sample":
             self.stochastic_sample_u_scale = simulation_input_dict["controller"]["stochastic_sample_u_scale"]
 
-        if "stochastic_interval" in self.wind_preview_type:
+        if "stochastic_interval_rectangular" in self.wind_preview_type:
             
             if (simulation_input_dict["controller"]["n_wind_preview_samples"] % 2 == 0):
                 print(f"n_wind_preview_samples must be an odd number to include mean value of distribution, increasing to {simulation_input_dict['controller']['n_wind_preview_samples'] + 1}")
@@ -628,13 +628,13 @@ class MPC(ControllerBase):
                     elif self.wind_preview_type == "stochastic_interval_elliptical": 
                         # Choose the probabilistic constraints for the stochastic_sample method with the stochastic_interval_elliptical method
                         if n_intervals > 1:
-                            std_divisions = np.linspace(0, max_std_dev, (n_intervals // 2) + 1)[:, np.newaxis]
+                            std_divisions = np.linspace(0, max_std_dev, (n_intervals // 2) + 1)[:, np.newaxis] # interval of 5; 0,
                         else:
                             std_divisions = np.array([0])[:, np.newaxis]
                         dev_u = np.matmul(std_divisions, std_u)
                         dev_v = np.matmul(std_divisions, std_v)
                         # multiple of 4 number of angular intervals, equally divided over each quadrature
-                        theta = np.linspace(0, 2 * np.pi, int((n_intervals // 4) + np.ceil((n_intervals % 4) / 4)) * 4)[:-1, np.newaxis] 
+                        theta = np.linspace(0, 2 * np.pi, int((n_intervals // 4) + np.ceil((n_intervals % 4) / 4)) * 4 + 1)[:-1, np.newaxis] 
                         u_vals = np.vstack([distribution_params[0] + dev_u[0, :], 
                                               distribution_params[0] + (
                                                   dev_u[1:, :] * np.cos(theta)[:, np.newaxis]).reshape(-1, self.n_horizon)])
@@ -674,7 +674,7 @@ class MPC(ControllerBase):
                     # wind_preview_probs = np.array(wind_preview_probs).T
                     wind_preview_probs = np.divide(wind_preview_probs, np.sum(wind_preview_probs, axis=0))
 
-                    if False and self.wind_preview_type in ["stochastic_interval_rectangular", "stochastic_interval_elliptical"]:
+                    if True and self.wind_preview_type in ["stochastic_interval_rectangular", "stochastic_interval_elliptical"]:
                         import matplotlib.pyplot as plt
                         import seaborn as sns
                         import pandas as pd
@@ -689,7 +689,7 @@ class MPC(ControllerBase):
                              "Sample": np.repeat(np.arange(uv_combs.shape[0]), (self.n_horizon, )) 
                         })
 
-                        fig, ax = plt.subplots(1, 2)
+                        fig, ax = plt.subplots(1, 2, figsize=(16,9))
                         sns.scatterplot(ax=ax[0], data=df, x="Downwind", y="Crosswind", hue="Time Step")
                         sns.scatterplot(ax=ax[1], data=df, x="Direction", y="Magnitude", hue="Time Step")
                         ax[0].legend([], [], frameon=False)
@@ -774,7 +774,7 @@ class MPC(ControllerBase):
                                 return_params=False, include_uv=False, seed=seed)
                     wind_preview_probs = None
                 # NOTE run this for generate_sample_figures
-                if False and self.n_wind_preview_samples == 500 and self.wind_preview_type == "stochastic_sample":
+                if True and self.n_wind_preview_samples == 500 and self.wind_preview_type == "stochastic_sample":
                         import matplotlib.pyplot as plt
                         import pandas as pd
                         import seaborn as sns
@@ -791,7 +791,7 @@ class MPC(ControllerBase):
                              "Time Step": np.tile(np.arange(self.n_horizon) + 1, (wind_preview_data_sample["FreestreamWindSpeedU"].shape[0], )).astype(int),
                              "Sample": np.repeat(np.arange(wind_preview_data_sample["FreestreamWindSpeedU"].shape[0]), (self.n_horizon, )) 
                         })
-                        fig, ax = plt.subplots(1, 2)
+                        fig, ax = plt.subplots(1, 2, figsize=(16, 9))
                         sns.scatterplot(ax=ax[0], data=df, x="Downwind", y="Crosswind", hue="Time Step")
                         sns.scatterplot(ax=ax[1], data=df, x="Direction", y="Magnitude", hue="Time Step")
                         ax[0].legend([], [], frameon=False)

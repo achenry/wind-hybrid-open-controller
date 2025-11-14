@@ -317,9 +317,10 @@ class LookupBasedWakeSteeringController(ControllerBase):
                 forecasted_wind_field = self.wind_forecast.predict_point(self.historic_measurements, self.current_time)
             
             single_forecasted_wind_field = forecasted_wind_field.loc[forecasted_wind_field["time"] == self.current_time + self.wind_forecast.prediction_timedelta, :].iloc[:1]
-             
+            
+            
         if self.current_time < self.lpf_start_time or not self.use_filt:
-            wind = forecasted_wind_field.iloc[-1] if self.wind_forecast else current_measurements.iloc[0]
+            wind = single_forecasted_wind_field.iloc[-1] if self.wind_forecast else current_measurements.iloc[0]
             
             wind_dirs = 180.0 + np.rad2deg(np.arctan2(
                 wind[self.mean_ws_horz_cols].values.astype(float), 
@@ -337,6 +338,8 @@ class LookupBasedWakeSteeringController(ControllerBase):
             # forecasted_wind_field.iloc[-1:].rename(columns={old_col: re.search("(?<=loc_)\\w+", old_col).group(0) for old_col in self.mean_ws_horz_cols+self.mean_ws_vert_cols})
             if self.wind_forecast:
                 hist_meas = self.historic_measurements.rename(columns={re.search("(?<=loc_)\\w+", new_col).group(0): new_col for new_col in self.mean_ws_horz_cols + self.mean_ws_vert_cols}) if self.uncertain else self.historic_measurements
+                # TODO HIGH this uses ~2.5MiB
+                 # TODO HIGH shouldn't this be full forecasted wind field
                 wind = pd.concat([hist_meas, 
                                     single_forecasted_wind_field[self.mean_ws_horz_cols + self.mean_ws_vert_cols]], axis=0)[
                                         self.mean_ws_horz_cols+self.mean_ws_vert_cols]

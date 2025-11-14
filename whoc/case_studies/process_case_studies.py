@@ -3,6 +3,7 @@ import re
 from itertools import cycle
 import warnings
 import pickle
+from itertools import islice
 
 import numpy as np
 import pandas as pd
@@ -101,7 +102,7 @@ def read_case_family_time_series_data(case_family, save_dir):
     # if reaggregate_simulations, or if the aggregated time series data doesn't exist for this case family, read the csv files for that case family
     all_ts_df_path = os.path.join(save_dir, case_family, "time_series_results_all.csv") 
     print(f"Reading combined case family {case_family} time-series dataframe.")
-    return pd.read_csv(all_ts_df_path, index_col=[0, 1])
+    return pd.read_csv(all_ts_df_path, index_col=[0, 1], low_memory=False)
 
 def write_case_family_time_series_data(case_family, new_time_series_df, save_dir):
     all_ts_df_path = os.path.join(save_dir, case_family, "time_series_results_all.csv") # if reaggregate_simulations, or if the aggregated time series data doesn't exist for this case family, read the csv files for that case family
@@ -114,8 +115,8 @@ def read_time_series_data(results_path):
     try:
         df = pd.read_csv(results_path, index_col=0)
         print(f"Read {results_path}")
-        df["CaseName"] = [s.replace("_controller_controller_dt_", "_controller_dt_") if "_controller_controller_dt_" in s else s for s in df["CaseName"]]
-        df.to_csv(results_path)
+        # df["CaseName"] = [s.replace("_controller_controller_dt_", "_controller_dt_") if "_controller_controller_dt_" in s else s for s in df["CaseName"]]
+        # df.to_csv(results_path)
         df = df.set_index(["CaseFamily", "CaseName"])
         return df
     except pd.errors.DtypeWarning as w:
@@ -302,10 +303,10 @@ def plot_simulations(time_series_df, plotting_cases, save_dir, include_power=Tru
             
             if single_plot:
                 fig, _ = plot_yaw_power_ts(case_name_df, os.path.join(save_dir, case_family, f"yaw_power_ts_{case_name}.png"), include_power=include_power, legend_loc=legend_loc,
-                                        controller_dt=None, include_filtered_wind_dir=("baseline_controllers" in case_family), single_plot=single_plot, fig=yaw_power_ts_fig, ax=yaw_power_ts_ax, case_label=case_name)
+                                        controller_dt=None, include_filtered_wind_dir=("LUT" in case_name or "Greedy" in case_name), single_plot=single_plot, fig=yaw_power_ts_fig, ax=yaw_power_ts_ax, case_label=case_name)
             else:
                 fig, _ = plot_yaw_power_ts(case_name_df, os.path.join(save_dir, case_family, f"yaw_power_ts_{case_name}.png"), include_power=include_power, legend_loc=legend_loc,
-                                        controller_dt=None, include_filtered_wind_dir=("baseline_controllers" in case_family), single_plot=single_plot)
+                                        controller_dt=None, include_filtered_wind_dir=("LUT" in case_name or "Greedy" in case_name), single_plot=single_plot)
                                     #    controller_dt=input_config["controller"]["dt"])
 
     if False:
@@ -337,7 +338,7 @@ def plot_simulations(time_series_df, plotting_cases, save_dir, include_power=Tru
 
         (a == b).all()
 
-    summary_df = pd.read_csv(os.path.join(save_dir, f"comparison_time_series_results.csv"), index_col=0)
+    # summary_df = pd.read_csv(os.path.join(save_dir, f"comparison_time_series_results.csv"), index_col=0)
     # barplot_opt_cost(summary_df, save_dir, relative=True)
 
 # TODO this should be in another file
@@ -511,8 +512,7 @@ def aggregate_time_series_data(time_series_df, input_dict_path, n_seeds):
     Returns:
         _type_: _description_
     """
-    x = time_series_df.loc[(time_series_df["WindSeed"] == 0), sorted([c for c in time_series_df.columns if "TurbineOfflineStatus_" in c], key=lambda s: int(s.split("_")[-1]))].isna().any(axis=1)
-    x.index[x]
+    
     # time_series_df = read_time_series_data(results_path=time_series_path)
     case_seeds = pd.unique(time_series_df["WindSeed"])
     time = pd.unique(time_series_df["Time"])
@@ -534,7 +534,6 @@ def aggregate_time_series_data(time_series_df, input_dict_path, n_seeds):
     # input_fn = f"input_config_case_{case_name}.yaml"
     print(f"Aggregating data for {case_family}={case_name}")
     
-
     if "lpf_start_time" in input_config["controller"]:
         lpf_start_time = input_config["controller"]["lpf_start_time"]
     else:
@@ -834,14 +833,21 @@ def plot_yaw_offset_wind_direction(data_dfs, case_names, case_labels, lut_path, 
 
 def plot_yaw_power_ts(data_df, save_path, include_yaw=True, include_power=True, include_filtered_wind_dir=True, controller_dt=None, legend_loc="best", single_plot=False, fig=None, ax=None, case_label=None):
     
-    turbine_ws_horz_cols = sorted([col for col in data_df.columns if "TargetTurbineWindSpeedHorz_" in col and not pd.isna(data_df[col]).any()], key=lambda s: int(s.split("_")[-1]))
-    turbine_ws_vert_cols = sorted([col for col in data_df.columns if "TargetTurbineWindSpeedVert_" in col and not pd.isna(data_df[col]).any()], key=lambda s: int(s.split("_")[-1]))
-    turbine_power_cols = sorted([col for col in data_df.columns if "TargetTurbinePower_" in col and not pd.isna(data_df[col]).any()], key=lambda s: int(s.split("_")[-1]))
-    yaw_angle_cols = sorted([col for col in data_df.columns if "TargetTurbineYawAngle_" == col[:len("TargetTurbineYawAngle_")] and not pd.isna(data_df[col]).any()], key=lambda s: int(s.split("_")[-1]))
+    # TODO this only works with wind forecasting
+    # turbine_ws_horz_cols = sorted([col for col in data_df.columns if "TargetTurbineWindSpeedHorz_" in col and not pd.isna(data_df[col]).any()], key=lambda s: int(s.split("_")[-1]))
+    # turbine_ws_vert_cols = sorted([col for col in data_df.columns if "TargetTurbineWindSpeedVert_" in col and not pd.isna(data_df[col]).any()], key=lambda s: int(s.split("_")[-1]))
+    # turbine_power_cols = sorted([col for col in data_df.columns if "TargetTurbinePower_" in col and not pd.isna(data_df[col]).any()], key=lambda s: int(s.split("_")[-1]))
+    # yaw_angle_cols = sorted([col for col in data_df.columns if "TargetTurbineYawAngle_" == col[:len("TargetTurbineYawAngle_")] and not pd.isna(data_df[col]).any()], key=lambda s: int(s.split("_")[-1]))
+    
+    # turbine_wind_mag_cols = sorted([col for col in data_df.columns if "TurbineWindMag_" in col and not pd.isna(data_df[col]).any()], key=lambda s: int(s.split("_")[-1]))
+    # turbine_wind_dir_cols = sorted([col for col in data_df.columns if "TurbineWindDir_" in col and not pd.isna(data_df[col]).any()], key=lambda s: int(s.split("_")[-1]))
+    turbine_power_cols = sorted([col for col in data_df.columns if "TurbinePower_" in col and not pd.isna(data_df[col]).any()], key=lambda s: int(s.split("_")[-1]))
+    yaw_angle_cols = sorted([col for col in data_df.columns if "TurbineYawAngle_" == col[:len("TurbineYawAngle_")] and not pd.isna(data_df[col]).any()], key=lambda s: int(s.split("_")[-1]))
+    
     
     #TODO only plot some turbines, not ones with overlapping yaw offsets, eg single column on farm
-    colors = cycle(sns.color_palette("Paired"))
-    colors = [col for c, col in zip(range(len(turbine_ws_horz_cols)), colors) if c in range(1, len(turbine_ws_horz_cols), 2)] # [colors[1], colors[3], colors[5]]
+    colors = islice(cycle(sns.color_palette("Paired")), 1, None, 2)
+    colors = [col for c, col in zip(range(len(turbine_power_cols)), colors)] # [colors[1], colors[3], colors[5]]
 
     if not single_plot:
         fig, ax = plt.subplots(int(include_yaw + include_power), 1, sharex=True)
@@ -1230,9 +1236,9 @@ def plot_cost_function_pareto_curve(data_summary_df, save_dir):
     """
     plot mean farm level power vs mean sum of absolute yaw changes for different values of alpha
     """
-    sns.set(font_scale=2)
+    sns.set(font_scale=3)
 
-    fig, ax = plt.subplots(1)
+    fig, ax = plt.subplots(1, figsize=(16, 10))
     baseline_df = data_summary_df.loc[data_summary_df.index.get_level_values("CaseFamily").str.contains("baseline_controllers"), :].copy().reset_index(level="CaseName")
     baseline_df[("FarmPowerMean", "mean")] = baseline_df[("FarmPowerMean", "mean")] / 1e6
     # baseline_df[("FarmPowerMean", "min")] = baseline_df[("FarmPowerMean", "min")] / 1e6
@@ -1251,7 +1257,7 @@ def plot_cost_function_pareto_curve(data_summary_df, save_dir):
                     ax=ax)
     ax.collections[0].set_sizes(ax.collections[0].get_sizes() * 5)
     ax.legend([], [], frameon=False)
-    ax.set(xlabel="Mean Absolute Yaw Angle Change [$^\\circ$]", ylabel="Mean Farm Power [MW]")
+    ax.set(xlabel="Mean Absolute Yaw Angle Change [$^\\circ$ / step]", ylabel="Mean Farm Power [MW / step]")
 
     for (idx, row), m, c in zip(baseline_df.iterrows(), ["^", "s"], ["forestgreen", "darkorange"]):
         ax.scatter(x=[row[("YawAngleChangeAbsMean", "mean")]], 
@@ -1296,7 +1302,7 @@ def plot_horizon_length(data_summary_df, save_dir):
     # sub_df["CaseName"] = [case_studies["breakdown_robustness"]["case_names"]["vals"][int(solver_type.split("_")[-1])] for solver_type in sub_df["SolverType"]]
 
     # Plot "RelativeFarmPowerMean" vs. "RelativeYawAngleChangeAbsMean" for all "SolverType" == "cost_func_tuning"
-    fig, ax = plt.subplots(1)
+    fig, ax = plt.subplots(1, figsize=(16, 10))
     # sns.scatterplot(data=greedy_df, x="YawAngleChangeAbsMean", y="FarmPowerMean", ax=ax, marker="^")
     # sns.scatterplot(data=lut_df, x="YawAngleChangeAbsMean", y="FarmPowerMean", ax=ax, marker="s")
 
@@ -1315,7 +1321,7 @@ def plot_horizon_length(data_summary_df, save_dir):
     # marker_scale = 360 / ax.collections[1].get_sizes()[0]
     ax.collections[1].set_sizes([360])
 
-    ax.set(xlabel="Mean Absolute Yaw Angle Change [$^\\circ$]", ylabel="Mean Farm Power [MW]")
+    ax.set(xlabel="Mean Absolute Yaw Angle Change [$^\\circ$ / step]", ylabel="Mean Farm Power [MW / step]")
     
     # ax.legend([], [], frameon=False)
     # h, l = ax.get_legend_handles_labels()

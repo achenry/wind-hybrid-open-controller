@@ -176,6 +176,7 @@ class GreedyController(ControllerBase):
              
         else:
             # use filtered wind direction and speed
+            # TODO HIGH shouldn't this be full forecasted wind field
             wind = pd.concat([self.historic_measurements, 
                                 single_forecasted_wind_field], axis=0)[
                                         self.mean_ws_horz_cols+self.mean_ws_vert_cols] \

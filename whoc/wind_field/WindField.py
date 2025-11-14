@@ -888,7 +888,6 @@ if __name__ == '__main__':
     # 	= np.tile([wind_u_ts[idx + j] for j in range(input_dict["controller"]["n_horizon"] + 1)] + [wind_v_ts[idx + j] for j in range(input_dict["controller"]["n_horizon"] + 1)], (input_dict["controller"]["n_wind_preview_samples"], ))
 
     # different hues for u vs k, different style for true vs preview
-    # TODO
     fig = plt.figure(figsize=(7.7, 5.86))
     ax = sns.lineplot(data=perfect_preview.loc[perfect_preview["Data Type"] == "True", :], x="Time", y="Wind Speed", hue="Wind Component", style="Data Type", dashes=[[1, 0]])
     ax = sns.lineplot(data=perfect_preview.loc[perfect_preview["Data Type"] == "Preview", :], x="Time", y="Wind Speed", hue="Wind Component", style="Data Type", dashes=[[4, 4]], marker="o")
@@ -896,6 +895,7 @@ if __name__ == '__main__':
     ax.set_xticks(np.arange(0, int(n_time_steps * input_dict["simulation_dt"]), int(60)))
     h, l = ax.get_legend_handles_labels()
     ax.legend(h[:5] + h[9:], l[:5] + l[9:])
+    ax.set_ylim((-2, 8))
     fig.savefig(os.path.join(wind_field_dir, f'perfect_preview.png'))
     
     # plt.legend(labels=["Preview, U", "Preview, V", "True, U", "True, V"])
@@ -907,6 +907,7 @@ if __name__ == '__main__':
     ax.set_xticks(np.arange(0, int(n_time_steps * input_dict["simulation_dt"]), int(60)))
     h, l = ax.get_legend_handles_labels()
     ax.legend(h[:5] + h[9:], l[:5] + l[9:])
+    ax.set_ylim((-2, 8))
     fig.savefig(os.path.join(wind_field_dir, f'persistent_preview.png'))
     # sns.scatterplot(data=persistent_preview.loc[perfect_preview["Data Type"] == "Preview", :], x="Time", y="Wind Speed", zorder=7)
     # plt.legend(labels=["Preview, U", "Preview, V", "True, U", "True, V"])
@@ -927,4 +928,5 @@ if __name__ == '__main__':
     h, l = ax.get_legend_handles_labels()
     desired_labels = ["Wind Component", "U", "V", "Data Type", "True", "U Preview", "V Preview"]
     ax.legend(h[:7], l[:7])
+    ax.set_ylim((-2, 8))
     fig.savefig(os.path.join(wind_field_dir, f'stochastic_preview.png'))
