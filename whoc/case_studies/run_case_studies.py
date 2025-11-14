@@ -410,6 +410,10 @@ if __name__ == "__main__":
                                                     **{col: pl.Boolean for col in bool_columns}})
                     # df = df.with_columns(pl.when(pl.col(pl.String) == "null").then(pl.lit(None)).otherwise(pl.col(pl.String)).name.keep())
                     time_series_df.append(df)
+            
+            cols = time_series_df[0].columns
+            for i in range(1, len(time_series_df)):
+                time_series_df[i] = time_series_df[i].select(cols)
             time_series_df = pl.concat(time_series_df, how="vertical").to_pandas().set_index(["CaseFamily", "CaseName"])
             
             agg_df = []
@@ -468,6 +472,13 @@ if __name__ == "__main__":
                     "baseline_controllers_baseline_det_forecasters_awaken", "baseline_controllers_baseline_prob_forecasters_awaken",
                     "baseline_controllers_perfect_forecaster_awaken"]
                 
+                # sorted(time_series_df.loc[(time_series_df.index.get_level_values("CaseFamily") == "baseline_controllers_baseline_det_forecasters_awaken") & (time_series_df.index.get_level_values("CaseName") == "6"), "WindSeed"].unique())
+                # sorted(time_series_df.loc[time_series_df.index.get_level_values("CaseFamily") == "baseline_controllers_baseline_det_forecasters_awaken", "WindSeed"].unique())
+                # sorted(time_series_df.loc[time_series_df.index.get_level_values("CaseFamily") == "baseline_controllers_informer_forecasters_awaken", "WindSeed"].unique())
+                
+                # time_series_df.loc[(time_series_df["WindSeed"] == 0) & (time_series_df.index.get_level_values("CaseFamily") == "baseline_controllers_informer_forecasters_awaken") & (time_series_df.index.get_level_values("CaseName") == "0"), "Time"]
+                # time_series_df.loc[(time_series_df["WindSeed"] == 0) & (time_series_df.index.get_level_values("CaseFamily") == "baseline_controllers_baseline_det_forecasters_awaken") & (time_series_df.index.get_level_values("CaseName") == "0"), "Time"]
+                
                 baseline_time_df = time_series_df.loc[time_series_df.index.get_level_values("CaseFamily").isin(cfs), :] #.reset_index(level="CaseFamily", drop=True)
                 baseline_agg_df = agg_df.loc[agg_df.index.get_level_values("CaseFamily").isin(cfs), :] #.reset_index(level="CaseFamily", drop=True)
                 
@@ -521,6 +532,8 @@ if __name__ == "__main__":
                 ml_baseline_agg_df = baseline_agg_df.loc[(~baseline_agg_df["model_key"].isnull()) 
                                                          | ((baseline_agg_df["wind_forecast_class"] == "PerfectForecast") 
                                                             & (baseline_agg_df["prediction_timedelta"] == pd.Timedelta(seconds=0))), :]
+                # ml_baseline_agg_df = baseline_agg_df.loc[(~baseline_agg_df["model_key"].isnull()) 
+                #                                          | ((baseline_agg_df["wind_forecast_class"] == "PersistenceForecast")), :]
                 # if ml_baseline_agg_df.shape[0]:
                 ml_baseline_agg_df["controller_class"] = ml_baseline_agg_df["controller_class"] + ml_baseline_agg_df["uncertain"].astype(str)
                 ml_baseline_agg_df = ml_baseline_agg_df.sort_values("controller_class")
@@ -552,7 +565,8 @@ if __name__ == "__main__":
                 # plot forecasters, persistent, perfect for 60/300sec predictions
                 perfect_case_names = perfect_agg_df.loc[perfect_agg_df["prediction_timedelta"].isin(pd.unique(forecasters_agg_df["prediction_timedelta"]))].index.get_level_values("CaseName")
                 persistence_case_names = baseline_agg_df.loc[(baseline_agg_df["wind_forecast_class"] == "PerfectForecast") & baseline_agg_df.index.get_level_values("CaseFamily").str.contains("baseline_controllers_perfect_forecaster_awaken"), :]
-                persistence_case_names = persistence_case_names.loc[persistence_case_names["prediction_timedelta"] == pd.Timedelta(seconds=0), :].index.get_level_values("CaseName")
+                # persistence_case_names = baseline_agg_df.loc[(baseline_agg_df["wind_forecast_class"] == "PersistenceForecast"), :]
+                # persistence_case_names = persistence_case_names.loc[persistence_case_names["prediction_timedelta"] == pd.Timedelta(seconds=0), :].index.get_level_values("CaseName")
                 plotting_cases = [(df[1]._name[0], df[1]._name[1]) for df in forecasters_agg_df.iterrows()] \
                                  + [("baseline_controllers_baseline_det_forecasters_awaken", cn) for cn in perfect_case_names] \
                                     + [("baseline_controllers_perfect_forecaster_awaken", cn) for cn in persistence_case_names]

@@ -115,7 +115,7 @@ class MLForecast(WindForecast):
                                         target_prefixes=["ws_horz", "ws_vert"],
                                         feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                                         freq=checkpoint_hparams["freq_str"], # Use original freq string
-                                        normalized=True, # Assume True based on previous context, adjust if needed
+                                        use_normalization=True, # Assume True based on previous context, adjust if needed
                                         target_suffixes=self.model_config["dataset"]["target_turbine_ids"],
                                         per_turbine_target=self.model_config["dataset"]["per_turbine_target"], dtype=None,
                                         normalization_consts_path=self.model_config["dataset"]["normalization_consts_path"])
@@ -211,7 +211,7 @@ class MLForecast(WindForecast):
             
             logging.info(f"Using final estimator_kwargs:\n {estimator_kwargs}")
             estimator = estimator_class(**estimator_kwargs)
-            self.self_scaled = (estimator_kwargs["scaling"] == "False") or not estimator_kwargs["scaling"]
+            self.use_internal_scaling = estimator_kwargs["scaling"] and (estimator_kwargs["scaling"] != "False")
             
             # TODO replace this with pytorch_dataloader?
             transformation = estimator.create_transformation(use_lazyframe=False)
@@ -320,9 +320,11 @@ class MLForecast(WindForecast):
             return_pl = True
             
         # normalize historic measurements
-        historic_measurements = historic_measurements.with_columns([
-            (cs.starts_with(k) * self.scaler_params["scale_"][k]) + self.scaler_params["min_"][k] for k in self.scaler_params["min_"]]
-        )
+        if not self.use_internal_scaling:
+            features = list(self.scaler_params["offset_"].keys())
+            historic_measurements = historic_measurements.with_columns([
+                (pl.col(feat) - self.scaler_params["offset_"][feat]) / self.scaler_params["scale_"][feat] for feat in features]
+            )
 
         test_data = self._generate_test_data(historic_measurements)
             
@@ -386,12 +388,11 @@ class MLForecast(WindForecast):
             ).sort(by=["sample", "time"])
         
         # denormalize data using scaler_params
-        if not pred_df.is_empty():
-            for feat_type in self.scaler_params["min_"]:
-                if any(col.startswith(feat_type) for col in pred_df.columns):
-                    pred_df = pred_df.with_columns(
-                        (cs.starts_with(feat_type) - self.scaler_params["min_"][feat_type]) / self.scaler_params["scale_"][feat_type]
-                    )
+        if not pred_df.is_empty() and not self.use_internal_scaling:
+            pred_df = pred_df.with_columns(
+                [(pl.col(feat) * self.scaler_params["scale_"][feat]) + self.scaler_params["offset_"][feat] for feat in features]
+            )
+                
         pred_df = pred_df.filter(pl.col("time") <= (current_time + self.prediction_timedelta))
         # check if the data that trained the model differs from the frequency of historic_measurments
         # Convert freq string to Timedelta for comparison and calculations
@@ -435,15 +436,15 @@ class MLForecast(WindForecast):
             return_pl = False
         else:
             return_pl = True
-            
-        # normalize historic measurements ONLY IF NOT TACTIS @boujuan DEBUG
-        feature_types = list(self.scaler_params["min_"].keys())
         
         if historic_measurements.select(pl.len()).item() >= self.n_context:
-            if self.self_scaled:
+            
+            # normalize historic measurements ONLY IF NOT using internal scaling like tactis
+            features = list(self.scaler_params["offset_"].keys())
+            if not self.use_internal_scaling:
                 historic_measurements = historic_measurements.with_columns([
-                        (cs.starts_with(feat_type) * self.scaler_params["scale_"][feat_type]) + self.scaler_params["min_"][feat_type]
-                                                                for feat_type in feature_types])
+                        (pl.col(feat) - self.scaler_params["offset_"][feat]) / self.scaler_params["scale_"][feat]
+                                                                for feat in features])
             else:
                 pass
             test_data = self._generate_test_data(historic_measurements)
@@ -496,14 +497,14 @@ class MLForecast(WindForecast):
                     }
                 ).sort(by=["time"])
 
-            # denormalize data ONLY IF NOT TACTIS @boujuan DEBUG
-            if self.self_scaled:
+            # denormalize data ONLY IF NOT using internal scaling like tactis
+            if not self.use_internal_scaling:
                 pred_df = pred_df.with_columns([
-                        (cs.starts_with(f"loc_{feat_type}") - self.scaler_params["min_"][feat_type]) / self.scaler_params["scale_"][feat_type]
-                                                                for feat_type in feature_types])\
+                        (pl.col(f"loc_{feat}") * self.scaler_params["scale_"][feat]) + self.scaler_params["offset_"][feat]
+                                                                for feat in features])\
                                  .with_columns([
-                        cs.starts_with(f"sd_{feat_type}") / self.scaler_params["scale_"][feat_type]
-                                                                for feat_type in feature_types])
+                        pl.col(f"sd_{feat}") * self.scaler_params["scale_"][feat]
+                                                                for feat in features])
             else:
                 pass
                                                        

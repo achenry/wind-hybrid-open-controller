@@ -644,7 +644,7 @@ if __name__ == "__main__":
     for mcnf in model_configs:
         data_module = DataModule(data_path=mcnf["dataset"]["data_path"], 
                                 normalization_consts_path=mcnf["dataset"]["normalization_consts_path"],
-                                normalized=False, 
+                                use_normalization=False, 
                                 n_splits=1, #model_config["dataset"]["n_splits"],
                                 continuity_groups=None, train_split=(1.0 - mcnf["dataset"]["val_split"] - mcnf["dataset"]["test_split"]),
                                 val_split=mcnf["dataset"]["val_split"], test_split=mcnf["dataset"]["test_split"],

@@ -3,15 +3,15 @@
 #SBATCH --account=awaken
 #SBATCH --output=%j_%x.out
 #SBATCH --nodes=1
-##SBATCH --time=01:00:00
-##SBATCH --partition=debug
-##SBATCH --ntasks-per-node=4
-##SBATCH --gres=gpu:2
-##SBATCH --mem-per-cpu=20G
-#SBATCH --time=72:00:00
-#SBATCH --ntasks-per-node=8
-#SBATCH --gres=gpu:4
-#SBATCH --mem-per-cpu=60G
+#SBATCH --time=01:00:00
+#SBATCH --partition=debug
+#SBATCH --ntasks-per-node=1
+#SBATCH --gres=gpu:1
+#SBATCH --mem-per-cpu=20G
+##SBATCH --time=72:00:00
+##SBATCH --ntasks-per-node=8
+##SBATCH --gres=gpu:4
+##SBATCH --mem-per-cpu=60G
 # salloc --partition=debug --gres=gpu:2 --ntasks-per-node=2 --time=01:00:00 --mem-per-cpu=85G --account=awaken
 
 # Print environment info
