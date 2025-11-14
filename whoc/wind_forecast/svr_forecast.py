@@ -272,7 +272,7 @@ class SVRForecast(WindForecast):
             for output in outputs:
                 feat_type = re.search(f"^\\w+(?=_{self.turbine_signature}$)", output).group()
                 tid = re.search(f"(?<=_){self.turbine_signature}$", output).group()
-                if not (hasattr(self.scaler[output], "min_") and hasattr(self.scaler[output], "scale_")) \
+                if not (hasattr(self.scaler[output], "offset_") and hasattr(self.scaler[output], "scale_")) \
                     or (check_is_fitted(self.model[output]) is not None):
                     raise Exception(f"scaler/model for {output} has not been trained! Try using the --use_trained_models flag.")
                 training_inputs = self._get_inputs(training_measurements, self.scaler[output], feat_type, tid, scale)

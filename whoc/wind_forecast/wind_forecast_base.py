@@ -658,7 +658,7 @@ class WindForecast:
                 
                 if scale:
                     X_all = self.scaler[output].fit_transform(X_all)
-                    y_all = (y_all * self.scaler[output].scale_[output_idx]) + self.scaler[output].min_[output_idx]
+                    y_all = (y_all * self.scaler[output].scale_[output_idx]) + self.scaler[output].mean_[output_idx] # TODO denormalizing?
                 
             else:
                 training_inputs = ds.select(input_select).to_numpy()
