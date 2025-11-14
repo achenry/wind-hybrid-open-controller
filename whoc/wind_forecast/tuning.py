@@ -46,6 +46,8 @@ if __name__ == "__main__":
     parser.add_argument("-rt", "--restart_tuning", action="store_true")
     parser.add_argument("-m", "--mode", choices=["tune", "train"])
     parser.add_argument("-rd", "--reload_data", action="store_true", help="Whether to reload the train/validation data from the source, or to use existing .dat files.")
+    parser.add_argument("-tti", "--target_turbine_indices", metavar="C", nargs="+", required=False, default=None, type=int)
+    
     # parser.add_argument('--cores', required=False, default=None, help='Comma-separated list or range of core IDs (e.g., "0-9" or "10,11,12")')
     # pretrained_filename = "/Users/ahenry/Documents/toolboxes/wind_forecasting/logging/wf_forecasting/lznjshyo/checkpoints/epoch=0-step=50.ckpt"
     args = parser.parse_args()
@@ -80,13 +82,19 @@ if __name__ == "__main__":
     turbine_signature = data_config["turbine_signature"][0] if len(data_config["turbine_signature"]) == 1 else "\\d+"
      
     fmodel = FlorisModel(data_config["farm_input_path"])
+    if args.target_turbine_indices:
+        # TODO HIGH only select subset of data for SVR training below
+        fmodel._reinitialize(layout_x=fmodel.layout_x[args.target_turbine_indices], 
+                                    layout_y=fmodel.layout_y[args.target_turbine_indices])
+        fmodel.n_turbines = fmodel.core.farm.n_turbines
     
     if RUN_ONCE:
         logging.info("Creating datasets")
-        
+    
+    # TODO don't use normalized path if not necessary
     data_module = DataModule(data_path=model_config["dataset"]["data_path"], 
                             normalization_consts_path=model_config["dataset"]["normalization_consts_path"],
-                            use_normalization=True, 
+                            use_normalization=False, 
                             n_splits=1, #model_config["dataset"]["n_splits"],
                             continuity_groups=None, 
                             train_split=(1.0 - model_config["dataset"]["val_split"] - model_config["dataset"]["test_split"]),
@@ -113,7 +121,7 @@ if __name__ == "__main__":
     if RUN_ONCE:
         logging.info("Instantiating model.")
           
-    if args.model == "svr": 
+    if args.model == "svr":
         # NOTE: n_neighboring_turbines must be the same as in herculesinput_001.yaml
         forecaster = SVRForecast(measurements_timedelta=pd.Timedelta(model_config["dataset"]["resample_freq"]),
                             controller_timedelta=None,
@@ -185,7 +193,7 @@ if __name__ == "__main__":
 
         forecaster.prepare_data(
             dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, 
-            scale=False, 
+            scale=True, 
             multiprocessor=args.multiprocessor, 
             reload=args.reload_data or reload)
 
@@ -205,7 +213,7 @@ if __name__ == "__main__":
                 
                 forecaster.prepare_data(
                     dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, 
-                    scale=False, 
+                    scale=True, 
                     multiprocessor=args.multiprocessor, 
                     reload=args.reload_data or reload,
                     dataset_hparams={k: v for k, v in zip(dataset_hparams, hparam_set)})
@@ -280,7 +288,7 @@ if __name__ == "__main__":
             logging.info("Using default hyperparameters.")
             forecaster.set_tuned_params()
             
-        forecaster.train_all_outputs(scale=False, 
+        forecaster.train_all_outputs(scale=True, 
                                     multiprocessor=args.multiprocessor,
                                     retrain_models=True,
                                     scaler_params=scaler_params)
