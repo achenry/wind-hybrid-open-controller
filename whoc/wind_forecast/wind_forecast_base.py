@@ -12,6 +12,7 @@ import multiprocessing as mp
 from memory_profiler import profile
 from functools import partial
 from sklearn.metrics import mean_squared_error
+from sklearn.model_selection import cross_val_score
 import pickle
 
 # from joblib import parallel_backend
@@ -121,8 +122,8 @@ class WindForecast:
         logging.info(f"Getting training data for output {output}.")
         # randomly sample from training data
         
-        X_train, y_train = self._get_output_data(output=output, split="train", reload=False)
-        X_val, y_val = self._get_output_data(output=output, split="val", reload=False)
+        X_train, y_train = self._get_output_data(output=output, split="train", reload=False, dataset_hparams={k: v for k, v in params.items() if k in self.dataset_hparams})
+        X_val, y_val = self._get_output_data(output=output, split="val", reload=False, dataset_hparams={k: v for k, v in params.items() if k in self.dataset_hparams})
         
         if limit_train_val:
             random_indices = np.random.choice(np.arange(X_train.shape[0]), size=int(limit_train_val * X_train.shape[0]))
@@ -136,6 +137,7 @@ class WindForecast:
         model.fit(X_train, y_train)
         logging.info(f"Computing score for output {output} with {X_val.shape[0]} validation data points.")
         return mean_squared_error(y_true=y_val, y_pred=model.predict(X_val))
+        # return cross_val_score(model, X_val, y_val, cv=3, n_jobs=-1, scoring='mean_squared_error').mean()
     
     def _tuning_objective(self, trial, multiprocessor, limit_train_val, max_cpus):
         """
@@ -179,7 +181,7 @@ class WindForecast:
         logging.info(f"Completed trial {trial.number}.")
         return sum(scores)
     
-    def prepare_data(self, dataset_splits, scale=True, reload=True, multiprocessor=None):
+    def prepare_data(self, dataset_splits, scale=True, reload=True, multiprocessor=None, dataset_hparams=None):
         """
         Prepares the training/val data for tuning for each output based on the historic measurements.
         
@@ -197,6 +199,9 @@ class WindForecast:
                     if ds.shape[0] < self.n_context + self.n_prediction:
                         logging.warning(f"{ds_type} dataset with continuity groups {list(ds["continuity_group"].unique())} have insufficient length!")
                         continue
+                    
+        if dataset_hparams is None:
+            dataset_hparams = self.dataset_hparams if hasattr(self, "dataset_hparams") else {}
                         
         # For each output, prepare the training data
         if multiprocessor is not None:
@@ -225,7 +230,9 @@ class WindForecast:
                                         output=output, 
                                         split=split, 
                                         reload=reload, 
-                                        scale=scale, return_data=False))
+                                        scale=scale, 
+                                        return_data=False,
+                                        dataset_hparams=dataset_hparams))
                 
                 
                 for f, fut in enumerate(futures):
@@ -240,7 +247,12 @@ class WindForecast:
                 measurements = [ds for ds in ds_list if ds.shape[0] >= int((self.context_timedelta + self.prediction_timedelta) / self.measurements_timedelta)]
                 for output in self.outputs:
                     # logging.info(f"Getting data for split {split} output {output}.")
-                    self._get_output_data(measurements=measurements, output=output, split=split, reload=reload, scale=scale)
+                    self._get_output_data(measurements=measurements, 
+                                          output=output, 
+                                          split=split, 
+                                          reload=reload, 
+                                          scale=scale, 
+                                          dataset_hparams=dataset_hparams)
 
         if RUN_ONCE:
             logging.info(f"Finished loading data.")
@@ -613,13 +625,14 @@ class WindForecast:
         
         return study.best_params
     
-    def _get_output_data(self, output, reload, split, measurements=None, scale=None, return_scaler=False, return_data=True):
+    def _get_output_data(self, output, reload, split, measurements=None, scale=None, return_scaler=False, return_data=True, dataset_hparams=None):
         assert split in ["train", "test", "val"]
         feat_type = re.search(f"\\w+(?=_{self.turbine_signature})", output).group()
         tid = re.search(self.turbine_signature, output).group()
-        Xy_path = os.path.join(self.model_save_dir, f"Xy_{self.study_name}_{split}_{output}.dat")
+        suffix = ("_" + "_".join([f"{k}{v}" for k, v in dataset_hparams.items()])) if dataset_hparams else ""
+        Xy_path = os.path.join(self.model_save_dir, f"Xy_{self.study_name}_{split}_{output}{suffix}.dat")
         
-        input_turbine_indices = self.cluster_turbines[self.tid2idx_mapping[tid]]
+        input_turbine_indices = self.cluster_turbines[self.tid2idx_mapping[tid]] # this depends on the hyperparam num_neighboring_turbines
         output_idx = input_turbine_indices.index(self.tid2idx_mapping[tid])
             
         if reload or not os.path.exists(Xy_path): 
@@ -645,7 +658,7 @@ class WindForecast:
                 
                 if scale:
                     X_all = self.scaler[output].fit_transform(X_all)
-                    y_all = (y_all * self.scaler[output].scale_[output_idx]) + self.scaler[output].min_[output_idx]
+                    y_all = (y_all * self.scaler[output].scale_[output_idx]) + self.scaler[output].mean_[output_idx] # TODO denormalizing?
                 
             else:
                 training_inputs = ds.select(input_select).to_numpy()
@@ -687,7 +700,7 @@ class WindForecast:
             # logging.info(f"Returning None from _get_output_data for Xy_path {Xy_path}")
             return None
     
-    def set_tuned_params(self, optuna_storage, study_name):
+    def set_tuned_params(self, config_params=None, optuna_storage=None, study_name=None):
         """_summary_
 
         Args:
@@ -699,23 +712,28 @@ class WindForecast:
             Exception: _description_
             Exception: _description_
         """
-        logging.info(f"Setting tuned parameters from study {study_name}.")
-        try:
-            study_id = optuna_storage.get_study_id_from_name(study_name)
-            trial = optuna_storage.get_best_trial(study_id)
-            logging.info(f"Best trial found, number: {trial.number}, value: {trial.value}, params: {trial.params}")
-            trials = sorted(optuna_storage.get_all_trials(study_id), key=lambda trial: trial.value or np.inf)[1:6]
-            for t, trial in enumerate(trials, 2):
-                logging.info(f"{t}th best trial found, number: {trial.number}, value: {trial.value}, params: {trial.params}")
-                
-            last_trial = optuna_storage.get_all_trials(study_id)[-1]
-            logging.info(f"Last trial found, number: {last_trial.number}, value: {last_trial.value}, params: {last_trial.params}")
+        if study_name and optuna_storage:
+            try:
+                study_id = optuna_storage.get_study_id_from_name(study_name)
+                trial = optuna_storage.get_best_trial(study_id)
+                logging.info(f"Best trial found, number: {trial.number}, value: {trial.value}, params: {trial.params}")
+                trials = sorted(optuna_storage.get_all_trials(study_id), key=lambda trial: trial.value or np.inf)[1:6]
+                for t, trial in enumerate(trials, 2):
+                    logging.info(f"{t}th best trial found, number: {trial.number}, value: {trial.value}, params: {trial.params}")
+                    
+                last_trial = optuna_storage.get_all_trials(study_id)[-1]
+                logging.info(f"Last trial found, number: {last_trial.number}, value: {last_trial.value}, params: {last_trial.params}")
+                for output in self.outputs:
+                    self.model[output] = self.create_model(**trial.params)
+            except KeyError:
+                logging.error(f"Optuna study {study_name} not found. Please run tuning.py first. Using default parameters for now.")
+                for output in self.outputs:
+                    self.model[output] = self.create_model(**{k: v for k, v in self.kwargs.items() if k in self.model[output].get_params()})
+        else:
+            if not config_params:
+                config_params = {}
             for output in self.outputs:
-                self.model[output] = self.create_model(**trial.params)
-        except KeyError:
-            logging.error(f"Optuna study {study_name} not found. Please run tuning.py first. Using default parameters for now.")
-            for output in self.outputs:
-                self.model[output] = self.create_model(**{k: v for k, v in self.kwargs.items() if k in self.model[output].get_params()})
+                self.model[output] = self.create_model(**config_params)
         # self.model[output].set_params(**optuna_storage.get_best_trial(study_id).params)
         # optuna_storage.get_all_studies()[0]._study_id
         
