@@ -1257,7 +1257,7 @@ def plot_cost_function_pareto_curve(data_summary_df, save_dir):
                     ax=ax)
     ax.collections[0].set_sizes(ax.collections[0].get_sizes() * 5)
     ax.legend([], [], frameon=False)
-    ax.set(xlabel="Mean Absolute Yaw Angle Change [$^\\circ$ / step]", ylabel="Mean Farm Power [MW / step]")
+    ax.set(xlabel="Mean Absolute Yaw Angle Change [$^\\circ$/step]", ylabel="Mean Farm Power [MW]")
 
     for (idx, row), m, c in zip(baseline_df.iterrows(), ["^", "s"], ["forestgreen", "darkorange"]):
         ax.scatter(x=[row[("YawAngleChangeAbsMean", "mean")]], 
@@ -1321,7 +1321,7 @@ def plot_horizon_length(data_summary_df, save_dir):
     # marker_scale = 360 / ax.collections[1].get_sizes()[0]
     ax.collections[1].set_sizes([360])
 
-    ax.set(xlabel="Mean Absolute Yaw Angle Change [$^\\circ$ / step]", ylabel="Mean Farm Power [MW / step]")
+    ax.set(xlabel="Mean Absolute Yaw Angle Change [$^\\circ$/step]", ylabel="Mean Farm Power [MW]")
     
     # ax.legend([], [], frameon=False)
     # h, l = ax.get_legend_handles_labels()
