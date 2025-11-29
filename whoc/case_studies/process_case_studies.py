@@ -1250,24 +1250,43 @@ def plot_cost_function_pareto_curve(data_summary_df, save_dir):
     sub_df[("FarmPowerMean", "mean")] = sub_df[("FarmPowerMean", "mean")] / 1e6
     # sub_df[("FarmPowerMean", "min")] = sub_df[("FarmPowerMean", "min")] / 1e6
     # sub_df[("FarmPowerMean", "max")] = sub_df[("FarmPowerMean", "max")] / 1e6
+    
+    is_target = sub_df["CaseName"].isin([0.089, 0.975, 0.999])
+    sub_df["MarkerStyle"] = "o"
+    sub_df.loc[is_target, "MarkerStyle"] = "X"
 
     # Plot "RelativeFarmPowerMean" vs. "RelativeYawAngleChangeAbsMean" for all "SolverType" == "cost_func_tuning"
     ax = sns.scatterplot(data=sub_df, x=("YawAngleChangeAbsMean", "mean"), y=("FarmPowerMean", "mean"),
-                    size="CaseName", #size_order=reversed(sub_df["CaseName"].to_numpy()),
+                    size="CaseName", 
+                    style="MarkerStyle",
+                    markers={"o": "o", "X": "X"},
+                    #size_order=reversed(sub_df["CaseName"].to_numpy()),
                     ax=ax)
-    ax.collections[0].set_sizes(ax.collections[0].get_sizes() * 5)
+    
+    for col in ax.collections:
+        col.set_sizes(ax.collections[0].get_sizes() * 5)
+        
     ax.legend([], [], frameon=False)
     ax.set(xlabel="Mean Absolute Yaw Angle Change [$^\\circ$/step]", ylabel="Mean Farm Power [MW]")
-
+    sizes = sorted(ax.collections[0].get_sizes())
     for (idx, row), m, c in zip(baseline_df.iterrows(), ["^", "s"], ["forestgreen", "darkorange"]):
         ax.scatter(x=[row[("YawAngleChangeAbsMean", "mean")]], 
                    y=[row[("FarmPowerMean", "mean")]], 
                    label=row["CaseName"].iloc[0], marker=m, color=c,
                    s=360)
-                #    s=np.max(ax.collections[0].get_sizes()))
+    
     h, l = ax.get_legend_handles_labels()
     ax.legend(h[-2:], l[-2:])
     ax.set(xlim=(-0.01, ax.get_xlim()[-1]))
+    
+    # for i, (idx, row) in enumerate(sub_df.sort_values(by="CaseName").iterrows()):
+    #     if row["CaseName"].iloc[0] in [0.089, 0.975, 0.999]:
+    #         size = sizes[i]
+    #         ax.scatter(x=[row[("YawAngleChangeAbsMean", "mean")]], 
+    #                 y=[row[("FarmPowerMean", "mean")]], 
+    #                 label=row["CaseName"].iloc[0], marker="o", color="crimson",
+    #                 s=size)
+
     fig.tight_layout()
     fig.savefig(os.path.join(save_dir, "cost_function_pareto_curve.png"))
     plt.close(fig)

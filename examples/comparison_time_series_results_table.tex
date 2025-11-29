@@ -1,0 +1,22 @@
+\begin{tabular}{l|lllll}
+\textbf{Case Family} & \textbf{Case Name} & \thead{\textbf{Mean} \\ \textbf{Farm Power [MW]}} & \thead{\textbf{Mean Absolute} \\ \textbf{Yaw Angle Change [$^\circ$]}} & \thead{\textbf{Mean} \\ \textbf{Convergence Time [s]}} \\ \hline 
+\multirow{3}{*}{\textbf{Baseline}} & Greedy & $7.663$ \cellcolor[gray]{1.0} & $0.016$ \cellcolor[gray]{1.0} & $0.16$ \cellcolor[gray]{1.0} \\ 
+ & LUT & $8.554$  \cellcolor[gray]{0.967} & $0.169$ \cellcolor[gray]{0.967} & $0.16$ \cellcolor[gray]{0.967}  \\ \hline 
+\multirow{3}{*}{\textbf{Solver}} & SLSQP & $8.708$ \cellcolor[gray]{0.567} & $0.294$ \cellcolor[gray]{0.667} & $228.03$ \cellcolor[gray]{0.533} \\ 
+ & Sequential SLSQP & $8.713$ \cellcolor[gray]{0.467} & $0.313$ \cellcolor[gray]{0.533} & $277.04$ \cellcolor[gray]{0.467}  \\ 
+ & Serial Refine & $8.700$  \cellcolor[gray]{0.7} & $0.330$ \cellcolor[gray]{0.467} & $11.58$ \cellcolor[gray]{0.933}  \\ \hline 
+\multirow{3}{*}{\textbf{Wind Preview Type}} & Perfect & $8.927$ \cellcolor[gray]{0.4} & $0.346$ \cellcolor[gray]{0.433} & $40.34$ \cellcolor[gray]{0.833} \\ 
+ & Persistent & $8.761$ \cellcolor[gray]{0.433} & $0.467$ \cellcolor[gray]{0.4} & $32.03$ \cellcolor[gray]{0.867}  \\ 
+ & $3$ Elliptical Interval Samples & $8.685$ \cellcolor[gray]{0.9} & $0.314$ \cellcolor[gray]{0.5} & $28.27$ \cellcolor[gray]{0.9}  \\ 
+ & $5$ Elliptical Interval Samples & $8.706$ \cellcolor[gray]{0.633} & $0.294$ \cellcolor[gray]{0.633} & $61.02$ \cellcolor[gray]{0.8}  \\ 
+ & $11$ Elliptical Interval Samples & $8.710$ \cellcolor[gray]{0.5} & $0.293$ \cellcolor[gray]{0.733} & $167.52$ \cellcolor[gray]{0.633}  \\ 
+ & $3$ Rectangular Interval Samples & $8.697$ \cellcolor[gray]{0.8} & $0.280$ \cellcolor[gray]{0.9} & $69.39$ \cellcolor[gray]{0.767}  \\ 
+ & $5$ Rectangular Interval Samples & $8.696$ \cellcolor[gray]{0.833} & $0.290$ \cellcolor[gray]{0.8} & $116.97$ \cellcolor[gray]{0.733}  \\ 
+ & $11$ Rectangular Interval Samples & $8.695$ \cellcolor[gray]{0.867} & $0.290$ \cellcolor[gray]{0.833} & $333.08$ \cellcolor[gray]{0.433}  \\ 
+ & $25$ Stochastic Samples & $8.699$ \cellcolor[gray]{0.733} & $0.306$ \cellcolor[gray]{0.567} & $159.36$ \cellcolor[gray]{0.667}  \\ 
+ & $50$ Stochastic Samples & $8.708$ \cellcolor[gray]{0.6} & $0.292$ \cellcolor[gray]{0.767} & $237.95$ \cellcolor[gray]{0.5}  \\ 
+ & $100$ Stochastic Samples & $8.699$  \cellcolor[gray]{0.767} & $0.290$ \cellcolor[gray]{0.867} & $402.37$ \cellcolor[gray]{0.4}  \\ \hline 
+\multirow{3}{*}{\textbf{Warm-Starting Method}} & Greedy & $8.705$ \cellcolor[gray]{0.667} & $0.295$ \cellcolor[gray]{0.6} & $213.93$ \cellcolor[gray]{0.567} \\ 
+ & LUT & $8.710$ \cellcolor[gray]{0.533} & $0.294$ \cellcolor[gray]{0.7} & $205.88$ \cellcolor[gray]{0.6}  \\ 
+ & Previous Solution & $8.646$  \cellcolor[gray]{0.933} & $0.251$ \cellcolor[gray]{0.933} & $125.88$ \cellcolor[gray]{0.7}  \\ \hline 
+\end{tabular}

@@ -46,7 +46,7 @@ if __name__ == "__main__":
     parser.add_argument("-st", "--stoptime", default="auto")
     parser.add_argument("-ns", "--n_seeds", type=int, default=6)
     parser.add_argument("-m", "--multiprocessor", type=str, choices=["mpi", "cf"])
-    parser.add_argument("-sd", "--save_dir", type=str)
+    parser.add_argument("-sd", "--save_dir", type=str, required=True)
     parser.add_argument("-wf", "--wf_source", type=str, choices=["floris", "scada"], required=True)
     parser.add_argument("-mcnf", "--model_config", type=str, required=False, default="")
     parser.add_argument("-dcnf", "--data_config", type=str, required=False, default="")
@@ -548,9 +548,20 @@ if __name__ == "__main__":
                 #             ('RelativeRunningOptimizationCostTerm_0', 'mean'), ('RelativeRunningOptimizationCostTerm_1', 'mean')]
                 #             ].sort_values(by=('FarmPowerMean', 'mean'), ascending=False).reset_index(level="CaseFamily", drop=True)
                 # x.columns = x.columns.droplevel(1)
+                
+                # get change in power/yaw activity for alpha=0.0975 (higher power, lower yaw activity)
                 better_than_lut_df = better_than_lut_df.sort_values(by=("FarmPowerMean", "mean"), ascending=False)
                 100 * (better_than_lut_df.iloc[0]["FarmPowerMean"] - lut_df.iloc[0]["FarmPowerMean"]) / lut_df.iloc[0]["FarmPowerMean"]
+                100 * (better_than_lut_df.iloc[0]["YawAngleChangeAbsMean"] - lut_df.iloc[0]["YawAngleChangeAbsMean"]) / lut_df.iloc[0]["YawAngleChangeAbsMean"]
                 100 * (better_than_lut_df.iloc[0]["FarmPowerMean"] - greedy_df.iloc[0]["FarmPowerMean"]) / greedy_df.iloc[0]["FarmPowerMean"]
+                
+                # get change in power/yaw activity for alpha=0.089 (yaw-activity-weighted)
+                100 * (mpc_alpha_df.sort_values(by=("YawAngleChangeAbsMean", "mean"), ascending=True).iloc[1]["FarmPowerMean"] - lut_df.iloc[0]["FarmPowerMean"]) / lut_df.iloc[0]["FarmPowerMean"]
+                100 * (mpc_alpha_df.sort_values(by=("YawAngleChangeAbsMean", "mean"), ascending=True).iloc[1]["YawAngleChangeAbsMean"] - lut_df.iloc[0]["YawAngleChangeAbsMean"]) / lut_df.iloc[0]["YawAngleChangeAbsMean"]
+                
+                # get change in power/yaw activity for alpha=0.999 (power-weighted)
+                100 * (mpc_alpha_df.sort_values(by=("FarmPowerMean", "mean"), ascending=False).iloc[1]["FarmPowerMean"] - lut_df.iloc[0]["FarmPowerMean"]) / lut_df.iloc[0]["FarmPowerMean"]
+                100 * (mpc_alpha_df.sort_values(by=("FarmPowerMean", "mean"), ascending=False).iloc[1]["YawAngleChangeAbsMean"] - lut_df.iloc[0]["YawAngleChangeAbsMean"]) / lut_df.iloc[0]["YawAngleChangeAbsMean"]
                 
                 better_than_lut_df = better_than_lut_df.sort_values(by=("YawAngleChangeAbsMean", "mean"), ascending=True)
                 100 * (better_than_lut_df.iloc[0]["YawAngleChangeAbsMean"] - lut_df.iloc[0]["YawAngleChangeAbsMean"]) / lut_df.iloc[0]["YawAngleChangeAbsMean"]
