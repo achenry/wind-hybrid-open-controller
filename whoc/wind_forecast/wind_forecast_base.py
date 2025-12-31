@@ -64,6 +64,7 @@ class WindForecast:
     use_tuned_params: bool
     kwargs: dict
     true_wind_field: Optional[Union[pd.DataFrame, pl.DataFrame]]
+    target_turbine_indices: Optional[Iterable[int]] = None
     # n_targets_per_turbine: int 
     
     # def read_measurements(self):
@@ -92,7 +93,10 @@ class WindForecast:
         
         self.idx2tid_mapping = dict([(v, k) for k, v in self.tid2idx_mapping.items()])
         
-        self.outputs = [f"ws_horz_{tid}" for tid in self.tid2idx_mapping] + [f"ws_vert_{tid}" for tid in self.tid2idx_mapping]
+        if self.target_turbine_indices is None:
+            self.outputs = [f"ws_horz_{tid}" for tid in self.tid2idx_mapping] + [f"ws_vert_{tid}" for tid in self.tid2idx_mapping]
+        else:
+            self.outputs = [f"ws_horz_{self.idx2tid_mapping[idx]}" for idx in self.target_turbine_indices] + [f"ws_vert_{self.idx2tid_mapping[idx]}" for idx in self.target_turbine_indices]    
         # self.training_data_loaded = {output: False for output in self.outputs}
         self.training_data_shape = {output: None for output in self.outputs}
     
@@ -634,37 +638,47 @@ class WindForecast:
         
         input_turbine_indices = self.cluster_turbines[self.tid2idx_mapping[tid]] # this depends on the hyperparam num_neighboring_turbines
         output_idx = input_turbine_indices.index(self.tid2idx_mapping[tid])
-            
-        if reload or not os.path.exists(Xy_path): 
+        scaler_save_path = os.path.join(self.model_save_dir, f"{self.study_name}_scaler_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl")
+
+        if reload or not os.path.exists(Xy_path) or (scale and not os.path.exists(scaler_save_path)): 
+        # if True or reload or not os.path.exists(Xy_path): 
             assert measurements is not None and scale is not None, "Must provide measurements df and scale boolean to reload data in _get_output_data"
             input_select = [f"{feat_type}_{self.idx2tid_mapping[t]}" for t in input_turbine_indices]
             if isinstance(measurements, Iterable):
-                X_all = []
-                y_all = []
+                # X_all = []
+                # y_all = []
+                training_inputs_all = []
                 for d, ds in enumerate(measurements):
                     # don't scale for single dataset, scale for all of them
                     ds = ds.gather_every(self.n_prediction_interval)
                     
-                    training_inputs = ds.select(input_select).to_numpy()
+                    training_inputs_all.append(ds.select(input_select).to_numpy())
                         
-                    X, y = self._prepare_arrays(training_inputs, feat_type, tid, output_idx)
-                    X_all.append(X)
-                    y_all.append(y)
-                    
                     logging.info(f"Generated {d}th {split} data.")
-                
-                X_all = np.vstack(X_all)
-                y_all = np.concatenate(y_all)
-                
-                if scale:
-                    X_all = self.scaler[output].fit_transform(X_all)
-                    y_all = (y_all * self.scaler[output].scale_[output_idx]) + self.scaler[output].mean_[output_idx] # TODO denormalizing?
-                
+                    
+                # Concatenate all training inputs
+                training_inputs_all = np.vstack(training_inputs_all)
+                if scale: 
+                    logging.info(f"Fitting scaler for output {output} on all {split} data.")
+                    training_inputs_all = self.scaler[output].fit_transform(training_inputs_all)
+                    
+                    logging.info(f"Saving scaler for output {output} on all {split} data.")
+                    with open(scaler_save_path, "wb") as f:
+                        pickle.dump(self.scaler[output], f)
+                        
+                X_all, y_all = self._prepare_arrays(training_inputs_all, output_idx)
+
             else:
                 training_inputs = ds.select(input_select).to_numpy()
                 if scale: 
+                    logging.info(f"Fitting scaler for output {output} on all {split} data.")
                     training_inputs = self.scaler[output].fit_transform(training_inputs)
-                X_all, y_all = self._prepare_arrays(training_inputs, feat_type, tid, output_idx)
+                    
+                    logging.info(f"Saving scaler for output {output} on all {split} data.")
+                    with open(scaler_save_path, "wb") as f:
+                        pickle.dump(self.scaler[output], f)
+                            
+                X_all, y_all = self._prepare_arrays(training_inputs, output_idx)
             
             data_shape = (X_all.shape[0], X_all.shape[1] + 1)
             fp = np.memmap(Xy_path, dtype="float32", 
@@ -674,8 +688,9 @@ class WindForecast:
             fp[:, :-1] = X_all
             fp[:, -1] = y_all
             fp.flush()
+            
             logging.info(f"Saved {split} data to {Xy_path} with input shape {X_all.shape}")
-        
+
         else:
             # assert os.path.exists(Xy_path), "Must run prepare_training_data before tuning"
             # logging.info(f"Loading existing {split} data from {Xy_path}")
@@ -685,6 +700,11 @@ class WindForecast:
             X_all = fp[:, :-1]
             y_all = fp[:, -1]
             
+            if scale:
+                logging.info(f"Loading scaler for output {output} for {split} data.")
+                with open(scaler_save_path, "rb") as f:
+                    self.scaler[output] = pickle.load(f)
+
             # logging.info(f"Loaded {split} data from {Xy_path} with input shape {X_all.shape}")
         
         # logging.info(f"Deleting filepointer to {Xy_path}")
@@ -714,7 +734,10 @@ class WindForecast:
         """
         if study_name and optuna_storage:
             try:
-                study_id = optuna_storage.get_study_id_from_name(study_name)
+                full_study_name = sorted([std.study_name for std in optuna_storage.get_all_studies()], 
+                       key=lambda full_study_name: datetime.strptime(re.search(f"(?<={study_name}_).*", full_study_name).group(), "%Y%m%d%H%M%S"))[-1]
+                # datetime.strptime(re.search(f"(?<={study_name}_).*", 'tuning_svr_kestrel_awaken_pred60_20251230113634').group(), "%Y%m%d%H%M%S")
+                study_id = optuna_storage.get_study_id_from_name(full_study_name)
                 trial = optuna_storage.get_best_trial(study_id)
                 logging.info(f"Best trial found, number: {trial.number}, value: {trial.value}, params: {trial.params}")
                 trials = sorted(optuna_storage.get_all_trials(study_id), key=lambda trial: trial.value or np.inf)[1:6]
