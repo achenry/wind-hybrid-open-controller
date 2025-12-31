@@ -7,7 +7,7 @@
 #SBATCH --time=36:00:00
 ##SBATCH --time=01:00:00
 ##SBATCH --partition=debug
-#SBATCH --partition=bigmeme
+##SBATCH --partition=bigmem
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=104
 
@@ -27,13 +27,15 @@ echo "=== ENVIRONMENT ==="
 module list
 
 export MODELS="kf persistence sf svr"
-export MODEL_CONFIG_PATH="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_predGreedy.yaml $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_predLUT.yaml"
+export MODEL_CONFIG_PATH="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_predLUT.yaml"
 export DATA_CONFIG_PATH="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/preprocessing/preprocessing_inputs_kestrel_awaken_new.yaml"
 
 #export N_PROCESSES=13
 #export THREADS_PER_PROCESS=$(($SLURM_CPUS_PER_TASK / $N_PROCESSES))
 #export POLARS_MAX_THREADS=$THREADS_PER_PROCESS
 #export NUMEXPR_MAX_THREADS=$THREADS_PER_PROCESS
+
+export NUMEXPR_MAX_THREADS=104
 
 echo "MODELS=${MODELS}"
 echo "MODEL_CONFIG_PATH=${MODEL_CONFIG_PATH}"
@@ -47,14 +49,17 @@ echo "NUMEXPR_MAX_THREADS=${NUMEXPR_MAX_THREADS}"
 date +"%Y-%m-%d %H:%M:%S"
 module purge
 # module load PrgEnv-intel
-module load conda #/2022.05
+#module load conda #/2022.05
 #eval "$(conda shell.bash hook)"
-#ml PrgEnv-intel mamba
+ml PrgEnv-intel mamba
 #eval "$(conda shell.bash hook)"
-conda activate wind_forecasting_env
+mamba activate wind_forecasting_env
 
-#mpirun -np $SLURM_NTASKS 
-python ../run_forecaster_validation.py --ram_limit 65 --model ${MODELS} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --run_name baseline_forecasters --simulation_timestep 1 \
+#mpirun -np $SLURM_NTASKS
+#--run_name baseline_forecasters --max_splits 30
+python ../run_forecaster_validation.py --ram_limit 65 --model ${MODELS} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} \
+						--run_name baseline_forecasters --max_splits 30 \
+						--simulation_timestep 1 \
 						--save_dir /projects/awaken/ahenry/wind_forecasting/logging --multiprocessor cf --prediction_type distribution \
-						--use_tuned_params --use_trained_models --max_splits 10 --run_validation --rerun_validation --run_processing #--max_steps 1600
+						 --use_trained_models --run_validation --run_processing #--max_steps 1600 --rerun_validation
 

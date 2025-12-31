@@ -462,12 +462,12 @@ def plot_score_vs_prediction_dt(agg_df, metrics, ax_indices, fig_dir):
     return fig
 
 def plot_score_vs_forecaster(agg_df, metrics, ax_indices, prediction_intervals, fig_dir, label):
-    
+    # TODO HIGH put all ML models and baseline models on same plot. Add dash boundary to baseline bars.
     sns.set_style("whitegrid")
     
     ax = sns.catplot(agg_df.filter((pl.col("metric").is_in(metrics))),
                 kind="bar", col="prediction_timedelta", row=0,
-                hue="metric", x="forecaster", y="score", hue_order=metrics)
+                hue="forecaster", x="metric", y="score", hue_order=metrics)
     
     new_xticks = [" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", l._text).group())) for l in ax.axes[0, 0].get_xticklabels()]
     new_xticks = ["".join(l.split(" ")) if all(l.isupper() or l.isspace() for l in l) else l for l in new_xticks]
@@ -602,7 +602,6 @@ if __name__ == "__main__":
     for mnf_path in args.model_config:
         with open(mnf_path, 'r') as file:
             model_configs.append(yaml.safe_load(file))
-    
     
     prediction_timedeltas = [pd.Timedelta(seconds=mncf["dataset"]["prediction_length"]) for mncf in model_configs]
     context_timedeltas = [pd.Timedelta(seconds=mncf["dataset"]["context_length"]) for mncf in model_configs]
@@ -1068,7 +1067,7 @@ if __name__ == "__main__":
                 logging.info(f"Loading agg_metrics from {agg_metric_path}.")
                 agg_metrics =  pl.scan_parquet(
                     agg_metric_path, 
-                    schema={"turbine_id": pl.String, "test_idx": pl.Int32, "continuity_group": pl.Int64, "metric": pl.String, "feature_type": pl.String, "score": pl.Float64})\
+                    schema={"turbine_id": pl.String, "test_idx": pl.Int32, "continuity_group": pl.Int64, "metric": pl.String, "feature_type": pl.String, "score": pl.Float32})\
                                  .collect()
                 available_agg_cgs = set(agg_metrics.select(pl.col('continuity_group').unique()).to_numpy().flatten())
                 logging.info(f"Finished scanning parquet file at {agg_metric_path}. Found {available_agg_cgs} continuity groups.")
