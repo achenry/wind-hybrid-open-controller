@@ -1,17 +1,17 @@
 #!/bin/bash
-#SBATCH --job-name=baseline_wf_gpu
+#SBATCH --job-name=transformer_wf_gpu
 #SBATCH --account=awaken
 #SBATCH --output=%j_%x.out
 #SBATCH --nodes=1
-##SBATCH --time=01:00:00
-##SBATCH --partition=debug
-##SBATCH --ntasks-per-node=4
-##SBATCH --gres=gpu:2
-##SBATCH --mem-per-cpu=20G
-#SBATCH --time=36:00:00
-#SBATCH --ntasks-per-node=8
-#SBATCH --gres=gpu:4
-#SBATCH --mem-per-cpu=60G
+#SBATCH --time=01:00:00
+#SBATCH --partition=debug
+#SBATCH --ntasks-per-node=1
+#SBATCH --gres=gpu:1
+#SBATCH --mem-per-cpu=20G
+##SBATCH --time=72:00:00
+##SBATCH --ntasks-per-node=8
+##SBATCH --gres=gpu:4
+##SBATCH --mem-per-cpu=60G
 # salloc --partition=debug --gres=gpu:2 --ntasks-per-node=2 --time=01:00:00 --mem-per-cpu=85G --account=awaken
 
 # Print environment info
@@ -51,6 +51,8 @@ ml PrgEnv-intel mamba
 #eval "$(conda shell.bash hook)"
 mamba activate wind_forecasting_env
 
+export NUMEXPR_MAX_THREADS=128
+
 devices=$SLURM_JOB_GPUS
 n_devices=$((${#devices}/2 + 1))
 echo "N_GPU_DEVICES=${n_devices}"
@@ -67,4 +69,4 @@ export CUDA_VISIBLE_DEVICES=$(seq -s, 0 $(($n_devices-1)))
 #echo "Using GPUs ${CUDA_VISIBLE_DEVICES}"
 
 # taskset -c $start_core-$end_core 
-python ../run_forecaster_validation.py --run_validation --model ${MODELS} --run_name ml --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --simulation_timestep 1 --save_dir /projects/awaken/ahenry/wind_forecasting/logging --checkpoint best --multiprocessor cf --prediction_type distribution --use_tuned_params --use_trained_models --max_splits 10 --run_validation --rerun_validation --run_processing # --max_steps 1080
+python ../run_forecaster_validation.py --run_validation --model ${MODELS} --run_name ml --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --simulation_timestep 1 --save_dir /projects/awaken/ahenry/wind_forecasting/logging --checkpoint latest --multiprocessor cf --prediction_type distribution --use_trained_models --max_splits 30 --run_processing #--max_steps 1080 --rerun_validation

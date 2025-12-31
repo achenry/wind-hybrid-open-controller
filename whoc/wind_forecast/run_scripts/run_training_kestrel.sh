@@ -3,7 +3,7 @@
 #SBATCH --account=awaken
 #SBATCH --output=model_training_%j.out
 ##SBATCH --nodes=4
-#SBATCH --time=24:00:00
+#SBATCH --time=48:00:00
 #SBATCH --nodes=1
 ##SBATCH --time=01:00:00
 ##SBATCH --partition=debug
