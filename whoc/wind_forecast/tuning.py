@@ -167,7 +167,7 @@ if __name__ == "__main__":
     if worker_id == 0 and RUN_ONCE:
         logging.info("Generating train/val datasets.")
         if args.reload_data or not os.path.exists(data_module.train_ready_data_path):
-            logging.info("Reloading existing train/val datasets.")
+            logging.info("Generating new train/val datasets.")
             data_module.generate_datasets()
             reload = True
         else:
