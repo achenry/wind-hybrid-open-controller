@@ -123,7 +123,7 @@ class SVRForecast(WindForecast):
     def create_model(self, **kwargs):
         return SVR(**{k: v for k, v in kwargs.items() if k in inspect.signature(SVR).parameters})
    
-    def _prepare_arrays(self, training_inputs, feat_type, tid, output_idx):
+    def _prepare_arrays(self, training_inputs, output_idx):
         
         X_train = np.ascontiguousarray(np.vstack([
             training_inputs[i:i+self.n_context, :].flatten()
@@ -158,19 +158,17 @@ class SVRForecast(WindForecast):
     
     def train_single_output(self, training_measurements, output, retrain_models, scale, scaler_params=None):
         
-        feat_type = re.search(f"\\w+(?=_{self.turbine_signature})", output).group()
+        # feat_type = re.search(f"\\w+(?=_{self.turbine_signature})", output).group()
         tid = re.search(f"(?<=_){self.turbine_signature}$", output).group()
-        
-        if not retrain_models \
-            and os.path.exists(os.path.join(self.model_save_dir, f"{self.study_name}_model_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl")) \
-                and (not scale or scaler_params or os.path.exists(os.path.join(self.model_save_dir, f"svr_scaler_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl"))):
-            
+        model_save_path = os.path.join(self.model_save_dir, f"{self.study_name}_model_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl")
+        scaler_save_path = os.path.join(self.model_save_dir, f"{self.study_name}_scaler_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl")
+        if not retrain_models and os.path.exists(model_save_path)  and (not scale or scaler_params or os.path.exists(scaler_save_path)):
             logging.info(f"Loading trained SVR model for output {output}.")
-            with open(os.path.join(self.model_save_dir, f"{self.study_name}_model_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl"), "rb") as fp:
+            with open(model_save_path, "rb") as fp:
                 self.model[output] = pickle.load(fp)
 
             if scale and scaler_params is None:
-                with open(os.path.join(self.model_save_dir, f"{self.study_name}_scaler_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl"), "rb") as fp:
+                with open(scaler_save_path, "rb") as fp:
                     self.scaler[output] = pickle.load(fp)
         else:
             
@@ -184,11 +182,12 @@ class SVRForecast(WindForecast):
             with open(model_save_path, "wb") as fp:
                 pickle.dump(self.model[output], fp, protocol=5)
             
-            if scale and scaler_params is None:
-                scaler_save_path = os.path.join(self.model_save_dir, f"{self.study_name}_scaler_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl")
-                logging.info(f"Saving SVR scaler for output {output} to {scaler_save_path}.")
-                with open(scaler_save_path, "wb") as fp:
-                    pickle.dump(self.scaler[output], fp, protocol=5)
+            # if scale and scaler_params is None:
+            #     # self.scaler[output].fit(X_train)
+            #     scaler_save_path = os.path.join(self.model_save_dir, f"{self.study_name}_scaler_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl")
+            #     logging.info(f"Saving SVR scaler for output {output} to {scaler_save_path}.")
+            #     with open(scaler_save_path, "wb") as fp:
+            #         pickle.dump(self.scaler[output], fp, protocol=5)
         
         
         if scaler_params:
@@ -197,7 +196,7 @@ class SVRForecast(WindForecast):
             input_turbine_indices = self.cluster_turbines[self.tid2idx_mapping[tid]]
             self.scaler[output].n_features_in_ = len(input_turbine_indices)
             for k, v in scaler_params.items():
-                setattr(self.scaler[output], k, np.ones_like(input_turbine_indices) * v[feat_type])
+                setattr(self.scaler[output], k, np.ones_like(input_turbine_indices) * v[output])
             
             logging.info(f"Saving SVR scaler for output {output} to {scaler_save_path}.")
             with open(scaler_save_path, "wb") as fp:
@@ -251,7 +250,7 @@ class SVRForecast(WindForecast):
         
         pred_slice = self.get_pred_interval(current_time)
         pred_slice = pred_slice[-1:] 
-        outputs = self._get_ws_cols(historic_measurements)
+        # outputs = self._get_ws_cols(historic_measurements)
         
         if isinstance(historic_measurements, pd.DataFrame):
             historic_measurements = pl.DataFrame(historic_measurements)
@@ -269,10 +268,10 @@ class SVRForecast(WindForecast):
                 training_measurements = training_measurements.tail(self.max_n_samples)
             
             pred = {}
-            for output in outputs:
+            for output in self.outputs:
                 feat_type = re.search(f"^\\w+(?=_{self.turbine_signature}$)", output).group()
                 tid = re.search(f"(?<=_){self.turbine_signature}$", output).group()
-                if not (hasattr(self.scaler[output], "offset_") and hasattr(self.scaler[output], "scale_")) \
+                if not (hasattr(self.scaler[output], "mean_") and hasattr(self.scaler[output], "scale_")) \
                     or (check_is_fitted(self.model[output]) is not None):
                     raise Exception(f"scaler/model for {output} has not been trained! Try using the --use_trained_models flag.")
                 training_inputs = self._get_inputs(training_measurements, self.scaler[output], feat_type, tid, scale)
@@ -280,18 +279,18 @@ class SVRForecast(WindForecast):
                 pred[output] = self._predict(model=self.model[output], 
                                              training_inputs=training_inputs)
                 
-            # rescale back
+            # rescale back TODO
             if scale:
-                pred = {output: self._inverse_scale(pred, output).flatten() for output in outputs}
+                pred = {output: self._inverse_scale(pred, output).flatten() for output in self.outputs}
             else:
-                pred = {output: pred[output][np.newaxis, :].flatten() for output in outputs}
+                pred = {output: pred[output][np.newaxis, :].flatten() for output in self.outputs}
             
             pred = pl.DataFrame({"time": pred_slice}).with_columns(**pred)
             
         else:
             # not enough data points to train SVR, assume persistence
             logging.info(f"Not enough data points at time {current_time} to train SVR, have {historic_measurements.select(pl.len()).item() * self.measurements_timedelta} but require {self.n_context * self.prediction_timedelta}, assuming persistence instead.")
-            pred = pl.concat([pred_slice.to_frame(), historic_measurements.slice(-1, 1).select(outputs)], how="horizontal")
+            pred = pl.concat([pred_slice.to_frame(), historic_measurements.slice(-1, 1).select(self.outputs)], how="horizontal")
             
         if return_pl: 
             return pred
