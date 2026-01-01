@@ -223,8 +223,8 @@ if __name__ == "__main__":
             
             required_num_Xy_paths = (data_module.num_target_vars if args.target_turbine_indices is None else len(args.target_turbine_indices)) * 2 # val and train
             
-            logging.info(f"worker_id = {worker_id}, reload = {args.reload_data or reload}, num_Xy_paths = {num_Xy_paths}, required_num_Xy_paths = {required_num_Xy_paths}")
-            if worker_id == 0 and (args.reload_data or reload or num_Xy_paths < required_num_Xy_paths):
+            # logging.info(f"worker_id = {worker_id}, reload = {args.reload_data or reload}, num_Xy_paths = {num_Xy_paths}, required_num_Xy_paths = {required_num_Xy_paths}")
+            if worker_id == 0 and (args.reload_data or num_Xy_paths < required_num_Xy_paths):
                 logging.info(f"Preparing data with suffix {suffix} for tuning")
                 
                 forecaster.prepare_data(
