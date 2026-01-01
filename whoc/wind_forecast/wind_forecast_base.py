@@ -124,12 +124,12 @@ class WindForecast:
         
         # get training data for this output
         logging.info(f"Getting training data for output {output}.")
-        # randomly sample from training data
         
         X_train, y_train = self._get_output_data(output=output, split="train", reload=False, dataset_hparams={k: v for k, v in params.items() if k in self.dataset_hparams})
         X_val, y_val = self._get_output_data(output=output, split="val", reload=False, dataset_hparams={k: v for k, v in params.items() if k in self.dataset_hparams})
         
         if limit_train_val:
+            # randomly sample from full training data
             random_indices = np.random.choice(np.arange(X_train.shape[0]), size=int(limit_train_val * X_train.shape[0]))
             X_train, y_train = X_train[random_indices, :], y_train[random_indices]
             
@@ -640,7 +640,7 @@ class WindForecast:
         output_idx = input_turbine_indices.index(self.tid2idx_mapping[tid])
         scaler_save_path = os.path.join(self.model_save_dir, f"{self.study_name}_scaler_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl")
 
-        logging.info(f"reload = {reload}, Xy_path = {Xy_path}, Xy_path exists = {os.path.exists(Xy_path)}")
+        # logging.info(f"reload = {reload}, Xy_path = {Xy_path}, Xy_path exists = {os.path.exists(Xy_path)}")
         if reload or not os.path.exists(Xy_path) or (scale and not os.path.exists(scaler_save_path)): 
         # if True or reload or not os.path.exists(Xy_path): 
             assert measurements is not None and scale is not None, "Must provide measurements df and scale boolean to reload data in _get_output_data"
