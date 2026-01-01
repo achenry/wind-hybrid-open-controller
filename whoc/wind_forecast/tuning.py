@@ -206,6 +206,11 @@ if __name__ == "__main__":
         delattr(data_module, "datasets")
 
     if args.mode == "tune":
+        if not args.restart_tuning:
+            # Xy_paths will be stored in directory of base study name ie. experiment/run_name without suffix
+            forecaster.model_save_dir = os.path.join(os.path.dirname(forecaster.model_save_dir), 
+                                                    re.search(".*(?=_\\d{8})", forecaster.study_name).group())
+        
         # check that all data corresponding to forecaster dataset_hparams is saved
         dataset_hparams = list(forecaster.dataset_hparams_choices.keys())
         for hparam_set in product(*forecaster.dataset_hparams_choices.values()):
