@@ -215,8 +215,13 @@ if __name__ == "__main__":
         dataset_hparams = list(forecaster.dataset_hparams_choices.keys())
         for hparam_set in product(*forecaster.dataset_hparams_choices.values()):
             suffix = ("_" + "_".join([f"{k}{v}" for k, v in zip(dataset_hparams, hparam_set)])) if len(forecaster.dataset_hparams) else ""
-            num_Xy_paths = len(glob.glob(os.path.join(forecaster.model_save_dir, f"Xy_{forecaster.study_name}_*_*{suffix}.dat")))
-            required_num_Xy_paths = data_module.num_target_vars * 2 # val and train
+            num_Xy_paths = glob.glob(os.path.join(forecaster.model_save_dir, f"Xy_{forecaster.study_name}_*_*{suffix}.dat"))
+            num_Xy_paths = [os.path.basename(fp) for fp in num_Xy_paths]
+            num_Xy_paths = [fp for fp in num_Xy_paths 
+                            if forecaster.tid2idx_mapping[re.findall(f"Xy_{forecaster.study_name}_.*_(.*){suffix}.dat", fp)[0]] in args.target_turbine_indices]
+            num_Xy_paths = len(num_Xy_paths)
+            
+            required_num_Xy_paths = (data_module.num_target_vars if args.target_turbine_indices is None else len(args.target_turbine_indices)) * 2 # val and train
             
             logging.info(f"worker_id = {worker_id}, reload = {args.reload_data or reload}, num_Xy_paths = {num_Xy_paths}, required_num_Xy_paths = {required_num_Xy_paths}")
             if worker_id == 0 and (args.reload_data or reload or num_Xy_paths < required_num_Xy_paths):
