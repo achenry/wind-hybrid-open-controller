@@ -437,7 +437,7 @@ class WindForecast:
             # Get sampler and pruner objects using pickling logic
             try:
                 sampler, pruner_for_study = sampler_pruner_persistence.get_sampler_pruner_objects(
-                    worker_id, pruner, restart_tuning, final_study_name, optuna_storage, pickle_dir
+                    worker_id, pruner, restart_tuning, final_study_name, pickle_dir
                 )
             except Exception as e:
                 logging.error(f"Worker {worker_id}: Error getting sampler/pruner objects: {str(e)}", exc_info=True)
@@ -694,7 +694,7 @@ class WindForecast:
 
         else:
             # assert os.path.exists(Xy_path), "Must run prepare_training_data before tuning"
-            # logging.info(f"Loading existing {split} data from {Xy_path}")
+            logging.info(f"Loading Xy data for output {output}, {split}.")
             data_shape = tuple(np.load(Xy_path.replace(".dat", "_shape.npy")))
             fp = np.memmap(Xy_path, dtype="float32", 
                            mode="r", shape=data_shape)
@@ -702,7 +702,7 @@ class WindForecast:
             y_all = fp[:, -1]
             
             if scale:
-                logging.info(f"Loading scaler for output {output} for {split} data.")
+                logging.info(f"Loading scaler for output {output}, {split}.")
                 with open(scaler_save_path, "rb") as f:
                     self.scaler[output] = pickle.load(f)
 
@@ -735,7 +735,7 @@ class WindForecast:
         """
         if study_name and optuna_storage:
             try:
-                full_study_name = sorted([std.study_name for std in optuna_storage.get_all_studies()], 
+                full_study_name = sorted([std.study_name for std in optuna_storage.get_all_studies() if re.search(f"(?<={study_name}_).*", std.study_name) is not None], 
                        key=lambda full_study_name: datetime.strptime(re.search(f"(?<={study_name}_).*", full_study_name).group(), "%Y%m%d%H%M%S"))[-1]
                 # datetime.strptime(re.search(f"(?<={study_name}_).*", 'tuning_svr_kestrel_awaken_pred60_20251230113634').group(), "%Y%m%d%H%M%S")
                 study_id = optuna_storage.get_study_id_from_name(full_study_name)
