@@ -181,13 +181,21 @@ if __name__ == "__main__":
 
     # get max_splits longest datasets
     suffix = ("_" + "_".join([f"{k}{v}" for k, v in forecaster.dataset_hparams.items()])) if len(forecaster.dataset_hparams) else ""
-    num_Xy_paths = len(glob.glob(os.path.join(forecaster.model_save_dir, f"Xy_{forecaster.study_name}_*_*{suffix}.dat")))
-    required_num_Xy_paths = data_module.num_target_vars * 2 # val and train
-    if worker_id == 0 and (args.reload_data or reload or num_Xy_paths < required_num_Xy_paths):
+    
+    num_Xy_paths = glob.glob(os.path.join(forecaster.model_save_dir, f"Xy_{forecaster.study_name}_*_*{suffix}.dat"))
+    num_Xy_paths = [os.path.basename(fp) for fp in num_Xy_paths]
+    num_Xy_paths = [fp for fp in num_Xy_paths 
+                    if forecaster.tid2idx_mapping[re.findall(f"Xy_{forecaster.study_name}_.*_(.*){suffix}.dat", fp)[0]] in args.target_turbine_indices]
+    num_Xy_paths = len(num_Xy_paths)
+    
+    required_num_Xy_paths = (data_module.num_target_vars if args.target_turbine_indices is None else len(args.target_turbine_indices)) * 2 # val and train
+            
+    
+    if worker_id == 0:
         logging.info(f"Number of Xy paths: {num_Xy_paths} out of required {required_num_Xy_paths}")
         logging.info("Preparing data for tuning")
-        data_module.train_dataset = sorted(data_module.datasets["train"], key=lambda ds: ds["target"].shape[1], reverse=True)
-        data_module.val_dataset = sorted(data_module.datasets["val"], key=lambda ds: ds["target"].shape[1], reverse=True)
+        data_module.datasets["train"] = sorted(data_module.datasets["train"], key=lambda ds: ds["target"].shape[1], reverse=True)
+        data_module.datasets["val"] = sorted(data_module.datasets["val"], key=lambda ds: ds["target"].shape[1], reverse=True)
         if args.max_splits:
             train_dataset = data_module.datasets["train"][:args.max_splits]
             val_dataset = data_module.datasets["val"][:args.max_splits]
@@ -224,7 +232,7 @@ if __name__ == "__main__":
             required_num_Xy_paths = (data_module.num_target_vars if args.target_turbine_indices is None else len(args.target_turbine_indices)) * 2 # val and train
             
             # logging.info(f"worker_id = {worker_id}, reload = {args.reload_data or reload}, num_Xy_paths = {num_Xy_paths}, required_num_Xy_paths = {required_num_Xy_paths}")
-            if worker_id == 0 and (args.reload_data or num_Xy_paths < required_num_Xy_paths):
+            if worker_id == 0 and (args.reload_data or reload or num_Xy_paths < required_num_Xy_paths):
                 logging.info(f"Preparing data with suffix {suffix} for tuning")
                 
                 forecaster.prepare_data(
@@ -236,7 +244,7 @@ if __name__ == "__main__":
             
                 if RUN_ONCE:
                     logging.info(f"Finished preparing data with suffix {suffix} for tuning.")
-    elif args.mode == "train":
+    elif args.mode == "train" and worker_id == 0 and (args.reload_data or reload or num_Xy_paths < required_num_Xy_paths):
         forecaster.prepare_data(
             dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, 
             scale=True, 
