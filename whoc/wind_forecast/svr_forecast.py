@@ -38,7 +38,6 @@ class SVRForecast(WindForecast):
         self.model_config = self.kwargs["model_config"]
 
         self.n_turbines = self.fmodel.n_turbines
-        self.n_outputs = self.n_turbines * 2
         self.measurement_layout = np.vstack([self.fmodel.layout_x, self.fmodel.layout_y]).T
         
         self.n_neighboring_turbines = self.kwargs["n_neighboring_turbines"] 
@@ -82,6 +81,7 @@ class SVRForecast(WindForecast):
             raise Exception
         
         # no need to load optuna trained hyperparams if we are loading models anyway
+        self.n_outputs = (self.n_turbines if self.target_turbine_indices is None else len(self.target_turbine_indices)) * 2
         if (not self.use_trained_models or len(model_files) < self.n_outputs or len(scaler_files) < self.n_outputs) and self.use_tuned_params:
             self.set_tuned_params(optuna_storage=self.kwargs["optuna_storage"], 
                                     study_name=self.study_name)
