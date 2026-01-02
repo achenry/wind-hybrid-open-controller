@@ -721,6 +721,13 @@ class WindForecast:
             # logging.info(f"Returning None from _get_output_data for Xy_path {Xy_path}")
             return None
     
+    def _parse_full_study_name(self, study_name_prefix, full_study_name):
+        captured_digits = re.search(f"(?<={study_name_prefix}_)\\d+", full_study_name).group()
+        if len(captured_digits) == 14:
+            return datetime.strptime(captured_digits, "%Y%m%d%H%M%S")
+        else:
+            return captured_digits
+
     def set_tuned_params(self, config_params=None, optuna_storage=None, study_name=None):
         """_summary_
 
@@ -735,8 +742,11 @@ class WindForecast:
         """
         if study_name and optuna_storage:
             try:
-                full_study_name = sorted([std.study_name for std in optuna_storage.get_all_studies() if re.search(f"(?<={study_name}_)\\d{{14}}", std.study_name) is not None], 
-                       key=lambda full_study_name: datetime.strptime(re.search(f"(?<={study_name}_).*", full_study_name).group(), "%Y%m%d%H%M%S"))[-1]
+                full_study_name = [std.study_name for std in optuna_storage.get_all_studies() 
+                     if re.search(f"(?<={study_name}_)\\d+", std.study_name) is not None]
+                full_study_name = sorted(full_study_name, 
+                       key=lambda full_study_name: self._parse_full_study_name(study_name, full_study_name))[-1]
+            
                 # datetime.strptime(re.search(f"(?<={study_name}_).*", 'tuning_svr_kestrel_awaken_pred60_20251230113634').group(), "%Y%m%d%H%M%S")
                 study_id = optuna_storage.get_study_id_from_name(full_study_name)
                 trial = optuna_storage.get_best_trial(study_id)
