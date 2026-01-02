@@ -668,19 +668,21 @@ if __name__ == "__main__":
     
         # data_module.train_ready_data_path=data_module.train_ready_data_path.replace("awaken_data/", "awaken_data/test/")
         # reload = True
+        # reload = True
         data_module.generate_splits(save=True, reload=reload or args.resplit_data, splits=["test"])
         
         logging.info("Sorting test datasets by duration.")
         # data_module.test_dataset = sorted(data_module.test_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
         # data_module.test_dataset = sorted(data_module.test_dataset.partition_by("item_id"), key=lambda ds: ds.select(pl.len()).item(), reverse=True)
-        data_module.test_dataset = data_module.test_dataset.with_columns(pl.count().over("item_id").alias("cg_size")).sort("cg_size", descending=True).drop("cg_size").partition_by("item_id")
-        
+        test_dataset = data_module.datasets["test"].with_columns(pl.count().over("item_id").alias("cg_size")).sort("cg_size", descending=True).drop("cg_size")
+        test_dataset = [test_dataset.filter(pl.col("item_id") == item_id) for item_id, in test_dataset.select(pl.col("item_id").unique(maintain_order=True)).collect().iter_rows()]
+        del data_module.datasets["test"]
         if args.max_splits:
-            data_module.test_dataset = data_module.test_dataset[:args.max_splits]
-        
+            test_dataset = test_dataset[:args.max_splits]
+
         new_ds = []
-        for ds in data_module.test_dataset:
-            cg = ds["item_id"].first()
+        for ds in test_dataset:
+            cg = ds.select(pl.col("item_id").first()).collect().item()
             if cg not in cgs:
                 new_ds.append(ds)
                 cgs.append(cg)
@@ -719,12 +721,12 @@ if __name__ == "__main__":
     # _, test_template = split(test_data, offset=-window_length)
     # test_data = test_template.generate_instances(window_length, windows=1)
     logging.info("Deleting uneccesary attributes.")
-    delattr(data_module, "test_dataset")
+    delattr(data_module, "datasets")
     gc.collect()
     logging.info("Finished creating datasets.")
     
     # assert pd.Timedelta(test_data[0]["start"].freq) == measurements_timedelta
-    assert pd.Timedelta(test_data.select(pl.col("time").diff()).slice(1,1).item()) == measurements_timedelta
+    assert pd.Timedelta(test_data.select(pl.col("time").diff()).slice(1,1).collect().item()) == measurements_timedelta
     # assert test_data.select(pl.col("time").slice(0, 2).diff()).slice(1,1).item() == measurements_timedelta
    
     # custom_eval_fn = {
