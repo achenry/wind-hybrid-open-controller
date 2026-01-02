@@ -212,50 +212,7 @@ if __name__ == "__main__":
         del data_module.datasets["train"]
         del data_module.datasets["val"]
         delattr(data_module, "datasets")
-
-    if args.mode == "tune":
-        if not args.restart_tuning:
-            # Xy_paths will be stored in directory of base study name ie. experiment/run_name without suffix
-            forecaster.model_save_dir = os.path.join(os.path.dirname(forecaster.model_save_dir), 
-                                                    re.search(".*(?=_\\d{8})", forecaster.study_name).group())
         
-        # check that all data corresponding to forecaster dataset_hparams is saved
-        dataset_hparams = list(forecaster.dataset_hparams_choices.keys())
-        for hparam_set in product(*forecaster.dataset_hparams_choices.values()):
-            suffix = ("_" + "_".join([f"{k}{v}" for k, v in zip(dataset_hparams, hparam_set)])) if len(forecaster.dataset_hparams) else ""
-            num_Xy_paths = glob.glob(os.path.join(forecaster.model_save_dir, f"Xy_{forecaster.study_name}_*_*{suffix}.dat"))
-            num_Xy_paths = [os.path.basename(fp) for fp in num_Xy_paths]
-            num_Xy_paths = [fp for fp in num_Xy_paths 
-                            if forecaster.tid2idx_mapping[re.findall(f"Xy_{forecaster.study_name}_.*_(.*){suffix}.dat", fp)[0]] in args.target_turbine_indices]
-            num_Xy_paths = len(num_Xy_paths)
-            
-            required_num_Xy_paths = (data_module.num_target_vars if args.target_turbine_indices is None else len(args.target_turbine_indices)) * 2 # val and train
-            
-            # logging.info(f"worker_id = {worker_id}, reload = {args.reload_data or reload}, num_Xy_paths = {num_Xy_paths}, required_num_Xy_paths = {required_num_Xy_paths}")
-            if worker_id == 0 and (args.reload_data or reload or num_Xy_paths < required_num_Xy_paths):
-                logging.info(f"Preparing data with suffix {suffix} for tuning")
-                
-                forecaster.prepare_data(
-                    dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, 
-                    scale=True, 
-                    multiprocessor=args.multiprocessor, 
-                    reload=args.reload_data or reload,
-                    dataset_hparams={k: v for k, v in zip(dataset_hparams, hparam_set)})
-            
-                if RUN_ONCE:
-                    logging.info(f"Finished preparing data with suffix {suffix} for tuning.")
-    elif args.mode == "train" and worker_id == 0 and (args.reload_data or reload or num_Xy_paths < required_num_Xy_paths):
-        forecaster.prepare_data(
-            dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, 
-            scale=True, 
-            multiprocessor=args.multiprocessor, 
-            reload=args.reload_data or reload)
-
-        if RUN_ONCE:
-            logging.info("Finished preparing data for training.")
-
-    # %% TUNING MODEL
-    
     optuna_storage = None
     if RUN_ONCE:
         logging.info(f"Initializing storage with restart_tuning={args.restart_tuning} on worker {worker_id}")
@@ -275,7 +232,71 @@ if __name__ == "__main__":
         
     if args.multiprocessor == "mpi":
         comm.Barrier()
+
+    if args.mode == "tune":
+        if not args.restart_tuning:
+            # Xy_paths will be stored in directory of base study name ie. experiment/run_name without suffix
+            forecaster.model_save_dir = os.path.join(os.path.dirname(forecaster.model_save_dir), 
+                                                    re.search(".*(?=_\\d{8})", forecaster.study_name).group())
+        
+        # check that all data corresponding to forecaster dataset_hparams is saved
+        dataset_hparams = list(forecaster.dataset_hparams_choices.keys())
+        for hparam_set in product(*forecaster.dataset_hparams_choices.values()):
+            suffix = ("_" + "_".join([f"{k}{v}" for k, v in zip(dataset_hparams, hparam_set)])) if len(forecaster.dataset_hparams) else ""
+            num_Xy_paths = glob.glob(os.path.join(forecaster.model_save_dir, f"Xy_{forecaster.study_name}_*_*{suffix}.dat"))
+            num_Xy_paths = [os.path.basename(fp) for fp in num_Xy_paths]
+            num_Xy_paths = [fp for fp in num_Xy_paths 
+                            if forecaster.tid2idx_mapping[re.findall(f"Xy_{forecaster.study_name}_.*_(.*){suffix}.dat", fp)[0]] in args.target_turbine_indices]
+            num_Xy_paths = len(num_Xy_paths)
+            
+            required_num_Xy_paths = (data_module.num_target_vars if args.target_turbine_indices is None else (len(args.target_turbine_indices) * len(data_module.target_prefixes))) * 2 # val and train
+            
+            # logging.info(f"worker_id = {worker_id}, reload = {args.reload_data or reload}, num_Xy_paths = {num_Xy_paths}, required_num_Xy_paths = {required_num_Xy_paths}")
+            if worker_id == 0 and (args.reload_data or reload or num_Xy_paths < required_num_Xy_paths):
+                logging.info(f"Preparing data with suffix {suffix} for tuning")
+                
+                forecaster.prepare_data(
+                    dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, 
+                    scale=True, 
+                    multiprocessor=args.multiprocessor, 
+                    reload=args.reload_data or reload,
+                    dataset_hparams={k: v for k, v in zip(dataset_hparams, hparam_set)})
+            
+                if RUN_ONCE:
+                    logging.info(f"Finished preparing data with suffix {suffix} for tuning.")
+    elif args.mode == "train":
+        if args.use_tuned_params:
+            logging.info("Using tuned hyperparameters.")
+            forecaster.set_tuned_params(optuna_storage=optuna_storage, study_name=forecaster.study_name)
+        elif len(model_config["model"][args.model]):
+            logging.info("Using model config hyperparameters.")
+            forecaster.set_tuned_params(config_params=model_config["model"][args.model])
+        else:
+            logging.info("Using default hyperparameters.")
+            forecaster.set_tuned_params()
+
+        suffix = ("_" + "_".join([f"{k}{v}" for k, v in forecaster.dataset_hparams.items()])) if len(forecaster.dataset_hparams) else ""
+        num_Xy_paths = glob.glob(os.path.join(forecaster.model_save_dir, f"Xy_{forecaster.study_name}_*_*{suffix}.dat"))
+        num_Xy_paths = [os.path.basename(fp) for fp in num_Xy_paths]
+        num_Xy_paths = [fp for fp in num_Xy_paths 
+                        if forecaster.tid2idx_mapping[re.findall(f"Xy_{forecaster.study_name}_.*_(.*){suffix}.dat", fp)[0]] in args.target_turbine_indices]
+        num_Xy_paths = len(num_Xy_paths)
+        
+        required_num_Xy_paths = (data_module.num_target_vars if (args.target_turbine_indices is None) else (len(args.target_turbine_indices) * len(data_module.target_prefixes))) * 2 # val and train
+            
+        if worker_id == 0 and (args.reload_data or reload or num_Xy_paths < required_num_Xy_paths):
+            forecaster.prepare_data(
+                dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, 
+                scale=True, 
+                multiprocessor=args.multiprocessor, 
+                reload=args.reload_data or reload)
+
+        if RUN_ONCE:
+            logging.info("Finished preparing data for training.")
+
+    # %% TUNING MODEL
     
+
     # scaler_params = data_module.compute_scaler_params()
     
     worker_id = int(os.environ.get('WORKER_RANK', 1))
@@ -311,15 +332,7 @@ if __name__ == "__main__":
     elif args.mode == "train":
         # %% TRAINING MODEL
         logging.info("Training model.")
-        if args.use_tuned_params:
-            logging.info("Using tuned hyperparameters.")
-            forecaster.set_tuned_params(optuna_storage=optuna_storage, study_name=forecaster.study_name)
-        elif len(model_config["model"][args.model]):
-            logging.info("Using model config hyperparameters.")
-            forecaster.set_tuned_params(config_params=model_config["model"][args.model])
-        else:
-            logging.info("Using default hyperparameters.")
-            forecaster.set_tuned_params()
+        
             
         forecaster.train_all_outputs(scale=True, 
                                     multiprocessor=args.multiprocessor,
