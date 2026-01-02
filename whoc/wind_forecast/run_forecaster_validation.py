@@ -195,7 +195,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
                        .with_columns(test_idx=pl.lit(test_idx).cast(pl.Int32),
                               continuity_group=pl.lit(splits[d]).cast(pl.Int32))\
                        .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
-            pred = pred.filter(pred["time"].is_in(test_data_time))
+            pred = pred.filter(pred["time"].is_in(test_data_time.implode()))
             
             # logging.info(f"RAM 200 = {virtual_memory().percent}")
             
@@ -428,7 +428,7 @@ def generate_forecaster_agg_results(forecaster, forecast_df, test_data, data_mod
         agg_metrics,
         agg_metrics.group_by(["continuity_group", "metric", "feature_type"], maintain_order=True).agg(pl.col("score").mean()).with_columns(test_idx=pl.lit(-1), turbine_id=pl.lit("all")).select(["continuity_group", "metric", "test_idx", "feature_type", "turbine_id", "score"])
     ])
-    return agg_metrics
+    return agg_metrics.with_columns(pl.col("score").cast(pl.Float32))
 
 def plot_score_vs_prediction_dt(agg_df, metrics, ax_indices, fig_dir):
     
@@ -554,6 +554,7 @@ if __name__ == "__main__":
                         help="Use parameters trained and stored for models that require training, e.g. SVR, read existing trained models from file.")
     parser.add_argument("-rl", "--ram_limit", type=int, default=75,
                         help="Percentage of RAM usage, above which to store checkpoints.")
+    parser.add_argument("-tti", "--target_turbine_indices", metavar="C", nargs="+", required=False, default=None, type=int)
     args = parser.parse_args()
     
     assert args.model is None or all(model in ["perfect", "persistence", "svr", "kf", "informer", "autoformer", "spacetimeformer", "tactis", "sf"] for model in args.model)
@@ -786,7 +787,8 @@ if __name__ == "__main__":
                     tid2idx_mapping=tid2idx_mapping,
                     turbine_signature=turbine_signature,
                     use_tuned_params=False,
-                    kwargs={}
+                    kwargs={},
+                    target_turbine_indices=args.target_turbine_indices
                 )
                                     
                 forecasters.append(forecaster)
@@ -804,7 +806,8 @@ if __name__ == "__main__":
                                                         tid2idx_mapping=tid2idx_mapping,
                                                         turbine_signature=turbine_signature,
                                                         use_tuned_params=False,
-                                                        kwargs={})
+                                                        kwargs={},
+                                            target_turbine_indices=args.target_turbine_indices)
 
                 forecasters.append(forecaster)
             
@@ -832,7 +835,8 @@ if __name__ == "__main__":
                                                     model_config=mncf),
                                         tid2idx_mapping=tid2idx_mapping,
                                         turbine_signature=turbine_signature,
-                                        use_tuned_params=True
+                                        use_tuned_params=True,
+                                        target_turbine_indices=args.target_turbine_indices
                                         )
                 
                 forecasters.append(forecaster)
@@ -854,7 +858,8 @@ if __name__ == "__main__":
                                                     tid2idx_mapping=tid2idx_mapping,
                                                     turbine_signature=turbine_signature,
                                                     use_tuned_params=False,
-                                                    kwargs={})
+                                                    kwargs={},
+                                                  target_turbine_indices=args.target_turbine_indices)
                 forecasters.append(forecaster)
             
         ## GENERATE KF PREVIEW 
@@ -873,7 +878,8 @@ if __name__ == "__main__":
                                                     tid2idx_mapping=tid2idx_mapping,
                                                     turbine_signature=turbine_signature,
                                                     use_tuned_params=False,
-                                                    kwargs=dict(n_neighboring_turbines=mncf["model"]["sf"]["n_neighboring_turbines"]))
+                                                    kwargs=dict(n_neighboring_turbines=mncf["model"]["sf"]["n_neighboring_turbines"]),
+                                                    target_turbine_indices=args.target_turbine_indices)
                 forecasters.append(forecaster)
             
         ## GENERATE ML PREVIEW
@@ -897,10 +903,11 @@ if __name__ == "__main__":
                                                         optuna_storage=None,
                                                         study_name=None,#db_setup_params["study_name"],
                                                         model_config=mncf,
-                                                        resample=False))
+                                                        resample=False),
+                                            target_turbine_indices=args.target_turbine_indices)
                     forecasters.append(forecaster)
         
-    continuity_groups = test_data.group_by("prediction_timedelta").agg(pl.col("continuity_group").unique())
+    continuity_groups = test_data.group_by("prediction_timedelta").agg(pl.col("continuity_group").unique()).collect()
     continuity_groups = {row["prediction_timedelta"]: row["continuity_group"] for row in continuity_groups.iter_rows(named=True)}
     if -1 in continuity_groups:
         joint_cgs = continuity_groups[-1]
@@ -981,7 +988,7 @@ if __name__ == "__main__":
             for forecaster, cg, save_path in validation_to_run:
                 make_predictions(
                     forecaster=forecaster, 
-                    test_data=test_data.filter((pl.col("continuity_group") == cg) & (pl.col("prediction_timedelta").is_in([forecaster.prediction_timedelta.total_seconds(), -1.0]))),
+                    test_data=test_data.filter((pl.col("continuity_group") == cg) & (pl.col("prediction_timedelta").is_in([forecaster.prediction_timedelta.total_seconds(), -1.0]))).collect(),
                     prediction_type=args.prediction_type, single_cg=True,
                     # save_path=lambda cg: forecast_paths[continuity_groups.index(cg)],
                     save_path=save_path,
@@ -1055,7 +1062,7 @@ if __name__ == "__main__":
             logging.info(f"Loading forecast_df from {forecast_path}.")
             # schema_overrides={"test_idx": pl.Int32, "continuity_group": pl.Int32})\
             forecast_df = pl.read_parquet(forecast_path, glob=True)\
-                        .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
+                            .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
                         
             available_fc_cgs = set(forecast_df.select(pl.col('continuity_group').unique()).to_numpy().flatten())
             logging.info(f"Finished reading parquet files at {forecast_path}. Found {available_fc_cgs} continuity_groups.")
@@ -1069,7 +1076,7 @@ if __name__ == "__main__":
                 logging.info(f"Loading agg_metrics from {agg_metric_path}.")
                 agg_metrics =  pl.scan_parquet(
                     agg_metric_path, 
-                    schema={"turbine_id": pl.String, "test_idx": pl.Int32, "continuity_group": pl.Int64, "metric": pl.String, "feature_type": pl.String, "score": pl.Float32})\
+                    schema={"turbine_id": pl.String, "test_idx": pl.Int32, "continuity_group": pl.Int32, "metric": pl.String, "feature_type": pl.String, "score": pl.Float32})\
                                  .collect()
                 available_agg_cgs = set(agg_metrics.select(pl.col('continuity_group').unique()).to_numpy().flatten())
                 logging.info(f"Finished scanning parquet file at {agg_metric_path}. Found {available_agg_cgs} continuity groups.")
@@ -1083,7 +1090,8 @@ if __name__ == "__main__":
             if args.rerun_validation or not os.path.exists(agg_metric_path) or (available_agg_cgs != unique_cgs[prediction_timedelta]):
                 agg_metrics = generate_forecaster_agg_results(forecaster, 
                                                               forecast_df, 
-                                                              test_data.filter(pl.col("continuity_group").is_in(unique_cgs[prediction_timedelta])), data_module, args.prediction_type)
+                                                              test_data.filter(pl.col("continuity_group").is_in(unique_cgs[prediction_timedelta])).collect(), 
+                                                              data_module, args.prediction_type)
                 agg_metrics.write_parquet(agg_metric_path)
 
             results[f]["agg_metrics"] = agg_metrics
@@ -1102,14 +1110,15 @@ if __name__ == "__main__":
         
         true_long_path = os.path.join(validation_save_dir, f"true_long_df_{args.run_name}.parquet")
         if args.rerun_validation or not os.path.exists(true_long_path):
-            test_data.unpivot(index=["time", "continuity_group"], variable_name="feature", value_name="value")\
+            test_data.unpivot(index=["time", "continuity_group", "prediction_timedelta"], variable_name="feature", value_name="value")\
                                          .with_columns(turbine_id=pl.col("feature").str.extract(f"(_)({forecaster.turbine_signature})$", group_index=2),
                                                        feature=pl.col("feature").str.extract(f"(.*)(_)({forecaster.turbine_signature})$", group_index=1),
                                                        data_type=pl.lit("True"))\
+                                          .collect()\
                                          .write_parquet(true_long_path)
         
         true_long = pl.scan_parquet(true_long_path, 
-                                    schema={"time": pl.Datetime(time_unit="ns"), "turbine_id": pl.String, "continuity_group": pl.Int64, "feature": pl.String, "value": pl.Float64, "turbine_id": pl.String, "data_type": pl.String}, glob=True)\
+                                    schema={"time": pl.Datetime(time_unit="ns"), "prediction_timedelta": pl.Int32, "turbine_id": pl.String, "continuity_group": pl.Int32, "feature": pl.String, "value": pl.Float64, "turbine_id": pl.String, "data_type": pl.String}, glob=True)\
                                         .collect()
         
         # plot continuity group with best rmse score
