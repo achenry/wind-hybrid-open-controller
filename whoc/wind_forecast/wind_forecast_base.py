@@ -735,7 +735,7 @@ class WindForecast:
         """
         if study_name and optuna_storage:
             try:
-                full_study_name = sorted([std.study_name for std in optuna_storage.get_all_studies() if re.search(f"(?<={study_name}_).*", std.study_name) is not None], 
+                full_study_name = sorted([std.study_name for std in optuna_storage.get_all_studies() if re.search(f"(?<={study_name}_)\\d{{14}}", std.study_name) is not None], 
                        key=lambda full_study_name: datetime.strptime(re.search(f"(?<={study_name}_).*", full_study_name).group(), "%Y%m%d%H%M%S"))[-1]
                 # datetime.strptime(re.search(f"(?<={study_name}_).*", 'tuning_svr_kestrel_awaken_pred60_20251230113634').group(), "%Y%m%d%H%M%S")
                 study_id = optuna_storage.get_study_id_from_name(full_study_name)
