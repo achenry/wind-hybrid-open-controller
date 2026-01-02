@@ -726,7 +726,18 @@ class WindForecast:
         if len(captured_digits) == 14:
             return datetime.strptime(captured_digits, "%Y%m%d%H%M%S")
         else:
-            return captured_digits
+            return int(captured_digits)
+        # job_id = os.environ.get('SLURM_JOB_ID')
+        # if job_id:
+        #     # If running in SLURM, use the job ID
+        #     # final_study_name = f"{base_study_prefix}_{job_id}"
+        #     return captured_digits
+        # else:
+        #     # Otherwise use a timestamp
+        #     # timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+        #     # final_study_name = f"{base_study_prefix}_{timestamp}"
+        #     return datetime.strptime(captured_digits, "%Y%m%d%H%M%S")
+    
 
     def set_tuned_params(self, config_params=None, optuna_storage=None, study_name=None):
         """_summary_
@@ -742,6 +753,15 @@ class WindForecast:
         """
         if study_name and optuna_storage:
             try:
+                # x = ["tuning_svr_kestrel_awaken_pred60", "tuning_svr_kestrel_awaken_pred60_9700986",
+                #      "tuning_svr_kestrel_awaken_pred60_9701006", "tuning_svr_kestrel_awaken_pred60_9719702",
+                #      "tuning_svr_kestrel_awaken_pred60_9762311", "tuning_svr_kestrel_awaken_pred60_9848283",
+                #      "tuning_svr_kestrel_awaken_pred60_12118812", "tuning_svr_kestrel_awaken_pred60_12121357",
+                #      "tuning_svr_kestrel_awaken_pred60_12121791", "tuning_svr_kestrel_awaken_pred60_12122365",
+                #      "tuning_svr_kestrel_awaken_pred60_12123773"]
+                # x = [std for std in x if re.search(f"(?<={study_name}_)\\d+", std) is not None]
+                # x = sorted(x, key=lambda full_study_name: self._parse_full_study_name(study_name, full_study_name))
+                # TODO better to get last modified study, or to explicitly use full name from training config?
                 full_study_name = [std.study_name for std in optuna_storage.get_all_studies() 
                      if re.search(f"(?<={study_name}_)\\d+", std.study_name) is not None]
                 full_study_name = sorted(full_study_name, 
