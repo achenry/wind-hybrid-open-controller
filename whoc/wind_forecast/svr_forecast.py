@@ -83,7 +83,7 @@ class SVRForecast(WindForecast):
         
         # no need to load optuna trained hyperparams if we are loading models anyway
         if (not self.use_trained_models or len(model_files) < self.n_outputs or len(scaler_files) < self.n_outputs) and self.use_tuned_params:
-            self.set_tuned_params(storage=self.kwargs["optuna_storage"], 
+            self.set_tuned_params(optuna_storage=self.kwargs["optuna_storage"], 
                                     study_name=self.study_name)
             self.use_trained_models = False
             logging.info("No available trained models.") # TODO train here
