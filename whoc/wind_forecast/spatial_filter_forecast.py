@@ -83,11 +83,15 @@ class SpatialFilterForecast(WindForecast):
             _type_: _description_
         """
 
-        turbine_ids = sorted(set(re.search("(?<=\\w_)\\d+$", col).group(0) for col in new_measurements.select(cs.starts_with("ws_")).columns), key=lambda tid: int(re.search("\\d+", tid).group(0)))
+        # turbine_ids = sorted(set(re.search("(?<=\\w_)\\w+$", col).group(0) 
+        #                          for col in new_measurements.select(cs.starts_with("ws_")).columns), 
+        #                      key=lambda tid: int(re.search("\\d+", tid).group(0)))
+        turbine_ids = sorted(set(col.split("_")[-1] for col in new_measurements.select(cs.starts_with("ws_")).columns), 
+                             key=lambda tid: int(re.search("\\d+", tid).group(0)))
         ws_horz = new_measurements.select(cs.starts_with("ws_horz_"))\
-                                  .rename(lambda old_col: re.search("(?<=\\w_)\\d+$", old_col).group(0))
+                                  .rename(lambda old_col: old_col.split("_")[-1])
         ws_vert = new_measurements.select(cs.starts_with("ws_vert_"))\
-                                  .rename(lambda old_col: re.search("(?<=\\w_)\\d+$", old_col).group(0))
+                                  .rename(lambda old_col: old_col.split("_")[-1])
         
         wm = new_measurements.select(**{tid: ((pl.col(f"ws_horz_{tid}")**2 + pl.col(f"ws_vert_{tid}")**2).sqrt()) for tid in turbine_ids})
         wd = new_measurements.select(**{tid: 180.0 + (pl.arctan2(pl.col(f"ws_horz_{tid}"), pl.col(f"ws_vert_{tid}")).degrees()) for tid in turbine_ids})
