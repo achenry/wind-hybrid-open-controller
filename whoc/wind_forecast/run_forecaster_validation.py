@@ -203,7 +203,7 @@ def make_predictions(forecaster, test_data, prediction_type, single_cg, save_pat
             
             save_length += pred.select(pl.len()).item()   
             
-            if  (final := ((c == n_controller_times - 1) and (d == n_splits - 1))) or (((ram_used := virtual_memory().percent) > ram_limit) and (save_length > 500)):
+            if  (final := ((c == n_controller_times - 1) and (d == n_splits - 1))) or (((ram_used := virtual_memory().percent) > ram_limit) and (save_length > 0)):
                 logging.info(f"In save conditional.")
                 # sub_save_path = save_path.replace(".parquet", f"_{splits[d]}_{n_saved}.parquet")
                 if callable(save_path):
@@ -428,7 +428,7 @@ def generate_forecaster_agg_results(forecaster, forecast_df, test_data, data_mod
         agg_metrics,
         agg_metrics.group_by(["continuity_group", "metric", "feature_type"], maintain_order=True).agg(pl.col("score").mean()).with_columns(test_idx=pl.lit(-1), turbine_id=pl.lit("all")).select(["continuity_group", "metric", "test_idx", "feature_type", "turbine_id", "score"])
     ])
-    return agg_metrics.with_columns(pl.col("score").cast(pl.Float32))
+    return agg_metrics.with_columns(cs.float().cast(pl.Float32), cs.integer().cast(pl.Int32))
 
 def plot_score_vs_prediction_dt(agg_df, metrics, ax_indices, fig_dir):
     
@@ -675,7 +675,7 @@ if __name__ == "__main__":
         logging.info("Sorting test datasets by duration.")
         # data_module.test_dataset = sorted(data_module.test_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
         # data_module.test_dataset = sorted(data_module.test_dataset.partition_by("item_id"), key=lambda ds: ds.select(pl.len()).item(), reverse=True)
-        test_dataset = data_module.datasets["test"].with_columns(pl.count().over("item_id").alias("cg_size")).sort("cg_size", descending=True).drop("cg_size")
+        test_dataset = data_module.datasets["test"].with_columns(pl.len().over("item_id").alias("cg_size")).sort("cg_size", descending=True).drop("cg_size")
         test_dataset = [test_dataset.filter(pl.col("item_id") == item_id) for item_id, in test_dataset.select(pl.col("item_id").unique(maintain_order=True)).collect().iter_rows()]
         del data_module.datasets["test"]
         if args.max_splits:
@@ -1105,7 +1105,8 @@ if __name__ == "__main__":
                                             prediction_timedelta=pl.lit(res["prediction_timedelta"]))
             for res in results], how="vertical_relaxed")
         
-        turbine_ids = ["5", "74", "75"]
+        turbine_ids = ["wt005", "wt074", "wt075"]
+        assert all(tid in data_module.target_suffixes for tid in turbine_ids), f"Expected target turbine IDs {turbine_ids} to be a subset of {data_module.target_suffixes}."
         best_cg = 0
         
         true_long_path = os.path.join(validation_save_dir, f"true_long_df_{args.run_name}.parquet")
@@ -1114,11 +1115,14 @@ if __name__ == "__main__":
                                          .with_columns(turbine_id=pl.col("feature").str.extract(f"(_)({forecaster.turbine_signature})$", group_index=2),
                                                        feature=pl.col("feature").str.extract(f"(.*)(_)({forecaster.turbine_signature})$", group_index=1),
                                                        data_type=pl.lit("True"))\
+                                         .with_columns(cs.float().cast(pl.Float32), cs.integer().cast(pl.Int32))\
                                           .collect()\
                                          .write_parquet(true_long_path)
         
         true_long = pl.scan_parquet(true_long_path, 
-                                    schema={"time": pl.Datetime(time_unit="ns"), "prediction_timedelta": pl.Int32, "turbine_id": pl.String, "continuity_group": pl.Int32, "feature": pl.String, "value": pl.Float64, "turbine_id": pl.String, "data_type": pl.String}, glob=True)\
+                                    schema={"time": pl.Datetime(time_unit="ns"), "prediction_timedelta": pl.Int32, 
+                                            "turbine_id": pl.String, "continuity_group": pl.Int32, "feature": pl.String, 
+                                            "value": pl.Float32, "turbine_id": pl.String, "data_type": pl.String}, glob=True)\
                                         .collect()
         
         # plot continuity group with best rmse score
@@ -1138,21 +1142,24 @@ if __name__ == "__main__":
                 target_vars = ["ws_horz", "ws_vert"]
             
             forecast_long_path = os.path.join(save_dir, "long_df.parquet")
-            if args.rerun_validation or not os.path.exists(forecast_long_path) or pl.scan_parquet(forecast_long_path, glob=True).select(pl.col("continuity_group").unique.contains(best_cg)).collect().item() == False:
+            if args.rerun_validation or not os.path.exists(forecast_long_path) \
+                or pl.scan_parquet(forecast_long_path, glob=True).select(pl.col("continuity_group").unique().list.contains(best_cg)).collect().item() == False:
                 forecast_path = os.path.join(save_dir, "forecast_*.parquet")
                 forecast_df = pl.scan_parquet(forecast_path, glob=True)\
                             .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
                 
                 assert forecast_df.select((pl.col("continuity_group") == pl.lit(best_cg)).any()).collect().item(), f"Chosen value of best_cg {best_cg} not found in forecast_df continuity_group column."
                 forecast_df.filter(pl.col("continuity_group") == best_cg)\
-                    .select(["time", "continuity_group", "test_idx"] + [cs.ends_with(f"_{tid}") for tid in turbine_ids]).collect()\
-                    .unpivot(index=["time", "continuity_group", "test_idx"], variable_name="feature", value_name="value")\
-                                         .with_columns(turbine_id=pl.col("feature").str.extract(f"(_)({forecaster.turbine_signature})$", group_index=2),
+                           .select(["time", "continuity_group", "test_idx"] + [cs.ends_with(f"_{tid}") for tid in turbine_ids])\
+                           .unpivot(index=["time", "continuity_group", "test_idx"], variable_name="feature", value_name="value")\
+                           .with_columns(turbine_id=pl.col("feature").str.extract(f"(_)({forecaster.turbine_signature})$", group_index=2),
                                                        feature=pl.col("feature").str.extract(f"(.*)(_)({forecaster.turbine_signature})$", group_index=1),
                                                        data_type=pl.lit("Forecast"), 
                                                        forecaster=pl.lit(forecaster_name),
                                                        prediction_timedelta=pl.lit(prediction_timedelta))\
-                                         .write_parquet(forecast_long_path)
+                            .with_columns(cs.float().cast(pl.Float32), cs.integer().cast(pl.Int32))\
+                            .collect()\
+                            .write_parquet(forecast_long_path)
             
                
             # forecast_df = forecast_df.with_columns(prediction_timedelta=pl.lit(prediction_timedelta))
