@@ -184,6 +184,7 @@ if __name__ == "__main__":
     
     num_Xy_paths = glob.glob(os.path.join(forecaster.model_save_dir, f"Xy_{forecaster.study_name}_*_*{suffix}.dat"))
     num_Xy_paths = [os.path.basename(fp) for fp in num_Xy_paths]
+    logging.info(f"Finding pattern Xy_{forecaster.study_name}_.*_(.*){suffix}.dat in list of files: {num_Xy_paths}")
     num_Xy_paths = [fp for fp in num_Xy_paths 
                     if forecaster.tid2idx_mapping[re.findall(f"Xy_{forecaster.study_name}_.*_(.*){suffix}.dat", fp)[0]] in args.target_turbine_indices]
     num_Xy_paths = len(num_Xy_paths)
