@@ -179,22 +179,9 @@ if __name__ == "__main__":
         data_module.get_dataset_info()
 
 
-    # get max_splits longest datasets
-    suffix = ("_" + "_".join([f"{k}{v}" for k, v in forecaster.dataset_hparams.items()])) if len(forecaster.dataset_hparams) else ""
-    
-    num_Xy_paths = glob.glob(os.path.join(forecaster.model_save_dir, f"Xy_{forecaster.study_name}_*_*{suffix}.dat"))
-    num_Xy_paths = [os.path.basename(fp) for fp in num_Xy_paths]
-    logging.info(f"Finding pattern Xy_{forecaster.study_name}_.*_(.*){suffix}.dat in list of files: {num_Xy_paths}")
-    if args.target_turbine_indices is not None:
-        num_Xy_paths = [fp for fp in num_Xy_paths
-                    if forecaster.tid2idx_mapping[re.findall(f"Xy_{forecaster.study_name}_.*_(.*){suffix}.dat", fp)[0]] in args.target_turbine_indices]
-    num_Xy_paths = len(num_Xy_paths)
-    
-    required_num_Xy_paths = (data_module.num_target_vars if args.target_turbine_indices is None else len(args.target_turbine_indices)) * 2 # val and train
-            
-    
+
     if worker_id == 0:
-        logging.info(f"Number of Xy paths: {num_Xy_paths} out of required {required_num_Xy_paths}")
+        # logging.info(f"Number of Xy paths: {num_Xy_paths} out of required {required_num_Xy_paths}")
         logging.info("Preparing data for tuning")
         data_module.datasets["train"] = sorted(data_module.datasets["train"], key=lambda ds: ds["target"].shape[1], reverse=True)
         data_module.datasets["val"] = sorted(data_module.datasets["val"], key=lambda ds: ds["target"].shape[1], reverse=True)
@@ -244,11 +231,13 @@ if __name__ == "__main__":
         # check that all data corresponding to forecaster dataset_hparams is saved
         dataset_hparams = list(forecaster.dataset_hparams_choices.keys())
         for hparam_set in product(*forecaster.dataset_hparams_choices.values()):
+            
             suffix = ("_" + "_".join([f"{k}{v}" for k, v in zip(dataset_hparams, hparam_set)])) if len(forecaster.dataset_hparams) else ""
             num_Xy_paths = glob.glob(os.path.join(forecaster.model_save_dir, f"Xy_{forecaster.study_name}_*_*{suffix}.dat"))
             num_Xy_paths = [os.path.basename(fp) for fp in num_Xy_paths]
-            num_Xy_paths = [fp for fp in num_Xy_paths 
-                            if forecaster.tid2idx_mapping[re.findall(f"Xy_{forecaster.study_name}_.*_(.*){suffix}.dat", fp)[0]] in args.target_turbine_indices]
+            if args.target_turbine_indices is not None:
+                num_Xy_paths = [fp for fp in num_Xy_paths 
+                                if forecaster.tid2idx_mapping[re.findall(f"Xy_{forecaster.study_name}_.*_(.*){suffix}.dat", fp)[0]] in args.target_turbine_indices]
             num_Xy_paths = len(num_Xy_paths)
             
             required_num_Xy_paths = (data_module.num_target_vars if args.target_turbine_indices is None else (len(args.target_turbine_indices) * len(data_module.target_prefixes))) * 2 # val and train
@@ -280,8 +269,9 @@ if __name__ == "__main__":
         suffix = ("_" + "_".join([f"{k}{v}" for k, v in forecaster.dataset_hparams.items()])) if len(forecaster.dataset_hparams) else ""
         num_Xy_paths = glob.glob(os.path.join(forecaster.model_save_dir, f"Xy_{forecaster.study_name}_*_*{suffix}.dat"))
         num_Xy_paths = [os.path.basename(fp) for fp in num_Xy_paths]
-        num_Xy_paths = [fp for fp in num_Xy_paths 
-                        if forecaster.tid2idx_mapping[re.findall(f"Xy_{forecaster.study_name}_.*_(.*){suffix}.dat", fp)[0]] in args.target_turbine_indices]
+        if args.target_turbine_indices is not None:
+            num_Xy_paths = [fp for fp in num_Xy_paths 
+                            if forecaster.tid2idx_mapping[re.findall(f"Xy_{forecaster.study_name}_.*_(.*){suffix}.dat", fp)[0]] in args.target_turbine_indices]
         num_Xy_paths = len(num_Xy_paths)
         
         required_num_Xy_paths = (data_module.num_target_vars if (args.target_turbine_indices is None) else (len(args.target_turbine_indices) * len(data_module.target_prefixes))) * 2 # val and train
