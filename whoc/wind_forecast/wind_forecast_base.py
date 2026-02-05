@@ -273,7 +273,8 @@ class WindForecast:
                                     limit_train_val=None,
                                     restart_tuning=False,
                                     max_cpus=None,
-                                    optimize_callbacks=None):
+                                    optimize_callbacks=None,
+                                    study_name=None):
         
         if multiprocessor == "mpi":
             try:
@@ -413,20 +414,19 @@ class WindForecast:
                 pruner = NopPruner()
                 
             # Generate unique study name based on restart_tuning flag
-            base_study_prefix = self.study_name
             if restart_tuning:
                 job_id = os.environ.get('SLURM_JOB_ID')
                 if job_id:
                     # If running in SLURM, use the job ID
-                    final_study_name = f"{base_study_prefix}_{job_id}"
+                    final_study_name = f"{self.study_name}_{job_id}"
                 else:
                     # Otherwise use a timestamp
                     timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-                    final_study_name = f"{base_study_prefix}_{timestamp}"
+                    final_study_name = f"{self.study_name}_{timestamp}"
                 logging.info(f"Creating a new study with unique name: {final_study_name}")
             else:
                 # If not restarting, use the base name to resume existing study
-                final_study_name = base_study_prefix
+                final_study_name = study_name
                 logging.info(f"Using existing study name to resume: {final_study_name}")
 
             # Define pickle directory for sampler/pruner persistence
