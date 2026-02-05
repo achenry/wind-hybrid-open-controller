@@ -125,6 +125,7 @@ class WindForecast:
         # get training data for this output
         logging.info(f"Getting training data for output {output}.")
         
+        # os.path.exists(Xy_path) or (scale and not os.path.exists(scaler_save_path)
         X_train, y_train = self._get_output_data(output=output, split="train", reload=False, dataset_hparams={k: v for k, v in params.items() if k in self.dataset_hparams})
         X_val, y_val = self._get_output_data(output=output, split="val", reload=False, dataset_hparams={k: v for k, v in params.items() if k in self.dataset_hparams})
         
@@ -635,6 +636,7 @@ class WindForecast:
         tid = re.search(self.turbine_signature, output).group()
         suffix = ("_" + "_".join([f"{k}{v}" for k, v in dataset_hparams.items()])) if dataset_hparams else ""
         Xy_path = os.path.join(self.model_save_dir, f"Xy_{self.study_name}_{split}_{output}{suffix}.dat")
+        logging.info(f"Getting output data for output {output}, split {split} with Xy_path {Xy_path}, reload={reload}, scale={scale}, dataset_hparams={dataset_hparams}")
         
         input_turbine_indices = self.cluster_turbines[self.tid2idx_mapping[tid]] # this depends on the hyperparam num_neighboring_turbines
         output_idx = input_turbine_indices.index(self.tid2idx_mapping[tid])
