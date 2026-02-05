@@ -205,7 +205,21 @@ if __name__ == "__main__":
     optuna_storage = None
     if RUN_ONCE:
         logging.info(f"Initializing storage with restart_tuning={args.restart_tuning} on worker {worker_id}")
+        # base study prefix should not include postfix to fetch storage
         
+        if not args.restart_tuning:
+            logging.info(f"Continue previous tuning.")
+            job_id = os.environ.get('SLURM_JOB_ID')
+            if job_id:
+                # If running in SLURM, use the job ID
+                model_config['experiment']['run_name'] = re.search(".*(?=_\\d{8})", model_config['experiment']['run_name']).group()
+            else:
+                # Otherwise use a timestamp
+                # timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+                model_config['experiment']['run_name'] = re.search(".*(?=_\\d{14})", model_config['experiment']['run_name']).group()
+            
+            logging.info(f"Set model_config['experiment']['run_name'] to {model_config['experiment']['run_name']} for tuning.")
+
         db_setup_params = generate_db_setup_params(args.model, model_config)
         optuna_storage, _ = setup_optuna_storage(
             db_setup_params=db_setup_params,
@@ -230,13 +244,22 @@ if __name__ == "__main__":
             available_studies = [study.study_name for study in optuna_storage.get_all_studies()]
             logging.info(f"Available studies in storage: {available_studies}. Looking for those containing {forecaster.study_name} with 8 digit postfix.")
             try:
-                # TODO could also be  datetime.now().strftime('%Y%m%d%H%M%S') as in core.py/tune_model function if slurm_job_id is not available
-                forecaster.model_save_dir = os.path.join(os.path.dirname(forecaster.model_save_dir), 
+                # could also be  datetime.now().strftime('%Y%m%d%H%M%S') as in core.py/tune_model function if slurm_job_id is not available
+                job_id = os.environ.get('SLURM_JOB_ID')
+                if job_id:
+                    # If running in SLURM, use the job ID
+                    forecaster.model_save_dir = os.path.join(os.path.dirname(forecaster.model_save_dir), 
                                                         re.search(".*(?=_\\d{8})", forecaster.study_name).group())
+                else:
+                    # Otherwise use a timestamp
+                    # timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+                    forecaster.model_save_dir = os.path.join(os.path.dirname(forecaster.model_save_dir), 
+                                                        re.search(".*(?=_\\d{14})", forecaster.study_name).group())
+
                 logging.info(f"Set forecaster.model_save_dir to {forecaster.model_save_dir} for tuning.")
             except Exception:
                 logging.error(f"Could not parse study name {forecaster.study_name} for model_save_dir. Check that study names in storage are formatted as expected with 8 digit date postfix. Available studies are: {available_studies}.")
-            finally:
+            finally:    
                 logging.info(f"Set forecaster.model_save_dir to {forecaster.model_save_dir} for tuning.")
 
         # check that all data corresponding to forecaster dataset_hparams is saved
