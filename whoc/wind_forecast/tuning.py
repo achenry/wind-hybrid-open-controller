@@ -225,9 +225,20 @@ if __name__ == "__main__":
     if args.mode == "tune":
         if not args.restart_tuning:
             # Xy_paths will be stored in directory of base study name ie. experiment/run_name without suffix
-            forecaster.model_save_dir = os.path.join(os.path.dirname(forecaster.model_save_dir), 
-                                                    re.search(".*(?=_\\d{8})", forecaster.study_name).group())
-        
+            logging.info(f"Continue previous tuning.")
+            logging.info(f"Config: forecaster.model_save_dir = {forecaster.model_save_dir} and forecaster.study_name={forecaster.study_name}.")
+            available_studies = [study.study_name for study in optuna_storage.get_all_studies()]
+            logging.info(f"Available studies in storage: {available_studies}. Looking for those containing {forecaster.study_name} with 8 digit postfix.")
+            try:
+                # TODO could also be  datetime.now().strftime('%Y%m%d%H%M%S') as in core.py/tune_model function if slurm_job_id is not available
+                forecaster.model_save_dir = os.path.join(os.path.dirname(forecaster.model_save_dir), 
+                                                        re.search(".*(?=_\\d{8})", forecaster.study_name).group())
+                logging.info(f"Set forecaster.model_save_dir to {forecaster.model_save_dir} for tuning.")
+            except Exception:
+                logging.error(f"Could not parse study name {forecaster.study_name} for model_save_dir. Check that study names in storage are formatted as expected with 8 digit date postfix. Available studies are: {available_studies}.")
+            finally:
+                logging.info(f"Set forecaster.model_save_dir to {forecaster.model_save_dir} for tuning.")
+
         # check that all data corresponding to forecaster dataset_hparams is saved
         dataset_hparams = list(forecaster.dataset_hparams_choices.keys())
         for hparam_set in product(*forecaster.dataset_hparams_choices.values()):
