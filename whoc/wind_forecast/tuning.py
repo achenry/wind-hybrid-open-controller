@@ -12,11 +12,13 @@ import logging
 import glob
 from floris import FlorisModel
 import multiprocessing as mp
+from datetime import datetime
 import re
 import random
 from wind_forecasting.utils.optuna_storage import setup_optuna_storage
 from wind_forecasting.utils.optuna_config_utils import generate_db_setup_params
 from itertools import product
+import optuna
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -127,6 +129,88 @@ if __name__ == "__main__":
     random.seed(args.seed)
     np.random.seed(args.seed)
     
+    # %% GET WORKER ID
+    # Use the WORKER_RANK variable set explicitly in the Slurm script's nohup block
+    worker_id = int(os.environ.get('WORKER_RANK', 0))
+    if RUN_ONCE:
+        if "WORKER_RANK" in os.environ:
+            logging.info(f"Determined worker rank from WORKER_RANK: {worker_id}")
+        else:
+            logging.info(f"Couldn't find WORKER_RANK env var, setting rank to {worker_id}.")
+    
+    # %% INSTANTIATING OPTUNA STORAGE
+    optuna_storage = None
+    if RUN_ONCE:
+        logging.info(f"Initializing storage with restart_tuning={args.restart_tuning} on worker {worker_id}")
+        # base study prefix should not include postfix to fetch storage
+        
+        if not args.restart_tuning:
+            # [std.study_name for std in optuna_storage.get_all_studies()]
+            # sorted(storage.get_all_studies(), key=lambda study: int(re.search(f"(?<={study_name}_)(\\d+)", study.study_name).group()))[-1].study_name
+            logging.info(f"Continue previous tuning.")
+            get_most_recent_study = True
+            job_id = os.environ.get('SLURM_JOB_ID')
+            # try to get specific study based on model_config['experiment']['run_name'], but if only the base prefix is used, find the mos recent
+            
+            # split experiment/run_name into base prefix and suffix
+            
+            if job_id:
+                # If running in SLURM, remove the job ID from the given study name to continue
+                
+                if (base_match := re.search(".*(?=_\\d{8})", model_config['experiment']['run_name'])) is not None:
+                    # there is no job id or datetime suffix in the given study name
+                    # use base prefix and get most recent study name for full name
+                    final_study_name = f"tuning_{args.model}_{model_config['experiment']['run_name']}"
+                    model_config['experiment']['run_name'] = base_match.group()
+                    get_most_recent_study = False
+                
+            else:
+                # Otherwise use a timestamp
+                # timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+                if (base_match := re.search(".*(?=_\\d{14})", model_config['experiment']['run_name'])) is not None:
+                    final_study_name = f"tuning_{args.model}_{model_config['experiment']['run_name']}"
+                    model_config['experiment']['run_name'] = base_match.group()
+                    get_most_recent_study = False
+                
+            
+            logging.info(f"Set model_config['experiment']['run_name'] to {model_config['experiment']['run_name']} to fetch optuna db object.")
+
+        db_setup_params = generate_db_setup_params(args.model, model_config)
+            
+        optuna_storage, _ = setup_optuna_storage(
+            db_setup_params=db_setup_params,
+            restart_tuning=args.restart_tuning, # Use the potentially overridden flag
+            rank=0 if (worker_id == 0) else worker_id
+            # No force_sqlite_path argument anymore
+        )
+        if get_most_recent_study:
+            logging.info(f"Fetching most recent study name with base prefix {db_setup_params['base_study_prefix']} for tuning.")
+            if job_id:
+                suffix_pattern = f"(?<={db_setup_params['base_study_prefix']}_)(\\d{{8}})"
+            else:
+                suffix_pattern = f"(?<={db_setup_params['base_study_prefix']}_)(\\d{{14}})"
+            
+            all_studies = optuna_storage.get_all_studies()
+            
+            # loop through and drop invalid studies
+            for study in all_studies:
+                if re.search(suffix_pattern, study.study_name) is None:
+                    optuna.delete_study(study_name=study.study_name, storage=optuna_storage)
+            
+            if job_id:
+                final_study_name = sorted(all_studies, 
+                    key=lambda study: int(re.search(suffix_pattern, study.study_name).group()))[-1].study_name
+            else:
+                final_study_name = sorted(all_studies, 
+                    key=lambda study: datetime.strptime(
+                        re.search(suffix_pattern, study.study_name).group(),
+                        "%Y%m%d%H%M%S"))[-1].study_name
+
+        logging.info("Running tune_hyperparameters_single")
+    
+    elif args.multiprocessor == "mpi":
+        optuna_storage = comm.bcast(optuna_storage, root=0)
+    
     # %% INSTANTIATING MODEL
     if RUN_ONCE:
         logging.info("Instantiating model.")
@@ -155,13 +239,6 @@ if __name__ == "__main__":
                             target_turbine_indices=args.target_turbine_indices)
         # original_save_dir = forecaster.model_save_dir
         # forecaster.model_save_dir = os.environ["TMPDIR"]
-    # Use the WORKER_RANK variable set explicitly in the Slurm script's nohup block
-    worker_id = int(os.environ.get('WORKER_RANK', 0))
-    if RUN_ONCE:
-        if "WORKER_RANK" in os.environ:
-            logging.info(f"Determined worker rank from WORKER_RANK: {worker_id}")
-        else:
-            logging.info(f"Couldn't find WORKER_RANK env var, setting rank to {worker_id}.")
     
     # %% PREPARING DATA FOR TUNING
     if worker_id == 0 and RUN_ONCE:
@@ -177,8 +254,6 @@ if __name__ == "__main__":
         data_module.generate_splits(save=True, reload=reload, splits=["train", "val"])
     else:
         data_module.get_dataset_info()
-
-
 
     if worker_id == 0:
         # logging.info(f"Number of Xy paths: {num_Xy_paths} out of required {required_num_Xy_paths}")
@@ -202,65 +277,10 @@ if __name__ == "__main__":
         del data_module.datasets["val"]
         delattr(data_module, "datasets")
         
-    optuna_storage = None
-    if RUN_ONCE:
-        logging.info(f"Initializing storage with restart_tuning={args.restart_tuning} on worker {worker_id}")
-        # base study prefix should not include postfix to fetch storage
-        
-        if not args.restart_tuning:
-            logging.info(f"Continue previous tuning.")
-            job_id = os.environ.get('SLURM_JOB_ID')
-            if job_id:
-                # If running in SLURM, use the job ID
-                model_config['experiment']['run_name'] = re.search(".*(?=_\\d{8})", model_config['experiment']['run_name']).group()
-            else:
-                # Otherwise use a timestamp
-                # timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-                model_config['experiment']['run_name'] = re.search(".*(?=_\\d{14})", model_config['experiment']['run_name']).group()
-            
-            logging.info(f"Set model_config['experiment']['run_name'] to {model_config['experiment']['run_name']} for tuning.")
-
-        db_setup_params = generate_db_setup_params(args.model, model_config)
-        optuna_storage, _ = setup_optuna_storage(
-            db_setup_params=db_setup_params,
-            restart_tuning=args.restart_tuning, # Use the potentially overridden flag
-            rank=0 if (worker_id == 0) else worker_id
-            # No force_sqlite_path argument anymore
-        )
-    
-        logging.info("Running tune_hyperparameters_single")
-    
-    elif args.multiprocessor == "mpi":
-        optuna_storage = comm.bcast(optuna_storage, root=0)
-        
     if args.multiprocessor == "mpi":
         comm.Barrier()
 
     if args.mode == "tune":
-        if not args.restart_tuning:
-            # Xy_paths will be stored in directory of base study name ie. experiment/run_name without suffix
-            logging.info(f"Continue previous tuning.")
-            logging.info(f"Config: forecaster.model_save_dir = {forecaster.model_save_dir} and forecaster.study_name={forecaster.study_name}.")
-            available_studies = [study.study_name for study in optuna_storage.get_all_studies()]
-            logging.info(f"Available studies in storage: {available_studies}. Looking for those containing {forecaster.study_name} with 8 digit postfix.")
-            try:
-                # could also be  datetime.now().strftime('%Y%m%d%H%M%S') as in core.py/tune_model function if slurm_job_id is not available
-                job_id = os.environ.get('SLURM_JOB_ID')
-                if job_id:
-                    # If running in SLURM, use the job ID
-                    forecaster.model_save_dir = os.path.join(os.path.dirname(forecaster.model_save_dir), 
-                                                        re.search(".*(?=_\\d{8})", forecaster.study_name).group())
-                else:
-                    # Otherwise use a timestamp
-                    # timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-                    forecaster.model_save_dir = os.path.join(os.path.dirname(forecaster.model_save_dir), 
-                                                        re.search(".*(?=_\\d{14})", forecaster.study_name).group())
-
-                logging.info(f"Set forecaster.model_save_dir to {forecaster.model_save_dir} for tuning.")
-            except Exception:
-                logging.error(f"Could not parse study name {forecaster.study_name} for model_save_dir. Check that study names in storage are formatted as expected with 8 digit date postfix. Available studies are: {available_studies}.")
-            finally:    
-                logging.info(f"Set forecaster.model_save_dir to {forecaster.model_save_dir} for tuning.")
 
         # check that all data corresponding to forecaster dataset_hparams is saved
         dataset_hparams = list(forecaster.dataset_hparams_choices.keys())
@@ -349,7 +369,8 @@ if __name__ == "__main__":
                                                 multiprocessor=args.multiprocessor,
                                                 limit_train_val=args.limit_train_val,
                                                 restart_tuning=args.restart_tuning,
-                                                max_cpus=num_allowed_cores)
+                                                max_cpus=num_allowed_cores,
+                                                study_name=None if args.restart_tuning else final_study_name)
                                                 # max_cpus=int(os.environ.get("NTASKS_PER_TUNER", None)))
                                         #  trial_protection_callback=handle_trial_with_oom_protection)
         # %% After tuning completes
