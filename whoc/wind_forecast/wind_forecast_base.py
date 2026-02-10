@@ -741,7 +741,7 @@ class WindForecast:
         #     return datetime.strptime(captured_digits, "%Y%m%d%H%M%S")
     
 
-    def set_tuned_params(self, config_params=None, optuna_storage=None, full_study_name=None):
+    def set_tuned_params(self, config_params=None, optuna_storage=None, study_name=None):
         """_summary_
 
         Args:
@@ -755,22 +755,22 @@ class WindForecast:
         """
         if study_name and optuna_storage:
             try:
-                # all_study_names = [std.study_name for std in optuna_storage.get_all_studies() if re.search(f"(?<={study_name}_)\\d+", std_name) is not None]
-                # if study_name in all_study_names:
-                #     # full study name has been supplied, use it directly
-                #     full_study_name = study_name
-                # else:
-                #     # study name is a prefix, find the most recent study with this prefix and use it
+                all_study_names = [std.study_name for std in optuna_storage.get_all_studies() if re.search(f"(?<=.*_)\\d+", std_name) is not None]
+                if study_name in all_study_names:
+                    # full study name has been supplied, use it directly
+                    full_study_name = study_name
+                else:
+                    # study name is a prefix, find the most recent study with this prefix and use it
                     
-                #     job_id = os.environ.get('SLURM_JOB_ID')
-                #     if job_id:
-                #         full_study_name = sorted(all_study_names, 
-                #             key=lambda study_name: int(re.search(suffix_pattern, study_name).group()))[-1]
-                #     else:
-                #         full_study_name = sorted(all_study_names, 
-                #             key=lambda study_name: datetime.strptime(
-                #                 re.search(suffix_pattern,study_name).group(),
-                #                 "%Y%m%d%H%M%S"))[-1]
+                    job_id = os.environ.get('SLURM_JOB_ID')
+                    if job_id:
+                        full_study_name = sorted(all_study_names, 
+                            key=lambda study_name: int(re.search(suffix_pattern, study_name).group()))[-1]
+                    else:
+                        full_study_name = sorted(all_study_names, 
+                            key=lambda study_name: datetime.strptime(
+                                re.search(suffix_pattern,study_name).group(),
+                                "%Y%m%d%H%M%S"))[-1]
                     
                     # full_study_name = sorted(full_study_name, 
                     #     key=lambda full_study_name: self._parse_full_study_name(study_name, full_study_name))[-1]
