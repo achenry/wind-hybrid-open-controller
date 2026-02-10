@@ -143,10 +143,9 @@ if __name__ == "__main__":
     if RUN_ONCE:
         logging.info(f"Initializing storage with restart_tuning={args.restart_tuning} on worker {worker_id}")
         # base study prefix should not include postfix to fetch storage
+        fetch_existing_study = (args.mode == "tune" and not args.restart_tuning) or (args.mode == "train" and args.use_tuned_params)
         
-        if not args.restart_tuning:
-            # [std.study_name for std in optuna_storage.get_all_studies()]
-            # sorted(storage.get_all_studies(), key=lambda study: int(re.search(f"(?<={study_name}_)(\\d+)", study.study_name).group()))[-1].study_name
+        if fetch_existing_study:
             logging.info(f"Continue previous tuning.")
             get_most_recent_study = True
             job_id = os.environ.get('SLURM_JOB_ID')
@@ -163,6 +162,7 @@ if __name__ == "__main__":
                     final_study_name = f"tuning_{args.model}_{model_config['experiment']['run_name']}"
                     model_config['experiment']['run_name'] = base_match.group()
                     get_most_recent_study = False
+                    logging.info(f"Use given full study name {final_study_name}.")
                 
             else:
                 # Otherwise use a timestamp
@@ -171,6 +171,7 @@ if __name__ == "__main__":
                     final_study_name = f"tuning_{args.model}_{model_config['experiment']['run_name']}"
                     model_config['experiment']['run_name'] = base_match.group()
                     get_most_recent_study = False
+                    logging.info(f"Use given full study name {final_study_name}.")
                 
             
             logging.info(f"Set model_config['experiment']['run_name'] to {model_config['experiment']['run_name']} to fetch optuna db object. Retaining final_study_name {final_study_name}.")
@@ -183,7 +184,7 @@ if __name__ == "__main__":
             rank=0 if (worker_id == 0) else worker_id
             # No force_sqlite_path argument anymore
         )
-        if get_most_recent_study:
+        if fetch_existing_study and get_most_recent_study:
             logging.info(f"Fetching most recent study name with base prefix {db_setup_params['base_study_prefix']} for tuning.")
             if job_id:
                 suffix_pattern = f"(?<={db_setup_params['base_study_prefix']}_)(\\d{{8}})"
@@ -205,7 +206,7 @@ if __name__ == "__main__":
                     key=lambda study: datetime.strptime(
                         re.search(suffix_pattern, study.study_name).group(),
                         "%Y%m%d%H%M%S"))[-1].study_name
-
+                
         logging.info("Running tune_hyperparameters_single")
     
     elif args.multiprocessor == "mpi":
