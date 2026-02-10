@@ -755,6 +755,7 @@ class WindForecast:
         """
         if study_name and optuna_storage:
             try:
+                job_id = os.environ.get('SLURM_JOB_ID')
                 if job_id:
                     suffix_pattern = f"(?<=.*_)(\\d{{8}})"
                 else:
@@ -767,7 +768,7 @@ class WindForecast:
                 else:
                     # study name is a prefix, find the most recent study with this prefix and use it
                     
-                    job_id = os.environ.get('SLURM_JOB_ID')
+                    
                     if job_id:
                         full_study_name = sorted(all_study_names, 
                             key=lambda study_name: int(re.search(suffix_pattern, study_name).group()))[-1]
