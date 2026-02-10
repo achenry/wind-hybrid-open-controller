@@ -761,7 +761,7 @@ class WindForecast:
                 else:
                     suffix_pattern = f"(?<=.*_)(\\d{{14}})"
             
-                all_study_names = [std.study_name for std in optuna_storage.get_all_studies() if re.search(suffix_pattern, std_name) is not None]
+                all_study_names = [std.study_name for std in optuna_storage.get_all_studies() if re.search(suffix_pattern, std.study_name) is not None]
                 if study_name in all_study_names:
                     # full study name has been supplied, use it directly
                     full_study_name = study_name
