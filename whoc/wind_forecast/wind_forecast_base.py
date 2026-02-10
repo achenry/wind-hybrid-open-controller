@@ -766,10 +766,10 @@ class WindForecast:
                     
                     job_id = os.environ.get('SLURM_JOB_ID')
                     if job_id:
-                        final_study_name = sorted(eligible_study_names, 
+                        full_study_name = sorted(eligible_study_names, 
                             key=lambda study: int(re.search(suffix_pattern, study.study_name).group()))[-1].study_name
                     else:
-                        final_study_name = sorted(eligible_study_names, 
+                        full_study_name = sorted(eligible_study_names, 
                             key=lambda study: datetime.strptime(
                                 re.search(suffix_pattern, study.study_name).group(),
                                 "%Y%m%d%H%M%S"))[-1].study_name
