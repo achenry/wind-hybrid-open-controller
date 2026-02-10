@@ -761,10 +761,21 @@ class WindForecast:
                     full_study_name = study_name
                 else:
                     # study name is a prefix, find the most recent study with this prefix and use it
-                    full_study_name = [std_name for std_name in all_study_names 
+                    eligible_study_names = [std_name for std_name in all_study_names 
                         if re.search(f"(?<={study_name}_)\\d+", std_name) is not None]
-                    full_study_name = sorted(full_study_name, 
-                        key=lambda full_study_name: self._parse_full_study_name(study_name, full_study_name))[-1]
+                    
+                    job_id = os.environ.get('SLURM_JOB_ID')
+                    if job_id:
+                        final_study_name = sorted(eligible_study_names, 
+                            key=lambda study: int(re.search(suffix_pattern, study.study_name).group()))[-1].study_name
+                    else:
+                        final_study_name = sorted(eligible_study_names, 
+                            key=lambda study: datetime.strptime(
+                                re.search(suffix_pattern, study.study_name).group(),
+                                "%Y%m%d%H%M%S"))[-1].study_name
+                    
+                    # full_study_name = sorted(full_study_name, 
+                    #     key=lambda full_study_name: self._parse_full_study_name(study_name, full_study_name))[-1]
                 
                 logging.info(f"Using Optuna study: {full_study_name} of all options:")
                 for std_name in all_study_names:
