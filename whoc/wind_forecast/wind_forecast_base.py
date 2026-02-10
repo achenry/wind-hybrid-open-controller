@@ -755,22 +755,20 @@ class WindForecast:
         """
         if study_name and optuna_storage:
             try:
-                # x = ["tuning_svr_kestrel_awaken_pred60", "tuning_svr_kestrel_awaken_pred60_9700986",
-                #      "tuning_svr_kestrel_awaken_pred60_9701006", "tuning_svr_kestrel_awaken_pred60_9719702",
-                #      "tuning_svr_kestrel_awaken_pred60_9762311", "tuning_svr_kestrel_awaken_pred60_9848283",
-                #      "tuning_svr_kestrel_awaken_pred60_12118812", "tuning_svr_kestrel_awaken_pred60_12121357",
-                #      "tuning_svr_kestrel_awaken_pred60_12121791", "tuning_svr_kestrel_awaken_pred60_12122365",
-                #      "tuning_svr_kestrel_awaken_pred60_12123773"]
-                # x = [std for std in x if re.search(f"(?<={study_name}_)\\d+", std) is not None]
-                # x = sorted(x, key=lambda full_study_name: self._parse_full_study_name(study_name, full_study_name))
-                # TODO better to get last modified study, or to explicitly use full name from training config?
-                full_study_name = [std.study_name for std in optuna_storage.get_all_studies() 
-                     if re.search(f"(?<={study_name}_)\\d+", std.study_name) is not None]
-                full_study_name = sorted(full_study_name, 
-                       key=lambda full_study_name: self._parse_full_study_name(study_name, full_study_name))[-1]
+                all_study_names = [std.study_name for std in optuna_storage.get_all_studies()]
+                if study_name in all_study_names:
+                    # full study name has been supplied, use it directly
+                    full_study_name = study_name
+                else:
+                    # study name is a prefix, find the most recent study with this prefix and use it
+                    full_study_name = [std_name for std_name in all_study_names 
+                        if re.search(f"(?<={study_name}_)\\d+", std_name) is not None]
+                    full_study_name = sorted(full_study_name, 
+                        key=lambda full_study_name: self._parse_full_study_name(study_name, full_study_name))[-1]
+                
                 logging.info(f"Using Optuna study: {full_study_name} of all options:")
-                for std in optuna_storage.get_all_studies():
-                    logging.info(f" - {std.study_name}")
+                for std_name in all_study_names:
+                    logging.info(f" - {std_name}")
                 # datetime.strptime(re.search(f"(?<={study_name}_).*", 'tuning_svr_kestrel_awaken_pred60_20251230113634').group(), "%Y%m%d%H%M%S")
                 study_id = optuna_storage.get_study_id_from_name(full_study_name)
                 trial = optuna_storage.get_best_trial(study_id)
