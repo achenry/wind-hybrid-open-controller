@@ -173,7 +173,7 @@ if __name__ == "__main__":
                     get_most_recent_study = False
                 
             
-            logging.info(f"Set model_config['experiment']['run_name'] to {model_config['experiment']['run_name']} to fetch optuna db object.")
+            logging.info(f"Set model_config['experiment']['run_name'] to {model_config['experiment']['run_name']} to fetch optuna db object. Retaining final_study_name {final_study_name}.")
 
         db_setup_params = generate_db_setup_params(args.model, model_config)
             
@@ -312,7 +312,7 @@ if __name__ == "__main__":
     elif args.mode == "train":
         if args.use_tuned_params:
             logging.info("Using tuned hyperparameters.")
-            forecaster.set_tuned_params(optuna_storage=optuna_storage, study_name=forecaster.study_name)
+            forecaster.set_tuned_params(optuna_storage=optuna_storage, study_name=final_study_name)
         elif len(model_config["model"][args.model]):
             logging.info("Using model config hyperparameters.")
             forecaster.set_tuned_params(config_params=model_config["model"][args.model])
