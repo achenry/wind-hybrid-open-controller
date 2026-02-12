@@ -162,7 +162,7 @@ class SVRForecast(WindForecast):
         tid = re.search(f"(?<=_){self.turbine_signature}$", output).group()
         model_save_path = os.path.join(self.model_save_dir, f"{self.study_name}_model_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl")
         scaler_save_path = os.path.join(self.model_save_dir, f"{self.study_name}_scaler_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl")
-        if not retrain_models and os.path.exists(model_save_path)  and (not scale or scaler_params or os.path.exists(scaler_save_path)):
+        if not retrain_models and os.path.exists(model_save_path) and (not scale or scaler_params or os.path.exists(scaler_save_path)):
             logging.info(f"Loading trained SVR model for output {output}.")
             with open(model_save_path, "rb") as fp:
                 self.model[output] = pickle.load(fp)
