@@ -385,7 +385,7 @@ if __name__ == "__main__":
             
         forecaster.train_all_outputs(scale=True, 
                                     multiprocessor=args.multiprocessor,
-                                    retrain_models=True,
+                                    retrain_models=args.retrain_models,
                                     scaler_params=None,
                                     )
         # %% After training completes
