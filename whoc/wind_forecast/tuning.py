@@ -36,6 +36,7 @@ if __name__ == "__main__":
     parser.add_argument("-mcnf", "--model_config", type=str)
     parser.add_argument("-dcnf", "--data_config", type=str)
     parser.add_argument("-utp", "--use_tuned_params", action="store_true")
+    parser.add_argument("-rm", "--retrain_models", action="store_true")
     parser.add_argument("-mp", "--multiprocessor", choices=["mpi", "cf", None], default=None)
     parser.add_argument("-msp", "--max_splits", type=int, required=False, default=None,
                         help="Number of test splits to use.")
