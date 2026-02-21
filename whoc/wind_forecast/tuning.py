@@ -329,8 +329,9 @@ if __name__ == "__main__":
             num_Xy_paths = [fp for fp in num_Xy_paths 
                             if forecaster.tid2idx_mapping[re.findall(f"Xy_{forecaster.study_name}_.*_(.*){suffix}.dat", fp)[0]] in args.target_turbine_indices]
         num_Xy_paths = len(num_Xy_paths)
-        
+       
         required_num_Xy_paths = (data_module.num_target_vars if (args.target_turbine_indices is None) else (len(args.target_turbine_indices) * len(data_module.target_prefixes))) * 2 # val and train
+        logging.info(f"Found {num_Xy_paths} existing Xy paths for training with format Xy_{forecaster.study_name}_*_*{suffix}.dat. Require {required_num_Xy_paths}.")
             
         if worker_id == 0 and (args.reload_data or reload or num_Xy_paths < required_num_Xy_paths):
             forecaster.prepare_data(
@@ -381,7 +382,6 @@ if __name__ == "__main__":
     elif args.mode == "train":
         # %% TRAINING MODEL
         logging.info("Training model.")
-        
             
         forecaster.train_all_outputs(scale=True, 
                                     multiprocessor=args.multiprocessor,
