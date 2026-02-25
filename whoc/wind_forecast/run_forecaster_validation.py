@@ -1110,7 +1110,8 @@ if __name__ == "__main__":
         
         all_metrics = results[0]["agg_metrics"].select(pl.col("metric").unique()).to_numpy().flatten()
         # get the metrics we care about, there is also "MSE", "MAE", "abs_error", "QuantileLoss", 
-        metrics = [metric for metric in all_metrics if any(m in metric for m in ["MAE", "RMSE", "PINAW", "CWC", "CRPS", "PICP"])]
+        use_metrics = ["MAE", "CRPS"] #["MAE", "RMSE", "PINAW", "CWC", "CRPS", "PICP"]
+        metrics = [metric for metric in all_metrics if any(m in metric for m in use_metrics)]
         
         agg_df = pl.concat([
             res["agg_metrics"].with_columns(forecaster=pl.lit(res["forecaster_name"]), 
@@ -1230,11 +1231,13 @@ if __name__ == "__main__":
         if PLOT_METRICS:
             logging.info("Plotting aggregate metrics for all forecasts.")
             plotting_metrics_dirs = [(met, direc) for met, direc in
-                                zip(["MAE", "RMSE",
-                                    "PINAW", "PINAW_samples",
-                                    "CWC", "CWC_samples",
+                                zip(["MAE", 
+                                    #  "RMSE",
+                                    # "PINAW", "PINAW_samples",
+                                    # "CWC", "CWC_samples",
                                     "CRPS", "CRPS_samples",
-                                    "PICP", "PICP_samples"],
+                                    # "PICP", "PICP_samples"
+                                    ],
                                     [0, 0, 1, 1, 1, 1, 1, 1, 1, 1])
                                 if met in agg_df["metric"].unique()]
             plotting_metrics = [v[0] for v in plotting_metrics_dirs]
@@ -1260,8 +1263,12 @@ if __name__ == "__main__":
             # totals_agg_df.filter(pl.col("prediction_timedelta") == best_prediction_dt),
             if True:
                 plot_score_vs_forecaster(totals_agg_df.filter(pl.col("metric").is_in([
-                    "RMSE", "MAE", "CWC", "PINAW", "PICP", "CRPS",
-                    "CWC_samples", "PINAW_samples", "PICP_samples", "CRPS_samples"
+                    # "RMSE", 
+                    "MAE", 
+                    # "CWC", "PINAW", "PICP", 
+                    "CRPS",
+                    # "CWC_samples", "PINAW_samples", "PICP_samples", 
+                    "CRPS_samples"
                     ])),
                                         metrics=plotting_metrics,
                                         ax_indices=ax_indices,
