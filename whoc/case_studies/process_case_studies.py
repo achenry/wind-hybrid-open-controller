@@ -156,8 +156,9 @@ def plot_power_vs_prediction_time(agg_df, save_dir, label):
     plt.tight_layout()
     fig.savefig(os.path.join(save_dir, f"{label}_power_vs_prediction_time.png"))
 
-def plot_agg_metrics_vs_forecaster(agg_df, save_dir, label, controller_labels, agg_metrics=None):
+def plot_agg_metrics_vs_forecaster(agg_df, save_dir, fig_labels, controller_labels, agg_metrics=None):
     
+    # metric for each plot
     metric_labels = {"FarmPower": "Farm Power Change\nvs. Persistence (%)", "YawAngleChangeAbs": "Yaw Actuation Change\nvs. Persistence (%)"}
     # metric_labels = {"FarmPowerMean": "Farm Power Change\nvs. Persistence (%)", "YawAngleChangeAbsMean": "Yaw Actuation Change\nvs. Persistence (%)"}
 
@@ -191,15 +192,15 @@ def plot_agg_metrics_vs_forecaster(agg_df, save_dir, label, controller_labels, a
             # forecast_cond = (plot_df["wind_forecast_class"] != "PerfectForecast")
             plot_df.loc[cond, "value"] = 100 * (plot_df.loc[cond, "value"] - base_val) / base_val
 
-    # plot_df.loc[(plot_df["controller_class"] == ctrl) & (plot_df["variable"] == "YawAngleChangeAbs"), "value"] = plot_df.loc[(plot_df["controller_class"] == ctrl) & (plot_df["variable"] == "YawAngleChangeAbs"), "value"] / 100
+        # plot_df.loc[(plot_df["controller_class"] == ctrl) & (plot_df["variable"] == "YawAngleChangeAbs"), "value"] = plot_df.loc[(plot_df["controller_class"] == ctrl) & (plot_df["variable"] == "YawAngleChangeAbs"), "value"] / 100
+        
+        ax = sns.catplot(plot_df.loc[(plot_df["variable"] == var) & 
+                                     ((plot_df["wind_forecast_class"] != "PerfectForecast") | (plot_df["prediction_timedelta"] != 0)) & 
+                                     (plot_df["wind_forecast_class"] != "PersistenceForecast"), :], 
+                         kind="bar", x="controller_class", y="value", hue="wind_forecast_class", sharey=False, errorbar=('pi', 100))
     
-    ax = sns.catplot(plot_df.loc[((plot_df["wind_forecast_class"] != "PerfectForecast") | (plot_df["prediction_timedelta"] != 0)) & 
-                                 (plot_df["wind_forecast_class"] != "PersistenceForecast"), :], kind="bar",
-                x="wind_forecast_class", y="value", col="variable", hue="controller_class", 
-                sharey=False, errorbar=('pi', 100))
-    
-    for v, var in enumerate(reduced_agg_metrics):
-        for f, fcst in enumerate(ax.axes[0, v].get_xticklabels()):
+        # for v, var in enumerate(reduced_agg_metrics):
+        for f, fcst in enumerate(ax.axes[0, 0].get_xticklabels()):
             for c, ctrl in enumerate(controllers):
                 cond = (plot_df["controller_class"] == ctrl) & (plot_df["wind_forecast_class"] == fcst.get_text()) & (plot_df["variable"] == var)
                 # print_val = val = plot_df.loc[cond, 'value'].mean()
@@ -217,35 +218,44 @@ def plot_agg_metrics_vs_forecaster(agg_df, save_dir, label, controller_labels, a
                 #     ax.axes[0, v].annotate(text=f"{print_val:.2g}%", xy=(x, y))
         
         # ax.axes[0, v].set_yticklabels([])
-        ax.axes[0, v].set_ylabel("")
-        ax.axes[0, v].set_xlabel("Forecaster")
+        ax.axes[0, 0].set_ylabel("")
+        ax.axes[0, 0].set_xlabel("Forecaster")
         # ax[c].set_title(f"{controller_labels[ctrl]} Mean Farm Power (MW)")
         # ax.axes[0, v].get_yaxis().set_visible(False)
-        ax.axes[0, v].set_title(f"{metric_labels[var]}")
+        ax.axes[0, 0].set_title(f"{metric_labels[var]}")
 
-    
-    for v, var in enumerate(reduced_agg_metrics):
-        x_vals = ax.axes[0, v].get_xticklabels()
-        x_vals = [" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", label.get_text()).group())) 
-                    if ("Forecast" in label.get_text()) else (label.get_text().capitalize() if not label.get_text()[0].isupper() else label.get_text()).replace("_", " ") for label in x_vals]
+        # for v, var in enumerate(reduced_agg_metrics):
+        leg_vals = ax._legend.texts
+        leg_vals = [" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", label.get_text()).group())) 
+                    if ("Forecast" in label.get_text()) else (label.get_text().capitalize() if not label.get_text()[0].isupper() else label.get_text()).replace("_", " ") for label in leg_vals]
         
-        x_vals = ["".join(label.split(" ")) if all(l.isupper() or l.isspace() for l in label) else label for label in x_vals]
+        leg_vals = ["".join(label.split(" ")) if all(l.isupper() or l.isspace() for l in label) else label for label in leg_vals]
+        
+        start_patch_idx = 0       
+        for t, text in enumerate(leg_vals):
+            num_patches = len(ax.axes[0, 0].containers[t])
+            ax._legend.texts[t].set_text(text)
+            if ax._legend.texts[t]._text in ["SVR", "Persistence", "Spatial Filter", "Kalman Filter"]:
+                ax._legend.get_patches()[t].set_hatch("/")
+                for patch in ax.axes[0, 0].containers[t].patches:
+                    patch.set_hatch("/")
+            start_patch_idx += num_patches
 
-        ax.axes[0, v].set_xticklabels(x_vals)
-        ax.axes[0, v].tick_params("x", rotation=35)
+        # ax.axes[0, 0].set_xticklabels(x_vals)
+        # ax.axes[0, 0].tick_params("x", rotation=35)
     
-    for c, ctrl in enumerate(controllers):
-        ax.legend.get_texts()[c].set_text(controller_labels[ax.legend.get_texts()[c]._text])
+        # for c, ctrl in enumerate(controllers):
+        #     ax.legend.get_texts()[c].set_text(controller_labels[ax.legend.get_texts()[c]._text])
     
-    fig = plt.gcf()
-    fig.set_size_inches((15, 8))
-    plt.tight_layout()
-    fig.subplots_adjust(right=0.825)
-    ax.legend.set_title("")
-    ax.legend.set_loc("upper right")
-    ax.legend.set_bbox_to_anchor((0.0, 0.0, 1.0, 0.9))
-    
-    fig.savefig(os.path.join(save_dir, f"{label}_power_vs_forecaster.png"))
+        fig = plt.gcf()
+        fig.set_size_inches((15, 8))
+        plt.tight_layout()
+        fig.subplots_adjust(right=0.825)
+        ax.legend.set_title("")
+        ax.legend.set_loc("upper right")
+        ax.legend.set_bbox_to_anchor((0.0, 0.0, 1.0, 0.9))
+        
+        fig.savefig(os.path.join(save_dir, f"{fig_labels[v]}_power_vs_forecaster.png"))
 
 def read_case_family_time_series_data(case_family, save_dir):
     # if reaggregate_simulations, or if the aggregated time series data doesn't exist for this case family, read the csv files for that case family
@@ -669,10 +679,9 @@ def aggregate_time_series_data(time_series_df, n_seeds):
         
     # if time_series_df["Time"].max() > lpf_start_time:
     #     df = time_series_df.loc[(time_series_df["Time"] >= lpf_start_time), :]
-    
-    yaw_angle_change_cols = sorted([c for c in agg_df.columns if "TurbineYawAngleChange_" in c], key=lambda s: int(s.split("_")[-1]))
+    yaw_angle_change_cols = sorted([c for c in agg_df.columns if "TurbineYawAngleChange_" in c], key=lambda s: int(re.search("(?!_wt)\d{3}", s).group()))
     # offline_status_cols = sorted([c for c in time_series_df.columns if "TurbineOfflineStatus_" in c], key=lambda s: int(s.split("_")[-1]))
-    turbine_power_cols = sorted([c for c in agg_df.columns if "TurbinePower_" in c], key=lambda s: int(s.split("_")[-1]))
+    turbine_power_cols = sorted([c for c in agg_df.columns if "TurbinePower_" in c], key=lambda s: int(re.search("(?!_wt)\d{3}", s).group()))
     agg_df["FarmPower"] = agg_df[turbine_power_cols].sum(axis=1)
     agg_df["YawAngleChangeAbs"] = agg_df[yaw_angle_change_cols].abs().sum(axis=1)
     agg_df = agg_df[["WindSeed", "YawAngleChangeAbs", "FarmPower", 

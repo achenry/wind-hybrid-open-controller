@@ -71,7 +71,7 @@ case_studies = {
         "prediction_timedelta": {"group": 1, "vals": [60]},
         "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
         "model_config_path": {"group": 1, "vals": [
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml")]},
         "wind_forecast_class": {"group": 0, "vals": ["KalmanFilterForecast"]}
     },
     "control_signal_test_awaken": {
@@ -96,16 +96,16 @@ case_studies = {
         "prediction_timedelta": {"group": 1, "vals": [60, 60, 0, 0]},
         "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73", "4,", "74,73"]},
         "model_config_path": {"group": 1, "vals": [
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"),
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"),
-        os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"),
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml"),
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml"),
+        os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml"),
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml")]},
         
         # "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
         # "prediction_timedelta": {"group": 1, "vals": [0]},
         # "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
         # "model_config_path": {"group": 1, "vals": [
-        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
+        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml")]},
         
         "wind_forecast_class": {"group": 0, "vals": ["PerfectForecast"]}
     },
@@ -130,8 +130,8 @@ case_studies = {
     #     "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController"]},
     #     # "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
     #     "model_config_path": {"group": 1, "vals": [
-    #          os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"),
-    #         os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
+    #          os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml"),
+    #         os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml")]},
     #     "wind_forecast_class": {"group": 0, "vals": ["PerfectForecast"]}
     # },
     "baseline_controllers_informer_forecaster_test_awaken": {
@@ -145,8 +145,8 @@ case_studies = {
                                     "model_checkpoint": {"group": 0, "vals": ["latest"]},
                                     "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
                                     "model_config_path": {"group": 1, "vals": [
-                                        os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
-                                        # os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predLUT.yaml")]},
+                                        os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml")]},
+                                        # os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred_smoothed.yaml")]},
                                     "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
                                     "prediction_timedelta": {"group": 1, "vals": [60]},
                                     "interpolation_method": {"group": 2, "vals": ["linear", "nearest"]},
@@ -163,8 +163,8 @@ case_studies = {
                                     "wind_forecast_class": {"group": 0, "vals": ["SVRForecast"]},
                                     "target_turbine_indices": {"group": 1, "vals": ["74,73"]},
                                     "model_config_path": {"group": 1, "vals": [
-                                        os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
-                                        # os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predLUT.yaml")]},
+                                        os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml")]},
+                                        # os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred_smoothed.yaml")]},
                                     "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController"]},
                                     "prediction_timedelta": {"group": 1, "vals": [60]},
                                     "interpolation_method": {"group": 2, "vals": ["linear", "nearest"]},
@@ -218,13 +218,13 @@ case_studies = {
         "wind_forecast_class": {"group": 0, "vals": ["MLForecast"]},
         "controller_class": {"group": 1, "vals": ["GreedyController", "LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController"]},
         # "model_config_path": {"group": 1, "vals": [
-        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predLUT.yaml"),
-        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predLUT.yaml"), 
-        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predLUT.yaml")]},
+        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred_smoothed.yaml"),
+        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred_smoothed.yaml"), 
+        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred_smoothed.yaml")]},
         "model_config_path": {"group": 1, "vals": [
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"),
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"), 
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml"),
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml"), 
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml")]},
         "prediction_timedelta": {"group": 1, "vals": [60, 60, 60]},
         "uncertain": {"group": 1, "vals": [False, True, False]},
         "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73", "74,73"]},
@@ -245,13 +245,13 @@ case_studies = {
         "wind_forecast_class": {"group": 0, "vals": ["MLForecast"]},
         "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController", "GreedyController"]},
         "model_config_path": {"group": 1, "vals": [
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"), 
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"), 
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml"), 
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml"), 
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml")]},
         # "model_config_path": {"group": 1, "vals": [
-        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predLUT.yaml"), 
-        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predLUT.yaml"),
-        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_predLUT.yaml")]},
+        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred_smoothed.yaml"), 
+        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred_smoothed.yaml"),
+        #     os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_aoifemac_awaken_pred_smoothed.yaml")]},
         "prediction_timedelta": {"group": 1, "vals": [60, 60, 60]},
         "uncertain": {"group": 1, "vals": [True, False, False]},
         "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73", "4,"]},
@@ -272,9 +272,9 @@ case_studies = {
         "wind_forecast_class": {"group": 0, "vals": ["MLForecast"]},
         "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController", "GreedyController"]},
         "model_config_path": {"group": 1, "vals": [
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"), 
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"), 
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml"), 
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml"), 
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml")]},
         "prediction_timedelta": {"group": 1, "vals": [60, 60, 60]},
         "uncertain": {"group": 1, "vals": [True, False, False]},
         "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73", "4,"]},
@@ -295,9 +295,9 @@ case_studies = {
         "wind_forecast_class": {"group": 0, "vals": ["MLForecast"]},
         "controller_class": {"group": 1, "vals": ["LookupBasedWakeSteeringController", "LookupBasedWakeSteeringController", "GreedyController"]},
         "model_config_path": {"group": 1, "vals": [
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"), 
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"), 
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml"), 
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml"), 
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml")]},
         "prediction_timedelta": {"group": 1, "vals": [60, 60, 60]},
         "uncertain": {"group": 1, "vals": [True, False, False]},
         "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73", "4,"]},
@@ -319,8 +319,8 @@ case_studies = {
         "prediction_timedelta": {"group": 1, "vals": [60, 60]},
         "target_turbine_indices": {"group": 1, "vals": ["74,73", "4,"]},
         "model_config_path": {"group": 1, "vals": [
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"),
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml"),
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml")]},
         "wind_forecast_class": {"group": 2, "vals": ["SVRForecast", "SpatialFilterForecast", "PersistenceForecast", "PerfectForecast"]},
     },
     "baseline_controllers_baseline_perfect0_forecasters_awaken": {
@@ -338,8 +338,8 @@ case_studies = {
         "prediction_timedelta": {"group": 1, "vals": [60, 60]},
         "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73"]},
         "model_config_path": {"group": 1, "vals": [
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"),
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml"),
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml")]},
         "wind_forecast_class": {"group": 2, "vals": ["PerfectForecast"]},
         "filter_floris_wind": {"group": 3, "vals": [False, True]},
         "interpolation_method": {"group": 4, "vals": ["nearest", "linear"]},
@@ -364,9 +364,9 @@ case_studies = {
         "prediction_timedelta": {"group": 1, "vals": [60, 60, 60]},
         "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73", "4,"]},
         "model_config_path": {"group": 1, "vals": [
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"),
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml"),
-            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_predLUT.yaml")]},
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml"),
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml"),
+            os.path.join(os.path.dirname(wind_forecasting_file), "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml")]},
         "wind_forecast_class": {"group": 0, "vals": ["KalmanFilterForecast"]}
     },
     "baseline_controllers": { "controller_dt": {"group": 1, "vals": [5, 5]},
@@ -788,12 +788,12 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
         data_module.generate_splits(splits=["test"], save=True, reload=reload) # TODO should reload if context/prediction length has changed
         
         # wind_field_ts = generate_wind_field_df(data_module.test_dataset, data_module.target_cols, data_module.feat_dynamic_real_cols)
-        wind_field_ts = data_module.test_dataset\
+        wind_field_ts = data_module.datasets["test"]\
                 .rename({**{f"target_{i}": col for i, col in enumerate(data_module.target_cols)}, **{f"feat_dynamic_real_{i}": col for i, col in enumerate(data_module.feat_dynamic_real_cols)}})\
                 .with_columns(continuity_group=pl.col("item_id").str.extract("SPLIT(\\d+)").cast(int))\
-                        .drop("item_id")
+                        .drop("item_id").collect()
         
-        delattr(data_module, "test_dataset")
+        del data_module.datasets["test"]
         
         wind_field_ts = wind_field_ts.partition_by("continuity_group")
         
@@ -803,8 +803,8 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
             wind_field_ts = wind_field_ts[:n_seeds]
             # wind_field_ts.sort(reverse=False, key=lambda df: df.select(pl.col("time").last() - pl.col("time").first()).item())
             logging.info(f"Durations in wind_field_ts = {[np.round(df.select((pl.col('time').last() - pl.col('time').first())).item().total_seconds() / 3600, 2) for df in wind_field_ts]} hours")
-        else:
-            n_seeds = len(wind_field_ts)
+        
+        n_seeds = len(wind_field_ts)
         
         wind_dt = wind_field_ts[0].select(pl.col("time").diff().slice(1,1).dt.total_seconds()).item()
         logging.info(f"Loaded and normalized SCADA wind field from {base_model_config['dataset']['data_path']} with dt = {wind_dt} seconds.")
