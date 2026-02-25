@@ -446,7 +446,8 @@ def plot_score_vs_prediction_dt(agg_df, metrics, ax_indices, fig_dir):
     ax.set_xticks(agg_df.select(pl.col("prediction_timedelta").unique()).to_numpy().flatten())
     new_labels = [" ".join(re.findall("[A-Z][^A-Z]*", re.search("(\\w+)(?=Forecast)(\\w+)", label).group())) 
                   if ("Forecast" in label) else (label.capitalize() if not label[0].isupper() else label).replace("_", " ") for label in l]
-    new_labels[new_labels.index("S V R Forecast")] = "SVR Forecast" # TODO automate this with re replace etc
+    if "S V R Forecast" in new_labels:
+        new_labels[new_labels.index("S V R Forecast")] = "SVR Forecast" # TODO automate this with re replace etc
     # new_labels = ["".join(label.split(" ")) if all(label[l].isupper() for l in range(0, len(label)-1, 2) if (label[l+1].isspace() or (l+1 == len(label)-1))) else label for label in new_labels]
     
     l1, l2 = new_labels[:new_labels.index("Metric")], new_labels[new_labels.index("Metric"):]
@@ -466,19 +467,30 @@ def plot_score_vs_forecaster(agg_df, metrics, ax_indices, prediction_intervals, 
     sns.set_style("whitegrid")
     
     ax = sns.catplot(agg_df.filter((pl.col("metric").is_in(metrics))),
-                kind="bar", col="prediction_timedelta", row=0,
-                hue="forecaster", x="metric", y="score", hue_order=metrics)
+                kind="bar", row=0,
+                hue="forecaster", x="metric", y="score")
+                # , hue_order=metrics) col="prediction_timedelta",
     
-    new_xticks = [" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", l._text).group())) for l in ax.axes[0, 0].get_xticklabels()]
-    new_xticks = ["".join(l.split(" ")) if all(l.isupper() or l.isspace() for l in l) else l for l in new_xticks]
+    new_labels = [" ".join(re.findall("[A-Z][^A-Z]*", re.search("\\w+(?=Forecast)", l._text).group())) for l in ax._legend.texts]
+    new_labels = ["".join(l.split(" ")) if all(l.isupper() or l.isspace() for l in l) else l for l in new_labels]
     
     for p in range(ax.axes.shape[1]):
         pred_len = re.search('(?<=prediction_timedelta = )(\\d+)', ax.axes[0, p].title.get_text()).group()
         ax.axes[0, p].set_title(f"Prediction Length {pred_len} sec")
         ax.axes[0, p].set_ylabel("")
-        ax.axes[0, p].set_xlabel("Forecaster")
-        ax.axes[0, p].set_xticklabels(new_xticks, rotation=25)
+        ax.axes[0, p].set_xlabel("Metric")
+        # ax.axes[0, p].set_xticklabels(new_xticks, rotation=25)
     
+    start_patch_idx = 0       
+    for t, text in enumerate(new_labels):
+        num_patches = len(ax.axes[0, 0].containers[t])
+        ax._legend.texts[t].set_text(text)
+        if ax._legend.texts[t]._text in ["SVR", "Persistence", "Spatial Filter", "Kalman Filter"]:
+            ax._legend.get_patches()[t].set_hatch("/")
+            for patch in ax.axes[0, 0].containers[t].patches:
+                patch.set_hatch("/")
+        start_patch_idx += num_patches
+        
     ax.axes[0, 0].set_ylabel(f"Score")
     
     ax.legend.set_title("")
@@ -972,7 +984,7 @@ if __name__ == "__main__":
                 test_futures = [ex.submit(
                     make_predictions, 
                         forecaster=forecaster,  
-                        test_data=test_data.filter((pl.col("continuity_group") == cg) & (pl.col("prediction_timedelta").is_in([forecaster.prediction_timedelta.total_seconds(), -1.0]))), 
+                        test_data=test_data.filter((pl.col("continuity_group") == cg) & (pl.col("prediction_timedelta").is_in([forecaster.prediction_timedelta.total_seconds(), -1.0]))).collect(), 
                         prediction_type=args.prediction_type, single_cg=True, 
                         save_path=save_path,
                         assigned_gpu=next(gpu_cycler) if gpu_cycler else None, 
@@ -1143,7 +1155,7 @@ if __name__ == "__main__":
             
             forecast_long_path = os.path.join(save_dir, "long_df.parquet")
             if args.rerun_validation or not os.path.exists(forecast_long_path) \
-                or pl.scan_parquet(forecast_long_path, glob=True).select(pl.col("continuity_group").unique().list.contains(best_cg)).collect().item() == False:
+                or best_cg not in pl.scan_parquet(forecast_long_path, glob=True).select(pl.col("continuity_group").unique()).collect().to_numpy():
                 forecast_path = os.path.join(save_dir, "forecast_*.parquet")
                 forecast_df = pl.scan_parquet(forecast_path, glob=True)\
                             .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
@@ -1233,7 +1245,7 @@ if __name__ == "__main__":
                                 .group_by(["forecaster", "metric", "prediction_timedelta"]).agg(pl.col("score").mean())
                                     
             # generate scatterplot of metric vs prediction time for different models (different colors) and different metrics (different_styles) (crps, picp, pinaw, cwc, mse, mae)
-            if False:
+            if True:
                 plot_score_vs_prediction_dt(totals_agg_df, 
                                             metrics=plotting_metrics,
                                             ax_indices=ax_indices,
@@ -1246,11 +1258,11 @@ if __name__ == "__main__":
             
             # best_prediction_dt = totals_agg_df.filter(pl.col("metric").is_in(["RMSE", "MAE", "CWC", "CRPS", "PINAW"])).group_by("prediction_timedelta").agg(pl.col("score").mean()).select(pl.col("prediction_timedelta").sort_by("score").first()).item()
             # totals_agg_df.filter(pl.col("prediction_timedelta") == best_prediction_dt),
-            if False:
+            if True:
                 plot_score_vs_forecaster(totals_agg_df.filter(pl.col("metric").is_in([
                     "RMSE", "MAE", "CWC", "PINAW", "PICP", "CRPS",
                     "CWC_samples", "PINAW_samples", "PICP_samples", "CRPS_samples"
-                ])),
+                    ])),
                                         metrics=plotting_metrics,
                                         ax_indices=ax_indices,
                                         prediction_intervals=totals_agg_df.select(pl.col("prediction_timedelta").unique()).to_numpy().flatten(),

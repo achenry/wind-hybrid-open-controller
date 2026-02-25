@@ -500,11 +500,11 @@ class MLForecast(WindForecast):
             # denormalize data ONLY IF NOT using internal scaling like tactis
             if not self.use_internal_scaling:
                 pred_df = pred_df.with_columns([
-                        (pl.col(f"loc_{feat}") * self.scaler_params["scale_"][feat]) + self.scaler_params["offset_"][feat]
-                                                                for feat in features])\
+                        (pl.col(f"loc_{col}") * self.scaler_params["scale_"][col]) + self.scaler_params["offset_"][col]
+                                                                for col in self.data_module.target_cols])\
                                  .with_columns([
-                        pl.col(f"sd_{feat}") * self.scaler_params["scale_"][feat]
-                                                                for feat in features])
+                        pl.col(f"sd_{col}") * self.scaler_params["scale_"][col]
+                                                                for col in self.data_module.target_cols])
             else:
                 pass
                                                        
