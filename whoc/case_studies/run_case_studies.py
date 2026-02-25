@@ -537,18 +537,22 @@ if __name__ == "__main__":
                 # if ml_baseline_agg_df.shape[0]:
                 ml_baseline_agg_df["controller_class"] = ml_baseline_agg_df["controller_class"] + ml_baseline_agg_df["uncertain"].astype(str)
                 ml_baseline_agg_df = ml_baseline_agg_df.sort_values("controller_class")
-                if (ml_baseline_agg_df["model_key"].apply(type) == np.str_).any():
-                    plot_agg_metrics_vs_forecaster(ml_baseline_agg_df,
-                                                save_dir=args.save_dir, label="ml_forecasters_",
-                                                controller_labels=controller_labels)
+                # if (ml_baseline_agg_df["model_key"].apply(type) == np.str_).any():
+                #     plot_agg_metrics_vs_forecaster(ml_baseline_agg_df,
+                #                                 save_dir=args.save_dir, label="ml_forecasters_",
+                #                                 controller_labels=controller_labels)
                 
                 other_baseline_agg_df = baseline_agg_df.loc[baseline_agg_df["model_key"].isnull(), :]
                 other_baseline_agg_df["controller_class"] = other_baseline_agg_df["controller_class"] + other_baseline_agg_df["uncertain"].astype(str)
                 other_baseline_agg_df = other_baseline_agg_df.sort_values("controller_class")
                 # other_baseline_agg_df[["controller_class", "prediction_timedelta", "wind_forecast_class"]].sort_values(["controller_class", "prediction_timedelta", "wind_forecast_class"])
-                if other_baseline_agg_df.shape[0]:
-                    plot_agg_metrics_vs_forecaster(other_baseline_agg_df,
-                                                save_dir=args.save_dir, label="baseline_forecasters_",
+                # if other_baseline_agg_df.shape[0]:
+                #     plot_agg_metrics_vs_forecaster(other_baseline_agg_df,
+                #                                 save_dir=args.save_dir, label="baseline_forecasters_",
+                #                                 controller_labels=controller_labels)
+                
+                plot_agg_metrics_vs_forecaster(baseline_agg_df,
+                                                save_dir=args.save_dir, label="all_forecasters_",
                                                 controller_labels=controller_labels)
                 
                 
