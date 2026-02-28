@@ -1120,7 +1120,12 @@ if __name__ == "__main__":
         
         turbine_ids = ["wt005", "wt074", "wt075"]
         assert all(tid in data_module.target_suffixes for tid in turbine_ids), f"Expected target turbine IDs {turbine_ids} to be a subset of {data_module.target_suffixes}."
-        best_cg = 0
+        
+        best_cg = agg_df.filter((pl.col("metric").is_in(["CRPS", "RMSE"])) & (pl.col("turbine_id") == "all")) \
+              .select("forecaster", "metric", "prediction_timedelta", "score", "continuity_group") \
+              .sort("score").group_by(["forecaster", "metric", "prediction_timedelta"], maintain_order=True) \
+              .agg(pl.all().head(2)).explode("score", "continuity_group")["continuity_group"] \
+              .value_counts().sort("count", descending=True)["continuity_group"][0]
         
         true_long_path = os.path.join(validation_save_dir, f"true_long_df_{args.run_name}.parquet")
         if args.rerun_validation or not os.path.exists(true_long_path):
