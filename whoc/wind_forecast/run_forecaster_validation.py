@@ -123,7 +123,7 @@ def transform_wind(inp_df, added_wm=None, added_wd=None):
 
 def make_predictions(forecaster, test_data, prediction_type, single_cg, save_path, assigned_gpu, ram_limit):
     
-    logging.info(f"Worker process {os.getpid()} sees POLARS_MAX_THREADS={os.environ.get('POLARS_MAX_THREADS')}")
+    logging.info(f"Worker process {os.getpid()}") # sees POLARS_MAX_THREADS={os.environ.get('POLARS_MAX_THREADS')}
     
     if assigned_gpu:
         os.environ["CUDA_VISIBLE_DEVICES"] = str(assigned_gpu)
@@ -978,8 +978,10 @@ if __name__ == "__main__":
                                                 # max_tasks_per_child=1)
                 # executor = get_context("spawn").Pool()
             
-            logging.info(f"Running generate_forecaster_results with multiprocessor {args.multiprocessor} with {max_workers} workers.")
-            
+            logging.info(f"Running generate_forecaster_results with multiprocessor {args.multiprocessor} with {max_workers} workers for cases.")
+            for (forecaster, cg, save_path) in validation_to_run:
+                logging.info(f"- forecaster {forecaster}, continuity group {cg}, save path {save_path}")
+
             with executor as ex:
                 test_futures = [ex.submit(
                     make_predictions, 
