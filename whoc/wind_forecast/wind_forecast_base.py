@@ -639,6 +639,7 @@ class WindForecast:
         logging.info(f"Getting output data for output {output}, split {split} with Xy_path {Xy_path}, reload={reload}, scale={scale}, dataset_hparams={dataset_hparams}")
         
         input_turbine_indices = self.cluster_turbines[self.tid2idx_mapping[tid]] # this depends on the hyperparam num_neighboring_turbines
+        logging.info(f"Input turbine indices for tid {tid} are {input_turbine_indices}")
         output_idx = input_turbine_indices.index(self.tid2idx_mapping[tid])
         scaler_save_path = os.path.join(self.model_save_dir, f"{self.study_name}_scaler_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl")
 
@@ -799,6 +800,13 @@ class WindForecast:
                 
                 logging.info(f"Updating self.dataset_hparams with tuned parameters {best_trial.params}.")
                 self.dataset_hparams = {k: v for k, v in best_trial.params.items() if k in self.dataset_hparams}
+                self.n_neighboring_turbines = best_trial.params.get("n_neighboring_turbines", self.n_neighboring_turbines)
+                if self.n_neighboring_turbines:
+                    self.cluster_turbines = [sorted(np.arange(self.n_turbines), 
+                                key=lambda t: np.linalg.norm(self.measurement_layout[tid, :] - self.measurement_layout[t, :]))[:self.n_neighboring_turbines]
+                                            for tid in range(self.n_turbines)]
+                else:
+                    self.cluster_turbines = [np.arange(self.n_turbines)] * self.n_turbines
                 logging.info(f"Updated self.dataset_hparams: {self.dataset_hparams}")
             except KeyError:
                 logging.error(f"Optuna study {study_name} not found. Please run tuning.py first. Using default parameters for now.")
