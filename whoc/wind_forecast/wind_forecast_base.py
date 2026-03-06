@@ -786,8 +786,8 @@ class WindForecast:
                 #     logging.info(f" - {std_name}")
                 # datetime.strptime(re.search(f"(?<={study_name}_).*", 'tuning_svr_kestrel_awaken_pred60_20251230113634').group(), "%Y%m%d%H%M%S")
                 study_id = optuna_storage.get_study_id_from_name(full_study_name)
-                trial = optuna_storage.get_best_trial(study_id)
-                logging.info(f"Best trial found, number: {trial.number}, value: {trial.value}, params: {trial.params}")
+                best_trial = optuna_storage.get_best_trial(study_id)
+                logging.info(f"Best trial found, number: {best_trial.number}, value: {best_trial.value}, params: {best_trial.params}")
                 trials = sorted(optuna_storage.get_all_trials(study_id), key=lambda trial: trial.value or np.inf)[1:6]
                 for t, trial in enumerate(trials, 2):
                     logging.info(f"{t}th best trial found, number: {trial.number}, value: {trial.value}, params: {trial.params}")
@@ -795,10 +795,10 @@ class WindForecast:
                 last_trial = optuna_storage.get_all_trials(study_id)[-1]
                 logging.info(f"Last trial found, number: {last_trial.number}, value: {last_trial.value}, params: {last_trial.params}")
                 for output in self.outputs:
-                    self.model[output] = self.create_model(**trial.params)
+                    self.model[output] = self.create_model(**best_trial.params)
                 
-                logging.info(f"Updating self.dataset_hparams with tuned parameters {trial.params}.")
-                self.dataset_hparams = {k: v for k, v in trial.params.items() if k in self.dataset_hparams}
+                logging.info(f"Updating self.dataset_hparams with tuned parameters {best_trial.params}.")
+                self.dataset_hparams = {k: v for k, v in best_trial.params.items() if k in self.dataset_hparams}
                 logging.info(f"Updated self.dataset_hparams: {self.dataset_hparams}")
             except KeyError:
                 logging.error(f"Optuna study {study_name} not found. Please run tuning.py first. Using default parameters for now.")
