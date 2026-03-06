@@ -322,7 +322,7 @@ if __name__ == "__main__":
             logging.info("Using default hyperparameters.")
             forecaster.set_tuned_params()
 
-        logging.info(f"Preparing data for training with dataset hyperparameters {forecaster.dataset_hparams}.")
+        logging.info(f"CHECK THIS MATCHES TUNING. Preparing data for training with dataset hyperparameters {forecaster.dataset_hparams}.")
         suffix = ("_" + "_".join([f"{k}{v}" for k, v in forecaster.dataset_hparams.items()])) if len(forecaster.dataset_hparams) else ""
         num_Xy_paths = glob.glob(os.path.join(forecaster.model_save_dir, f"Xy_{forecaster.study_name}_*_*{suffix}.dat"))
         num_Xy_paths = [os.path.basename(fp) for fp in num_Xy_paths]
