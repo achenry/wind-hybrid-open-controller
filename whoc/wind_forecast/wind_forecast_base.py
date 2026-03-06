@@ -794,7 +794,10 @@ class WindForecast:
                 logging.info(f"Last trial found, number: {last_trial.number}, value: {last_trial.value}, params: {last_trial.params}")
                 for output in self.outputs:
                     self.model[output] = self.create_model(**trial.params)
+                
+                logging.info(f"Updating self.dataset_hparams with tuned parameters {trial.params}.")
                 self.dataset_hparams = {k: v for k, v in trial.params.items() if k in self.dataset_hparams}
+                logging.info(f"Updated self.dataset_hparams: {self.dataset_hparams}")
             except KeyError:
                 logging.error(f"Optuna study {study_name} not found. Please run tuning.py first. Using default parameters for now.")
                 for output in self.outputs:
