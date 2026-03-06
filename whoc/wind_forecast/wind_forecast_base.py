@@ -703,6 +703,8 @@ class WindForecast:
             X_all = fp[:, :-1]
             y_all = fp[:, -1]
             
+            logging.info(f"Loaded {split} data from {Xy_path} with input shape {X_all.shape} and output shape {y_all.shape}")
+            
             if scale:
                 logging.info(f"Loading scaler for output {output}, {split}.")
                 with open(scaler_save_path, "rb") as f:
