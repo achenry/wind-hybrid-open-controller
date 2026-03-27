@@ -2,9 +2,9 @@
 #SBATCH --job-name=model_tuning
 #SBATCH --account=awaken
 #SBATCH --output=model_tuning_%j.out
-#SBATCH --time=24:00:00
 #SBATCH --nodes=1
 #SBATCH --mem=0
+#SBATCH --time=48:00:00
 ##SBATCH --time=01:00:00
 ##SBATCH --partition=debug
 #SBATCH --ntasks-per-node=104
@@ -34,11 +34,7 @@ echo "=== ENVIRONMENT ==="
 module list
 
 export MODEL_CONFIG_PATH=$2
-# export MODEL_CONFIG_PATH=/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred60.yaml
-#export MODEL_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel_flasc.yaml"
 export DATA_CONFIG_PATH="/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/config/preprocessing/preprocessing_inputs_kestrel_awaken_new.yaml"
-#export DATA_CONFIG="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_flasc.yaml"
-#export RESTART_FLAG=""
 
 echo "MODEL=${MODEL}"
 echo "MODEL_CONFIG_PATH=${MODEL_CONFIG_PATH}"
@@ -48,9 +44,11 @@ echo "DATA_CONFIG_PATH=${DATA_CONFIG_PATH}"
 export BASE_DIR="/home/ahenry/toolboxes/wind_forecasting_env/wind-hybrid-open-controller"
 export WORK_DIR="${BASE_DIR}/whoc/wind_forecast"
 export LOG_DIR="${WORK_DIR}/logs"
-export RESTART_TUNING_FLAG="--restart_tuning" # "" Or "--restart_tuning"
+#export RESTART_TUNING_FLAG="--restart_tuning" # "" Or "--restart_tuning"
+export RESTART_TUNING_FLAG="" # "" Or "--restart_tuning"
+export TARGET_TURBINE_IDX_FLAG="" #"--target_turbine_indices 74 73 4"
 export AUTO_EXIT_WHEN_DONE="true"  # Set to "true" to exit script when all workers finish, "false" to keep running until timeout
-export NUMEXPR_MAX_THREADS=128
+#export NUMEXPR_MAX_THREADS=128
 
 # --- Create Logging Directories ---
 # Create the job-specific directory for worker logs and final main logs
@@ -79,8 +77,9 @@ echo "------------------------"
 # --- Setup Main Environment ---
 echo "Setting up main environment..."
 module purge
-eval "$(conda shell.bash hook)"
-conda activate wind_forecasting_env
+#eval "$(conda shell.bash hook)"
+ml mamba
+mamba activate wind_forecasting_env
 echo "Conda environment 'wind_forecasting_env' activated."
 #module load PrgEnv-intel
 
@@ -91,7 +90,7 @@ PYTHONPATH=$(which python)
 #srun -n ${SLURM_NTASKS} --export=ALL,WORKER_RANK=0 
 
 export WORKER_RANK=0
-python ${WORK_DIR}/tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --seed 0 --restart_tuning #--reload_data
+python ${WORK_DIR}/tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --seed 0 --mode tune $TARGET_TURBINE_IDX_FLAG $RESTART_TUNING_FLAG # --reload_data
 
 # --- Parallel Worker Launch using nohup ---
 NUM_CPUS=${SLURM_NTASKS_PER_NODE}
@@ -103,7 +102,7 @@ date +"%Y-%m-%d %H:%M:%S"
 
 for i in $(seq 1 $((${NTUNERS}))); do
         #if [ $i -eq 1 ]; then #&& [ $j -eq 0 ]; then
-            export RESTART_FLAG="--restart_tuning"
+        #    export RESTART_FLAG="--restart_tuning"
 	#    echo "Restarting tuning..."
         # else
         #    export RESTART_FLAG=""
@@ -137,17 +136,18 @@ for i in $(seq 1 $((${NTUNERS}))); do
         echo \"Worker ${WORKER_RANK} starting environment setup...\"
 
         # --- Module loading ---
-        module purge
+        # module purge
+	module load mamba
         echo \"Worker ${WORKER_RANK}: Modules loaded.\"
 
         # --- Activate conda environment ---
-        eval \"\$(conda shell.bash hook)\"
-        conda activate wind_forecasting_env
+        #eval \"\$(conda shell.bash hook)\"
+        mamba activate wind_forecasting_env
         echo \"Worker ${WORKER_RANK}: Conda environment 'wind_forecasting_env' activated.\"
         
         echo \"Worker ${WORKER_RANK}: Running python script...\"
         taskset -c $CORES python ${WORK_DIR}/tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} \
-                --multiprocessor cf --seed ${WORKER_SEED} --limit_train_val .1 --mode tune ${RESTART_FLAG}
+                --multiprocessor cf --seed ${WORKER_SEED} --limit_train_val .1 --mode tune ${RESTART_FLAG} ${TARGET_TURBINE_IDX_FLAG}
 
         # Check exit status
         status=\$?
