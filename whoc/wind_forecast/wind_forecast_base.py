@@ -670,37 +670,22 @@ class WindForecast:
                     
                 # Concatenate all training inputs
                 training_inputs_all = np.vstack(training_inputs_all)
-                        
-                X_all, y_all = self._prepare_arrays(training_inputs_all, output_idx)
-                
-                if scale: 
-                    logging.info(f"Fitting scaler for output {output} on all {split} data.")
-                    X_all = self.scaler_input[output].fit_transform(X_all)
-                    y_all = self.scaler_output[output].fit_transform(y_all)
-                    
-                    logging.info(f"Saving input scaler for output {output} on all {split} data.")
-                    with open(scaler_input_save_path, "wb") as f:
-                        pickle.dump(self.scaler_input[output], f)
-                    
-                    logging.info(f"Saving output scaler for output {output} on all {split} data.")
-                    with open(scaler_output_save_path, "wb") as f:
-                        pickle.dump(self.scaler_output[output], f)
 
             else:
-                training_inputs = ds.select(input_select).to_numpy()
+                training_inputs_all = ds.select(input_select).to_numpy()
                             
-                X_all, y_all = self._prepare_arrays(training_inputs, output_idx)
+            X_all, y_all = self._prepare_arrays(training_inputs_all, output_idx)
                 
-                if scale: 
-                    logging.info(f"Fitting scaler for output {output} on all {split} data.")
-                    X_all = self.scaler_input[output].fit_transform(X_all)
-                    y_all = self.scaler_output[output].fit_transform(y_all)
+            if scale: 
+                logging.info(f"Fitting scaler for output {output} on all {split} data.")
+                X_all = self.scaler_input[output].fit_transform(X_all)
+                y_all = self.scaler_output[output].fit_transform(y_all)
 
-                    logging.info(f"Saving scaler for output {output} on all {split} data.")
-                    with open(scaler_input_save_path, "wb") as f:
-                        pickle.dump(self.scaler_input[output], f)
-                    with open(scaler_output_save_path, "wb") as f:
-                        pickle.dump(self.scaler_output[output], f)
+                logging.info(f"Saving scaler for output {output} on all {split} data.")
+                with open(scaler_input_save_path, "wb") as f:
+                    pickle.dump(self.scaler_input[output], f)
+                with open(scaler_output_save_path, "wb") as f:
+                    pickle.dump(self.scaler_output[output], f)
 
             data_shape = (X_all.shape[0], X_all.shape[1] + 1)
             fp = np.memmap(Xy_path, dtype="float32", 
@@ -724,13 +709,13 @@ class WindForecast:
             
             logging.info(f"CHECK THIS MATCHES TUNING. Loaded {split} data from {Xy_path} for dataset_hparams {dataset_hparams} and n_context {self.n_context} with input shape {X_all.shape} and output shape {y_all.shape}")
             
-            # if scale:
-            #     logging.info(f"Loading scaler for output {output}, {split}.")
-            #     with open(scaler_input_save_path, "rb") as f:
-            #         self.scaler_input[output] = pickle.load(f)
-            #     with open(scaler_output_save_path, "rb") as f:
-            #         self.scaler_output[output] = pickle.load(f)
-            #     assert self.scaler_input[output].n_features_in_ == X_all.shape[1], f"Scaler input features {self.scaler_input[output].n_features_in_} does not match X_all features {X_all.shape[1]}"
+            if scale:
+                logging.info(f"Loading scaler for output {output}, {split}.")
+                with open(scaler_input_save_path, "rb") as f:
+                    self.scaler_input[output] = pickle.load(f)
+                with open(scaler_output_save_path, "rb") as f:
+                    self.scaler_output[output] = pickle.load(f)
+                assert self.scaler_input[output].n_features_in_ == X_all.shape[1], f"Scaler input features {self.scaler_input[output].n_features_in_} does not match X_all features {X_all.shape[1]}"
                 
             # logging.info(f"Loaded {split} data from {Xy_path} with input shape {X_all.shape}")
 
