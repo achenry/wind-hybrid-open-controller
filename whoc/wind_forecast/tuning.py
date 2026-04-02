@@ -105,7 +105,7 @@ if __name__ == "__main__":
         logging.info("Creating datasets")
     
     # TODO don't use normalized path if not necessary
-    data_module = DataModule(data_path=model_config["dataset"]["data_path"], 
+    data_module = DataModule(normalized_data_path=model_config["dataset"]["data_path"], 
                             normalization_consts_path=model_config["dataset"]["normalization_consts_path"],
                             use_normalization=False, 
                             n_splits=1, #model_config["dataset"]["n_splits"],
@@ -147,7 +147,10 @@ if __name__ == "__main__":
         fetch_existing_study = (args.mode == "tune" and not args.restart_tuning) or (args.mode == "train" and args.use_tuned_params)
         
         if fetch_existing_study:
-            logging.info(f"Continue previous tuning.")
+            if args.mode == "tune":
+                logging.info(f"Continue previous tuning.")
+            elif args.mode == "train":
+                logging.info(f"Fetching tuned hyperparameters for training.")
             get_most_recent_study = True
             job_id = os.environ.get('SLURM_JOB_ID')
             # try to get specific study based on model_config['experiment']['run_name'], but if only the base prefix is used, find the mos recent
@@ -175,7 +178,9 @@ if __name__ == "__main__":
                     logging.info(f"Use given full study name {final_study_name}.")
                 
             
-            logging.info(f"Set model_config['experiment']['run_name'] to {model_config['experiment']['run_name']} to fetch optuna db object. Retaining final_study_name {final_study_name}.")
+            logging.info(f"Set model_config['experiment']['run_name'] to {model_config['experiment']['run_name']} to fetch optuna db object.")
+            if not get_most_recent_study:
+                logging.info(f"Retaining final_study_name {final_study_name}.")
 
         db_setup_params = generate_db_setup_params(args.model, model_config)
             
@@ -208,6 +213,8 @@ if __name__ == "__main__":
                         re.search(suffix_pattern, study.study_name).group(),
                         "%Y%m%d%H%M%S"))[-1].study_name
                 
+            logging.info(f"Retaining final_study_name {final_study_name}.")
+            
         logging.info("Running tune_hyperparameters_single")
     
     elif args.multiprocessor == "mpi":
@@ -386,8 +393,7 @@ if __name__ == "__main__":
             
         forecaster.train_all_outputs(scale=True, 
                                     multiprocessor=args.multiprocessor,
-                                    retrain_models=args.retrain_models,
-                                    scaler_params=None,
+                                    retrain_models=args.retrain_models
                                     )
         # %% After training completes
         logging.info("Training completed.")
