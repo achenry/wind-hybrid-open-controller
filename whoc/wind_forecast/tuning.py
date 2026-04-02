@@ -107,7 +107,7 @@ if __name__ == "__main__":
     # TODO don't use normalized path if not necessary
     data_module = DataModule(data_path=model_config["dataset"]["data_path"], 
                             normalization_consts_path=model_config["dataset"]["normalization_consts_path"],
-                            use_normalization=True, 
+                            use_normalization=False, 
                             n_splits=1, #model_config["dataset"]["n_splits"],
                             continuity_groups=None, 
                             train_split=(1.0 - model_config["dataset"]["val_split"] - model_config["dataset"]["test_split"]),
