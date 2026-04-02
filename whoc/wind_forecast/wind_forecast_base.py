@@ -678,13 +678,13 @@ class WindForecast:
                     X_all = self.scaler_input[output].fit_transform(X_all)
                     y_all = self.scaler_output[output].fit_transform(y_all)
                     
-                    # logging.info(f"Saving input scaler for output {output} on all {split} data.")
-                    # with open(scaler_input_save_path, "wb") as f:
-                    #     pickle.dump(self.scaler_input[output], f)
+                    logging.info(f"Saving input scaler for output {output} on all {split} data.")
+                    with open(scaler_input_save_path, "wb") as f:
+                        pickle.dump(self.scaler_input[output], f)
                     
-                    # logging.info(f"Saving output scaler for output {output} on all {split} data.")
-                    # with open(scaler_output_save_path, "wb") as f:
-                    #     pickle.dump(self.scaler_output[output], f)
+                    logging.info(f"Saving output scaler for output {output} on all {split} data.")
+                    with open(scaler_output_save_path, "wb") as f:
+                        pickle.dump(self.scaler_output[output], f)
 
             else:
                 training_inputs = ds.select(input_select).to_numpy()
@@ -696,11 +696,11 @@ class WindForecast:
                     X_all = self.scaler_input[output].fit_transform(X_all)
                     y_all = self.scaler_output[output].fit_transform(y_all)
 
-                    # logging.info(f"Saving scaler for output {output} on all {split} data.")
-                    # with open(scaler_input_save_path, "wb") as f:
-                    #     pickle.dump(self.scaler_input[output], f)
-                    # with open(scaler_output_save_path, "wb") as f:
-                    #     pickle.dump(self.scaler_output[output], f)
+                    logging.info(f"Saving scaler for output {output} on all {split} data.")
+                    with open(scaler_input_save_path, "wb") as f:
+                        pickle.dump(self.scaler_input[output], f)
+                    with open(scaler_output_save_path, "wb") as f:
+                        pickle.dump(self.scaler_output[output], f)
 
             data_shape = (X_all.shape[0], X_all.shape[1] + 1)
             fp = np.memmap(Xy_path, dtype="float32", 
