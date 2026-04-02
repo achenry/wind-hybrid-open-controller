@@ -679,9 +679,9 @@ def aggregate_time_series_data(time_series_df, n_seeds):
         
     # if time_series_df["Time"].max() > lpf_start_time:
     #     df = time_series_df.loc[(time_series_df["Time"] >= lpf_start_time), :]
-    yaw_angle_change_cols = sorted([c for c in agg_df.columns if "TurbineYawAngleChange_" in c], key=lambda s: int(re.search("(?!_wt)\d{3}", s).group()))
+    yaw_angle_change_cols = sorted([c for c in agg_df.columns if "TurbineYawAngleChange_" in c], key=lambda s: int(re.search("(?!_wt)\\d{3}", s).group()))
     # offline_status_cols = sorted([c for c in time_series_df.columns if "TurbineOfflineStatus_" in c], key=lambda s: int(s.split("_")[-1]))
-    turbine_power_cols = sorted([c for c in agg_df.columns if "TurbinePower_" in c], key=lambda s: int(re.search("(?!_wt)\d{3}", s).group()))
+    turbine_power_cols = sorted([c for c in agg_df.columns if "TurbinePower_" in c], key=lambda s: int(re.search("(?!_wt)\\d{3}", s).group()))
     agg_df["FarmPower"] = agg_df[turbine_power_cols].sum(axis=1)
     agg_df["YawAngleChangeAbs"] = agg_df[yaw_angle_change_cols].abs().sum(axis=1)
     agg_df = agg_df[["WindSeed", "YawAngleChangeAbs", "FarmPower", 
