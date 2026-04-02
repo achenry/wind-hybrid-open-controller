@@ -120,7 +120,7 @@ class WindForecast:
     def _compute_output_score(self, output, params, limit_train_val=None):
         # logging.info(f"Defining model for output {output}.")
         # model = self.create_model(**{re.search(f"\\w+(?=_{output})", k).group(0): v for k, v in params.items() if k.endswith(f"_{output}")})
-        model = self.create_model(**params)
+        model = self.create_model(**(self.kwargs | params))
         
         # get training data for this output
         logging.info(f"Getting training data for output {output}.")
@@ -637,16 +637,17 @@ class WindForecast:
         suffix = ("_" + "_".join([f"{k}{v}" for k, v in dataset_hparams.items()])) if dataset_hparams else ""
         Xy_path = os.path.join(self.model_save_dir, f"Xy_{self.study_name}_{split}_{output}{suffix}.dat")
         logging.info(f"Getting output data for output {output}, split {split} with Xy_path {Xy_path}, reload={reload}, scale={scale}, dataset_hparams={dataset_hparams}")
-        
+            
         input_turbine_indices = self.cluster_turbines[self.tid2idx_mapping[tid]] # this depends on the hyperparam num_neighboring_turbines
         logging.info(f"Input turbine indices for tid {tid} are {input_turbine_indices}")
         output_idx = input_turbine_indices.index(self.tid2idx_mapping[tid])
-        scaler_save_path = os.path.join(self.model_save_dir, f"{self.study_name}_scaler_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl")
+        scaler_input_save_path = os.path.join(self.model_save_dir, f"{self.study_name}_scaler_input_{output}{suffix}_{int(self.prediction_timedelta.total_seconds())}.pkl")
+        scaler_output_save_path = os.path.join(self.model_save_dir, f"{self.study_name}_scaler_output_{output}{suffix}_{int(self.prediction_timedelta.total_seconds())}.pkl")
 
         # logging.info(f"reload = {reload}, Xy_path = {Xy_path}, Xy_path exists = {os.path.exists(Xy_path)}")
-        if reload or not os.path.exists(Xy_path) or (scale and not os.path.exists(scaler_save_path)): 
+        if reload or not os.path.exists(Xy_path) or (scale and (not os.path.exists(scaler_input_save_path) or not os.path.exists(scaler_output_save_path))): 
         # if True or reload or not os.path.exists(Xy_path): 
-            assert measurements is not None and scale is not None, "Must provide measurements df and scale boolean to reload data in _get_output_data"
+            assert measurements is not None and scale is not None, "Must provide measurements df and scale boolean and scaler_input/output paths to reload data in _get_output_data"
             input_select = [f"{feat_type}_{self.idx2tid_mapping[t]}" for t in input_turbine_indices]
             if isinstance(measurements, Iterable):
                 # X_all = []
@@ -662,35 +663,45 @@ class WindForecast:
                     
                 # Concatenate all training inputs
                 training_inputs_all = np.vstack(training_inputs_all)
-                if scale: 
-                    logging.info(f"Fitting scaler for output {output} on all {split} data.")
-                    training_inputs_all = self.scaler[output].fit_transform(training_inputs_all)
-                    
-                    logging.info(f"Saving scaler for output {output} on all {split} data.")
-                    with open(scaler_save_path, "wb") as f:
-                        pickle.dump(self.scaler[output], f)
                         
                 X_all, y_all = self._prepare_arrays(training_inputs_all, output_idx)
+                
+                if scale: 
+                    logging.info(f"Fitting scaler for output {output} on all {split} data.")
+                    X_all = self.scaler_input[output].fit_transform(X_all)
+                    y_all = self.scaler_output[output].fit_transform(y_all)
+                    
+                    logging.info(f"Saving input scaler for output {output} on all {split} data.")
+                    with open(scaler_input_save_path, "wb") as f:
+                        pickle.dump(self.scaler_input[output], f)
+                    
+                    logging.info(f"Saving output scaler for output {output} on all {split} data.")
+                    with open(scaler_output_save_path, "wb") as f:
+                        pickle.dump(self.scaler_output[output], f)
 
             else:
                 training_inputs = ds.select(input_select).to_numpy()
-                if scale: 
-                    logging.info(f"Fitting scaler for output {output} on all {split} data.")
-                    training_inputs = self.scaler[output].fit_transform(training_inputs)
-                    
-                    logging.info(f"Saving scaler for output {output} on all {split} data.")
-                    with open(scaler_save_path, "wb") as f:
-                        pickle.dump(self.scaler[output], f)
                             
                 X_all, y_all = self._prepare_arrays(training_inputs, output_idx)
-            
+                
+                if scale: 
+                    logging.info(f"Fitting scaler for output {output} on all {split} data.")
+                    X_all = self.scaler_input[output].fit_transform(X_all)
+                    y_all = self.scaler_output[output].fit_transform(y_all)
+
+                    logging.info(f"Saving scaler for output {output} on all {split} data.")
+                    with open(scaler_input_save_path, "wb") as f:
+                        pickle.dump(self.scaler_input[output], f)
+                    with open(scaler_output_save_path, "wb") as f:
+                        pickle.dump(self.scaler_output[output], f)
+
             data_shape = (X_all.shape[0], X_all.shape[1] + 1)
             fp = np.memmap(Xy_path, dtype="float32", 
                            mode="w+", shape=data_shape)
             
             np.save(Xy_path.replace(".dat", "_shape.npy"), data_shape)
             fp[:, :-1] = X_all
-            fp[:, -1] = y_all
+            fp[:, -1:] = y_all
             fp.flush()
             
             logging.info(f"Saved {split} data to {Xy_path} with input shape {X_all.shape}")
@@ -702,14 +713,16 @@ class WindForecast:
             fp = np.memmap(Xy_path, dtype="float32", 
                            mode="r", shape=data_shape)
             X_all = fp[:, :-1]
-            y_all = fp[:, -1]
+            y_all = fp[:, -1:]
             
             logging.info(f"CHECK THIS MATCHES TUNING. Loaded {split} data from {Xy_path} for dataset_hparams {dataset_hparams} and n_context {self.n_context} with input shape {X_all.shape} and output shape {y_all.shape}")
             
             if scale:
                 logging.info(f"Loading scaler for output {output}, {split}.")
-                with open(scaler_save_path, "rb") as f:
-                    self.scaler[output] = pickle.load(f)
+                with open(scaler_input_save_path, "rb") as f:
+                    self.scaler_input[output] = pickle.load(f)
+                with open(scaler_output_save_path, "rb") as f:
+                    self.scaler_output[output] = pickle.load(f)
 
             # logging.info(f"Loaded {split} data from {Xy_path} with input shape {X_all.shape}")
         
@@ -719,7 +732,7 @@ class WindForecast:
         if return_data:
             # logging.info(f"Returning data from _get_output_data for Xy_path {Xy_path}")
             if return_scaler:
-                return X_all, y_all, self.scaler[output]
+                return X_all, y_all, self.scaler_input[output], self.scaler_output[output]
             else:
                 return X_all, y_all
         else:
@@ -796,7 +809,7 @@ class WindForecast:
                 last_trial = optuna_storage.get_all_trials(study_id)[-1]
                 logging.info(f"Last trial found, number: {last_trial.number}, value: {last_trial.value}, params: {last_trial.params}")
                 for output in self.outputs:
-                    self.model[output] = self.create_model(**best_trial.params)
+                    self.model[output] = self.create_model(**(self.kwargs | best_trial.params))
                 
                 logging.info(f"Updating self.dataset_hparams with tuned parameters {best_trial.params}.")
                 self.dataset_hparams = {k: v for k, v in best_trial.params.items() if k in self.dataset_hparams}
@@ -811,12 +824,12 @@ class WindForecast:
             except KeyError:
                 logging.error(f"Optuna study {study_name} not found. Please run tuning.py first. Using default parameters for now.")
                 for output in self.outputs:
-                    self.model[output] = self.create_model(**{k: v for k, v in self.kwargs.items() if k in self.model[output].get_params()})
+                    self.model[output] = self.create_model(**self.kwargs) #if k in self.model[output].get_params()})
         else:
             if not config_params:
                 config_params = {}
             for output in self.outputs:
-                self.model[output] = self.create_model(**config_params)
+                self.model[output] = self.create_model(**(self.kwargs | config_params))
         # self.model[output].set_params(**optuna_storage.get_best_trial(study_id).params)
         # optuna_storage.get_all_studies()[0]._study_id
         
