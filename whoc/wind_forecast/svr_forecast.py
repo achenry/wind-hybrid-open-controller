@@ -35,7 +35,7 @@ class SVRForecast(WindForecast):
         super().__post_init__()
         
         self.max_n_samples = self.kwargs["max_n_samples"] 
-        self.model_config = self.kwargs["model_config"]
+        self.model_config = self.kwargs["model_config"]["model"]["svr"]
 
         self.n_turbines = self.fmodel.n_turbines
         self.measurement_layout = np.vstack([self.fmodel.layout_x, self.fmodel.layout_y]).T
@@ -64,8 +64,8 @@ class SVRForecast(WindForecast):
             
         self.last_measurement_time = None
         # study_name=f"tuning_{self.model_key}_{self.model_config['experiment']['run_name']}"
-        self.study_name = f"tuning_svr_{self.model_config['experiment']['run_name']}"
-        self.model_save_dir = os.path.join(self.model_config["experiment"]["log_dir"], self.study_name)
+        self.study_name = f"tuning_svr_{self.kwargs['model_config']['experiment']['run_name']}"
+        self.model_save_dir = os.path.join(self.kwargs["model_config"]["experiment"]["log_dir"], self.study_name)
         os.makedirs(self.model_save_dir, exist_ok=True)
         
         self.scaler = defaultdict(self.create_scaler)
@@ -121,7 +121,7 @@ class SVRForecast(WindForecast):
         return StandardScaler()
     
     def create_model(self, **kwargs):
-        return SVR(**{k: v for k, v in kwargs.items() if k in inspect.signature(SVR).parameters})
+        return SVR(**{k: v for k, v in kwargs.items() if k in inspect.signature(SVR).parameters}) # TODO check if uses cache_size
    
     def _prepare_arrays(self, training_inputs, output_idx):
         
