@@ -48,6 +48,7 @@ if __name__ == "__main__":
     parser.add_argument("-rt", "--restart_tuning", action="store_true")
     parser.add_argument("-m", "--mode", choices=["tune", "train"])
     parser.add_argument("-rd", "--reload_data", action="store_true", help="Whether to reload the train/validation data from the source, or to use existing .dat files.")
+    parser.add_argument("-rg", "--regenerate_data", action="store_true", help="Whether to regenerate X_all and y_all .dat files data from the source, or to use existing .dat files.")
     parser.add_argument("-tti", "--target_turbine_indices", metavar="C", nargs="+", required=False, default=None, type=int)
     
     # parser.add_argument('--cores', required=False, default=None, help='Comma-separated list or range of core IDs (e.g., "0-9" or "10,11,12")')
@@ -306,14 +307,14 @@ if __name__ == "__main__":
             required_num_Xy_paths = (data_module.num_target_vars if args.target_turbine_indices is None else (len(args.target_turbine_indices) * len(data_module.target_prefixes))) * 2 # val and train
             
             # logging.info(f"worker_id = {worker_id}, reload = {args.reload_data or reload}, num_Xy_paths = {num_Xy_paths}, required_num_Xy_paths = {required_num_Xy_paths}")
-            if worker_id == 0 and (args.reload_data or reload or num_Xy_paths < required_num_Xy_paths):
+            if worker_id == 0 and (args.reload_data or args.regenerate_data or reload or num_Xy_paths < required_num_Xy_paths):
                 logging.info(f"Preparing data with suffix {suffix} for tuning")
                 
                 forecaster.prepare_data(
                     dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, 
                     scale=True, 
                     multiprocessor=args.multiprocessor, 
-                    reload=args.reload_data or reload,
+                    reload=args.reload_data or args.regenerate_data or reload,
                     dataset_hparams={k: v for k, v in zip(dataset_hparams, hparam_set)})
             
                 if RUN_ONCE:
@@ -341,12 +342,12 @@ if __name__ == "__main__":
         required_num_Xy_paths = (data_module.num_target_vars if (args.target_turbine_indices is None) else (len(args.target_turbine_indices) * len(data_module.target_prefixes))) * 2 # val and train
         logging.info(f"Found {num_Xy_paths} existing Xy paths for training with format Xy_{forecaster.study_name}_*_*{suffix}.dat. Require {required_num_Xy_paths}.")
             
-        if worker_id == 0 and (args.reload_data or reload or num_Xy_paths < required_num_Xy_paths):
+        if worker_id == 0 and (args.reload_data or args.regenerate_data or reload or num_Xy_paths < required_num_Xy_paths):
             forecaster.prepare_data(
                 dataset_splits={"train": train_dataset.partition_by("continuity_group"), "val": val_dataset.partition_by("continuity_group")}, 
                 scale=True, 
                 multiprocessor=args.multiprocessor, 
-                reload=args.reload_data or reload)
+                reload=args.reload_data or args.regenerate_data or reload)
 
         if RUN_ONCE:
             logging.info("Finished preparing data for training.")
