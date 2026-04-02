@@ -117,7 +117,7 @@ wind_forecast:
     degree: 3
     gamma: auto
     epsilon: 0.1
-    cache_size: 200
+    cache_size: 7000
     n_neighboring_turbines: 5
     max_n_samples:
   SpatialFilterForecast:
