@@ -394,7 +394,8 @@ if __name__ == "__main__":
             
         forecaster.train_all_outputs(scale=True, 
                                     multiprocessor=args.multiprocessor,
-                                    retrain_models=args.retrain_models
+                                    retrain_models=args.retrain_models, 
+                                    limit_train_val=args.limit_train_val
                                     )
         # %% After training completes
         logging.info("Training completed.")
