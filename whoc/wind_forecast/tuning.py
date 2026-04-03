@@ -19,6 +19,7 @@ from wind_forecasting.utils.optuna_storage import setup_optuna_storage
 from wind_forecasting.utils.optuna_config_utils import generate_db_setup_params
 from itertools import product
 import optuna
+import multiprocessing as mp
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -30,6 +31,8 @@ def replace_env_vars(dirpath):
     return dirpath
 
 if __name__ == "__main__":
+    
+    mp.set_start_method('spawn', force=True)
     
     parser = argparse.ArgumentParser(prog="WindFarmForecasting")
     parser.add_argument("-md", "--model", type=str, choices=["svr", "kf", "preview", "informer", "autoformer", "spacetimeformer"], required=True)
