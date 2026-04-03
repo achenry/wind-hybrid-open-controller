@@ -186,7 +186,7 @@ class SVRForecast(WindForecast):
                 with open(scaler_output_save_path, "rb") as fp:
                     self.scaler_output[output] = pickle.load(fp)
         else:
-            # TODO check scaling
+            
             X_train, y_train, self.scaler_input[output], self.scaler_output[output] = self._get_output_data(measurements=training_measurements, 
                                                                                                             output=output, split="train", reload=False, 
                                                                                                             scale=scale, return_scaler=True, dataset_hparams=self.dataset_hparams)
