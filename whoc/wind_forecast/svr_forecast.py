@@ -166,7 +166,7 @@ class SVRForecast(WindForecast):
     def predict_sample(self, n_samples: int):
         pass
     
-    def train_single_output(self, training_measurements, output, retrain_models, scale):
+    def train_single_output(self, training_measurements, output, retrain_models, scale, limit_train_val):
         
         # feat_type = re.search(f"\\w+(?=_{self.turbine_signature})", output).group()
         # tid = re.search(f"(?<=_){self.turbine_signature}$", output).group()
@@ -190,6 +190,12 @@ class SVRForecast(WindForecast):
             X_train, y_train, self.scaler_input[output], self.scaler_output[output] = self._get_output_data(measurements=training_measurements, 
                                                                                                             output=output, split="train", reload=False, 
                                                                                                             scale=scale, return_scaler=True, dataset_hparams=self.dataset_hparams)
+            
+            if limit_train_val:
+                # randomly sample from full training data
+                random_indices = np.random.choice(np.arange(X_train.shape[0]), size=int(limit_train_val * X_train.shape[0]))
+                X_train, y_train = X_train[random_indices, :], y_train[random_indices]
+            
             logging.info(f"Fitting SVR model for output {output} with {X_train.shape[0]} data points.")
             self.model[output].fit(X_train, y_train)
             
@@ -207,7 +213,7 @@ class SVRForecast(WindForecast):
                 
         return self.model[output], self.scaler_input[output], self.scaler_output[output]
     
-    def train_all_outputs(self, scale, multiprocessor, retrain_models=True):
+    def train_all_outputs(self, scale, multiprocessor, limit_train_val=None, retrain_models=True):
         if self.dataset_hparams["n_neighboring_turbines"]:
             self.cluster_turbines = [sorted(np.arange(self.n_turbines), 
                         key=lambda t: np.linalg.norm(self.measurement_layout[tid, :] - self.measurement_layout[t, :]))[:self.dataset_hparams["n_neighboring_turbines"]]
@@ -241,7 +247,8 @@ class SVRForecast(WindForecast):
                                         training_measurements=None, 
                                         output=output, 
                                         scale=scale, 
-                                        retrain_models=retrain_models) for output in self.outputs]
+                                        retrain_models=retrain_models,
+                                        limit_train_val=limit_train_val) for output in self.outputs]
                 for output, fut in zip(self.outputs, futures):
                     m, s_in, s_out = fut.result()
                     self.model[output] = m
@@ -252,7 +259,8 @@ class SVRForecast(WindForecast):
                 self.model[output], self.scaler_input[output], self.scaler_output[output] = self.train_single_output(
                     training_measurements=None, 
                     output=output, scale=scale, 
-                    retrain_models=retrain_models)
+                    retrain_models=retrain_models,
+                    limit_train_val=limit_train_val)
     
     def predict_point(self, historic_measurements: Union[pd.DataFrame, pl.DataFrame], current_time):
         # TODO LOW include yaw angles in inputs?
