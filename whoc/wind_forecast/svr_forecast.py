@@ -42,14 +42,7 @@ class SVRForecast(WindForecast):
         
         self.n_neighboring_turbines = self.kwargs["n_neighboring_turbines"] 
         self.dataset_hparams = {"n_neighboring_turbines": self.n_neighboring_turbines}
-        self.dataset_hparams_choices = {"n_neighboring_turbines": [1, 3, 5]}
-        if self.n_neighboring_turbines:
-            self.cluster_turbines = [sorted(np.arange(self.n_turbines), 
-                        key=lambda t: np.linalg.norm(self.measurement_layout[tid, :] - self.measurement_layout[t, :]))[:self.n_neighboring_turbines]
-                                    for tid in range(self.n_turbines)]
-        else:
-            self.cluster_turbines = [np.arange(self.n_turbines)] * self.n_turbines
-        
+
         # rescale this since SVR predicts a sample for every self.prediction_timedelta (not multistep)
         if (self.context_timedelta % self.prediction_timedelta).total_seconds() != 0:
             self.context_timedelta = ((self.context_timedelta // self.prediction_timedelta) + 1) * self.prediction_timedelta
@@ -71,6 +64,9 @@ class SVRForecast(WindForecast):
         self.scaler_input = defaultdict(self.create_scaler)
         self.scaler_output = defaultdict(self.create_scaler)
         self.model = defaultdict(self.create_model)
+        
+        # if self.use_tuned_params:
+        #     self.set_tuned_params(optuna_storage=self.kwargs.get("optuna_storage", None), study_name=final_study_name)
             
         self.use_trained_models = self.kwargs.get("use_trained_models", True)
         
@@ -104,25 +100,45 @@ class SVRForecast(WindForecast):
                     continue
                 with open(os.path.join(self.model_save_dir, model_file), "rb") as fp:
                     self.model[output] = pickle.load(fp)
-                assert self.model[output].n_features_in_ == self.n_neighboring_turbines * self.n_context, f"SVR must be tuned and trained for n_neighboring_turbines = {self.n_neighboring_turbines} and context_timedelta = {self.context_timedelta}."
+                self.dataset_hparams["n_neighboring_turbines"] = self.n_neighboring_turbines = self.model[output].n_features_in_ // self.n_context
                 
+                assert self.model[output].n_features_in_ == self.n_neighboring_turbines * self.n_context, f"SVR must be tuned and trained for n_neighboring_turbines = {self.n_neighboring_turbines} and context_timedelta = {self.context_timedelta}."
+            
             for scaler_file in scaler_input_files:
                 # if os.path.exists(os.path.join(self.model_save_dir, f"svr_scaler_{output}_{self.prediction_timedelta.total_seconds()}.pkl")):
-                output = re.search(f"(?<={self.study_name}_scaler_)([\\w\\_]+\\d+)(?=\\_)", os.path.basename(scaler_file)).group()
-                prediction_length = float(re.search(f"(?<={self.study_name}_scaler_input_{output}_)([\\d\\.]+)(?=.pkl)", os.path.basename(scaler_file)).group())
+                suffix = ("_" + "_".join([f"{k}{v}" for k, v in self.dataset_hparams.items()])) if self.dataset_hparams else ""
+                if re.search((suffix), os.path.basename(scaler_file)) is None:
+                    # incorrect scaler
+                    continue
+                output = re.search(f"(?<={self.study_name}_scaler_input_)([\\w\\_]+\\d+)(?={suffix})", os.path.basename(scaler_file)).group()
+                prediction_length = float(re.search(f"(?<={self.study_name}_scaler_input_{output}{suffix}_)([\\d\\.]+)(?=.pkl)", os.path.basename(scaler_file)).group())
                 if prediction_length != self.prediction_timedelta.total_seconds():
+                    # incorrect scaler
                     continue
                 with open(os.path.join(self.model_save_dir, scaler_file), "rb") as fp:
                     self.scaler_input[output] = pickle.load(fp)
 
             for scaler_file in scaler_output_files:
-                output = re.search(f"(?<={self.study_name}_scaler_)([\\w\\_]+\\d+)(?=\\_)", os.path.basename(scaler_file)).group()
-                prediction_length = float(re.search(f"(?<={self.study_name}_scaler_output_{output}_)([\\d\\.]+)(?=.pkl)", os.path.basename(scaler_file)).group())
+                suffix = ("_" + "_".join([f"{k}{v}" for k, v in self.dataset_hparams.items()])) if self.dataset_hparams else ""
+                if re.search((suffix), os.path.basename(scaler_file)) is None:
+                    # incorrect scaler
+                    continue
+                output = re.search(f"(?<={self.study_name}_scaler_output_)([\\w\\_]+\\d+)(?={suffix})", os.path.basename(scaler_file)).group()
+                prediction_length = float(re.search(f"(?<={self.study_name}_scaler_output_{output}{suffix}_)([\\d\\.]+)(?=.pkl)", os.path.basename(scaler_file)).group())
                 if prediction_length != self.prediction_timedelta.total_seconds():
                     continue
                 with open(os.path.join(self.model_save_dir, scaler_file), "rb") as fp:
                     self.scaler_output[output] = pickle.load(fp)
 
+        
+        self.dataset_hparams_choices = {"n_neighboring_turbines": [1, 3, 5]}
+        if self.n_neighboring_turbines:
+            self.cluster_turbines = [sorted(np.arange(self.n_turbines), 
+                        key=lambda t: np.linalg.norm(self.measurement_layout[tid, :] - self.measurement_layout[t, :]))[:self.n_neighboring_turbines]
+                                    for tid in range(self.n_turbines)]
+        else:
+            self.cluster_turbines = [np.arange(self.n_turbines)] * self.n_turbines
+        
     def reset(self, **kwargs):
         pass
     
@@ -297,11 +313,7 @@ class SVRForecast(WindForecast):
                 pred[output] = self._predict(model=self.model[output], output=output,
                                              training_inputs=training_inputs)
                 
-            # rescale back TODO
-            if scale:
-                pred = {output: self._inverse_scale(pred, output).flatten() for output in self.outputs}
-            else:
-                pred = {output: pred[output][np.newaxis, :].flatten() for output in self.outputs}
+            pred = {output: pred[output][np.newaxis, :].flatten() for output in self.outputs}
             
             pred = pl.DataFrame({"time": pred_slice}).with_columns(**pred)
             
