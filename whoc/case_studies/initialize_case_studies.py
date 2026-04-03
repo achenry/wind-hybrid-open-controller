@@ -765,7 +765,7 @@ def initialize_simulations(case_study_keys, regenerate_lut, regenerate_wind_fiel
 
     elif wf_source == "scada":
         # NOTE: we use the model config with the highest prediction length to instantiate the DataModule
-        data_module = DataModule(data_path=base_model_config["dataset"]["data_path"], 
+        data_module = DataModule(normalized_data_path=base_model_config["dataset"]["data_path"], 
                                     normalization_consts_path=base_model_config["dataset"]["normalization_consts_path"],
                                     use_normalization=False, 
                                     n_splits=1, #model_config["dataset"]["n_splits"],

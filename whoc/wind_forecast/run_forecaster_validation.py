@@ -654,7 +654,7 @@ if __name__ == "__main__":
     cgs = []
     joint_cgs = set()
     for mcnf in model_configs:
-        data_module = DataModule(data_path=mcnf["dataset"]["data_path"], 
+        data_module = DataModule(normalized_data_path=mcnf["dataset"]["data_path"], 
                                 normalization_consts_path=mcnf["dataset"]["normalization_consts_path"],
                                 use_normalization=False, 
                                 n_splits=1, #model_config["dataset"]["n_splits"],

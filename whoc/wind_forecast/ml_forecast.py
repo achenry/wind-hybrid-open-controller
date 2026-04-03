@@ -101,7 +101,7 @@ class MLForecast(WindForecast):
         if checkpoint_path is not None:
             checkpoint_hparams = load_estimator_from_checkpoint(checkpoint_path, lightning_module_class, self.model_config, self.model_key, train=False)
             logging.info(f"Loaded checkpoint from {checkpoint_path}") # with hparams: {checkpoint_hparams}")
-            self.data_module = DataModule(data_path=self.model_config["dataset"]["data_path"],
+            self.data_module = DataModule(normalized_data_path=self.model_config["dataset"]["data_path"],
                                         n_splits=self.model_config["dataset"]["n_splits"],
                                         continuity_groups=None,
                                         train_split=(1.0 - self.model_config["dataset"]["val_split"] - self.model_config["dataset"]["test_split"]),
