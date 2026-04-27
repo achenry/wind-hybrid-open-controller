@@ -4,10 +4,10 @@
 #SBATCH --output=%j_%x.out
 #SBATCH --nodes=1
 #SBATCH --mem=0
-#SBATCH --time=36:00:00
+#SBATCH --time=72:00:00
 ##SBATCH --time=01:00:00
 ##SBATCH --partition=debug
-##SBATCH --partition=bigmem
+#SBATCH --partition=medmem
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=104
 
@@ -27,7 +27,7 @@ echo "=== ENVIRONMENT ==="
 module list
 
 export MODELS="kf persistence sf svr"
-export MODEL_CONFIG_PATH="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_predLUT.yaml"
+export MODEL_CONFIG_PATH="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred_smoothed_svr.yaml"
 export DATA_CONFIG_PATH="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/preprocessing/preprocessing_inputs_kestrel_awaken_new.yaml"
 
 #export N_PROCESSES=13
@@ -61,5 +61,5 @@ python ../run_forecaster_validation.py --ram_limit 65 --model ${MODELS} --model_
 						--run_name baseline_forecasters --max_splits 30 \
 						--simulation_timestep 1 \
 						--save_dir /projects/awaken/ahenry/wind_forecasting/logging --multiprocessor cf --prediction_type distribution \
-						 --use_trained_models --run_validation --run_processing #--max_steps 1600 --rerun_validation
+						 --use_trained_models --run_validation --run_processing --rerun_validation #--max_steps 1600 --rerun_validation
 

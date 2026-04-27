@@ -3,10 +3,10 @@
 #SBATCH --account=awaken
 #SBATCH --output=model_tuning_%j.out
 #SBATCH --nodes=1
-#SBATCH --mem=0
+#SBATCH --mem=984256
 #SBATCH --time=48:00:00
 ##SBATCH --time=01:00:00
-##SBATCH --partition=debug
+#SBATCH --partition=medmem
 #SBATCH --ntasks-per-node=104
 ##SBATCH --cpus-per-task=1
 
@@ -14,7 +14,7 @@
 # salloc --account=awaken --job-name=model_tuning  --ntasks=104 --cpus-per-task=1 --time=01:00:00 --partition=debug
 # python tuning.py --config $HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel.yaml --study_name "svr_tuning" --model "svr"
 
-export NTASKS_PER_TUNER=26
+export NTASKS_PER_TUNER=25
 export MODEL=$1
 NTUNERS=$((SLURM_NTASKS / NTASKS_PER_TUNER)) # cast to int
 
@@ -44,8 +44,8 @@ echo "DATA_CONFIG_PATH=${DATA_CONFIG_PATH}"
 export BASE_DIR="/home/ahenry/toolboxes/wind_forecasting_env/wind-hybrid-open-controller"
 export WORK_DIR="${BASE_DIR}/whoc/wind_forecast"
 export LOG_DIR="${WORK_DIR}/logs"
-#export RESTART_TUNING_FLAG="--restart_tuning" # "" Or "--restart_tuning"
-export RESTART_TUNING_FLAG="" # "" Or "--restart_tuning"
+export RESTART_TUNING_FLAG="--restart_tuning" # "" Or "--restart_tuning"
+#export RESTART_TUNING_FLAG="" # "" Or "--restart_tuning"
 export TARGET_TURBINE_IDX_FLAG="" #"--target_turbine_indices 74 73 4"
 export AUTO_EXIT_WHEN_DONE="true"  # Set to "true" to exit script when all workers finish, "false" to keep running until timeout
 #export NUMEXPR_MAX_THREADS=128
@@ -90,7 +90,7 @@ PYTHONPATH=$(which python)
 #srun -n ${SLURM_NTASKS} --export=ALL,WORKER_RANK=0 
 
 export WORKER_RANK=0
-python ${WORK_DIR}/tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --seed 0 --mode tune $TARGET_TURBINE_IDX_FLAG $RESTART_TUNING_FLAG # --reload_data
+python ${WORK_DIR}/tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --seed 0 --mode tune $TARGET_TURBINE_IDX_FLAG $RESTART_TUNING_FLAG #--reload_data
 
 # --- Parallel Worker Launch using nohup ---
 NUM_CPUS=${SLURM_NTASKS_PER_NODE}
@@ -147,7 +147,7 @@ for i in $(seq 1 $((${NTUNERS}))); do
         
         echo \"Worker ${WORKER_RANK}: Running python script...\"
         taskset -c $CORES python ${WORK_DIR}/tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} \
-                --multiprocessor cf --seed ${WORKER_SEED} --limit_train_val .1 --mode tune ${RESTART_FLAG} ${TARGET_TURBINE_IDX_FLAG}
+                --multiprocessor cf --seed ${WORKER_SEED} --limit_train_val .1 --mode tune ${RESTART_TUNING_FLAG} ${TARGET_TURBINE_IDX_FLAG}
 
         # Check exit status
         status=\$?
