@@ -3,13 +3,13 @@
 #SBATCH --account=awaken
 #SBATCH --output=model_training_%j.out
 ##SBATCH --nodes=4
-#SBATCH --time=192:00:00
+#SBATCH --time=168:00:00
 #SBATCH --nodes=1
-#SBATCH --mem=0
+#SBATCH --mem=984256
 ##SBATCH --time=01:00:00
 ##SBATCH --partition=debug
-##SBATCH --partition=bigmem
-##SBATCH --ntasks-per-node=88
+#SBATCH --partition=medmem
+#SBATCH --ntasks=20
 ##SBATCH --cpus-per-task=1
 
 #  srun -n 1 --exclusive python tuning.py --config $HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel.yaml --study_name "svr_tuning" --model "svr" &
@@ -54,7 +54,7 @@ echo "=== STARTING TRAINING ==="
 date +"%Y-%m-%d %H:%M:%S"
 cd ..
 python tuning.py --model ${MODEL} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} \
-		--multiprocessor cf --seed ${WORKER_SEED} --mode train $TARGET_TURBINE_IDX_FLAG --use_tuned_params # --limit_train_val 0.25
+		--multiprocessor cf --seed ${WORKER_SEED} --mode train $TARGET_TURBINE_IDX_FLAG --use_tuned_params #--regenerate_data  --limit_train_val 0.25
 
 date +"%Y-%m-%d %H:%M:%S"
 echo "=== TRAINING COMPLETED ==="
