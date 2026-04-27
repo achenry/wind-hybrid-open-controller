@@ -271,14 +271,14 @@ if __name__ == "__main__":
                     existing_time_series_df = [fut.result() for fut in read_futures]
 
                     # write time_series_all for each case
-                    if len(new_time_series_df):
-                        write_futures = [run_simulations_exec.submit(write_case_family_time_series_data, 
-                                                                     case_family=case_families[i], 
-                                                                     new_time_series_df=new_time_series_df[0],
-                                                                     save_dir=args.save_dir)
-                                        for i in args.case_ids
-                                        if args.reaggregate_simulations or not os.path.exists(os.path.join(args.save_dir, case_families[i], "time_series_results_all.csv"))]
-                        _ = [fut.result() for fut in write_futures]
+                    # if len(new_time_series_df):
+                    #     write_futures = [run_simulations_exec.submit(write_case_family_time_series_data, 
+                    #                                                  case_family=case_families[i], 
+                    #                                                  new_time_series_df=new_time_series_df[0],
+                    #                                                  save_dir=args.save_dir)
+                    #                     for i in args.case_ids
+                    #                     if args.reaggregate_simulations or not os.path.exists(os.path.join(args.save_dir, case_families[i], "time_series_results_all.csv"))]
+                    #     _ = [fut.result() for fut in write_futures]
                     
             # else, run sequentially
             else:
@@ -299,9 +299,11 @@ if __name__ == "__main__":
                                 read_time_series_data(results_path=os.path.join(args.save_dir, case_families[i], fn),
                                                       input_dict_path=os.path.join(args.save_dir, case_families[i], 
                                                                                    f"input_config_{re.search(input_regex, fn).group()}.pkl")))
-
+            
+            if new_case_family_time_series_df:
+                for i in args.case_ids:
                     # if any new time series data has been read, add it to the new_time_series_df list and save the aggregated time-series data
-                    if new_case_family_time_series_df:
+                    if args.reaggregate_simulations or not os.path.exists(os.path.join(args.save_dir, case_families[i], "time_series_results_all.csv"))
                         new_time_series_df.append(pd.concat(new_case_family_time_series_df))
                         write_case_family_time_series_data(case_families[i], new_time_series_df[-1], args.save_dir)
             
