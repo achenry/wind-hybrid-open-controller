@@ -333,7 +333,7 @@ def generate_sample_based_metrics_per_cg(pred_df, true, metric_name, metric_func
         test_idx=pl.lit(-1)
     )
 
-def generate_forecaster_agg_results(forecaster, forecast_df, test_data, data_module, prediction_type):
+def generate_forecaster_agg_results(forecaster, forecast_df, test_data, target_cols, prediction_type):
     logging.info(f"Preparing true data for forecaster {forecaster.__class__.__name__} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
     # true_df_pd = test_data.collect().to_pandas()
     # true_df_pd = true_df_pd.set_index(pd.PeriodIndex(true_df_pd["time"].dt.to_period(freq=data_module.freq)))[data_module.target_cols]\
@@ -342,7 +342,7 @@ def generate_forecaster_agg_results(forecaster, forecast_df, test_data, data_mod
     forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.model_key.capitalize()}Forecast"
     logging.info(f"Preparing combined df for forecaster {forecaster_name} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
     
-    fdf = forecast_df.select(["time", "test_idx"] + [cs.ends_with(tgt) for tgt in data_module.target_cols])
+    fdf = forecast_df.select(["time", "test_idx"] + [cs.ends_with(tgt) for tgt in target_cols])
     if False:
         # NOTE: for multistep predictions it is possible for multiple predictions for the same timestamp to exist
         # select the first prediction found for each timestamp, i.e. the one farthest from current time
@@ -350,17 +350,17 @@ def generate_forecaster_agg_results(forecaster, forecast_df, test_data, data_mod
         # otherwise we include the errors for the same timestamp multiple times
     
     tdf = test_data.filter(pl.col("time").is_in(forecast_df["time"].implode()))\
-                       .select(["time", "continuity_group"] + data_module.target_cols)
+                       .select(["time", "continuity_group"] + target_cols)
     combined_df = fdf.rename(lambda col: re.search("(?<=loc_)(\\w+)$", col).group() if col.startswith("loc_") else col)\
                      .join(tdf, on=["time"], suffix="_true", coalesce=False)
-    true_cols = [f"{c}_true" for c in data_module.target_cols]
+    true_cols = [f"{c}_true" for c in target_cols]
     
     # x = datetime.strptime("2023-02-19 15:54:12", "%Y-%m-%d %H:%M:%S")
     
     logging.info(f"Preparing deterministic agg_metrics for forecaster {forecaster_name} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
     
     agg_metrics = []
-    err = combined_df.select(["time", "continuity_group"] + [(pl.col(pred_col) - pl.col(true_col)) for true_col, pred_col in zip(true_cols, data_module.target_cols)])
+    err = combined_df.select(["time", "continuity_group"] + [(pl.col(pred_col) - pl.col(true_col)) for true_col, pred_col in zip(true_cols, target_cols)])
     
     rmse = err.group_by("continuity_group").agg(cs.numeric().pow(2).mean().sqrt()).with_columns(metric=pl.lit("RMSE"), test_idx=pl.lit(-1))
     rmse = unpivot_df(rmse, forecaster.turbine_signature)
@@ -373,21 +373,21 @@ def generate_forecaster_agg_results(forecaster, forecast_df, test_data, data_mod
     if prediction_type == "distribution" and forecaster.is_probabilistic:
         logging.info(f"Preparing probabilistic agg_metrics for forecaster {forecaster_name} with prediction_timedelta = {forecaster.prediction_timedelta.total_seconds()} seconds.")
     
-        pred_mean = combined_df.select(["continuity_group"] + data_module.target_cols)
+        pred_mean = combined_df.select(["continuity_group"] + target_cols)
         true = combined_df.select(["continuity_group"] + true_cols)
         pred_stddev = combined_df.select(pl.col("continuity_group"), cs.starts_with("sd_"))
         cg_vals = combined_df.select(pl.col("continuity_group").unique()).to_numpy().flatten()
         
-        picp = generate_metric_per_cg(pred_mean, pred_stddev, true, "PICP", pi_coverage_probability, cg_vals, data_module.target_cols, true_cols)
+        picp = generate_metric_per_cg(pred_mean, pred_stddev, true, "PICP", pi_coverage_probability, cg_vals, target_cols, true_cols)
         picp = unpivot_df(picp, forecaster.turbine_signature)
         
-        pinaw = generate_metric_per_cg(pred_mean, pred_stddev, true, "PINAW", pi_normalized_average_width, cg_vals, data_module.target_cols, true_cols)
+        pinaw = generate_metric_per_cg(pred_mean, pred_stddev, true, "PINAW", pi_normalized_average_width, cg_vals, target_cols, true_cols)
         pinaw = unpivot_df(pinaw, forecaster.turbine_signature)
         
-        cwc = generate_metric_per_cg(pred_mean, pred_stddev, true, "CWC", coverage_width_criterion, cg_vals, data_module.target_cols, true_cols)
+        cwc = generate_metric_per_cg(pred_mean, pred_stddev, true, "CWC", coverage_width_criterion, cg_vals, target_cols, true_cols)
         cwc = unpivot_df(cwc, forecaster.turbine_signature)
         
-        crps = generate_metric_per_cg(pred_mean, pred_stddev, true, "CRPS", continuous_ranked_probability_score_gaussian, cg_vals, data_module.target_cols, true_cols)
+        crps = generate_metric_per_cg(pred_mean, pred_stddev, true, "CRPS", continuous_ranked_probability_score_gaussian, cg_vals, target_cols, true_cols)
         crps = unpivot_df(crps, forecaster.turbine_signature)
         
         agg_metrics += [picp, pinaw, cwc, crps]
@@ -399,19 +399,19 @@ def generate_forecaster_agg_results(forecaster, forecast_df, test_data, data_mod
         
         # Calculate sample-based metrics
         picp = generate_sample_based_metrics_per_cg(combined_df, combined_df, "PICP_samples", pi_coverage_probability_samples,
-                                                  cg_vals, data_module.target_cols, true_cols)
+                                                  cg_vals, target_cols, true_cols)
         picp = unpivot_df(picp, forecaster.turbine_signature)
         
         pinaw = generate_sample_based_metrics_per_cg(combined_df, combined_df, "PINAW_samples", pi_normalized_average_width_samples,
-                                                   cg_vals, data_module.target_cols, true_cols)
+                                                   cg_vals, target_cols, true_cols)
         pinaw = unpivot_df(pinaw, forecaster.turbine_signature)
         
         cwc = generate_sample_based_metrics_per_cg(combined_df, combined_df, "CWC_samples", coverage_width_criterion_samples,
-                                                 cg_vals, data_module.target_cols, true_cols)
+                                                 cg_vals, target_cols, true_cols)
         cwc = unpivot_df(cwc, forecaster.turbine_signature)
         
         crps = generate_sample_based_metrics_per_cg(combined_df, combined_df, "CRPS_samples", continuous_ranked_probability_score_samples,
-                                                  cg_vals, data_module.target_cols, true_cols)
+                                                  cg_vals, target_cols, true_cols)
         crps = unpivot_df(crps, forecaster.turbine_signature)
         
         agg_metrics += [picp, pinaw, cwc, crps]
@@ -740,6 +740,7 @@ if __name__ == "__main__":
     
     # assert pd.Timedelta(test_data[0]["start"].freq) == measurements_timedelta
     assert pd.Timedelta(test_data.select(pl.col("time").diff()).slice(1,1).collect().item()) == measurements_timedelta
+    
     # assert test_data.select(pl.col("time").slice(0, 2).diff()).slice(1,1).item() == measurements_timedelta
    
     # custom_eval_fn = {
@@ -1102,10 +1103,11 @@ if __name__ == "__main__":
                     available_agg_cgs = set(agg_metrics.select(pl.col('continuity_group').unique()).to_numpy().flatten())
 
             if args.rerun_validation or not os.path.exists(agg_metric_path) or (available_agg_cgs != unique_cgs[prediction_timedelta]):
+                target_cols = data_module.target_cols if forecaster.target_turbine_indices is None else [f"{pfx}_{forecaster.idx2tid_mapping[idx]}" for pfx in data_module.target_prefixes for idx in forecaster.target_turbine_indices] 
                 agg_metrics = generate_forecaster_agg_results(forecaster, 
                                                               forecast_df, 
                                                               test_data.filter(pl.col("continuity_group").is_in(unique_cgs[prediction_timedelta])).collect(), 
-                                                              data_module, args.prediction_type)
+                                                              target_cols, args.prediction_type)
                 agg_metrics.write_parquet(agg_metric_path)
 
             results[f]["agg_metrics"] = agg_metrics
@@ -1146,7 +1148,7 @@ if __name__ == "__main__":
                                         .collect()
         
         # plot continuity group with best rmse score
-        PLOT_INDIVIDUAL = False
+        PLOT_INDIVIDUAL = True
         forecasts_long = []
         for f, forecaster in enumerate(forecasters):
             forecaster_name = forecaster.__class__.__name__ if forecaster.__class__.__name__ != "MLForecast" else f"{forecaster.model_key.capitalize()}Forecast"
