@@ -1,4 +1,3 @@
-
 from typing import Union
 import os
 from collections import defaultdict
@@ -23,95 +22,165 @@ from whoc.wind_forecast.wind_forecast_base import WindForecast
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing as mp
 
-import logging 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+import logging
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 
 @dataclass
 class SVRForecast(WindForecast):
     """Wind speed component forecasting using Support Vector Regression."""
+
     is_probabilistic = False
+
     def __post_init__(self):
         super().__post_init__()
-        
-        self.max_n_samples = self.kwargs["max_n_samples"] 
+        logging.info("Initializing SVRForecast model.")
+        self.max_n_samples = self.kwargs["max_n_samples"]
         self.model_config = self.kwargs["model_config"]["model"]["svr"]
 
         self.n_turbines = self.fmodel.n_turbines
         self.measurement_layout = np.vstack([self.fmodel.layout_x, self.fmodel.layout_y]).T
-        
-        self.n_neighboring_turbines = self.kwargs["n_neighboring_turbines"] 
+
+        self.n_neighboring_turbines = self.kwargs["n_neighboring_turbines"]
         self.dataset_hparams = {"n_neighboring_turbines": self.n_neighboring_turbines}
 
         # rescale this since SVR predicts a sample for every self.prediction_timedelta (not multistep)
         if (self.context_timedelta % self.prediction_timedelta).total_seconds() != 0:
-            self.context_timedelta = ((self.context_timedelta // self.prediction_timedelta) + 1) * self.prediction_timedelta
-            
-        self.n_prediction_interval = self.n_prediction # for SVR, we consider measurments prediction_timedelta apart
+            self.context_timedelta = (
+                (self.context_timedelta // self.prediction_timedelta) + 1
+            ) * self.prediction_timedelta
+
+        self.n_prediction_interval = (
+            self.n_prediction
+        )  # for SVR, we consider measurments prediction_timedelta apart
         self.prediction_interval = self.n_prediction_interval * self.measurements_timedelta
         self.n_context = int(self.context_timedelta / self.prediction_interval)
         self.n_prediction = 1
-        
+
         # if self.max_n_samples is None:
         #     self.max_n_samples = (self.n_context + self.n_prediction) * 1000
-            
+
         self.last_measurement_time = None
         # study_name=f"tuning_{self.model_key}_{self.model_config['experiment']['run_name']}"
         self.study_name = f"tuning_svr_{self.kwargs['model_config']['experiment']['run_name']}"
-        self.model_save_dir = os.path.join(self.kwargs["model_config"]["experiment"]["log_dir"], self.study_name)
+        self.model_save_dir = os.path.join(
+            self.kwargs["model_config"]["experiment"]["log_dir"], self.study_name
+        )
         os.makedirs(self.model_save_dir, exist_ok=True)
-        
+
         self.scaler_input = defaultdict(self.create_scaler)
         self.scaler_output = defaultdict(self.create_scaler)
         self.model = defaultdict(self.create_model)
-        
+
         # if self.use_tuned_params:
         #     self.set_tuned_params(optuna_storage=self.kwargs.get("optuna_storage", None), study_name=final_study_name)
-            
+
         self.use_trained_models = self.kwargs.get("use_trained_models", True)
-        
-        model_files = glob.glob(os.path.join(self.model_save_dir, f"{self.study_name}_model_*_{int(self.prediction_timedelta.total_seconds())}.pkl"))
-        scaler_input_files = glob.glob(os.path.join(self.model_save_dir, f"{self.study_name}_scaler_input_*_{int(self.prediction_timedelta.total_seconds())}.pkl"))
-        scaler_output_files = glob.glob(os.path.join(self.model_save_dir, f"{self.study_name}_scaler_output_*_{int(self.prediction_timedelta.total_seconds())}.pkl"))
+        logging.info("SVRForecast: use_trained_models = {}".format(self.use_trained_models))
+
+        model_files = glob.glob(
+            os.path.join(
+                self.model_save_dir,
+                f"{self.study_name}_model_*_{int(self.prediction_timedelta.total_seconds())}.pkl",
+            )
+        )
+        scaler_input_files = glob.glob(
+            os.path.join(
+                self.model_save_dir,
+                f"{self.study_name}_scaler_input_*_{int(self.prediction_timedelta.total_seconds())}.pkl",
+            )
+        )
+        scaler_output_files = glob.glob(
+            os.path.join(
+                self.model_save_dir,
+                f"{self.study_name}_scaler_output_*_{int(self.prediction_timedelta.total_seconds())}.pkl",
+            )
+        )
+
+        logging.info(
+            "SVRForecast: found {} model files, {} scaler_input files, {} scaler_output files".format(
+                len(model_files), len(scaler_input_files), len(scaler_output_files)
+            )
+        )
 
         if self.use_trained_models and len(model_files) == 0:
-            logging.error(f"No trained models found in {self.model_save_dir}. Please run tuning.py first for the correct prediction time {int(self.prediction_timedelta.total_seconds())}.")
+            logging.error(
+                f"No trained models found in {self.model_save_dir}. Please run tuning.py first for the correct prediction time {int(self.prediction_timedelta.total_seconds())}."
+            )
             raise Exception
-        
+
         # no need to load optuna trained hyperparams if we are loading models anyway
-        self.n_outputs = (self.n_turbines if self.target_turbine_indices is None else len(self.target_turbine_indices)) * 2
-        if (not self.use_trained_models or len(model_files) < self.n_outputs or len(scaler_input_files) < self.n_outputs or len(scaler_output_files) < self.n_outputs) and self.use_tuned_params:
-            self.set_tuned_params(optuna_storage=self.kwargs["optuna_storage"],
-                                    study_name=self.study_name)
+        self.n_outputs = (
+            self.n_turbines
+            if self.target_turbine_indices is None
+            else len(self.target_turbine_indices)
+        ) * 2
+        if (
+            not self.use_trained_models
+            or len(model_files) < self.n_outputs
+            or len(scaler_input_files) < self.n_outputs
+            or len(scaler_output_files) < self.n_outputs
+        ) and self.use_tuned_params:
+            self.set_tuned_params(
+                optuna_storage=self.kwargs["optuna_storage"], study_name=self.study_name
+            )
             self.use_trained_models = False
-            logging.info("No available trained models.") # TODO train here
-            # self.train_all_outputs(scale=True, 
-            #                         multiprocessor=args.multiprocessor, 
+            logging.info("No available trained models.")  # TODO train here
+            # self.train_all_outputs(scale=True,
+            #                         multiprocessor=args.multiprocessor,
             #                         retrain_models=True,
             #                         scaler_params=None)
-        
+
         # if we want to use previously trained models fetch them, otherwise models will need to be trained
         if self.use_trained_models:
             for model_file in model_files:
                 # if os.path.exists(os.path.join(self.model_save_dir, f"svr_model_{output}_{self.prediction_timedelta.total_seconds()}.pkl")):
-                output = re.search(f"(?<={self.study_name}_model_)([\\w\\_]+\\d+)(?=\\_)", os.path.basename(model_file)).group()
-                prediction_length = float(re.search(f"(?<={self.study_name}_model_{output}_)([\\d\\.]+)(?=.pkl)", os.path.basename(model_file)).group())
+                output = re.search(
+                    f"(?<={self.study_name}_model_)([\\w\\_]+\\d+)(?=\\_)",
+                    os.path.basename(model_file),
+                ).group()
+                prediction_length = float(
+                    re.search(
+                        f"(?<={self.study_name}_model_{output}_)([\\d\\.]+)(?=.pkl)",
+                        os.path.basename(model_file),
+                    ).group()
+                )
                 if prediction_length != self.prediction_timedelta.total_seconds():
                     continue
                 with open(os.path.join(self.model_save_dir, model_file), "rb") as fp:
                     self.model[output] = pickle.load(fp)
-                self.dataset_hparams["n_neighboring_turbines"] = self.n_neighboring_turbines = self.model[output].n_features_in_ // self.n_context
-                
-                assert self.model[output].n_features_in_ == self.n_neighboring_turbines * self.n_context, f"SVR must be tuned and trained for n_neighboring_turbines = {self.n_neighboring_turbines} and context_timedelta = {self.context_timedelta}."
-            
+                self.dataset_hparams["n_neighboring_turbines"] = self.n_neighboring_turbines = (
+                    self.model[output].n_features_in_ // self.n_context
+                )
+
+                assert (
+                    self.model[output].n_features_in_
+                    == self.n_neighboring_turbines * self.n_context
+                ), (
+                    f"SVR must be tuned and trained for n_neighboring_turbines = {self.n_neighboring_turbines} and context_timedelta = {self.context_timedelta}."
+                )
+
             for scaler_file in scaler_input_files:
                 # if os.path.exists(os.path.join(self.model_save_dir, f"svr_scaler_{output}_{self.prediction_timedelta.total_seconds()}.pkl")):
-                suffix = ("_" + "_".join([f"{k}{v}" for k, v in self.dataset_hparams.items()])) if self.dataset_hparams else ""
+                suffix = (
+                    ("_" + "_".join([f"{k}{v}" for k, v in self.dataset_hparams.items()]))
+                    if self.dataset_hparams
+                    else ""
+                )
                 if re.search((suffix), os.path.basename(scaler_file)) is None:
                     # incorrect scaler
                     continue
-                output = re.search(f"(?<={self.study_name}_scaler_input_)([\\w\\_]+\\d+)(?={suffix})", os.path.basename(scaler_file)).group()
-                prediction_length = float(re.search(f"(?<={self.study_name}_scaler_input_{output}{suffix}_)([\\d\\.]+)(?=.pkl)", os.path.basename(scaler_file)).group())
+                output = re.search(
+                    f"(?<={self.study_name}_scaler_input_)([\\w\\_]+\\d+)(?={suffix})",
+                    os.path.basename(scaler_file),
+                ).group()
+                prediction_length = float(
+                    re.search(
+                        f"(?<={self.study_name}_scaler_input_{output}{suffix}_)([\\d\\.]+)(?=.pkl)",
+                        os.path.basename(scaler_file),
+                    ).group()
+                )
                 if prediction_length != self.prediction_timedelta.total_seconds():
                     # incorrect scaler
                     continue
@@ -119,52 +188,73 @@ class SVRForecast(WindForecast):
                     self.scaler_input[output] = pickle.load(fp)
 
             for scaler_file in scaler_output_files:
-                suffix = ("_" + "_".join([f"{k}{v}" for k, v in self.dataset_hparams.items()])) if self.dataset_hparams else ""
+                suffix = (
+                    ("_" + "_".join([f"{k}{v}" for k, v in self.dataset_hparams.items()]))
+                    if self.dataset_hparams
+                    else ""
+                )
                 if re.search((suffix), os.path.basename(scaler_file)) is None:
                     # incorrect scaler
                     continue
-                output = re.search(f"(?<={self.study_name}_scaler_output_)([\\w\\_]+\\d+)(?={suffix})", os.path.basename(scaler_file)).group()
-                prediction_length = float(re.search(f"(?<={self.study_name}_scaler_output_{output}{suffix}_)([\\d\\.]+)(?=.pkl)", os.path.basename(scaler_file)).group())
+                output = re.search(
+                    f"(?<={self.study_name}_scaler_output_)([\\w\\_]+\\d+)(?={suffix})",
+                    os.path.basename(scaler_file),
+                ).group()
+                prediction_length = float(
+                    re.search(
+                        f"(?<={self.study_name}_scaler_output_{output}{suffix}_)([\\d\\.]+)(?=.pkl)",
+                        os.path.basename(scaler_file),
+                    ).group()
+                )
                 if prediction_length != self.prediction_timedelta.total_seconds():
                     continue
                 with open(os.path.join(self.model_save_dir, scaler_file), "rb") as fp:
                     self.scaler_output[output] = pickle.load(fp)
 
-        
         self.dataset_hparams_choices = {"n_neighboring_turbines": [1, 3, 5]}
         if self.n_neighboring_turbines:
-            self.cluster_turbines = [sorted(np.arange(self.n_turbines), 
-                        key=lambda t: np.linalg.norm(self.measurement_layout[tid, :] - self.measurement_layout[t, :]))[:self.n_neighboring_turbines]
-                                    for tid in range(self.n_turbines)]
+            self.cluster_turbines = [
+                sorted(
+                    np.arange(self.n_turbines),
+                    key=lambda t: np.linalg.norm(
+                        self.measurement_layout[tid, :] - self.measurement_layout[t, :]
+                    ),
+                )[: self.n_neighboring_turbines]
+                for tid in range(self.n_turbines)
+            ]
         else:
             self.cluster_turbines = [np.arange(self.n_turbines)] * self.n_turbines
-        
+
     def reset(self, **kwargs):
         pass
-    
+
     def create_scaler(self):
         # return MinMaxScaler(feature_range=(-1, 1))
         return StandardScaler()
-    
+
     def create_model(self, **kwargs):
         return SVR(**{k: v for k, v in kwargs.items() if k in inspect.signature(SVR).parameters})
-   
+
     def _prepare_arrays(self, training_inputs, output_idx):
-        
-        X_train = np.ascontiguousarray(np.vstack([
-            training_inputs[i:i+self.n_context, :].flatten()
-            for i in range(max(training_inputs.shape[0] - self.n_context, 1))
-        ]))
-        
+
+        X_train = np.ascontiguousarray(
+            np.vstack(
+                [
+                    training_inputs[i : i + self.n_context, :].flatten()
+                    for i in range(max(training_inputs.shape[0] - self.n_context, 1))
+                ]
+            )
+        )
+
         # X_train = np.ascontiguousarray(historic_measurements.iloc[:-self.context_timedelta][output])
-        y_train = np.ascontiguousarray(training_inputs[self.n_context:, output_idx]).reshape(-1, 1)
-        
+        y_train = np.ascontiguousarray(training_inputs[self.n_context :, output_idx]).reshape(-1, 1)
+
         assert X_train.shape[0] == y_train.shape[0]
-        
+
         return X_train, y_train
-    
+
     def get_params(self, trial):
-         
+
         # return {
         #     **{f"C_{output}": trial.suggest_float(f"C_{output}", 1e-6, 1e6, log=True) for output in self.outputs},
         #     **{f"epsilon_{output}": trial.suggest_float(f"epsilon_{output}", 1e-6, 1e-1, log=True) for output in self.outputs},
@@ -175,23 +265,49 @@ class SVRForecast(WindForecast):
             "epsilon": trial.suggest_float(f"epsilon", 1e-3, 10, log=True),
             "gamma": trial.suggest_categorical(f"gamma", ["scale", "auto"]),
             "kernel": trial.suggest_categorical("kernel", ["linear", "poly", "rbf", "sigmoid"]),
-            "n_neighboring_turbines": trial.suggest_categorical("n_neighboring_turbines", self.dataset_hparams_choices["n_neighboring_turbines"]),
+            "n_neighboring_turbines": trial.suggest_categorical(
+                "n_neighboring_turbines", self.dataset_hparams_choices["n_neighboring_turbines"]
+            ),
         }
-    
 
     def predict_sample(self, n_samples: int):
         pass
-    
-    def train_single_output(self, training_measurements, output, retrain_models, scale, limit_train_val):
-        
+
+    def train_single_output(
+        self, training_measurements, output, retrain_models, scale, limit_train_val
+    ):
+
         # feat_type = re.search(f"\\w+(?=_{self.turbine_signature})", output).group()
         # tid = re.search(f"(?<=_){self.turbine_signature}$", output).group()
-        suffix = ("_" + "_".join([f"{k}{v}" for k, v in self.dataset_hparams.items()])) if self.dataset_hparams else ""
-        model_save_path = os.path.join(self.model_save_dir, f"{self.study_name}_model_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl")
-        scaler_input_save_path = os.path.join(self.model_save_dir, f"{self.study_name}_scaler_input_{output}{suffix}_{int(self.prediction_timedelta.total_seconds())}.pkl")
-        scaler_output_save_path = os.path.join(self.model_save_dir, f"{self.study_name}_scaler_output_{output}{suffix}_{int(self.prediction_timedelta.total_seconds())}.pkl")
-        
-        if not retrain_models and os.path.exists(model_save_path) and (not scale or (os.path.exists(scaler_input_save_path) and os.path.exists(scaler_output_save_path))):
+        suffix = (
+            ("_" + "_".join([f"{k}{v}" for k, v in self.dataset_hparams.items()]))
+            if self.dataset_hparams
+            else ""
+        )
+        model_save_path = os.path.join(
+            self.model_save_dir,
+            f"{self.study_name}_model_{output}_{int(self.prediction_timedelta.total_seconds())}.pkl",
+        )
+        scaler_input_save_path = os.path.join(
+            self.model_save_dir,
+            f"{self.study_name}_scaler_input_{output}{suffix}_{int(self.prediction_timedelta.total_seconds())}.pkl",
+        )
+        scaler_output_save_path = os.path.join(
+            self.model_save_dir,
+            f"{self.study_name}_scaler_output_{output}{suffix}_{int(self.prediction_timedelta.total_seconds())}.pkl",
+        )
+
+        if (
+            not retrain_models
+            and os.path.exists(model_save_path)
+            and (
+                not scale
+                or (
+                    os.path.exists(scaler_input_save_path)
+                    and os.path.exists(scaler_output_save_path)
+                )
+            )
+        ):
             logging.info(f"Loading trained SVR model for output {output}.")
             with open(model_save_path, "rb") as fp:
                 self.model[output] = pickle.load(fp)
@@ -202,50 +318,73 @@ class SVRForecast(WindForecast):
                 with open(scaler_output_save_path, "rb") as fp:
                     self.scaler_output[output] = pickle.load(fp)
         else:
-            
-            X_train, y_train, self.scaler_input[output], self.scaler_output[output] = self._get_output_data(measurements=training_measurements, 
-                                                                                                            output=output, split="train", reload=False, 
-                                                                                                            scale=scale, return_scaler=True, dataset_hparams=self.dataset_hparams)
-            
+            X_train, y_train, self.scaler_input[output], self.scaler_output[output] = (
+                self._get_output_data(
+                    measurements=training_measurements,
+                    output=output,
+                    split="train",
+                    reload=False,
+                    scale=scale,
+                    return_scaler=True,
+                    dataset_hparams=self.dataset_hparams,
+                )
+            )
+
             if limit_train_val:
                 # randomly sample from full training data
-                random_indices = np.random.choice(np.arange(X_train.shape[0]), size=int(limit_train_val * X_train.shape[0]))
+                random_indices = np.random.choice(
+                    np.arange(X_train.shape[0]), size=int(limit_train_val * X_train.shape[0])
+                )
                 X_train, y_train = X_train[random_indices, :], y_train[random_indices]
-            
-            logging.info(f"Fitting SVR model for output {output} with {X_train.shape[0]} data points.")
+
+            logging.info(
+                f"Fitting SVR model for output {output} with {X_train.shape[0]} data points."
+            )
             self.model[output].fit(X_train, y_train)
-            
+
             logging.info(f"Saving SVR model for output {output} to {model_save_path}.")
             with open(model_save_path, "wb") as fp:
                 pickle.dump(self.model[output], fp, protocol=5)
 
-            logging.info(f"Saving SVR input scaler for output {output} to {scaler_input_save_path}.")
+            logging.info(
+                f"Saving SVR input scaler for output {output} to {scaler_input_save_path}."
+            )
             with open(scaler_input_save_path, "wb") as fp:
                 pickle.dump(self.scaler_input[output], fp, protocol=5)
-            
-            logging.info(f"Saving SVR output scaler for output {output} to {scaler_output_save_path}.")
+
+            logging.info(
+                f"Saving SVR output scaler for output {output} to {scaler_output_save_path}."
+            )
             with open(scaler_output_save_path, "wb") as fp:
                 pickle.dump(self.scaler_output[output], fp, protocol=5)
-                
+
         return self.model[output], self.scaler_input[output], self.scaler_output[output]
-    
+
     def train_all_outputs(self, scale, multiprocessor, limit_train_val=None, retrain_models=True):
         if self.dataset_hparams["n_neighboring_turbines"]:
-            self.cluster_turbines = [sorted(np.arange(self.n_turbines), 
-                        key=lambda t: np.linalg.norm(self.measurement_layout[tid, :] - self.measurement_layout[t, :]))[:self.dataset_hparams["n_neighboring_turbines"]]
-                                    for tid in range(self.n_turbines)]
+            self.cluster_turbines = [
+                sorted(
+                    np.arange(self.n_turbines),
+                    key=lambda t: np.linalg.norm(
+                        self.measurement_layout[tid, :] - self.measurement_layout[t, :]
+                    ),
+                )[: self.dataset_hparams["n_neighboring_turbines"]]
+                for tid in range(self.n_turbines)
+            ]
         else:
             self.cluster_turbines = [np.arange(self.n_turbines)] * self.n_turbines
-        
+
         if multiprocessor is not None:
             if multiprocessor == "mpi":
                 mpi_exists = False
                 try:
                     from mpi4py import MPI
                     from mpi4py.futures import MPICommExecutor
+
                     mpi_exists = True
                 except ImportError as e:
                     import traceback
+
                     print(f"ERROR: Failed to import mpi4py. MPI will not be available. Error: {e}")
                     print(traceback.format_exc())
                 comm_size = MPI.COMM_WORLD.Get_size()
@@ -253,107 +392,142 @@ class SVRForecast(WindForecast):
             elif multiprocessor == "cf":
                 # max_workers = int(os.environ.get("NTASKS_PER_TUNER", mp.cpu_count()))
                 max_workers = mp.cpu_count()
-                executor = ProcessPoolExecutor(max_workers=max_workers,
-                                                mp_context=mp.get_context("spawn"))
+                executor = ProcessPoolExecutor(
+                    max_workers=max_workers, mp_context=mp.get_context("spawn")
+                )
             with executor as ex:
                 if multiprocessor == "mpi":
                     ex.max_workers = comm_size
-                    
-                futures = [ex.submit(self.train_single_output, 
-                                        training_measurements=None, 
-                                        output=output, 
-                                        scale=scale, 
-                                        retrain_models=retrain_models,
-                                        limit_train_val=limit_train_val) for output in self.outputs]
+
+                futures = [
+                    ex.submit(
+                        self.train_single_output,
+                        training_measurements=None,
+                        output=output,
+                        scale=scale,
+                        retrain_models=retrain_models,
+                        limit_train_val=limit_train_val,
+                    )
+                    for output in self.outputs
+                ]
                 for output, fut in zip(self.outputs, futures):
                     m, s_in, s_out = fut.result()
                     self.model[output] = m
                     self.scaler_input[output] = s_in
                     self.scaler_output[output] = s_out
-        else:    
+        else:
             for output in self.outputs:
-                self.model[output], self.scaler_input[output], self.scaler_output[output] = self.train_single_output(
-                    training_measurements=None, 
-                    output=output, scale=scale, 
-                    retrain_models=retrain_models,
-                    limit_train_val=limit_train_val)
-    
+                self.model[output], self.scaler_input[output], self.scaler_output[output] = (
+                    self.train_single_output(
+                        training_measurements=None,
+                        output=output,
+                        scale=scale,
+                        retrain_models=retrain_models,
+                        limit_train_val=limit_train_val,
+                    )
+                )
+
     def predict_point(self, historic_measurements: Union[pd.DataFrame, pl.DataFrame], current_time):
         # TODO LOW include yaw angles in inputs?
-        
+
         pred_slice = self.get_pred_interval(current_time)
-        pred_slice = pred_slice[-1:] 
+        pred_slice = pred_slice[-1:]
         # outputs = self._get_ws_cols(historic_measurements)
-        
+
         if isinstance(historic_measurements, pd.DataFrame):
             historic_measurements = pl.DataFrame(historic_measurements)
             return_pl = False
         else:
             return_pl = True
-        
+
         # training_measurements = historic_measurements.filter(((current_time - pl.col("time")).mod(self.prediction_interval) == 0))
-        training_measurements = historic_measurements.filter(((current_time - pl.col("time")).dt.total_microseconds().mod(self.prediction_interval.total_seconds() * 1e6) == 0))
+        training_measurements = historic_measurements.filter(
+            (
+                (current_time - pl.col("time"))
+                .dt.total_microseconds()
+                .mod(self.prediction_interval.total_seconds() * 1e6)
+                == 0
+            )
+        )
         # scale = (training_measurements.select(pl.len()).item() > 1)
         scale = True
-        
+
         if training_measurements.select(pl.len()).item() >= self.n_context:
             if self.max_n_samples:
                 training_measurements = training_measurements.tail(self.max_n_samples)
-            
+
             pred = {}
             for output in self.outputs:
                 feat_type = re.search(f"^\\w+(?=_{self.turbine_signature}$)", output).group()
                 tid = re.search(f"(?<=_){self.turbine_signature}$", output).group()
-                if not (hasattr(self.scaler_input[output], "mean_") and hasattr(self.scaler_input[output], "scale_")
-                        and hasattr(self.scaler_output[output], "mean_") and hasattr(self.scaler_output[output], "scale_")) \
-                    or (check_is_fitted(self.model[output]) is not None):
-                    raise Exception(f"scalers/model for {output} has not been trained! Try using the --use_trained_models flag.")
-                training_inputs = self._get_inputs(training_measurements, feat_type=feat_type, tid=tid)
-                
-                pred[output] = self._predict(model=self.model[output], output=output,
-                                             training_inputs=training_inputs)
-                
+                if not (
+                    hasattr(self.scaler_input[output], "mean_")
+                    and hasattr(self.scaler_input[output], "scale_")
+                    and hasattr(self.scaler_output[output], "mean_")
+                    and hasattr(self.scaler_output[output], "scale_")
+                ) or (check_is_fitted(self.model[output]) is not None):
+                    raise Exception(
+                        f"scalers/model for {output} has not been trained! Try using the --use_trained_models flag."
+                    )
+                training_inputs = self._get_inputs(
+                    training_measurements, feat_type=feat_type, tid=tid
+                )
+
+                pred[output] = self._predict(
+                    model=self.model[output], output=output, training_inputs=training_inputs
+                )
+
             pred = {output: pred[output][np.newaxis, :].flatten() for output in self.outputs}
-            
+
             pred = pl.DataFrame({"time": pred_slice}).with_columns(**pred)
-            
+
         else:
             # not enough data points to train SVR, assume persistence
-            logging.info(f"Not enough data points at time {current_time} to train SVR, have {historic_measurements.select(pl.len()).item() * self.measurements_timedelta} but require {self.n_context * self.prediction_timedelta}, assuming persistence instead.")
-            pred = pl.concat([pred_slice.to_frame(), historic_measurements.slice(-1, 1).select(self.outputs)], how="horizontal")
-            
-        if return_pl: 
+            logging.info(
+                f"Not enough data points at time {current_time} to train SVR, have {historic_measurements.select(pl.len()).item() * self.measurements_timedelta} but require {self.n_context * self.prediction_timedelta}, assuming persistence instead."
+            )
+            pred = pl.concat(
+                [pred_slice.to_frame(), historic_measurements.slice(-1, 1).select(self.outputs)],
+                how="horizontal",
+            )
+
+        if return_pl:
             return pred
         else:
-            return pred.to_pandas()  
-            
+            return pred.to_pandas()
+
     def _inverse_scale(self, pred, output):
         tid = re.search(f"(?<=_){self.turbine_signature}$", output).group()
-        output_idx = self.cluster_turbines[self.tid2idx_mapping[tid]].index(self.tid2idx_mapping[tid]) 
+        output_idx = self.cluster_turbines[self.tid2idx_mapping[tid]].index(
+            self.tid2idx_mapping[tid]
+        )
         # return (pred[output][np.newaxis, :] - self.scaler[output].min_[output_idx]) / self.scaler[output].scale_[output_idx]
-        return (pred[output][np.newaxis, :] * self.scaler_output[output].scale_[output_idx]) + self.scaler_output[output].mean_[output_idx]
+        return (
+            pred[output][np.newaxis, :] * self.scaler_output[output].scale_[output_idx]
+        ) + self.scaler_output[output].mean_[output_idx]
 
     def _get_inputs(self, training_measurements, feat_type, tid):
-        input_turbine_indices = self.cluster_turbines[self.tid2idx_mapping[tid]] 
-        training_inputs = training_measurements.select([f"{feat_type}_{self.idx2tid_mapping[t]}" for t in input_turbine_indices]).to_numpy()
-        
-        # if scale: 
+        input_turbine_indices = self.cluster_turbines[self.tid2idx_mapping[tid]]
+        training_inputs = training_measurements.select(
+            [f"{feat_type}_{self.idx2tid_mapping[t]}" for t in input_turbine_indices]
+        ).to_numpy()
+
+        # if scale:
         #     training_inputs = scaler.transform(training_inputs)
-        
+
         return training_inputs
-    
+
     def _predict(self, model, output, training_inputs):
-        X_pred = np.ascontiguousarray(training_inputs)[-self.n_context:, :].flatten()[np.newaxis, :]
+        X_pred = np.ascontiguousarray(training_inputs)[-self.n_context :, :].flatten()[
+            np.newaxis, :
+        ]
         X_pred = self.scaler_input[output].transform(X_pred)
         y_pred = model.predict(X_pred)
         y_pred = self.scaler_output[output].inverse_transform(y_pred.reshape(1, -1)).flatten()
-        
-        pred = y_pred[-self.n_prediction:] 
-        
+
+        pred = y_pred[-self.n_prediction :]
+
         return pred
-    
+
     def predict_distr(self):
         raise NotImplementedError("SVRForecast does not support predict_distr()")
-
-
-    
