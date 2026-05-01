@@ -936,7 +936,7 @@ if __name__ == "__main__":
                     fig_label_features=fig_label_features,
                 )
 
-            # NOTE USE THIS CONDITINOAL TO CHECK THE BEST PARAMETERS FOUND IN TERMS OF FAMR POWER FOR A SWEEP OVER PARAMS E.G. BEST PREDICTION HORIZON
+            # NOTE USE THIS CONDITIONAL TO CHECK THE BEST PARAMETERS FOUND IN TERMS OF FARM POWER FOR A SWEEP OVER PARAMS E.G. BEST PREDICTION HORIZON
             if (
                 case_families.index("baseline_controllers_perfect_forecaster_awaken")
                 in args.case_ids
