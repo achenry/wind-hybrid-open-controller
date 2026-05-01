@@ -245,9 +245,9 @@ class MLForecast(WindForecast):
                 "trainer_kwargs": self.model_config["trainer"],
                 # Include distr_output initially, will be removed conditionally
                 #             "distr_output": distr_output_class(dim=self.data_module.num_target_vars, **self.model_config["model"]["distr_output"]["kwargs"]),
-                "num_parallel_samples": self.model_config["model"][self.model_key].get(
-                    "num_parallel_samples", 100
-                )
+                "num_parallel_samples": checkpoint_hparams["init_args"]["model_config"][
+                    "num_parallel_samples"
+                ]
                 if self.model_key == "tactis"
                 else 100,  # Default 100 if not specified
             }
@@ -655,7 +655,9 @@ class MLForecast(WindForecast):
 
             pred_iter = self.predictor.predict(
                 test_data,
-                num_samples=1 if self.model_key != "tactis" else 100,
+                num_samples=1
+                if self.model_key != "tactis"
+                else self.predictor.network.model.num_parallel_samples,
                 output_distr_params={
                     "loc": "mean",
                     "cov_factor": "cov_factor",
