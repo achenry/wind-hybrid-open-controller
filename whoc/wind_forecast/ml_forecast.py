@@ -115,7 +115,7 @@ class MLForecast(WindForecast):
                 f"Loaded checkpoint from {checkpoint_path}"
             )  # with hparams: {checkpoint_hparams}")
             self.data_module = DataModule(
-                normalized_data_path=self.model_config["dataset"]["data_path"],
+                data_path=self.model_config["dataset"]["data_path"],
                 n_splits=self.model_config["dataset"]["n_splits"],
                 continuity_groups=None,
                 train_split=(
@@ -137,7 +137,7 @@ class MLForecast(WindForecast):
                 target_prefixes=["ws_horz", "ws_vert"],
                 feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                 freq=checkpoint_hparams["freq_str"],  # Use original freq string
-                use_normalization=True,  # Assume True based on previous context, adjust if needed
+                use_normalization=self.model_config["dataset"].get("normalize", True),
                 target_suffixes=self.model_config["dataset"]["target_turbine_ids"],
                 per_turbine_target=self.model_config["dataset"]["per_turbine_target"],
                 dtype=None,

@@ -196,9 +196,13 @@ def make_predictions(
         forecasts = []
         # split_true_wf = true_wind_field.filter(pl.col("time").is_between(start, end, closed="both"))
         # logging.info(f"Getting controller times for {splits[d]}th split.")
+        # polars >= 1.x can't parse pandas.Timedelta in `>=` literal — convert to py timedelta first.
+        _ctx_td = forecaster.context_timedelta
+        if hasattr(_ctx_td, "to_pytimedelta"):
+            _ctx_td = _ctx_td.to_pytimedelta()
         split_controller_times = controller_times.filter(
             pl.col("time").is_between(start, end, closed="both")
-        ).filter((pl.col("time") - start) >= forecaster.context_timedelta)
+        ).filter((pl.col("time") - start) >= _ctx_td)
         n_controller_times = split_controller_times.select(pl.len()).item()
         # logging.info(f"Resetting forecaster state.")
         forecaster.reset(assigned_gpu=assigned_gpu)
@@ -1056,7 +1060,7 @@ if __name__ == "__main__":
     joint_cgs = set()
     for mcnf in model_configs:
         data_module = DataModule(
-            normalized_data_path=mcnf["dataset"]["data_path"],
+            data_path=mcnf["dataset"]["data_path"],
             normalization_consts_path=mcnf["dataset"]["normalization_consts_path"],
             use_normalization=False,
             n_splits=1,  # model_config["dataset"]["n_splits"],
