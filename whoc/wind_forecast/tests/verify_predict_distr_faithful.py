@@ -33,8 +33,7 @@ sys.path.insert(0, "/user/taed7566/Forecasting/wind-forecasting")
 
 MODEL_CONFIG = "/user/taed7566/Forecasting/wind-forecasting/config/training/training_inputs_storm_awaken_unsmoothed_pred60_tactis_phase0i_g.yaml"
 CHECKPOINT = "/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/train_phase0i_g_quantile_pinball_tactis/20260512_101511_0_0/manual_save_epoch99.ckpt"
-# The cached test split the real validation harness uses — denormalized, 15s, all-turbine.
-TEST_PARQUET = "/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_unsmoothed_normalized_train_ready_15s_all_turbine_ctx80_pred4_test_denormalize.parquet"
+# Note: the cached test split is loaded via the DataModule (build_test_dm), not a direct path.
 
 STAGES = []
 
