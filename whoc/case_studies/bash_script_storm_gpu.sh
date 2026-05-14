@@ -45,11 +45,14 @@ export PYTHONPATH=${BASE_DIR}/floris:${WHOC_DIR}:${WF_DIR}:${BASE_DIR}/pytorch-t
 export NUMEXPR_MAX_THREADS=8
 export POLARS_MAX_THREADS=1                # avoid Polars/MPI thread contention
 
-# --- Modules (Storm) — same set as the verified train_phase0i_g.sh production run ---
+# --- Modules (Storm) ---
+# Do NOT load the mpi4py module: it is built for python3.11 and shadows (via PYTHONPATH)
+# the python3.12 conda env's own mpi4py, causing `from mpi4py import MPI` to ImportError.
+# wf_env_storm ships mpi4py 4.1.1 + MPICH 4.3.2 — use the conda env's MPI (same approach
+# as bash_script_storm_cpu.sh).
 module purge
 module load slurm/hpc-2023/23.02.7
 module load hpc-env/13.1
-module load mpi4py/3.1.4-gompi-2023a
 module load Mamba/24.3.0-0
 module load CUDA/12.4.0
 module load git
