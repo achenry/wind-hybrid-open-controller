@@ -1,0 +1,30 @@
+{
+  "description": "CP stddev scale factors \u2014 multiply raw predictive stddev by scale_factors[component][lead_step] to get a CP-calibrated stddev.",
+  "source": "/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/cp_phase0i_g_results_20260513/calibrated_intervals.parquet",
+  "alpha": 0.1,
+  "generated_at": "2026-05-14 12:54:49",
+  "components": [
+    "ws_horz",
+    "ws_vert"
+  ],
+  "lead_steps": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "scale_factors": {
+    "ws_horz": [
+      3.775924,
+      4.422153,
+      4.648451,
+      4.45615
+    ],
+    "ws_vert": [
+      5.024126,
+      5.877024,
+      6.234354,
+      6.051771
+    ]
+  }
+}
