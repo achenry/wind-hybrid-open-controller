@@ -125,3 +125,9 @@ wind_forecast:
   MLForecast:
     model_key: informer
     model_checkpoint: best
+    # Registering cp_calibrate_stddev here is REQUIRED for the case-study harness to
+    # route a per-case `cp_calibrate_stddev` value into MLForecast.kwargs. Routing in
+    # initialize_case_studies.py (~L1734) only forwards a param into ["wind_forecast"]
+    # if the key already exists in this wcnf block; otherwise it is silently dropped.
+    # Default false matches MLForecast's own default — calibration stays opt-in per case.
+    cp_calibrate_stddev: false

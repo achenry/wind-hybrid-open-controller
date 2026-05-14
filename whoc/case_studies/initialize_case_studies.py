@@ -490,6 +490,57 @@ case_studies = {
         "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73", "4,"]},
         "model_key": {"group": 2, "vals": ["tactis"]},  #
     },
+    "baseline_controllers_tactis_quantile_head_cp_awaken": {
+        # Phase 7 — controller validation of the quantile-head TACTiS-2 model with CP
+        # stddev calibration. 4 arms x 30 wind seeds. Arms 1 vs 2 are the controlled
+        # head-to-head (identical except cp_calibrate_stddev); arms 3-4 are baselines.
+        "n_horizon": {"group": 0, "vals": [0]},
+        "controller_dt": {"group": 0, "vals": [5]},
+        "use_upstream_wind": {"group": 0, "vals": [True]},
+        "filter_floris_wind": {"group": 0, "vals": [False]},
+        "use_lut_filtered_wind_mag": {"group": 0, "vals": [True]},
+        "interpolation_method": {"group": 0, "vals": ["nearest"]},
+        "simulation_dt": {"group": 0, "vals": [1]},
+        # explicit checkpoint path (not "latest") — the quantile-head production checkpoint
+        "model_checkpoint": {
+            "group": 0,
+            "vals": [
+                "/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/"
+                "train_phase0i_g_quantile_pinball_tactis/20260512_101511_0_0/"
+                "manual_save_epoch99.ckpt"
+            ],
+        },
+        "floris_input_file": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4.yaml"]},
+        "lut_path": {"group": 0, "vals": ["../../examples/inputs/gch_KP_v4_lut.csv"]},
+        "yaw_limits": {"group": 0, "vals": ["-15,15"]},
+        "wind_forecast_class": {"group": 0, "vals": ["MLForecast"]},
+        "controller_class": {
+            "group": 1,
+            "vals": [
+                "LookupBasedWakeSteeringController",  # arm 1: uncertain, raw stddev
+                "LookupBasedWakeSteeringController",  # arm 2: uncertain, CP-calibrated stddev
+                "LookupBasedWakeSteeringController",  # arm 3: deterministic LUT baseline
+                "GreedyController",                   # arm 4: no-wake-steering floor
+            ],
+        },
+        "model_config_path": {
+            "group": 1,
+            "vals": [
+                "/user/taed7566/Forecasting/wind-forecasting/config/training/training_inputs_storm_awaken_unsmoothed_pred60_tactis_phase0i_g.yaml",
+                "/user/taed7566/Forecasting/wind-forecasting/config/training/training_inputs_storm_awaken_unsmoothed_pred60_tactis_phase0i_g.yaml",
+                "/user/taed7566/Forecasting/wind-forecasting/config/training/training_inputs_storm_awaken_unsmoothed_pred60_tactis_phase0i_g.yaml",
+                "/user/taed7566/Forecasting/wind-forecasting/config/training/training_inputs_storm_awaken_unsmoothed_pred60_tactis_phase0i_g.yaml",
+            ],
+        },
+        "prediction_timedelta": {"group": 1, "vals": [60, 60, 60, 60]},
+        "uncertain": {"group": 1, "vals": [True, True, False, False]},
+        # THE SWEEP — group 1 so arm i pairs element-wise with controller_class[i] etc.
+        # arm1 raw (False), arm2 CP-calibrated (True); arm3 uncertain=False so sd_* unused,
+        # arm4 GreedyController has no forecaster consuming sd_* — both inert.
+        "cp_calibrate_stddev": {"group": 1, "vals": [False, True, False, False]},
+        "target_turbine_indices": {"group": 1, "vals": ["74,73", "74,73", "74,73", "4,"]},
+        "model_key": {"group": 2, "vals": ["tactis"]},
+    },
     "baseline_controllers_baseline_det_forecasters_awaken": {
         "n_horizon": {"group": 0, "vals": [0]},
         "controller_dt": {"group": 0, "vals": [5]},
@@ -2242,4 +2293,5 @@ case_families = [
     "baseline_controllers_informer_forecaster_test_awaken",
     "baseline_controllers_svr_forecaster_test_awaken",  # 26, 27
     "control_signal_test_awaken",
-]  # 28
+    "baseline_controllers_tactis_quantile_head_cp_awaken",  # 29
+]  # 29
