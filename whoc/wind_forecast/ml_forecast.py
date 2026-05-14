@@ -79,9 +79,16 @@ class MLForecast(WindForecast):
                 "cp_scale_factors_path",
                 os.path.join(os.path.dirname(__file__), "cp_scale_factors", "quantile_head.json"),
             )
-            with open(cp_path) as f:
-                self.cp_scale_factors = json.load(f)["scale_factors"]
-            logging.info(f"CP stddev calibration ENABLED from {cp_path}: {self.cp_scale_factors}")
+            with open(cp_path, encoding="utf-8") as f:
+                self.cp_scale_factors = json.load(f).get("scale_factors")
+            if self.cp_scale_factors is None:
+                logging.warning(
+                    f"CP scale factors file {cp_path} has no 'scale_factors' key; "
+                    f"disabling CP stddev calibration."
+                )
+                self.cp_calibrate_stddev = False
+            else:
+                logging.info(f"CP stddev calibration ENABLED from {cp_path}: {self.cp_scale_factors}")
 
         # don't need this, can load hyperparamas from checkpoint
         # if self.use_tuned_params:
@@ -659,8 +666,8 @@ class MLForecast(WindForecast):
             factors = self.cp_scale_factors.get(base)
             if factors is None:
                 continue
-            for lead in range(min(n_leads, len(factors))):
-                mult[lead, c] = factors[lead]
+            n_copy = min(n_leads, len(factors))
+            mult[:n_copy, c] = torch.as_tensor(factors[:n_copy], device=device, dtype=dtype)
         return mult
 
     def predict_distr(self, historic_measurements: Union[pd.DataFrame, pl.DataFrame], current_time):
