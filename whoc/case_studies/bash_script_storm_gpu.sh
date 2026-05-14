@@ -1,12 +1,12 @@
 #!/bin/bash
 
-#SBATCH --partition=cfdg.p                 # Storm GPU partition (7-day cap)
-#SBATCH --nodes=2
+#SBATCH --partition=cfdg.p                 # Storm GPU partition (7-day cap). cfdg.p's only
+#SBATCH --nodes=1                          #   H100 node is cfdg002 (H100:4) — single node, 4 GPUs.
 #SBATCH --ntasks-per-node=4                # one MPI task per GPU (gpu_cycler maps 1:1)
-#SBATCH --gres=gpu:H100:4                  # 4 H100 per node
+#SBATCH --gres=gpu:H100:4                  # all 4 H100 on the node
 #SBATCH --cpus-per-task=8
 #SBATCH --mem-per-cpu=8016
-#SBATCH --exclude=cfdg001
+#SBATCH --exclude=cfdg001                  # cfdg001 is A100; we want H100 (cfdg002)
 #SBATCH --time=2-00:00:00                  # generous: first run also generates the AWAKEN LUTs at init
 #SBATCH --job-name=cs29_tactis_quantile_cp
 #SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-hybrid-open-controller/logs/slurm_logs/cs29_%j.out
