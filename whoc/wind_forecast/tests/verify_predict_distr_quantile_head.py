@@ -1,13 +1,13 @@
-"""Verify MLForecast.predict_distr works end-to-end with the Phase 0i-G checkpoint.
+"""Verify MLForecast.predict_distr works end-to-end with the quantile-head TACTiS-2 checkpoint.
 
-Phase 0i-G validation (job 16929835) exercised predict_sample. The controller
-simulation path (simulate_case_studies) uses predict_distr instead, which is a
-separate code path that emits loc_* / sd_* columns. This script constructs the
+The quantile-head model's validation (job 16929835) exercised predict_sample. The
+controller simulation path (simulate_case_studies) uses predict_distr instead, which
+is a separate code path that emits loc_* / sd_* columns. This script constructs the
 real MLForecast object the same way run_forecaster_validation.py does, feeds it
 a real slice of context data, calls predict_distr, and audits the output.
 
 Run on a GPU node:
-    python verify_predict_distr_phase0i_g.py
+    python verify_predict_distr_quantile_head.py
 """
 import logging
 import sys
@@ -102,7 +102,7 @@ def main():
             target_turbine_indices=None,
         )
 
-    forecaster = stage("Construct MLForecast (loads Phase 0i-G checkpoint)", build_forecaster)
+    forecaster = stage("Construct MLForecast (loads quantile-head checkpoint)", build_forecaster)
 
     stage("forecaster.reset()", lambda: forecaster.reset())
 
@@ -194,14 +194,14 @@ if __name__ == "__main__":
         summary = None
 
     print("\n" + "=" * 70)
-    print("VERIFICATION REPORT — predict_distr on Phase 0i-G checkpoint")
+    print("VERIFICATION REPORT — predict_distr on quantile-head checkpoint")
     print("=" * 70)
     for name, status, detail in STAGES:
         mark = "PASS" if status == "PASS" else "FAIL"
         print(f"  [{mark}] {name}" + (f"  — {detail}" if detail else ""))
     print("=" * 70)
     if ok and summary:
-        print(f"RESULT: predict_distr WORKS with Phase 0i-G.")
+        print(f"RESULT: predict_distr WORKS with the quantile-head checkpoint.")
         print(f"  output rows={summary['rows']}, loc_* cols={summary['loc_cols']}, "
               f"sd_* cols={summary['sd_cols']}, sd median={summary['sd_median']:.4f}")
         sys.exit(0)
