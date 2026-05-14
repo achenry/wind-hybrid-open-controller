@@ -2,11 +2,11 @@
 
 #SBATCH --partition=cfdg.p                 # Storm GPU partition (7-day cap). cfdg.p's only
 #SBATCH --nodes=1                          #   H100 node is cfdg002 (H100:4) — single node, 4 GPUs.
-#SBATCH --ntasks-per-node=4                # one MPI task per GPU (gpu_cycler maps 1:1)
+#SBATCH --ntasks-per-node=1                # cf (ProcessPoolExecutor) = ONE main process; it forks
+#SBATCH --cpus-per-task=32                 #   the worker pool itself. NOT MPI multi-rank.
 #SBATCH --gres=gpu:H100:4                  # all 4 H100 on the node
-#SBATCH --cpus-per-task=8
-#SBATCH --mem-per-cpu=8016
-#SBATCH --exclude=cfdg001                  # cfdg001 is A100; we want H100 (cfdg002)
+#SBATCH --mem-per-cpu=24000                # 32 x 24000 MB = 768 GB for the node (main + 4 workers
+#SBATCH --exclude=cfdg001                  #   each load a DataModule ~60 GB; fits with headroom)
 #SBATCH --time=2-00:00:00                  # generous: first run also generates the AWAKEN LUTs at init
 #SBATCH --job-name=cs29_tactis_quantile_cp
 #SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-hybrid-open-controller/logs/slurm_logs/cs29_%j.out
@@ -22,10 +22,15 @@
 #   arm 2: LookupBasedWakeSteering, uncertain=True,  cp_calibrate_stddev=True  (CP-calibrated)
 #   arm 3: LookupBasedWakeSteering, uncertain=False  (deterministic LUT baseline)
 #   arm 4: GreedyController                          (no-wake-steering floor)
-# The harness auto-generates the 2 AWAKEN LUTs at initialize_simulations() time
-# (root rank, deduped) since examples/inputs/lut_gch_KP_v4_* do not exist yet.
+#
+# Uses --multiprocessor cf (ProcessPoolExecutor) NOT mpi: a single main process
+# runs initialize_simulations() once (loads the DataModule + auto-generates the 2
+# AWAKEN LUTs), then forks a 4-worker pool, one worker per H100 via the gpu_cycler.
+# This sidesteps the srun<->MPICH PMI mismatch that made each MPI rank an
+# independent rank-0 (4x the DataModule load -> OOM at init).
 #
 # Submit:  sbatch bash_script_storm_gpu.sh
+#   (race the all_gpu.p partition too: sbatch --partition=all_gpu.p --time=24:00:00 bash_script_storm_gpu.sh)
 # =============================================================================
 
 # --- Base Directories ---
@@ -40,16 +45,13 @@ export CASE_STUDY_OUTPUT_DIR="${OUTPUT_DIR}/floris_case_studies"
 mkdir -p ${LOG_DIR}/slurm_logs ${CASE_STUDY_OUTPUT_DIR}
 cd ${WORK_DIR} || exit 1
 
-# Local FLORIS / WHOC / wind-forecasting on PYTHONPATH (development versions)
 export PYTHONPATH=${BASE_DIR}/floris:${WHOC_DIR}:${WF_DIR}:${BASE_DIR}/pytorch-transformer-ts:${PYTHONPATH}
 export NUMEXPR_MAX_THREADS=8
-export POLARS_MAX_THREADS=1                # avoid Polars/MPI thread contention
+export POLARS_MAX_THREADS=1                # avoid Polars thread contention across the worker pool
 
 # --- Modules (Storm) ---
-# Do NOT load the mpi4py module: it is built for python3.11 and shadows (via PYTHONPATH)
-# the python3.12 conda env's own mpi4py, causing `from mpi4py import MPI` to ImportError.
-# wf_env_storm ships mpi4py 4.1.1 + MPICH 4.3.2 — use the conda env's MPI (same approach
-# as bash_script_storm_cpu.sh).
+# No mpi4py module: cf does not use MPI, and the module's python3.11 mpi4py would
+# anyway shadow wf_env_storm's python3.12 build (ABI mismatch).
 module purge
 module load slurm/hpc-2023/23.02.7
 module load hpc-env/13.1
@@ -59,39 +61,42 @@ module load git
 eval "$(conda shell.bash hook)"
 conda activate wf_env_storm
 
-# --- GPU visibility for run_case_studies.py's gpu_cycler ---
-# SLURM_JOB_GPUS is the comma-separated GPU id list; derive the per-node count and
-# expose a 0-based list so the gpu_cycler round-robins assigned_gpu across MPI tasks.
+# --- GPU visibility + worker count for run_case_studies.py ---
+# CUDA_VISIBLE_DEVICES feeds the gpu_cycler; SLURM_NTASKS_PER_NODE sets the
+# ProcessPoolExecutor's max_workers (run_case_studies.py:199). With cf and
+# --ntasks-per-node=1, SLURM sets that env to 1 — override it to the GPU count
+# so the pool actually has one worker per GPU.
 devices=$SLURM_JOB_GPUS
 n_devices=$(( ${#devices} / 2 + 1 ))
 export CUDA_VISIBLE_DEVICES=$(seq -s, 0 $(( n_devices - 1 )))
+export SLURM_NTASKS_PER_NODE=${n_devices}
 
 echo "================================================================"
-echo "CASE STUDY 29 — baseline_controllers_tactis_quantile_head_cp_awaken"
+echo "CASE STUDY 29 — baseline_controllers_tactis_quantile_head_cp_awaken (cf, ${n_devices} workers)"
 echo "================================================================"
 echo "JOB ID:        ${SLURM_JOB_ID}"
 echo "PARTITION:     ${SLURM_JOB_PARTITION}"
-echo "NODES:         ${SLURM_JOB_NODELIST}"
-echo "TASKS/NODE:    ${SLURM_NTASKS_PER_NODE}   TOTAL TASKS: ${SLURM_NTASKS}"
-echo "SLURM_JOB_GPUS=${SLURM_JOB_GPUS}  ->  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+echo "NODE:          ${SLURM_JOB_NODELIST}"
+echo "SLURM_JOB_GPUS=${SLURM_JOB_GPUS}  ->  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}  workers=${SLURM_NTASKS_PER_NODE}"
 echo "GPU TYPE:      $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | uniq)"
 echo "branch: $(cd ${WHOC_DIR} && git rev-parse --abbrev-ref HEAD) @ $(cd ${WHOC_DIR} && git rev-parse --short HEAD)"
 echo "================================================================"
 
 # --- Config files ---
-WCNF="${WHOC_DIR}/examples/hercules_input_001.yaml"                                          # wind controller config (has cp_calibrate_stddev registered under MLForecast)
-DCNF="${WF_DIR}/config/preprocessing/preprocessing_inputs_awaken_STORM.yaml"                  # data preprocessing config
-MCNF="${WF_DIR}/config/training/training_inputs_storm_awaken_unsmoothed_pred60_tactis_phase0i_g.yaml"  # quantile-head model config
+WCNF="${WHOC_DIR}/examples/hercules_input_001.yaml"                                          # has cp_calibrate_stddev registered under MLForecast
+DCNF="${WF_DIR}/config/preprocessing/preprocessing_inputs_awaken_STORM.yaml"
+MCNF="${WF_DIR}/config/training/training_inputs_storm_awaken_unsmoothed_pred60_tactis_phase0i_g.yaml"
 
 for f in "$WCNF" "$DCNF" "$MCNF"; do
     [ -f "$f" ] || { echo "ERROR: config not found: $f" >&2; exit 1; }
 done
 
 date +"%Y-%m-%d %H:%M:%S"
-echo "=== STARTING run_case_studies.py 29 ==="
+echo "=== STARTING run_case_studies.py 29 (--multiprocessor cf) ==="
 
-srun python run_case_studies.py 29 \
-    --multiprocessor mpi \
+# cf = single main process forking a worker pool — run python directly, no srun multi-rank.
+python run_case_studies.py 29 \
+    --multiprocessor cf \
     -rs \
     --ram_limit 32 \
     --wf_source scada \
