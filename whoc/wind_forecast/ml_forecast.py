@@ -115,7 +115,7 @@ class MLForecast(WindForecast):
                 f"Loaded checkpoint from {checkpoint_path}"
             )  # with hparams: {checkpoint_hparams}")
             self.data_module = DataModule(
-                data_path=self.model_config["dataset"]["data_path"],
+                normalized_data_path=self.model_config["dataset"]["data_path"],
                 n_splits=self.model_config["dataset"]["n_splits"],
                 continuity_groups=None,
                 train_split=(
