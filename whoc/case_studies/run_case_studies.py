@@ -180,6 +180,29 @@ if __name__ == "__main__":
         logging.info(f"Resetting args.n_seeds to {len(wind_field_ts)}")
         args.n_seeds = len(wind_field_ts)
 
+        # The tid2idx_mapping built above guesses turbine ids from the
+        # preprocessing config: with a single turbine_signature it uses
+        # turbine_mapping[0].keys() (e.g. "wt074"), but with multiple
+        # signatures it falls back to turbine_mapping[0].values() (the
+        # integer ids "74"). The DataModule, however, always names columns
+        # with turbine_signature[0]'s convention, so wind_field_ts here has
+        # columns like "ws_horz_wt074". Rebuild tid2idx_mapping from those
+        # actual columns so downstream f"ws_horz_{tid}" lookups resolve.
+        if args.wf_source == "scada" and tid2idx_mapping is not None:
+            ws_horz_suffixes = sorted(
+                (c[len("ws_horz_"):] for c in wind_field_ts[0].columns
+                 if c.startswith("ws_horz_")),
+                key=lambda s: int(re.search(r"\d+", s).group()),
+            )
+            rebuilt = {sfx: i for i, sfx in enumerate(ws_horz_suffixes)}
+            if rebuilt != tid2idx_mapping:
+                logging.info(
+                    f"Rebuilt tid2idx_mapping from wind_field_ts columns: "
+                    f"{list(tid2idx_mapping.items())[:2]}... -> "
+                    f"{list(rebuilt.items())[:2]}... ({len(rebuilt)} turbines)"
+                )
+                tid2idx_mapping = rebuilt
+
     if args.multiprocessor == "mpi":
         comm.Barrier()
 
