@@ -933,6 +933,14 @@ if __name__ == "__main__":
         default=None,
         type=int,
     )
+    parser.add_argument(
+        "--cp_calibrate_stddev",
+        action="store_true",
+        help="If set, MLForecast.predict_distr multiplies its raw predictive stddev "
+        "by the committed CP scale factors (whoc/wind_forecast/cp_scale_factors/quantile_head.json) "
+        "so sd_ws_horz_* / sd_ws_vert_* columns in the validation parquet are calibrated. "
+        "Default OFF — calibration is opt-in per run.",
+    )
     args = parser.parse_args()
 
     assert args.model is None or all(
@@ -1395,6 +1403,7 @@ if __name__ == "__main__":
                             study_name=None,  # db_setup_params["study_name"],
                             model_config=mncf,
                             resample=False,
+                            cp_calibrate_stddev=args.cp_calibrate_stddev,
                         ),
                         target_turbine_indices=args.target_turbine_indices,
                     )
