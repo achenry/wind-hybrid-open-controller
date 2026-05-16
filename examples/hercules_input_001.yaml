@@ -107,6 +107,7 @@ controller:
   use_last_fcst_only: False # whether to use only the last forecasted values after the current time step, or all forecasted values from the current time step
 # TODO move model params to training config
 wind_forecast:
+  cp_calibrate_stddev: true
   context_timedelta: 600 # seconds
   prediction_timedelta: 60 # seconds
   model_config_path: 
