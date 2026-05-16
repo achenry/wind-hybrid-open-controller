@@ -110,7 +110,17 @@ wind_forecast:
   cp_calibrate_stddev: true
   context_timedelta: 600 # seconds
   prediction_timedelta: 60 # seconds
-  model_config_path: 
+  model_config_path:
+  # cp_calibrate_stddev MUST sit at this top level (not nested under MLForecast).
+  # initialize_case_studies.py iterates case.items() in alphabetical key order
+  # AND the routing predicate's nested check only fires if wind_forecast_class
+  # has already been assigned this loop iteration. cp_calibrate_stddev sorts
+  # before wind_forecast_class, so at the moment it is processed the
+  # controller's wind_forecast_class is still the wcnf default `False`,
+  # short-circuiting the nested check. Registering at this top level makes the
+  # FIRST clause of the routing predicate match immediately. Default `false`
+  # keeps calibration opt-in per case.
+  cp_calibrate_stddev: false
   SVRForecast:
     model_key: svr
     kernel: rbf
