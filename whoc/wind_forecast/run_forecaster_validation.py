@@ -196,9 +196,13 @@ def make_predictions(
         forecasts = []
         # split_true_wf = true_wind_field.filter(pl.col("time").is_between(start, end, closed="both"))
         # logging.info(f"Getting controller times for {splits[d]}th split.")
+        # polars >= 1.x can't parse pandas.Timedelta in `>=` literal — convert to py timedelta first.
+        _ctx_td = forecaster.context_timedelta
+        if hasattr(_ctx_td, "to_pytimedelta"):
+            _ctx_td = _ctx_td.to_pytimedelta()
         split_controller_times = controller_times.filter(
             pl.col("time").is_between(start, end, closed="both")
-        ).filter((pl.col("time") - start) >= forecaster.context_timedelta)
+        ).filter((pl.col("time") - start) >= _ctx_td)
         n_controller_times = split_controller_times.select(pl.len()).item()
         # logging.info(f"Resetting forecaster state.")
         forecaster.reset(assigned_gpu=assigned_gpu)
@@ -929,6 +933,14 @@ if __name__ == "__main__":
         default=None,
         type=int,
     )
+    parser.add_argument(
+        "--cp_calibrate_stddev",
+        action="store_true",
+        help="If set, MLForecast.predict_distr multiplies its raw predictive stddev "
+        "by the committed CP scale factors (whoc/wind_forecast/cp_scale_factors/quantile_head.json) "
+        "so sd_ws_horz_* / sd_ws_vert_* columns in the validation parquet are calibrated. "
+        "Default OFF — calibration is opt-in per run.",
+    )
     args = parser.parse_args()
 
     assert args.model is None or all(
@@ -1391,6 +1403,7 @@ if __name__ == "__main__":
                             study_name=None,  # db_setup_params["study_name"],
                             model_config=mncf,
                             resample=False,
+                            cp_calibrate_stddev=args.cp_calibrate_stddev,
                         ),
                         target_turbine_indices=args.target_turbine_indices,
                     )
