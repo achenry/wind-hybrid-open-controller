@@ -2,6 +2,7 @@ from typing import Union
 from dataclasses import dataclass
 import os
 import re
+import json
 import types
 
 import inspect
@@ -65,6 +66,30 @@ class MLForecast(WindForecast):
         self.device = None
         self.resample = self.kwargs.get("resample", True)  # Default to True if not specified
 
+        # CP stddev calibration — opt-in. When enabled, predict_distr multiplies the
+        # raw per-component predictive stddev by a per-(lead, component) Conformal
+        # Prediction scale factor so downstream controllers receive calibrated
+        # stddevs. Default OFF: the scale factors are checkpoint-specific, so a case
+        # study must explicitly set cp_calibrate_stddev=True (and optionally point
+        # cp_scale_factors_path at a non-default table).
+        self.cp_calibrate_stddev = self.kwargs.get("cp_calibrate_stddev", False)
+        self.cp_scale_factors = None
+        if self.cp_calibrate_stddev:
+            cp_path = self.kwargs.get(
+                "cp_scale_factors_path",
+                os.path.join(os.path.dirname(__file__), "cp_scale_factors", "quantile_head.json"),
+            )
+            with open(cp_path, encoding="utf-8") as f:
+                self.cp_scale_factors = json.load(f).get("scale_factors")
+            if self.cp_scale_factors is None:
+                logging.warning(
+                    f"CP scale factors file {cp_path} has no 'scale_factors' key; "
+                    f"disabling CP stddev calibration."
+                )
+                self.cp_calibrate_stddev = False
+            else:
+                logging.info(f"CP stddev calibration ENABLED from {cp_path}: {self.cp_scale_factors}")
+
         # don't need this, can load hyperparamas from checkpoint
         # if self.use_tuned_params:
         #     try:
@@ -115,7 +140,7 @@ class MLForecast(WindForecast):
                 f"Loaded checkpoint from {checkpoint_path}"
             )  # with hparams: {checkpoint_hparams}")
             self.data_module = DataModule(
-                data_path=self.model_config["dataset"]["data_path"],
+                normalized_data_path=self.model_config["dataset"]["data_path"],
                 n_splits=self.model_config["dataset"]["n_splits"],
                 continuity_groups=None,
                 train_split=(
@@ -627,6 +652,24 @@ class MLForecast(WindForecast):
         else:
             return pred_df.to_pandas()
 
+    def _cp_multiplier(self, components, n_leads, device, dtype):
+        """Per-(lead, component) CP scale-factor tensor of shape [n_leads, len(components)].
+
+        `components` may be bare prefixes (``"ws_horz"``) or turbine-suffixed
+        (``"ws_horz_wt042"``) — the ``_wtNNN`` suffix is stripped so all turbines of a
+        component share that component's per-lead factors. Components absent from the
+        scale-factor table (or leads beyond its length) stay at 1.0 (no calibration).
+        """
+        mult = torch.ones((n_leads, len(components)), device=device, dtype=dtype)
+        for c, comp in enumerate(components):
+            base = comp.rsplit("_wt", 1)[0] if "_wt" in comp else comp
+            factors = self.cp_scale_factors.get(base)
+            if factors is None:
+                continue
+            n_copy = min(n_leads, len(factors))
+            mult[:n_copy, c] = torch.as_tensor(factors[:n_copy], device=device, dtype=dtype)
+        return mult
+
     def predict_distr(self, historic_measurements: Union[pd.DataFrame, pl.DataFrame], current_time):
 
         if isinstance(historic_measurements, pd.DataFrame):
@@ -682,6 +725,10 @@ class MLForecast(WindForecast):
                         )  # .to(self.predictor.device)
                         pred_list[p].distribution.mean = samples_tensor.mean(dim=0)
                         pred_list[p].distribution.stddev = samples_tensor.std(dim=0)
+                        if self.cp_calibrate_stddev and self.cp_scale_factors is not None:
+                            sd = pred_list[p].distribution.stddev  # [n_leads, n_components]
+                            pred_list[p].distribution.stddev = sd * self._cp_multiplier(
+                                self.data_module.target_prefixes, sd.shape[0], sd.device, sd.dtype)
 
                 pred_df = pl.concat(
                     [
@@ -721,6 +768,10 @@ class MLForecast(WindForecast):
                     samples_tensor = torch.from_numpy(pred.samples)  # .to(self.predictor.device)
                     pred.distribution.mean = samples_tensor.to(self.predictor.device).mean(dim=0)
                     pred.distribution.stddev = samples_tensor.std(dim=0)
+                    if self.cp_calibrate_stddev and self.cp_scale_factors is not None:
+                        sd = pred.distribution.stddev  # [n_leads, n_all_target_cols]
+                        pred.distribution.stddev = sd * self._cp_multiplier(
+                            self.data_module.target_cols, sd.shape[0], sd.device, sd.dtype)
 
                 pred_df = pl.DataFrame(
                     data={
