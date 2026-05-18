@@ -88,7 +88,9 @@ class MLForecast(WindForecast):
                 )
                 self.cp_calibrate_stddev = False
             else:
-                logging.info(f"CP stddev calibration ENABLED from {cp_path}: {self.cp_scale_factors}")
+                logging.info(
+                    f"CP stddev calibration ENABLED from {cp_path}: {self.cp_scale_factors}"
+                )
 
         # don't need this, can load hyperparamas from checkpoint
         # if self.use_tuned_params:
@@ -139,6 +141,10 @@ class MLForecast(WindForecast):
             logging.info(
                 f"Loaded checkpoint from {checkpoint_path}"
             )  # with hparams: {checkpoint_hparams}")
+
+            model_config_source = checkpoint_hparams["checkpoint"]["hyper_parameters"][
+                "model_config"
+            ]
             self.data_module = DataModule(
                 normalized_data_path=self.model_config["dataset"]["data_path"],
                 n_splits=self.model_config["dataset"]["n_splits"],
@@ -150,7 +156,7 @@ class MLForecast(WindForecast):
                 ),
                 val_split=self.model_config["dataset"]["val_split"],
                 test_split=self.model_config["dataset"]["test_split"],
-                batch_size=self.model_config["dataset"]["batch_size"],
+                batch_size=checkpoint_hparams["init_args"]["batch_size"],
                 as_lazyframe=True,
                 # Use lengths determined above, converted to seconds
                 prediction_length=(
@@ -162,14 +168,15 @@ class MLForecast(WindForecast):
                 target_prefixes=["ws_horz", "ws_vert"],
                 feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                 freq=checkpoint_hparams["freq_str"],  # Use original freq string
-                use_normalization=self.model_config["dataset"].get("normalize", True),
+                use_normalization=model_config_source["scaling"]
+                == "False",  # self.model_config["dataset"].get("normalize", True),
                 target_suffixes=self.model_config["dataset"]["target_turbine_ids"],
                 per_turbine_target=self.model_config["dataset"]["per_turbine_target"],
                 dtype=None,
                 normalization_consts_path=self.model_config["dataset"]["normalization_consts_path"],
             )
 
-            self.data_module.get_dataset_info()
+            # self.data_module.get_dataset_info()
             self.scaler_params = self.data_module.compute_scaler_params()
             logging.info(
                 "Re-initialized DataModule and recomputed scaler_params based on checkpoint/config."
@@ -239,21 +246,21 @@ class MLForecast(WindForecast):
             estimator_kwargs = {
                 "freq": self.data_module.freq,
                 "prediction_length": self.data_module.prediction_length,
-                "num_feat_dynamic_real": self.data_module.num_feat_dynamic_real,
-                "num_feat_static_cat": self.data_module.num_feat_static_cat,
-                "cardinality": self.data_module.cardinality,
-                "num_feat_static_real": self.data_module.num_feat_static_real,
-                "input_size": self.data_module.num_target_vars,
+                "num_feat_dynamic_real": model_config_source["num_feat_dynamic_real"],
+                "num_feat_static_cat": model_config_source["num_feat_static_cat"],
+                "cardinality": model_config_source["cardinality"],
+                "num_feat_static_real": model_config_source["num_feat_static_real"],
+                "input_size": model_config_source["num_series"],
                 "scaling": "std"
-                if checkpoint_hparams["init_args"]["model_config"]["scaling"] in ["True", "std"]
+                if model_config_source["scaling"] in ["True", "std"]
                 else False,  # Scaling handled externally or internally by TACTiS
-                "lags_seq": checkpoint_hparams["init_args"]["model_config"][
-                    "lags_seq"
-                ],  # TACTiS doesn't typically use lags
+                "lags_seq": model_config_source["lags_seq"],  # TACTiS doesn't typically use lags
                 "time_features": [second_of_minute, minute_of_hour, hour_of_day, day_of_year],
-                "batch_size": len(self.data_module.target_suffixes)
+                "batch_size": checkpoint_hparams["checkpoint"]["hyper_parameters"]["model_config"][
+                    "cardinality"
+                ][0]
                 if self.data_module.per_turbine_target
-                else 1,  # self.data_module.batch_size, #self.model_config["dataset"].setdefault("batch_size", 128),
+                else 1,  # #len(self.data_module.target_suffixes) self.data_module.batch_size, #self.model_config["dataset"].setdefault("batch_size", 128),
                 "num_batches_per_epoch": self.model_config["trainer"].setdefault(
                     "limit_train_batches", 1000
                 ),
@@ -270,9 +277,7 @@ class MLForecast(WindForecast):
                 "trainer_kwargs": self.model_config["trainer"],
                 # Include distr_output initially, will be removed conditionally
                 #             "distr_output": distr_output_class(dim=self.data_module.num_target_vars, **self.model_config["model"]["distr_output"]["kwargs"]),
-                "num_parallel_samples": checkpoint_hparams["init_args"]["model_config"][
-                    "num_parallel_samples"
-                ]
+                "num_parallel_samples": model_config_source["num_parallel_samples"]
                 if self.model_key == "tactis"
                 else 100,  # Default 100 if not specified
             }
@@ -280,7 +285,7 @@ class MLForecast(WindForecast):
             estimator_params = [param.name for param in estimator_sig.parameters.values()]
 
             # Add model-specific arguments. Note that some params, such as num_feat_dynamic_real, are changed within Model, and so can't be used for estimator class
-            model_config_source = checkpoint_hparams["init_args"]["model_config"]
+
             if model_config_source:
                 estimator_kwargs.update(
                     {
@@ -728,7 +733,8 @@ class MLForecast(WindForecast):
                         if self.cp_calibrate_stddev and self.cp_scale_factors is not None:
                             sd = pred_list[p].distribution.stddev  # [n_leads, n_components]
                             pred_list[p].distribution.stddev = sd * self._cp_multiplier(
-                                self.data_module.target_prefixes, sd.shape[0], sd.device, sd.dtype)
+                                self.data_module.target_prefixes, sd.shape[0], sd.device, sd.dtype
+                            )
 
                 pred_df = pl.concat(
                     [
@@ -771,7 +777,8 @@ class MLForecast(WindForecast):
                     if self.cp_calibrate_stddev and self.cp_scale_factors is not None:
                         sd = pred.distribution.stddev  # [n_leads, n_all_target_cols]
                         pred.distribution.stddev = sd * self._cp_multiplier(
-                            self.data_module.target_cols, sd.shape[0], sd.device, sd.dtype)
+                            self.data_module.target_cols, sd.shape[0], sd.device, sd.dtype
+                        )
 
                 pred_df = pl.DataFrame(
                     data={
