@@ -696,10 +696,12 @@ class MLForecast(WindForecast):
                 )
             else:
                 pass
-            test_data = self._generate_test_data(historic_measurements)
+
             logging.info(
                 f"Using {torch.cuda.device_count()} GPU devices: {self.device} at {current_time} to make predictions for {self.model_key} with prediction_timedelta {self.prediction_timedelta}."
             )
+
+            test_data = self._generate_test_data(historic_measurements)
 
             pred_iter = self.predictor.predict(
                 test_data,
