@@ -176,7 +176,7 @@ class MLForecast(WindForecast):
                 normalization_consts_path=self.model_config["dataset"]["normalization_consts_path"],
             )
 
-            # self.data_module.get_dataset_info()
+            self.data_module.get_dataset_info()
             self.scaler_params = self.data_module.compute_scaler_params()
             logging.info(
                 "Re-initialized DataModule and recomputed scaler_params based on checkpoint/config."
