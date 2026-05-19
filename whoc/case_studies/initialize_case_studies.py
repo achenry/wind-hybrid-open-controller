@@ -473,15 +473,15 @@ case_studies = {
             "vals": [
                 os.path.join(
                     os.path.dirname(wind_forecasting_file),
-                    "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml",
+                    "../config/training/training_inputs_kestrel_awaken_pred_unsmoothed.yaml",
                 ),
                 os.path.join(
                     os.path.dirname(wind_forecasting_file),
-                    "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml",
+                    "../config/training/training_inputs_kestrel_awaken_pred_unsmoothed.yaml",
                 ),
                 os.path.join(
                     os.path.dirname(wind_forecasting_file),
-                    "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml",
+                    "../config/training/training_inputs_kestrel_awaken_pred_unsmoothed.yaml",
                 ),
             ],
         },
@@ -520,7 +520,7 @@ case_studies = {
                 "LookupBasedWakeSteeringController",  # arm 1: uncertain, raw stddev
                 "LookupBasedWakeSteeringController",  # arm 2: uncertain, CP-calibrated stddev
                 "LookupBasedWakeSteeringController",  # arm 3: deterministic LUT baseline
-                "GreedyController",                   # arm 4: no-wake-steering floor
+                "GreedyController",  # arm 4: no-wake-steering floor
             ],
         },
         "model_config_path": {
