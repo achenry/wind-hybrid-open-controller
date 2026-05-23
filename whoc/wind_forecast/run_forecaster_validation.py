@@ -934,6 +934,14 @@ if __name__ == "__main__":
         type=int,
     )
     parser.add_argument(
+        "-cgs",
+        "--continuity_groups",
+        required=False,
+        default=None,
+        type=str,
+        help="Continuity groups to include in validation results, separated by commas, e.g. '0,1,2,3,4'.",
+    )
+    parser.add_argument(
         "--cp_calibrate_stddev",
         action="store_true",
         help="If set, MLForecast.predict_distr multiplies its raw predictive stddev "
@@ -1107,12 +1115,21 @@ if __name__ == "__main__":
         logging.info("Sorting test datasets by duration.")
         # data_module.test_dataset = sorted(data_module.test_dataset, key=lambda ds: ds["target"].shape[1], reverse=True)
         # data_module.test_dataset = sorted(data_module.test_dataset.partition_by("item_id"), key=lambda ds: ds.select(pl.len()).item(), reverse=True)
-        test_dataset = (
-            data_module.datasets["test"]
-            .with_columns(pl.len().over("item_id").alias("cg_size"))
-            .sort("cg_size", descending=True)
-            .drop("cg_size")
-        )
+        if args.continuity_groups is not None:
+            cgs = [int(x) for x in args.continuity_groups.split(",")]
+            test_dataset = (
+                data_module.datasets["test"]
+                .collect()
+                .filter(pl.col("item_id").str.extract("(\\d+)").cast(int).is_in(cgs))
+            )
+        else:
+            test_dataset = (
+                data_module.datasets["test"]
+                .with_columns(pl.len().over("item_id").alias("cg_size"))
+                .sort("cg_size", descending=True)
+                .drop("cg_size")
+            )
+
         test_dataset = [
             test_dataset.filter(pl.col("item_id") == item_id)
             for (item_id,) in test_dataset.select(pl.col("item_id").unique(maintain_order=True))
@@ -1123,58 +1140,77 @@ if __name__ == "__main__":
         if args.max_splits:
             test_dataset = test_dataset[: args.max_splits]
 
-        new_ds = []
-        for ds in test_dataset:
-            cg = ds.select(pl.col("item_id").first()).collect().item()
-            if cg not in cgs:
-                new_ds.append(ds)
-                cgs.append(cg)
-                # new_idx = -1
-                # new_pred_len = mcnf["dataset"]["prediction_length"]
-            else:
-                joint_cgs.add(int(re.search("(?<=SPLIT)\\d+", cg).group()))
+        # new_ds = []
+        # for ds in test_dataset:
+        #     cg = ds.select(pl.col("item_id").first()).collect().item()
+        #     if (cg not in cgs) or ():
+        #         new_ds.append(ds)
+        #         cgs.append(cg)
+        #         # new_idx = -1
+        #         # new_pred_len = mcnf["dataset"]["prediction_length"]
+        #     else:
+        #         joint_cgs.add(int(re.search("(?<=SPLIT)\\d+", cg).group()))
 
-        if len(new_ds) > 0:
-            if args.max_steps:
-                assert args.max_steps >= int(
-                    (max(context_timedeltas) + max(prediction_timedeltas)) / measurements_timedelta
-                ), (
-                    f"max_steps, if provided, must allow for context_timedelta + max(prediction_timedelta) = {int((max(context_timedeltas) + max(prediction_timedeltas)) / measurements_timedelta)}"
-                )
-                # new_ds = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in new_ds]
-                new_ds = [ds.slice(0, args.max_steps) for ds in new_ds]
-
-            test_data.append(new_ds)
-
-            logging.info(
-                f"Generating dataframe with prediction_timedelta {mcnf['dataset']['prediction_length']}."
+        # if len(new_ds) > 0:
+        if args.max_steps:
+            assert args.max_steps >= int(
+                (max(context_timedeltas) + max(prediction_timedeltas)) / measurements_timedelta
+            ), (
+                f"max_steps, if provided, must allow for context_timedelta + max(prediction_timedelta) = {int((max(context_timedeltas) + max(prediction_timedeltas)) / measurements_timedelta)}"
             )
-            # save_path = os.path.join(os.path.dirname( base_model_config["dataset"]["data_path"]), "test_data.parquet")
-            # test_data[-1] = generate_wind_field_df(test_data[-1], data_module.target_cols, data_module.feat_dynamic_real_cols)
-            test_data[-1] = (
-                pl.concat(test_data[-1], how="vertical")
-                .rename(
-                    {
-                        **{f"target_{i}": col for i, col in enumerate(data_module.target_cols)},
-                        **{
-                            f"feat_dynamic_real_{i}": col
-                            for i, col in enumerate(data_module.feat_dynamic_real_cols)
-                        },
-                    }
-                )
-                .with_columns(
-                    continuity_group=pl.col("item_id").str.extract("SPLIT(\\d+)").cast(int)
-                )
-                .drop("item_id")
-                .with_columns(prediction_timedelta=pl.lit(mcnf["dataset"]["prediction_length"]))
+            # test_dataset = [ds.slice(0, args.max_steps) for ds in test_dataset]
+            # new_ds = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in new_ds]
+            new_ds = [ds.slice(0, args.max_steps) for ds in new_ds]
+
+        # test_data.append(new_ds)
+        test_data.append(test_dataset)
+
+        # logging.info(
+        #     f"Generating dataframe with prediction_timedelta {mcnf['dataset']['prediction_length']}."
+        # )
+        # save_path = os.path.join(os.path.dirname( base_model_config["dataset"]["data_path"]), "test_data.parquet")
+        # test_data[-1] = generate_wind_field_df(test_data[-1], data_module.target_cols, data_module.feat_dynamic_real_cols)
+        test_data[-1] = (
+            pl.concat(test_data[-1], how="vertical")
+            .rename(
+                {
+                    **{f"target_{i}": col for i, col in enumerate(data_module.target_cols)},
+                    **{
+                        f"feat_dynamic_real_{i}": col
+                        for i, col in enumerate(data_module.feat_dynamic_real_cols)
+                    },
+                }
             )
-            # test_data[-1] = test_data[-1].with_columns(prediction_timedelta=pl.lit(mcnf["dataset"]["prediction_length"]))
+            .with_columns(continuity_group=pl.col("item_id").str.extract("SPLIT(\\d+)").cast(int))
+            .drop("item_id")
+            .with_columns(prediction_timedelta=pl.lit(mcnf["dataset"]["prediction_length"]))
+        )
+        # test_data[-1] = test_data[-1].with_columns(prediction_timedelta=pl.lit(mcnf["dataset"]["prediction_length"]))
+
+    if False:
+        fig, ax = plt.subplots(2, 1)
+        for ds, ls in zip(test_data, ["-", "--"]):
+            ds = ds.sort("time")
+            ax[0].plot(
+                ds.select(pl.col("time")).collect().to_numpy(),
+                ds.select("ws_horz_wt001", "ws_horz_wt002", "ws_horz_wt003").collect().to_numpy(),
+                linestyle=ls,
+            )
+            ax[1].plot(
+                ds.select(pl.col("time")).collect().to_numpy(),
+                ds.select("ws_vert_wt001", "ws_vert_wt002", "ws_vert_wt003").collect().to_numpy(),
+                linestyle=ls,
+            )
+        plt.show()
+
+    if not (args.run_validation or args.run_processing):
+        exit(0)
 
     test_data = pl.concat(test_data, how="vertical")
-    test_data = test_data.with_columns(
-        prediction_timedelta=pl.when(pl.col("continuity_group").is_in(joint_cgs))
-        .then(pl.lit(-1))
-        .otherwise(pl.col("prediction_timedelta"))
+    # test_data = test_data.with_columns(
+    #     prediction_timedelta=pl.when(pl.col("continuity_group").is_in(joint_cgs))
+    #     .then(pl.lit(-1))
+    #     .otherwise(pl.col("prediction_timedelta"))
     )
     # .write_parquet(save_path, statistics=False)
     # test_data = pl.scan_parquet(save_path)

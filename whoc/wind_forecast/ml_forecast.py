@@ -250,7 +250,8 @@ class MLForecast(WindForecast):
                 "num_feat_static_cat": model_config_source["num_feat_static_cat"],
                 "cardinality": model_config_source["cardinality"],
                 "num_feat_static_real": model_config_source["num_feat_static_real"],
-                "input_size": model_config_source["num_series"],
+                "input_size": model_config_source.get("num_series")
+                or model_config_source.get("input_size"),
                 "scaling": "std"
                 if model_config_source["scaling"] in ["True", "std"]
                 else False,  # Scaling handled externally or internally by TACTiS
