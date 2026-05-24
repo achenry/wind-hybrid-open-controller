@@ -249,7 +249,7 @@ class MLForecast(WindForecast):
                 "num_feat_dynamic_real": model_config_source["num_feat_dynamic_real"],
                 "num_feat_static_cat": model_config_source["num_feat_static_cat"],
                 "cardinality": model_config_source["cardinality"],
-                "num_feat_static_real": model_config_source["num_feat_static_real"],
+                "num_feat_static_real": self.data_module.num_feat_static_real,  # model_config_source["num_feat_static_real"],  # nonzero bc of line num_feat_static_real=max(1, self.num_feat_static_real) in create_lightning_module func
                 "input_size": model_config_source.get("num_series")
                 or model_config_source.get("input_size"),
                 "scaling": "std"
