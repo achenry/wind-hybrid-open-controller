@@ -241,6 +241,15 @@ case_studies = {
         "target_turbine_indices": {"group": 1, "vals": ["4,", "74,73"]},
         "uncertain": {"group": 0, "vals": [False]},  # , False]},
         "wind_forecast_class": {"group": 0, "vals": ["PerfectForecast"]},
+        "model_config_path": {
+            "group": 1,
+            "vals": [
+                os.path.join(
+                    os.path.dirname(wind_forecasting_file),
+                    "../config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml",
+                )
+            ],
+        },
         "prediction_timedelta": {
             "group": 2,
             "vals": [
