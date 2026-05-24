@@ -1211,7 +1211,7 @@ if __name__ == "__main__":
     #     prediction_timedelta=pl.when(pl.col("continuity_group").is_in(joint_cgs))
     #     .then(pl.lit(-1))
     #     .otherwise(pl.col("prediction_timedelta"))
-    )
+    # )
     # .write_parquet(save_path, statistics=False)
     # test_data = pl.scan_parquet(save_path)
 
