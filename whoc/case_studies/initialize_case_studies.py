@@ -242,7 +242,7 @@ case_studies = {
         "uncertain": {"group": 0, "vals": [False]},  # , False]},
         "wind_forecast_class": {"group": 0, "vals": ["PerfectForecast"]},
         "model_config_path": {
-            "group": 1,
+            "group": 0,
             "vals": [
                 os.path.join(
                     os.path.dirname(wind_forecasting_file),
