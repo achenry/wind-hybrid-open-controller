@@ -86,6 +86,14 @@ if __name__ == "__main__":
     parser.add_argument("-ip", "--include_prediction", action="store_true")
     parser.add_argument("-ics", "--include_controller_signals", action="store_true")
     parser.add_argument(
+        "-cgs",
+        "--continuity_groups",
+        required=False,
+        default=None,
+        type=str,
+        help="Continuity groups to include in validation results, separated by commas, e.g. '0,1,2,3,4'.",
+    )
+    parser.add_argument(
         "-m",
         "--multiprocessor",
         type=str,
@@ -172,6 +180,7 @@ if __name__ == "__main__":
             n_seeds=args.n_seeds,
             stoptime=args.stoptime,
             save_dir=args.save_dir,
+            continuity_groups=args.continuity_groups,
             wf_source=args.wf_source,
             multiprocessor=args.multiprocessor,
             whoc_config=whoc_config,
@@ -190,8 +199,11 @@ if __name__ == "__main__":
         # actual columns so downstream f"ws_horz_{tid}" lookups resolve.
         if args.wf_source == "scada" and tid2idx_mapping is not None:
             ws_horz_suffixes = sorted(
-                (c[len("ws_horz_"):] for c in wind_field_ts[0].columns
-                 if c.startswith("ws_horz_")),
+                (
+                    c[len("ws_horz_") :]
+                    for c in wind_field_ts[0].columns
+                    if c.startswith("ws_horz_")
+                ),
                 key=lambda s: int(re.search(r"\d+", s).group()),
             )
             rebuilt = {sfx: i for i, sfx in enumerate(ws_horz_suffixes)}

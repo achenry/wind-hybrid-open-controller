@@ -1325,6 +1325,7 @@ def initialize_simulations(
     run_simulations,
     rerun_simulations,
     reprocess_simulations,
+    continuity_groups,
     n_seeds,
     stoptime,
     save_dir,
@@ -1583,13 +1584,17 @@ def initialize_simulations(
 
         del data_module.datasets["test"]
 
-        wind_field_ts = wind_field_ts.partition_by("continuity_group")
+        if continuity_groups is not None:
+            cgs = [int(x) for x in continuity_groups.split(",")]
+            wind_field_ts = wind_field_ts.filter(pl.col("continuity_group").is_in(cgs))
 
+        wind_field_ts = wind_field_ts.partition_by("continuity_group")
         wind_field_ts.sort(
             reverse=True,
             key=lambda df: df.select(pl.col("time").last() - pl.col("time").first()).item(),
         )
-        if n_seeds != "auto":
+
+        if continuity_groups is None and n_seeds != "auto":
             # reverse the order to start with the shortest
             wind_field_ts = wind_field_ts[:n_seeds]
             # wind_field_ts.sort(reverse=False, key=lambda df: df.select(pl.col("time").last() - pl.col("time").first()).item())
