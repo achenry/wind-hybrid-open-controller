@@ -5,13 +5,13 @@
 #SBATCH --nodes=1
 ##SBATCH --time=01:00:00
 ##SBATCH --partition=debug
-#SBATCH --ntasks-per-node=1
-#SBATCH --gres=gpu:1
-#SBATCH --mem-per-cpu=20G
+##SBATCH --ntasks-per-node=1
+##SBATCH --gres=gpu:1
+##SBATCH --mem-per-cpu=20G
 #SBATCH --time=72:00:00
 #SBATCH --ntasks-per-node=8
 #SBATCH --gres=gpu:4
-##SBATCH --mem-per-cpu=60G
+#SBATCH --mem-per-cpu=60G
 # salloc --partition=debug --gres=gpu:2 --ntasks-per-node=2 --time=01:00:00 --mem-per-cpu=85G --account=awaken
 
 # Print environment info
@@ -69,4 +69,4 @@ export CUDA_VISIBLE_DEVICES=$(seq -s, 0 $(($n_devices-1)))
 #echo "Using GPUs ${CUDA_VISIBLE_DEVICES}"
 
 # taskset -c $start_core-$end_core 
-python ../run_forecaster_validation.py --model ${MODELS} --run_name ml --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --simulation_timestep 1 --save_dir /projects/awaken/ahenry/wind_forecasting/logging --checkpoint latest --multiprocessor cf --prediction_type distribution --use_trained_models --max_splits 30 --run_processing --rerun_validation --run_validation
+python ../run_forecaster_validation.py --model ${MODELS} --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --run_name ml --simulation_timestep 1 --save_dir /projects/awaken/ahenry/wind_forecasting/logging --checkpoint latest --multiprocessor cf --prediction_type distribution --use_trained_models --max_splits 30 --run_processing --run_validation -cgs '10,32,566,578,636,645,646,660,664,666,672,673,674,677,679,683,685,710,719,742,745,746,752,753,759,760,777,779,1010,1180'

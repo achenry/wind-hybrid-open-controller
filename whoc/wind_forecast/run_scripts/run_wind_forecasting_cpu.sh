@@ -61,5 +61,5 @@ python ../run_forecaster_validation.py --ram_limit 65 --model ${MODELS} --model_
 						--run_name baseline_forecasters --max_splits 30 \
 						--simulation_timestep 1 \
 						--save_dir /projects/awaken/ahenry/wind_forecasting/logging --multiprocessor cf --prediction_type distribution \
-						 --use_trained_models --run_validation --run_processing --rerun_validation #--max_steps 1600 --rerun_validation
+						 --use_trained_models --run_validation --run_processing #--max_steps 1600 --rerun_validation
 
