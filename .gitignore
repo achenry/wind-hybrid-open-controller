@@ -70,6 +70,67 @@ examples/optuna/*
 !examples/wind_farm_power_tracking_florisstandin/amr_standin_data.csv
 !examples/wind_farm_power_tracking_florisstandin/wind_power_reference_data.csv
 
+# Data files
+*.db
+*.db-shm
+*.db-wal
+*.hst
+*.nc
+*.png
+*.jpeg
+*.csv
+*.log
+*log
+*.pkl
+*.npy
+chk*
+plt*
+*.out
+*.dat
+*.prof
+*.txt
+*.hst
+*.nc
+*.out
+*.npy
+*.pkl
+*.zip
+
+examples/*/logstandin*
+examples/*/loghercules*
+examples/*/logfloris*
+examples/*/logamr*
+examples/*/*.png
+examples/*/*.jpeg
+examples/*/*/*.nc
+examples/*/*.csv
+examples/*/*.pkl
+examples/*/*/*.png
+examples/*/post_processing/*.nc
+examples/*/chk*/
+examples/*/plt*/
+examples/post_processing/*
+examples/chk*/
+examples/plt*/
+examples/post_processing/*.nc
+examples/*/post_processing/*.nc
+examples/post_processing/abl_statistics00000.nc
+examples/post_processing/samplingLine00000.nc
+examples/post_processing/samplingPlane00000.nc
+examples/bndry_files/
+examples/bndry_files*/
+examples/*/time.dat
+examples/post_processing/abl_statistics00000.nc
+examples/*.out
+examples/*/*/*.npy
+examples/floris_case_studies/wind_field_data/raw_data/*
+examples/optuna/*
+
+# Exceptions
+!examples/lookup-based_wake_steering_florisstandin/amr_standin_data.csv
+!examples/wind_farm_power_tracking_florisstandin/amr_standin_data.csv
+!examples/wind_farm_power_tracking_florisstandin/wind_power_reference_data.csv
+
 # macOS files
 .DS_Store
 

@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 #sbatch run_wind_forecasting_gpu.sh informer $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_predGreedy.yaml
 #sbatch run_wind_forecasting_gpu.sh informer $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml
 #sbatch run_wind_forecasting_gpu.sh autoformer $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_predGreedy.yaml
@@ -6,5 +7,11 @@ sbatch run_wind_forecasting_gpu.sh autoformer $HOME/toolboxes/wind_forecasting_e
 #sbatch run_wind_forecasting_gpu.sh spacetimeformer $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml
 #sbatch run_wind_forecasting_gpu.sh tactis $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_predGreedy.yaml
 #sbatch run_wind_forecasting_gpu.sh tactis $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml
+=======
+sbatch run_wind_forecasting_gpu.sh informer $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml
+sbatch run_wind_forecasting_gpu.sh autoformer $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml
+sbatch run_wind_forecasting_gpu.sh spacetimeformer $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml
+sbatch run_wind_forecasting_gpu.sh tactis $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred_unsmoothed.yaml
+>>>>>>> 2372f0419e44837f6935b32f19bd31a7e225e0c2
 
 
