@@ -1117,10 +1117,8 @@ if __name__ == "__main__":
         # data_module.test_dataset = sorted(data_module.test_dataset.partition_by("item_id"), key=lambda ds: ds.select(pl.len()).item(), reverse=True)
         if args.continuity_groups is not None:
             cgs = [int(x) for x in args.continuity_groups.split(",")]
-            test_dataset = (
-                data_module.datasets["test"]
-                .filter(pl.col("item_id").str.extract("(\\d+)").cast(int).is_in(cgs))
-                .collect()
+            test_dataset = data_module.datasets["test"].filter(
+                pl.col("item_id").str.extract("(\\d+)").cast(int).is_in(cgs)
             )
         else:
             test_dataset = (
@@ -1128,14 +1126,13 @@ if __name__ == "__main__":
                 .with_columns(pl.len().over("item_id").alias("cg_size"))
                 .sort("cg_size", descending=True)
                 .drop("cg_size")
-                .collect()
             )
 
         test_dataset = [
             test_dataset.filter(pl.col("item_id") == item_id)
-            for (item_id,) in test_dataset.select(
-                pl.col("item_id").unique(maintain_order=True)
-            ).iter_rows()
+            for (item_id,) in test_dataset.select(pl.col("item_id").unique(maintain_order=True))
+            .collect()
+            .iter_rows()
         ]
         del data_module.datasets["test"]
         if args.max_splits:
@@ -1161,7 +1158,7 @@ if __name__ == "__main__":
             )
             # test_dataset = [ds.slice(0, args.max_steps) for ds in test_dataset]
             # new_ds = [slice_data_entry(ds, slice(0, args.max_steps)) for ds in new_ds]
-            new_ds = [ds.slice(0, args.max_steps) for ds in new_ds]
+            test_dataset = [ds.slice(0, args.max_steps) for ds in test_dataset]
 
         # test_data.append(new_ds)
         test_data.append(test_dataset)
