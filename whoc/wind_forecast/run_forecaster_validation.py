@@ -880,7 +880,7 @@ if __name__ == "__main__":
         "--checkpoint",
         type=str,
         required=False,
-        default="latest",
+        default="[latest]",
         nargs="+",
         help="Which checkpoint to use: can be equal to 'latest', 'best', or a list of existing checkpoint path (one for each ML model passed to models, in same order).",
     )
@@ -1621,6 +1621,13 @@ if __name__ == "__main__":
             forecast_df = pl.read_parquet(forecast_path, glob=True).with_columns(
                 time=pl.col("time").cast(pl.Datetime(time_unit="ns"))
             )
+
+            # if forecaster.model_key == "tactis" and forecaster.cp_calibrate_stddev and forecaster.cp_scale_factors is not None:
+            #         sd = pred.distribution.stddev  # [n_leads, n_all_target_cols]
+            #         pred.distribution.stddev = sd * forecaster._cp_multiplier(
+            #             forecaster.data_module.target_cols, sd.shape[0], sd.device, sd.dtype
+            #         )
+
             available_fc_cgs = (
                 forecast_df.select(pl.col("continuity_group").unique())
                 .to_numpy()

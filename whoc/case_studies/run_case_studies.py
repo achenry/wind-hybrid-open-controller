@@ -94,6 +94,14 @@ if __name__ == "__main__":
         help="Continuity groups to include in validation results, separated by commas, e.g. '0,1,2,3,4'.",
     )
     parser.add_argument(
+        "--cp_calibrate_stddev",
+        action="store_true",
+        help="If set, MLForecast.predict_distr multiplies its raw predictive stddev "
+        "by the committed CP scale factors (whoc/wind_forecast/cp_scale_factors/quantile_head.json) "
+        "so sd_ws_horz_* / sd_ws_vert_* columns in the validation parquet are calibrated. "
+        "Default OFF — calibration is opt-in per run.",
+    )
+    parser.add_argument(
         "-m",
         "--multiprocessor",
         type=str,

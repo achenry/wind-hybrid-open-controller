@@ -1902,6 +1902,10 @@ def initialize_simulations(
                     "model_checkpoint": input_dicts[start_case_idx + c].get(
                         "model_checkpoint", "latest"
                     ),
+                    "resample": input_dicts[start_case_idx + c].get("resample", False),
+                    "cp_calibrate_stddev": input_dicts[start_case_idx + c].get(
+                        "cp_calibrate_stddev", True
+                    ),
                 }
                 input_dicts[start_case_idx + c]["wind_forecast"].update(wind_forecast_kwargs)
                 # model-specific kwargs

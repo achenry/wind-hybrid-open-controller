@@ -126,6 +126,9 @@ class MLForecast(WindForecast):
             self.model_config["experiment"]["log_dir"],
             f"{self.model_config['experiment']['project_name']}_{self.model_key}",
         )
+        logging.info(
+            f"Loading checkpoint {self.kwargs['model_checkpoint']} from {log_dir} in mode {mode} based on metric {metric} for model {self.model_key}."
+        )
         checkpoint_path = get_checkpoint(
             checkpoint=self.kwargs["model_checkpoint"], metric=metric, mode=mode, log_dir=log_dir
         )
