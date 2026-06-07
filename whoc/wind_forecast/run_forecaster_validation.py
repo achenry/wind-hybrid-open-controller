@@ -1722,6 +1722,9 @@ if __name__ == "__main__":
                 or not os.path.exists(agg_metric_path)
                 or (available_agg_cgs != unique_cgs[prediction_timedelta])
             ):
+                logging.info(
+                    f"Generating agg_metrics for forecaster {forecaster_name} and prediction_timedelta {prediction_timedelta} since agg_metric_path {agg_metric_path} doesn't exist or doesn't contain all required continuity groups."
+                )
                 target_cols = (
                     data_module.target_cols
                     if forecaster.target_turbine_indices is None

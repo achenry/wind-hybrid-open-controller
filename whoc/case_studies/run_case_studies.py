@@ -910,10 +910,10 @@ if __name__ == "__main__":
                 #                                 save_dir=args.save_dir, label="baseline_forecasters_",
                 #                                 controller_labels=controller_labels)
 
+                # FIG 16 FARM POWER/YAW ACTUATION FOR DIFFERENT MODELS
                 plot_agg_metrics_vs_forecaster(
                     baseline_agg_df,
                     save_dir=args.save_dir,
-                    label="all_forecasters_",
                     controller_labels=controller_labels,
                 )
 
@@ -970,6 +970,8 @@ if __name__ == "__main__":
                 fig_label_features = ["controller_class", "wind_forecast_class"]
                 # plotting_cases = [(df[1]._name[0], str(df[1]._name[1])) for df in forecasters_agg_df.loc[(forecasters_agg_df["wind_forecast_class"] == "SVRForecast"), :].iterrows()]
                 # plotting_cases = [(df[1]._name[0], str(df[1]._name[1])) for df in forecasters_agg_df.loc[(forecasters_agg_df["wind_forecast_class"] == "PersistenceForecast"), :].iterrows()]
+
+                # FIG 17
                 plot_simulations(
                     time_series_df,
                     plotting_cases,

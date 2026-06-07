@@ -271,11 +271,10 @@ def plot_power_vs_prediction_time(agg_df, save_dir, label):
     fig.savefig(os.path.join(save_dir, f"{label}_power_vs_prediction_time.png"))
 
 
-def plot_agg_metrics_vs_forecaster(
-    agg_df, save_dir, fig_labels, controller_labels, agg_metrics=None
-):
+def plot_agg_metrics_vs_forecaster(agg_df, save_dir, controller_labels, agg_metrics=None):
 
     # metric for each plot
+    fig_labels = (["all_forecasters_power", "all_forecasters_yaw"],)
     metric_labels = {
         "FarmPower": "Farm Power Change\nvs. Persistence (%)",
         "YawAngleChangeAbs": "Yaw Actuation Change\nvs. Persistence (%)",
