@@ -370,6 +370,7 @@ if __name__ == "__main__":
                 ]
                 # case_family_case_names[case_families[i]] = [fn for fn in glob(os.path.join(args.save_dir, case_families[i], r"time_series_results_case_*_seed_[0-9]+.csv"))]
 
+            new_time_series_df = []
             # case_family_case_names["slsqp_solver_sweep"] = [f"time_series_results_case_alpha_1.0_controller_class_MPC_diff_type_custom_cd_dt_30_n_horizon_24_n_wind_preview_samples_5_nu_0.01_solver_slsqp_use_filtered_wind_dir_False_wind_preview_type_stochastic_interval_seed_{s}" for s in range(6)]
             # if using multiprocessing
             if args.multiprocessor is not None:
@@ -437,7 +438,6 @@ if __name__ == "__main__":
 
             # else, run sequentially
             else:
-                new_time_series_df = []
                 existing_time_series_df = []
                 for i in args.case_ids:
                     # all_ts_df_path = os.path.join(args.save_dir, case_families[i], "time_series_results_all.csv")
@@ -450,37 +450,39 @@ if __name__ == "__main__":
                             )
                         )
 
-            new_case_family_time_series_df = []
-            for i in args.case_ids:
-                # if reaggregate_simulations, or if the aggregated time series data doesn't exist for this case family, read the csv files for that case family
-                if args.reaggregate_simulations or not os.path.exists(
-                    os.path.join(args.save_dir, case_families[i], "time_series_results_all.csv")
-                ):
-                    for fn in case_family_case_names[case_families[i]]:
-                        input_regex = "(?<=time_series_results_).+(?=_seed_\\d+.csv)"
-                        new_case_family_time_series_df.append(
-                            read_time_series_data(
-                                results_path=os.path.join(args.save_dir, case_families[i], fn),
-                                input_dict_path=os.path.join(
-                                    args.save_dir,
-                                    case_families[i],
-                                    f"input_config_{re.search(input_regex, fn).group()}.pkl",
-                                ),
-                            )
-                        )
-
-            if new_case_family_time_series_df:
+            if RUN_ONCE:
+                new_case_family_time_series_df = []
                 for i in args.case_ids:
-                    # if any new time series data has been read, add it to the new_time_series_df list and save the aggregated time-series data
+                    # if reaggregate_simulations, or if the aggregated time series data doesn't exist for this case family, read the csv files for that case family
                     if args.reaggregate_simulations or not os.path.exists(
                         os.path.join(args.save_dir, case_families[i], "time_series_results_all.csv")
                     ):
-                        new_time_series_df.append(pd.concat(new_case_family_time_series_df))
-                        write_case_family_time_series_data(
-                            case_families[i], new_time_series_df[-1], args.save_dir
-                        )
+                        for fn in case_family_case_names[case_families[i]]:
+                            input_regex = "(?<=time_series_results_).+(?=_seed_\\d+.csv)"
+                            new_case_family_time_series_df.append(
+                                read_time_series_data(
+                                    results_path=os.path.join(args.save_dir, case_families[i], fn),
+                                    input_dict_path=os.path.join(
+                                        args.save_dir,
+                                        case_families[i],
+                                        f"input_config_{re.search(input_regex, string=fn).group()}.pkl",
+                                    ),
+                                )
+                            )
 
-            if RUN_ONCE:
+                if new_case_family_time_series_df:
+                    for i in args.case_ids:
+                        # if any new time series data has been read, add it to the new_time_series_df list and save the aggregated time-series data
+                        if args.reaggregate_simulations or not os.path.exists(
+                            os.path.join(
+                                args.save_dir, case_families[i], "time_series_results_all.csv"
+                            )
+                        ):
+                            new_time_series_df.append(pd.concat(new_case_family_time_series_df))
+                            write_case_family_time_series_data(
+                                case_families[i], new_time_series_df[-1], args.save_dir
+                            )
+
                 # time_series_df.loc[time_series_df["TurbinePower_75"].apply(lambda x: isinstance(x, str)), "TurbinePower_75"].iloc[0]
                 time_series_df = pd.concat(existing_time_series_df + new_time_series_df)
                 time_series_df = time_series_df.replace(to_replace=[None], value=np.nan)
