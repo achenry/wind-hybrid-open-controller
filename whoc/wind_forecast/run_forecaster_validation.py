@@ -824,16 +824,16 @@ if __name__ == "__main__":
         help="Whether to run validation for results.",
     )
     parser.add_argument(
-        "-rrv",
-        "--rerun_validation",
-        action="store_true",
-        help="Whether to repeat validation for results that have already been stored.",
-    )
-    parser.add_argument(
         "-rp",
         "--run_processing",
         action="store_true",
         help="Whether to run aggregation and plotting on validation time series.",
+    )
+    parser.add_argument(
+        "-rag",
+        "--reaggregate_metrics",
+        action="store_true",
+        help="Whether to repeat metric aggregation for agg_ results that have already been stored.",
     )
     parser.add_argument(
         "-rld",
@@ -1719,6 +1719,7 @@ if __name__ == "__main__":
 
             if (
                 args.rerun_validation
+                or args.reaggregate_metrics
                 or not os.path.exists(agg_metric_path)
                 or (available_agg_cgs != unique_cgs[prediction_timedelta])
             ):
