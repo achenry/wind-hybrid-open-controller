@@ -1635,7 +1635,7 @@ if __name__ == "__main__":
                 .astype(int)
             )
             logging.info(
-                f"Finished reading parquet files at {forecast_path}. Found {available_fc_cgs} continuity_groups."
+                f"Finished reading parquet files at {forecast_path}. Found {len(available_fc_cgs)} continuity_groups: {available_fc_cgs}."
             )
 
             if prediction_timedelta in unique_cgs:
@@ -1699,7 +1699,10 @@ if __name__ == "__main__":
                     agg_metrics.select(pl.col("continuity_group").unique()).to_numpy().flatten()
                 )
                 logging.info(
-                    f"Finished scanning parquet file at {agg_metric_path}. Found {available_agg_cgs} continuity groups."
+                    f"Finished scanning parquet file at {agg_metric_path} with schema {agg_metrics.schema}."
+                )
+                logging.info(
+                    f"Found {len(available_agg_cgs)} continuity groups: {available_agg_cgs}."
                 )
 
                 # if available agg_metrics contains all the continuity groups we require
@@ -1750,13 +1753,26 @@ if __name__ == "__main__":
 
         agg_df = pl.concat(
             [
-                res["agg_metrics"].with_columns(
+                res["agg_metrics"]
+                .with_columns(
                     forecaster=pl.lit(res["forecaster_name"]),
                     prediction_timedelta=pl.lit(res["prediction_timedelta"]),
                 )
+                .select(
+                    [
+                        "forecaster",
+                        "prediction_timedelta",
+                        "turbine_id",
+                        "test_idx",
+                        "continuity_group",
+                        "metric",
+                        "feature_type",
+                        "score",
+                    ]
+                )
                 for res in results
             ],
-            how="vertical_relaxed",
+            how="vertical",
         )
 
         turbine_ids = ["wt005", "wt074", "wt075"]
@@ -1779,7 +1795,23 @@ if __name__ == "__main__":
 
         true_long_path = os.path.join(validation_save_dir, f"true_long_df_{args.run_name}.parquet")
         if args.rerun_validation or not os.path.exists(true_long_path):
-            test_data.unpivot(
+            # a = test_data.drop("feat_static_cat").unpivot(
+            #     index=["time", "continuity_group", "prediction_timedelta"],
+            #     variable_name="feature",
+            #     value_name="value",
+            # ).collect()
+            # b = a.with_columns(
+            #     turbine_id=pl.col("feature").str.extract(
+            #         f"(_)({forecaster.turbine_signature})$", group_index=2
+            #     ),
+            #     feature=pl.col("feature").str.extract(
+            #         f"(.*)(_)({forecaster.turbine_signature})$", group_index=1
+            #     ),
+            #     data_type=pl.lit("True"),
+            # )
+            # c = b.with_columns(cs.float().cast(pl.Float32), cs.integer().cast(pl.Int32))
+
+            test_data.drop("feat_static_cat").unpivot(
                 index=["time", "continuity_group", "prediction_timedelta"],
                 variable_name="feature",
                 value_name="value",
