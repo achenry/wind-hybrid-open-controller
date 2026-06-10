@@ -274,7 +274,7 @@ def plot_power_vs_prediction_time(agg_df, save_dir, label):
 def plot_agg_metrics_vs_forecaster(agg_df, save_dir, controller_labels, agg_metrics=None):
 
     # metric for each plot
-    fig_labels = (["all_forecasters_power", "all_forecasters_yaw"],)
+    fig_labels = ["all_forecasters_power", "all_forecasters_yaw"]
     metric_labels = {
         "FarmPower": "Farm Power Change\nvs. Persistence (%)",
         "YawAngleChangeAbs": "Yaw Actuation Change\nvs. Persistence (%)",
@@ -338,17 +338,32 @@ def plot_agg_metrics_vs_forecaster(agg_df, save_dir, controller_labels, agg_metr
             plot_df.loc[cond, "value"] = 100 * (plot_df.loc[cond, "value"] - base_val) / base_val
 
         # plot_df.loc[(plot_df["controller_class"] == ctrl) & (plot_df["variable"] == "YawAngleChangeAbs"), "value"] = plot_df.loc[(plot_df["controller_class"] == ctrl) & (plot_df["variable"] == "YawAngleChangeAbs"), "value"] / 100
+        subplot_df = plot_df.loc[
+            (plot_df["variable"] == var)
+            & (
+                (plot_df["wind_forecast_class"] != "PerfectForecast")
+                | (plot_df["prediction_timedelta"] != 0)
+            )
+            & (plot_df["wind_forecast_class"] != "PersistenceForecast"),
+            :,
+        ].sort_values(
+            "wind_forecast_class",
+            key=lambda wfc: wfc.map(
+                {
+                    "InformerForecast": 0,
+                    "AutoformerForecast": 1,
+                    "SpacetimeformerForecast": 2,
+                    "TactisForecast": 3,
+                    "SVRForecast": 4,
+                    "KalmanFilterForecast": 5,
+                    "SpatialFilterForecast": 6,
+                    "Perfect": 7,
+                }
+            ),
+        )
 
         ax = sns.catplot(
-            plot_df.loc[
-                (plot_df["variable"] == var)
-                & (
-                    (plot_df["wind_forecast_class"] != "PerfectForecast")
-                    | (plot_df["prediction_timedelta"] != 0)
-                )
-                & (plot_df["wind_forecast_class"] != "PersistenceForecast"),
-                :,
-            ],
+            subplot_df,
             kind="bar",
             x="controller_class",
             y="value",
@@ -357,29 +372,34 @@ def plot_agg_metrics_vs_forecaster(agg_df, save_dir, controller_labels, agg_metr
             errorbar=("pi", 100),
         )
 
+        # TODO set xticks, order bars by baseline, then ML
+
         # for v, var in enumerate(reduced_agg_metrics):
-        for f, fcst in enumerate(ax.axes[0, 0].get_xticklabels()):
-            for c, ctrl in enumerate(controllers):
-                cond = (
-                    (plot_df["controller_class"] == ctrl)
-                    & (plot_df["wind_forecast_class"] == fcst.get_text())
-                    & (plot_df["variable"] == var)
-                )
-                # print_val = val = plot_df.loc[cond, 'value'].mean()
+        # for f, fcst in enumerate(ax.axes[0, 0].get_xticklabels()):
+        #     for c, ctrl in enumerate(controllers):
+        #         cond = (
+        #             (plot_df["controller_class"] == ctrl)
+        #             & (plot_df["wind_forecast_class"] == fcst.get_text())
+        #             & (plot_df["variable"] == var)
+        #         )
+        # print_val = val = plot_df.loc[cond, 'value'].mean()
 
-                # x = fcst._x - (0.4 if c == 0 else 0.0)
+        # x = fcst._x - (0.4 if c == 0 else 0.0)
 
-                # # y = val + (0.01 * max(1, 100*np.round(abs(val)/100))) if val > 0 else val - (0.05 * max(1, 100*np.round(abs(val)/100)))
-                # y = val + 0.02 * abs(val) if val > 0 else val - 0.2 * abs(val)
+        # # y = val + (0.01 * max(1, 100*np.round(abs(val)/100))) if val > 0 else val - (0.05 * max(1, 100*np.round(abs(val)/100)))
+        # y = val + 0.02 * abs(val) if val > 0 else val - 0.2 * abs(val)
 
-                # if abs(print_val) < 1.0:
-                #     ax.axes[0, v].annotate(text=f"{print_val:.1g}%", xy=(x, y))
-                # elif abs(print_val) >= 100:
-                #     ax.axes[0, v].annotate(text=f"{print_val:.3g}%", xy=(x, y))
-                # else:
-                #     ax.axes[0, v].annotate(text=f"{print_val:.2g}%", xy=(x, y))
+        # if abs(print_val) < 1.0:
+        #     ax.axes[0, v].annotate(text=f"{print_val:.1g}%", xy=(x, y))
+        # elif abs(print_val) >= 100:
+        #     ax.axes[0, v].annotate(text=f"{print_val:.3g}%", xy=(x, y))
+        # else:
+        #     ax.axes[0, v].annotate(text=f"{print_val:.2g}%", xy=(x, y))
 
         # ax.axes[0, v].set_yticklabels([])
+        ax.axes[0, 0].set_xticklabels(
+            [controller_labels[l.get_text()] for l in ax.axes[0, 0].get_xticklabels()]
+        )
         ax.axes[0, 0].set_ylabel("")
         ax.axes[0, 0].set_xlabel("Forecaster")
         # ax[c].set_title(f"{controller_labels[ctrl]} Mean Farm Power (MW)")
@@ -415,6 +435,7 @@ def plot_agg_metrics_vs_forecaster(agg_df, save_dir, controller_labels, agg_metr
                 "Persistence",
                 "Spatial Filter",
                 "Kalman Filter",
+                "Perfect",
             ]:
                 ax._legend.get_patches()[t].set_hatch("/")
                 for patch in ax.axes[0, 0].containers[t].patches:
@@ -1662,15 +1683,15 @@ def plot_yaw_power_ts(
 
     turbine_wind_direction_cols = sorted(
         [col for col in data_df.columns if "TurbineWindDir_" in col],
-        key=lambda s: int(s.split("_")[-1]),
+        key=lambda s: int(re.search("(?<=wt)(\\d+)", s.split("_")[-1]).group()),
     )
     turbine_power_cols = sorted(
         [col for col in data_df.columns if "TurbinePower_" in col],
-        key=lambda s: int(s.split("_")[-1]),
+        key=lambda s: int(re.search("(?<=wt)(\\d+)", s.split("_")[-1]).group()),
     )
     yaw_angle_cols = sorted(
         [col for col in data_df.columns if "TurbineYawAngle_" == col[: len("TurbineYawAngle_")]],
-        key=lambda s: int(s.split("_")[-1]),
+        key=lambda s: int(re.search("(?<=wt)(\\d+)", s.split("_")[-1]).group()),
     )
     data_df = data_df.dropna(
         subset=turbine_wind_direction_cols + turbine_power_cols + yaw_angle_cols
@@ -1683,6 +1704,21 @@ def plot_yaw_power_ts(
         if seed != plot_seed:
             continue
         seed_df = data_df.loc[data_df["WindSeed"] == seed, :].sort_values(by="Time")
+        dir_cols = [col for col in seed_df.columns if "TurbineYawAngle_" in col or "WindDir" in col]
+        dir_vals = seed_df[dir_cols].to_numpy()
+        if dir_vals.max() > 270 and dir_vals.min() < 90:
+            offset = 180.0 - (
+                np.degrees(
+                    np.arctan2(
+                        np.nanmean(np.sin(np.radians(dir_vals.flatten()))),
+                        np.nanmean(np.cos(np.radians(dir_vals.flatten()))),
+                    )
+                )
+            )
+            offset = (360 + offset if offset < 0 else offset) % 360.0
+            seed_df[dir_cols] = (seed_df[dir_cols] + offset) % 360
+        else:
+            offset = 0
 
         if include_yaw:
             ax_idx = 0
@@ -1714,7 +1750,7 @@ def plot_yaw_power_ts(
         ):
             if include_yaw:
                 ax_idx = 0
-                tid = re.search("(?<=TurbineYawAngle_).*$", yaw_col).group(0)
+                tid = re.search("(?<=TurbineYawAngle_)(.*$)", yaw_col).group(0)
                 if label_mapping:
                     tid = label_mapping[tid]
                 else:
@@ -1816,6 +1852,10 @@ def plot_yaw_power_ts(
         else:
             sns.move_legend(ax[ax_idx], "upper left", bbox_to_anchor=(1, 1), ncols=n_cols)
         # ax[ax_idx].legend([], [], frameon=False)
+
+        # new_ticks = ax[ax_idx].get_yticks() - offset
+        # new_ticks[np.where(new_ticks < 0)] = 360 + new_ticks[np.where(new_ticks < 0)]
+        # new_ticks = new_ticks % 360.0
         if not include_power:
             ax[ax_idx].set(xlabel="Time (s)")
 
@@ -1831,7 +1871,7 @@ def plot_yaw_power_ts(
         ax[next_ax_idx].set_ylim((0, ax[next_ax_idx].get_ylim()[1]))
         # ax[next_ax_idx].legend([], [], frameon=False)
 
-    results_dir = os.path.dirname(save_path)
+    # results_dir = os.path.dirname(save_path)
     # figManager = plt.get_current_fig_manager()
     # figManager.full_screen_toggle()
     # fig.suptitle("_".join([os.path.basename(results_dir), str(case_label), "yaw_power_ts"]))

@@ -824,6 +824,12 @@ if __name__ == "__main__":
         help="Whether to run validation for results.",
     )
     parser.add_argument(
+        "-rrv",
+        "--rerun_validation",
+        action="store_true",
+        help="Whether to rerun validation for existing results.",
+    )
+    parser.add_argument(
         "-rp",
         "--run_processing",
         action="store_true",
@@ -1779,6 +1785,12 @@ if __name__ == "__main__":
             how="vertical",
         )
 
+        # best_cg = agg_df.filter((pl.col("forecaster") == forecaster_name)
+        #                         & (pl.col("prediction_timedelta")== forecaster.prediction_timedelta.total_seconds())
+        #                         & (pl.col("metric") == "RMSE")
+        #                         & (pl.col("turbine_id").is_in(turbine_ids)))\
+        #     .group_by("continuity_group").agg(pl.col("score").mean()).select(pl.all().sort_by("score").first()).select("continuity_group").item()
+
         turbine_ids = ["wt005", "wt074", "wt075"]
         assert all(tid in data_module.target_suffixes for tid in turbine_ids), (
             f"Expected target turbine IDs {turbine_ids} to be a subset of {data_module.target_suffixes}."
@@ -1799,22 +1811,6 @@ if __name__ == "__main__":
 
         true_long_path = os.path.join(validation_save_dir, f"true_long_df_{args.run_name}.parquet")
         if args.rerun_validation or not os.path.exists(true_long_path):
-            # a = test_data.drop("feat_static_cat").unpivot(
-            #     index=["time", "continuity_group", "prediction_timedelta"],
-            #     variable_name="feature",
-            #     value_name="value",
-            # ).collect()
-            # b = a.with_columns(
-            #     turbine_id=pl.col("feature").str.extract(
-            #         f"(_)({forecaster.turbine_signature})$", group_index=2
-            #     ),
-            #     feature=pl.col("feature").str.extract(
-            #         f"(.*)(_)({forecaster.turbine_signature})$", group_index=1
-            #     ),
-            #     data_type=pl.lit("True"),
-            # )
-            # c = b.with_columns(cs.float().cast(pl.Float32), cs.integer().cast(pl.Int32))
-
             test_data.drop("feat_static_cat").unpivot(
                 index=["time", "continuity_group", "prediction_timedelta"],
                 variable_name="feature",
@@ -1924,11 +1920,6 @@ if __name__ == "__main__":
                 )
             )
 
-            # best_cg = agg_df.filter((pl.col("forecaster") == forecaster_name)
-            #                         & (pl.col("prediction_timedelta")== forecaster.prediction_timedelta.total_seconds())
-            #                         & (pl.col("metric") == "RMSE")
-            #                         & (pl.col("turbine_id").is_in(turbine_ids)))\
-            #     .group_by("continuity_group").agg(pl.col("score").mean()).select(pl.all().sort_by("score").first()).select("continuity_group").item()
             plot_distr = forecaster.is_probabilistic and args.prediction_type == "distribution"
 
             if PLOT_INDIVIDUAL and (

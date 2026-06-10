@@ -492,10 +492,12 @@ if __name__ == "__main__":
                     .unique()
                     .values
                 )
-                common_seeds = set(unique_seeds[0])
+                common_seeds = set(list(unique_seeds[0]))
                 for sds in unique_seeds[1:]:
-                    common_seeds.intersection_update(sds)
-                logging.info(f"Found {common_seeds} wind seeds common to all time series.")
+                    common_seeds.intersection_update(list(sds))
+                logging.info(
+                    f"Found {len(common_seeds)} wind seeds common to all time series: {common_seeds}."
+                )
 
                 # common_seeds = pd.unique(time_series_df["WindSeed"])
                 # time_series_df = time_series_df.loc[time_series_df.index.get_level_values("CaseName").isin([str(i) for i in range(0, 20)]) | time_series_df.index.get_level_values("CaseName").isin([str(i) for i in range(20, 35)])]
@@ -536,19 +538,19 @@ if __name__ == "__main__":
                             mncf_path = row["model_config_path"]
                             lpf_start_time = row["lpf_start_time"]
 
-                            if isinstance(row["model_config_path"], os.PathLike):
-                                with open(mncf_path, mode="r") as fp:
-                                    mcnf = yaml.safe_load(fp)
+                            # if isinstance(row["model_config_path"], os.PathLike):
+                            with open(mncf_path, mode="r") as fp:
+                                mcnf = yaml.safe_load(fp)
 
-                                # longest_ctx_steps.append(int((pd.Timedelta(mcnf["dataset"]["context_length"], unit="s") / pd.Timedelta(row["simulation_dt"], unit="s"))))
-                                max_ctx_time.append(
-                                    int(mcnf["dataset"]["context_length"])
-                                )  # in seconds
+                            # longest_ctx_steps.append(int((pd.Timedelta(mcnf["dataset"]["context_length"], unit="s") / pd.Timedelta(row["simulation_dt"], unit="s"))))
+                            max_ctx_time.append(
+                                int(mcnf["dataset"]["context_length"])
+                            )  # in seconds
 
                             max_ctx_time.append(int(lpf_start_time))  # in seconds
 
                     max_ctx_time = max(max_ctx_time)
-
+                    max_ctx_time = 1200  # should be uniform over all case families, need to get from model checkpoint rather than config TODO
                     # truncate greatest context length at beginning
                     trunc_time_series_df = time_series_df.reset_index(drop=False).groupby(
                         ["CaseFamily", "CaseName", "WindSeed"], group_keys=True
@@ -911,8 +913,11 @@ if __name__ == "__main__":
                 #                                 controller_labels=controller_labels)
 
                 # FIG 16 FARM POWER/YAW ACTUATION FOR DIFFERENT MODELS
+
                 plot_agg_metrics_vs_forecaster(
-                    baseline_agg_df,
+                    pd.concat([ml_baseline_agg_df, other_baseline_agg_df], axis=0).sort_values(
+                        ["CaseFamily", "CaseName"]
+                    ),
                     save_dir=args.save_dir,
                     controller_labels=controller_labels,
                 )
@@ -966,7 +971,7 @@ if __name__ == "__main__":
                         for cn in persistence_case_names
                     ]
                 )
-                label_mapping = {"74": "LUT Ds", "75": "LUT Us", "5": "Greedy"}
+                label_mapping = {"wt074": "LUT Ds", "wt075": "LUT Us", "wt005": "Greedy"}
                 fig_label_features = ["controller_class", "wind_forecast_class"]
                 # plotting_cases = [(df[1]._name[0], str(df[1]._name[1])) for df in forecasters_agg_df.loc[(forecasters_agg_df["wind_forecast_class"] == "SVRForecast"), :].iterrows()]
                 # plotting_cases = [(df[1]._name[0], str(df[1]._name[1])) for df in forecasters_agg_df.loc[(forecasters_agg_df["wind_forecast_class"] == "PersistenceForecast"), :].iterrows()]
