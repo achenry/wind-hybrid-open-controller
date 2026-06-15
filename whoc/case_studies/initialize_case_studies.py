@@ -1771,15 +1771,23 @@ def initialize_simulations(
             old2new_case_names = {}
             all_ts_path = os.path.join(save_dir, case_study_key, "time_series_results_all.csv")
             all_agg_path = os.path.join(save_dir, case_study_key, "agg_results_all.csv")
-            if not rerun_simulations and os.path.exists(all_ts_path):
-                existing_all_ts_df = pd.read_csv(all_ts_path, index_col=[0, 1], low_memory=False)
-                existing_all_agg_df = pd.read_csv(
-                    all_agg_path,
-                    index_col=[0, 1],
-                    header=[0, 1],
-                    low_memory=False,
-                    skipinitialspace=True,
-                )
+            if not rerun_simulations:
+                if os.path.exists(all_ts_path):
+                    existing_all_ts_df = pd.read_csv(
+                        all_ts_path, index_col=[0, 1], low_memory=False
+                    )
+                else:
+                    existing_all_ts_df = None
+                if os.path.exists(all_agg_path):
+                    existing_all_agg_df = pd.read_csv(
+                        all_agg_path,
+                        index_col=[0, 1],
+                        header=[0, 1],
+                        low_memory=False,
+                        skipinitialspace=True,
+                    )
+                else:
+                    existing_all_agg_df = None
             else:
                 existing_all_ts_df = None
                 existing_all_agg_df = None
@@ -2117,14 +2125,16 @@ def initialize_simulations(
             logging.info(f"Renaming {fn} to {new_fn}.")
             os.rename(fn, new_fn)
 
-        if run_simulations and existing_all_ts_df is not None:
+        if run_simulations:
             # rename case numbers
             if len(old2new_case_names):
-                logging.info(
-                    f"Renaming case names in {all_ts_path} and {all_agg_path} by mapping {old2new_case_names}."
-                )
-                existing_all_ts_df = existing_all_ts_df.rename(index=old2new_case_names)
-                existing_all_agg_df = existing_all_agg_df.rename(index=old2new_case_names)
+                if existing_all_ts_df is not None:
+                    logging.info(
+                        f"Renaming case names in {all_ts_path} and {all_agg_path} by mapping {old2new_case_names}."
+                    )
+                    existing_all_ts_df = existing_all_ts_df.rename(index=old2new_case_names)
+                if existing_all_agg_df is not None:
+                    existing_all_agg_df = existing_all_agg_df.rename(index=old2new_case_names)
 
         input_df = pd.concat(input_df, ignore_index=True, axis=0)
         os.makedirs(os.path.join(save_dir, case_study_key), exist_ok=True)
