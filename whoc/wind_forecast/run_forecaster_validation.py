@@ -363,7 +363,7 @@ def generate_wind_field_df(datasets, target_cols, feat_dynamic_real_cols):
 def unpivot_df(df, turbine_signature):
     return (
         df.unpivot(
-            index=["metric", "continuity_group", "test_idx"],
+            index=["metric", "continuity_group"],
             variable_name="feature",
             value_name="score",
         )
@@ -505,14 +505,14 @@ def generate_forecaster_agg_results(
     rmse = (
         err.group_by("continuity_group")
         .agg(cs.numeric().pow(2).mean().sqrt())
-        .with_columns(metric=pl.lit("RMSE"), test_idx=pl.lit(-1))
+        .with_columns(metric=pl.lit("RMSE"))
     )
     rmse = unpivot_df(rmse, forecaster.turbine_signature)
 
     mae = (
         err.group_by("continuity_group")
         .agg(cs.numeric().abs().mean())
-        .with_columns(metric=pl.lit("MAE"), test_idx=pl.lit(-1))
+        .with_columns(metric=pl.lit("MAE"))
     )
     mae = unpivot_df(mae, forecaster.turbine_signature)
 
@@ -528,41 +528,41 @@ def generate_forecaster_agg_results(
         pred_stddev = combined_df.select(pl.col("continuity_group"), cs.starts_with("sd_"))
         cg_vals = combined_df.select(pl.col("continuity_group").unique()).to_numpy().flatten()
 
-        picp = generate_metric_per_cg(
-            pred_mean,
-            pred_stddev,
-            true,
-            "PICP",
-            pi_coverage_probability,
-            cg_vals,
-            target_cols,
-            true_cols,
-        )
-        picp = unpivot_df(picp, forecaster.turbine_signature)
+        # picp = generate_metric_per_cg(
+        #     pred_mean,
+        #     pred_stddev,
+        #     true,
+        #     "PICP",
+        #     pi_coverage_probability,
+        #     cg_vals,
+        #     target_cols,
+        #     true_cols,
+        # )
+        # picp = unpivot_df(picp, forecaster.turbine_signature)
 
-        pinaw = generate_metric_per_cg(
-            pred_mean,
-            pred_stddev,
-            true,
-            "PINAW",
-            pi_normalized_average_width,
-            cg_vals,
-            target_cols,
-            true_cols,
-        )
-        pinaw = unpivot_df(pinaw, forecaster.turbine_signature)
+        # pinaw = generate_metric_per_cg(
+        #     pred_mean,
+        #     pred_stddev,
+        #     true,
+        #     "PINAW",
+        #     pi_normalized_average_width,
+        #     cg_vals,
+        #     target_cols,
+        #     true_cols,
+        # )
+        # pinaw = unpivot_df(pinaw, forecaster.turbine_signature)
 
-        cwc = generate_metric_per_cg(
-            pred_mean,
-            pred_stddev,
-            true,
-            "CWC",
-            coverage_width_criterion,
-            cg_vals,
-            target_cols,
-            true_cols,
-        )
-        cwc = unpivot_df(cwc, forecaster.turbine_signature)
+        # cwc = generate_metric_per_cg(
+        #     pred_mean,
+        #     pred_stddev,
+        #     true,
+        #     "CWC",
+        #     coverage_width_criterion,
+        #     cg_vals,
+        #     target_cols,
+        #     true_cols,
+        # )
+        # cwc = unpivot_df(cwc, forecaster.turbine_signature)
 
         crps = generate_metric_per_cg(
             pred_mean,
@@ -576,7 +576,8 @@ def generate_forecaster_agg_results(
         )
         crps = unpivot_df(crps, forecaster.turbine_signature)
 
-        agg_metrics += [picp, pinaw, cwc, crps]
+        # agg_metrics += [picp, pinaw, cwc, crps]
+        agg_metrics += [crps]
 
     elif prediction_type == "sample" and forecaster.is_probabilistic:
         logging.info(
@@ -586,38 +587,38 @@ def generate_forecaster_agg_results(
         cg_vals = combined_df.select(pl.col("continuity_group").unique()).to_numpy().flatten()
 
         # Calculate sample-based metrics
-        picp = generate_sample_based_metrics_per_cg(
-            combined_df,
-            combined_df,
-            "PICP_samples",
-            pi_coverage_probability_samples,
-            cg_vals,
-            target_cols,
-            true_cols,
-        )
-        picp = unpivot_df(picp, forecaster.turbine_signature)
+        # picp = generate_sample_based_metrics_per_cg(
+        #     combined_df,
+        #     combined_df,
+        #     "PICP_samples",
+        #     pi_coverage_probability_samples,
+        #     cg_vals,
+        #     target_cols,
+        #     true_cols,
+        # )
+        # picp = unpivot_df(picp, forecaster.turbine_signature)
 
-        pinaw = generate_sample_based_metrics_per_cg(
-            combined_df,
-            combined_df,
-            "PINAW_samples",
-            pi_normalized_average_width_samples,
-            cg_vals,
-            target_cols,
-            true_cols,
-        )
-        pinaw = unpivot_df(pinaw, forecaster.turbine_signature)
+        # pinaw = generate_sample_based_metrics_per_cg(
+        #     combined_df,
+        #     combined_df,
+        #     "PINAW_samples",
+        #     pi_normalized_average_width_samples,
+        #     cg_vals,
+        #     target_cols,
+        #     true_cols,
+        # )
+        # pinaw = unpivot_df(pinaw, forecaster.turbine_signature)
 
-        cwc = generate_sample_based_metrics_per_cg(
-            combined_df,
-            combined_df,
-            "CWC_samples",
-            coverage_width_criterion_samples,
-            cg_vals,
-            target_cols,
-            true_cols,
-        )
-        cwc = unpivot_df(cwc, forecaster.turbine_signature)
+        # cwc = generate_sample_based_metrics_per_cg(
+        #     combined_df,
+        #     combined_df,
+        #     "CWC_samples",
+        #     coverage_width_criterion_samples,
+        #     cg_vals,
+        #     target_cols,
+        #     true_cols,
+        # )
+        # cwc = unpivot_df(cwc, forecaster.turbine_signature)
 
         crps = generate_sample_based_metrics_per_cg(
             combined_df,
@@ -630,7 +631,8 @@ def generate_forecaster_agg_results(
         )
         crps = unpivot_df(crps, forecaster.turbine_signature)
 
-        agg_metrics += [picp, pinaw, cwc, crps]
+        # agg_metrics += [picp, pinaw, cwc, crps]
+        agg_metrics += [crps]
 
     # evaluator.get_metrics_per_ts(ts, forecast, include_metrics=include_metrics)
     # evaluator.get_aggregate_metrics(metrics_per_ts, include_metrics=include_metrics)
@@ -638,27 +640,25 @@ def generate_forecaster_agg_results(
     agg_metrics = pl.concat(
         [
             agg_metrics.select(
-                ["continuity_group", "metric", "test_idx", "feature_type", "turbine_id", "score"]
+                ["continuity_group", "metric", "feature_type", "turbine_id", "score"]
             ),
             agg_metrics.group_by(
-                ["continuity_group", "metric", "test_idx", "feature_type"], maintain_order=True
+                ["continuity_group", "metric", "feature_type"], maintain_order=True
             )
             .agg(pl.col("score").mean())
             .with_columns(turbine_id=pl.lit("all"))
-            .select(
-                ["continuity_group", "metric", "test_idx", "feature_type", "turbine_id", "score"]
-            ),
-            agg_metrics.group_by(
-                ["continuity_group", "metric", "turbine_id", "feature_type"], maintain_order=True
-            )
-            .agg(pl.col("score").mean())
-            .with_columns(test_idx=pl.lit(-1))
-            .select(
-                ["continuity_group", "metric", "test_idx", "feature_type", "turbine_id", "score"]
-            ),
+            .select(["continuity_group", "metric", "feature_type", "turbine_id", "score"]),
+            # agg_metrics.group_by(
+            #     ["continuity_group", "metric", "turbine_id", "feature_type"], maintain_order=True
+            # )
+            # .agg(pl.col("score").mean())
+            # .with_columns(test_idx=pl.lit(-1))
+            # .select(
+            #     ["continuity_group", "metric", "test_idx", "feature_type", "turbine_id", "score"]
+            # ),
         ],
         how="vertical",
-    ).sort(["continuity_group", "metric", "test_idx", "feature_type"])
+    ).sort(["continuity_group", "metric", "feature_type"])
     agg_metrics = pl.concat(
         [
             agg_metrics,
@@ -666,10 +666,8 @@ def generate_forecaster_agg_results(
                 ["continuity_group", "metric", "feature_type"], maintain_order=True
             )
             .agg(pl.col("score").mean())
-            .with_columns(test_idx=pl.lit(-1), turbine_id=pl.lit("all"))
-            .select(
-                ["continuity_group", "metric", "test_idx", "feature_type", "turbine_id", "score"]
-            ),
+            .with_columns(turbine_id=pl.lit("all"))
+            .select(["continuity_group", "metric", "feature_type", "turbine_id", "score"]),
         ]
     )
     return agg_metrics.with_columns(cs.float().cast(pl.Float32), cs.integer().cast(pl.Int32))
@@ -724,8 +722,24 @@ def plot_score_vs_forecaster(agg_df, metrics, ax_indices, prediction_intervals, 
     # TODO HIGH put all ML models and baseline models on same plot. Add dash boundary to baseline bars.
     sns.set_style("whitegrid")
 
+    sub_df = agg_df.sort_by(
+        "forecaster",
+        key=lambda wfc: wfc.map(
+            {
+                "InformerForecast": 0,
+                "AutoformerForecast": 1,
+                "SpacetimeformerForecast": 2,
+                "TactisForecast": 3,
+                "SVRForecast": 4,
+                "KalmanFilterForecast": 5,
+                "SpatialFilterForecast": 6,
+                "Perfect": 7,
+            }
+        ),
+    ).filter((pl.col("metric").is_in(metrics)))
+
     ax = sns.catplot(
-        agg_df.filter((pl.col("metric").is_in(metrics))),
+        sub_df,
         kind="bar",
         row=0,
         hue="forecaster",
@@ -1694,7 +1708,7 @@ if __name__ == "__main__":
                     agg_metric_path,
                     schema={
                         "turbine_id": pl.String,
-                        "test_idx": pl.Int32,
+                        # "test_idx": pl.Int32,
                         "continuity_group": pl.Int32,
                         "metric": pl.String,
                         "feature_type": pl.String,
@@ -1727,7 +1741,16 @@ if __name__ == "__main__":
                 args.rerun_validation
                 or args.reaggregate_metrics
                 or not os.path.exists(agg_metric_path)
-                or (available_agg_cgs != unique_cgs[prediction_timedelta])
+                or (
+                    available_agg_cgs
+                    != unique_cgs[prediction_timedelta].intersection(
+                        set(
+                            test_data.select(pl.col("continuity_group").unique())
+                            .collect()
+                            .to_series()
+                        )
+                    )
+                )
             ):
                 logging.info(
                     f"Generating agg_metrics for forecaster {forecaster_name} and prediction_timedelta {prediction_timedelta} since agg_metric_path {agg_metric_path} doesn't exist or doesn't contain all required continuity groups."
@@ -1773,7 +1796,6 @@ if __name__ == "__main__":
                         "forecaster",
                         "prediction_timedelta",
                         "turbine_id",
-                        "test_idx",
                         "continuity_group",
                         "metric",
                         "feature_type",
@@ -1808,6 +1830,42 @@ if __name__ == "__main__":
             .value_counts()
             .sort("count", descending=True)["continuity_group"][0]
         )
+
+        # TODO rate the predictors for each continuity group and find characteristics of cgs for ML models perform better vs other models
+        agg_df_per_cg = (
+            agg_df.filter((pl.col("metric") == "RMSE") & (pl.col("turbine_id") == "all"))
+            .select("forecaster", "feature_type", "score", "continuity_group")
+            .sort("score")
+            .group_by(["forecaster", "continuity_group"], maintain_order=True)
+            .agg(pl.all())
+            .explode("score")
+        )
+        best_forecasters_per_cg = (
+            agg_df_per_cg.sort("score")
+            .group_by(["continuity_group"], maintain_order=True)
+            .agg(
+                [
+                    pl.col("forecaster").gather(i).first().alias(f"forecaster_{i}")
+                    for i in range(len(forecasters))
+                ]
+            )
+        )
+        for i in range(len(forecasters)):
+            print(f"forecaster_{i}: {best_forecasters_per_cg[f'forecaster_{i}'].value_counts()}")
+
+        # SVR is the first best and second best for the same number of cgs: 93.
+        # Persistence is also the first best for many cgs: 6
+        # SVR and Persistence also remain third, and fourth for 22, 77 cgs respectively
+
+        g = sns.catplot(
+            data=agg_df_per_cg.to_pandas(),
+            kind="bar",
+            x="continuity_group",
+            y="score",
+            hue="forecaster",
+        )
+        g.despine(left=True)
+        g.legend.set_title("")
 
         true_long_path = os.path.join(validation_save_dir, f"true_long_df_{args.run_name}.parquet")
         if args.rerun_validation or not os.path.exists(true_long_path):
@@ -1992,7 +2050,8 @@ if __name__ == "__main__":
                         "CRPS_samples",
                         # "PICP", "PICP_samples"
                     ],
-                    [0, 0, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 1, 1],
+                    # [0, 0, 1, 1, 1, 1, 1, 1, 1, 1],
                 )
                 if met in agg_df["metric"].unique()
             ]
