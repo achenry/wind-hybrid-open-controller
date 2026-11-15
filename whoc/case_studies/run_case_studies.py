@@ -913,7 +913,6 @@ if __name__ == "__main__":
                 #                                 controller_labels=controller_labels)
 
                 # FIG 16 FARM POWER/YAW ACTUATION FOR DIFFERENT MODELS
-
                 plot_agg_metrics_vs_forecaster(
                     pd.concat([ml_baseline_agg_df, other_baseline_agg_df], axis=0).sort_values(
                         ["CaseFamily", "CaseName"]
@@ -958,6 +957,52 @@ if __name__ == "__main__":
                     ),
                     :,
                 ]
+
+                svr_case_names = baseline_agg_df.loc[
+                    (baseline_agg_df["wind_forecast_class"] == "SVRForecast")
+                    & baseline_agg_df.index.get_level_values("CaseFamily").str.contains(
+                        "baseline_controllers_baseline_det_forecasters_awaken"
+                    ),
+                    :,
+                ]
+                # svr_case_names.loc[svr_case_names["controller_class"] == "LookupBasedWakeSteeringController", ("FarmPower", "mean")]
+
+                # svr_case_names.set_index(["controller_class"])[
+                #     ("FarmPower", "mean")
+                # ] / persistence_case_names.set_index(["controller_class"])[
+                #     ("FarmPower", "mean")
+                # ]
+
+                # svr_case_mapping = dict(
+                #     svr_case_names.reset_index().set_index(["CaseName", "controller_class"]).index
+                # )
+                # persistence_case_mapping = dict(
+                #     persistence_case_names.reset_index()
+                #     .set_index(["CaseName", "controller_class"])
+                #     .index
+                # )
+                # find the windseed for which the mean farm power ratio of svr to persistence is greatest
+                x = (
+                    baseline_time_df.groupby(
+                        ["CaseFamily", "controller_class", "WindSeed", "wind_forecast_class"]
+                    )["FarmPower"]
+                    .mean()
+                    .droplevel("CaseFamily")
+                )
+                r = (
+                    x.xs("SVRForecast", level="wind_forecast_class")
+                    / x.xs("PersistenceForecast", level="wind_forecast_class")
+                ).sort_values(ascending=False)
+
+                # x = (
+                #     time_series_df.index.get_level_values("CaseName")
+                #     .map(svr_case_mapping)
+                #     .reset_index()
+                #     .loc[(time_series_df["CaseName"] == "LookupBasedWakeSteeringController"), :]
+                #     .set_index(["WindSeed"])
+                # )
+                # x.groupby(["WindSeed"]).mean()  # [("FarmPower", "mean")]
+
                 # persistence_case_names = baseline_agg_df.loc[(baseline_agg_df["wind_forecast_class"] == "PersistenceForecast"), :]
                 # persistence_case_names = persistence_case_names.loc[persistence_case_names["prediction_timedelta"] == pd.Timedelta(seconds=0), :].index.get_level_values("CaseName")
                 plotting_cases = (
@@ -973,6 +1018,14 @@ if __name__ == "__main__":
                 )
                 label_mapping = {"wt074": "LUT Ds", "wt075": "LUT Us", "wt005": "Greedy"}
                 fig_label_features = ["controller_class", "wind_forecast_class"]
+                plotting_seed = (
+                    (time_series_df.groupby("WindSeed")["FilteredFreestreamWindDir"].mean() - 180)
+                    .abs()
+                    .sort_values()
+                    .index[0]
+                )
+                plotting_seed = 26
+
                 # plotting_cases = [(df[1]._name[0], str(df[1]._name[1])) for df in forecasters_agg_df.loc[(forecasters_agg_df["wind_forecast_class"] == "SVRForecast"), :].iterrows()]
                 # plotting_cases = [(df[1]._name[0], str(df[1]._name[1])) for df in forecasters_agg_df.loc[(forecasters_agg_df["wind_forecast_class"] == "PersistenceForecast"), :].iterrows()]
 
@@ -986,6 +1039,7 @@ if __name__ == "__main__":
                     single_plot=False,
                     label_mapping=label_mapping,
                     fig_label_features=fig_label_features,
+                    seed_idx=plotting_seed,
                 )
 
             # NOTE USE THIS CONDITIONAL TO CHECK THE BEST PARAMETERS FOUND IN TERMS OF FARM POWER FOR A SWEEP OVER PARAMS E.G. BEST PREDICTION HORIZON

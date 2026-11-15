@@ -448,9 +448,7 @@ def generate_sample_based_metrics_per_cg(
             )
         )
 
-    return pl.concat(metrics, how="vertical").with_columns(
-        metric=pl.lit(metric_name), test_idx=pl.lit(-1)
-    )
+    return pl.concat(metrics, how="vertical").with_columns(metric=pl.lit(metric_name))
 
 
 def generate_forecaster_agg_results(
@@ -574,7 +572,7 @@ def generate_forecaster_agg_results(
             target_cols,
             true_cols,
         )
-        crps = unpivot_df(crps, forecaster.turbine_signature)
+        crps = unpivot_df(crps.drop("test_idx"), forecaster.turbine_signature)
 
         # agg_metrics += [picp, pinaw, cwc, crps]
         agg_metrics += [crps]
@@ -722,9 +720,8 @@ def plot_score_vs_forecaster(agg_df, metrics, ax_indices, prediction_intervals, 
     # TODO HIGH put all ML models and baseline models on same plot. Add dash boundary to baseline bars.
     sns.set_style("whitegrid")
 
-    sub_df = agg_df.sort_by(
-        "forecaster",
-        key=lambda wfc: wfc.map(
+    sub_df = agg_df.sort(
+        pl.col("forecaster").replace(
             {
                 "InformerForecast": 0,
                 "AutoformerForecast": 1,
@@ -733,7 +730,7 @@ def plot_score_vs_forecaster(agg_df, metrics, ax_indices, prediction_intervals, 
                 "SVRForecast": 4,
                 "KalmanFilterForecast": 5,
                 "SpatialFilterForecast": 6,
-                "Perfect": 7,
+                "PersistenceForecast": 7,
             }
         ),
     ).filter((pl.col("metric").is_in(metrics)))
@@ -774,7 +771,7 @@ def plot_score_vs_forecaster(agg_df, metrics, ax_indices, prediction_intervals, 
                 patch.set_hatch("/")
         start_patch_idx += num_patches
 
-    ax.axes[0, 0].set_ylabel(f"Score")
+    ax.axes[0, 0].set_ylabel(f"Score (m/s)")
 
     ax.legend.set_title("")
     ax.legend.set_loc("upper right")
@@ -1830,15 +1827,15 @@ if __name__ == "__main__":
             .value_counts()
             .sort("count", descending=True)["continuity_group"][0]
         )
+        best_cg = 657
 
         # TODO rate the predictors for each continuity group and find characteristics of cgs for ML models perform better vs other models
         agg_df_per_cg = (
             agg_df.filter((pl.col("metric") == "RMSE") & (pl.col("turbine_id") == "all"))
             .select("forecaster", "feature_type", "score", "continuity_group")
-            .sort("score")
             .group_by(["forecaster", "continuity_group"], maintain_order=True)
-            .agg(pl.all())
-            .explode("score")
+            .agg(pl.col("score").mean())
+            .sort("score")
         )
         best_forecasters_per_cg = (
             agg_df_per_cg.sort("score")
@@ -1856,19 +1853,244 @@ if __name__ == "__main__":
         # SVR is the first best and second best for the same number of cgs: 93.
         # Persistence is also the first best for many cgs: 6
         # SVR and Persistence also remain third, and fourth for 22, 77 cgs respectively
+        if False:
+            g = sns.catplot(
+                data=agg_df_per_cg.to_pandas(),
+                kind="bar",
+                x="continuity_group",
+                y="score",
+                hue="forecaster",
+            )
+            g.despine(left=True)
+            g.legend.set_title("")
 
-        g = sns.catplot(
-            data=agg_df_per_cg.to_pandas(),
-            kind="bar",
-            x="continuity_group",
-            y="score",
-            hue="forecaster",
-        )
-        g.despine(left=True)
-        g.legend.set_title("")
+        # plot the continuity groups for which TACTIs is the best forecaster, compared to cg for which SVR is best
+        if False:
+            best_svr_cg = agg_df_per_cg.filter(pl.col("forecaster") == "SVRForecast")[
+                "continuity_group"
+            ].first()
+            best_tactis_cg = agg_df_per_cg.filter(pl.col("forecaster") == "TactisForecast")[
+                "continuity_group"
+            ].first()
+            best_spacetimeformer_cg = agg_df_per_cg.filter(
+                pl.col("forecaster") == "SpacetimeformerForecast"
+            )["continuity_group"].first()
+            sub_test_data = (
+                test_data.filter(
+                    pl.col("continuity_group").is_in(
+                        [best_svr_cg, best_tactis_cg, best_spacetimeformer_cg]
+                    )
+                )
+                .select(
+                    "time",
+                    "continuity_group",
+                    cs.starts_with("ws_")
+                    & (cs.ends_with("wt005") | cs.ends_with("wt074") | cs.ends_with("wt075")),
+                )
+                .collect()
+            )
+
+            svr_forecaster = next(
+                filter(lambda f: f.__class__.__name__ == "SVRForecast", forecasters)
+            )
+            tactis_forecaster = next(
+                filter(
+                    lambda f: (
+                        f.__class__.__name__ == "MLForecast"
+                        and f.model_key.capitalize() == "Tactis"
+                    ),
+                    forecasters,
+                )
+            )
+            spacetimeformer_forecaster = next(
+                filter(
+                    lambda f: (
+                        f.__class__.__name__ == "MLForecast"
+                        and f.model_key.capitalize() == "Spacetimeformer"
+                    ),
+                    forecasters,
+                )
+            )
+            prediction_timedelta = svr_forecaster.prediction_timedelta.total_seconds()
+            forecaster_name = svr_forecaster.__class__.__name__
+
+            save_dir = os.path.join(
+                validation_save_dir, forecaster_name, str(int(prediction_timedelta))
+            )
+            forecast_path = os.path.join(save_dir, f"forecast_*.parquet")
+            svr_forecast_df = (
+                pl.read_parquet(forecast_path, glob=True)
+                .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
+                .filter(pl.col("continuity_group").is_in([best_svr_cg, best_tactis_cg]))
+                .select(
+                    "time",
+                    "continuity_group",
+                    cs.starts_with("ws_")
+                    & (cs.ends_with("wt005") | cs.ends_with("wt074") | cs.ends_with("wt075")),
+                )
+                .sort("continuity_group", "time")
+            )
+
+            prediction_timedelta = tactis_forecaster.prediction_timedelta.total_seconds()
+            forecaster_name = f"{tactis_forecaster.model_key.capitalize()}Forecast"
+            save_dir = os.path.join(
+                validation_save_dir, forecaster_name, str(int(prediction_timedelta))
+            )
+            forecast_path = os.path.join(save_dir, f"forecast_*.parquet")
+            tactis_forecast_df = (
+                pl.read_parquet(forecast_path, glob=True)
+                .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
+                .filter(pl.col("continuity_group").is_in([best_svr_cg, best_tactis_cg]))
+                .select(
+                    "time",
+                    "continuity_group",
+                    cs.starts_with("loc_ws_")
+                    & (cs.ends_with("wt005") | cs.ends_with("wt074") | cs.ends_with("wt075")),
+                )
+                .sort("continuity_group", "time")
+            )
+
+            prediction_timedelta = spacetimeformer_forecaster.prediction_timedelta.total_seconds()
+            forecaster_name = f"{spacetimeformer_forecaster.model_key.capitalize()}Forecast"
+            save_dir = os.path.join(
+                validation_save_dir, forecaster_name, str(int(prediction_timedelta))
+            )
+            forecast_path = os.path.join(save_dir, f"forecast_*.parquet")
+            spacetimeformer_forecast_df = (
+                pl.read_parquet(forecast_path, glob=True)
+                .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
+                .filter(
+                    pl.col("continuity_group").is_in(
+                        [best_svr_cg, best_tactis_cg, best_spacetimeformer_cg]
+                    )
+                )
+                .select(
+                    "time",
+                    "continuity_group",
+                    cs.starts_with("loc_ws_")
+                    & (cs.ends_with("wt005") | cs.ends_with("wt074") | cs.ends_with("wt075")),
+                )
+                .sort("continuity_group", "time")
+            )
+
+            fig, ax = plt.subplots(2, 3)
+            for r, feat in enumerate(["ws_horz", "ws_vert"]):
+                # plot ws_horz/ws_vert true and both forecasts
+                best_svr_cond = pl.col("continuity_group") == best_svr_cg
+                best_tactis_cond = pl.col("continuity_group") == best_tactis_cg
+                best_spacetimeformer_cond = pl.col("continuity_group") == best_spacetimeformer_cg
+
+                ax[r, 0].set_title(f"Best SVR {'$u$' if 'horz' in feat else '$v$'}")
+                ax[r, 0].plot(
+                    sub_test_data.filter(best_svr_cond)["time"],
+                    sub_test_data.filter(best_svr_cond).select(cs.starts_with(feat)).to_numpy(),
+                    label=f"True {feat}",
+                )
+                ax[r, 0].plot(
+                    svr_forecast_df.filter(best_svr_cond)["time"],
+                    svr_forecast_df.filter(best_svr_cond).select(cs.starts_with(feat)).to_numpy(),
+                    linestyle="--",
+                    label=f"SVR Forecast",
+                )
+                ax[r, 0].plot(
+                    tactis_forecast_df.filter(best_svr_cond)["time"],
+                    tactis_forecast_df.filter(best_svr_cond).select(cs.contains(feat)).to_numpy(),
+                    linestyle=":",
+                    label=f"TACTiS-2 Forecast",
+                )
+                ax[r, 0].plot(
+                    spacetimeformer_forecast_df.filter(best_svr_cond)["time"],
+                    spacetimeformer_forecast_df.filter(best_svr_cond)
+                    .select(cs.contains(feat))
+                    .to_numpy(),
+                    linestyle="-.",
+                    label=f"Spacetimeformer Forecast",
+                )
+
+                ax[r, 1].set_title(f"Best TACTiS-2 {'$u$' if 'horz' in feat else '$v$'}")
+                ax[r, 1].plot(
+                    sub_test_data.filter(best_tactis_cond)["time"],
+                    sub_test_data.filter(best_tactis_cond).select(cs.starts_with(feat)).to_numpy(),
+                    label=f"True",
+                )
+                ax[r, 1].plot(
+                    svr_forecast_df.filter(best_tactis_cond)["time"],
+                    svr_forecast_df.filter(best_tactis_cond)
+                    .select(cs.starts_with(feat))
+                    .to_numpy(),
+                    linestyle="--",
+                    label=f"SVR Forecast",
+                )
+                ax[r, 1].plot(
+                    tactis_forecast_df.filter(best_tactis_cond)["time"],
+                    tactis_forecast_df.filter(best_tactis_cond)
+                    .select(cs.contains(feat))
+                    .to_numpy(),
+                    linestyle=":",
+                    label=f"TACTiS-2 Forecast",
+                )
+                ax[r, 1].plot(
+                    spacetimeformer_forecast_df.filter(best_tactis_cond)["time"],
+                    spacetimeformer_forecast_df.filter(best_tactis_cond)
+                    .select(cs.contains(feat))
+                    .to_numpy(),
+                    linestyle="-.",
+                    label=f"Spacetimeformer Forecast",
+                )
+
+                ax[r, 2].set_title(f"Best Spacetimeformer {'$u$' if 'horz' in feat else '$v$'}")
+                ax[r, 2].plot(
+                    sub_test_data.filter(best_spacetimeformer_cond)["time"],
+                    sub_test_data.filter(best_spacetimeformer_cond)
+                    .select(cs.starts_with(feat))
+                    .to_numpy(),
+                    label=f"True",
+                )
+                ax[r, 2].plot(
+                    svr_forecast_df.filter(best_spacetimeformer_cond)["time"],
+                    svr_forecast_df.filter(best_spacetimeformer_cond)
+                    .select(cs.starts_with(feat))
+                    .to_numpy(),
+                    linestyle="--",
+                    label=f"SVR Forecast",
+                )
+                ax[r, 2].plot(
+                    tactis_forecast_df.filter(best_spacetimeformer_cond)["time"],
+                    tactis_forecast_df.filter(best_spacetimeformer_cond)
+                    .select(cs.contains(feat))
+                    .to_numpy(),
+                    linestyle=":",
+                    label=f"TACTiS-2 Forecast",
+                )
+                ax[r, 2].plot(
+                    spacetimeformer_forecast_df.filter(best_spacetimeformer_cond)["time"],
+                    spacetimeformer_forecast_df.filter(best_spacetimeformer_cond)
+                    .select(cs.contains(feat))
+                    .to_numpy(),
+                    linestyle="-.",
+                    label=f"Spacetimeformer Forecast",
+                )
+
+            # ax[0, 0].legend()
+            # ax[0, 1].legend()
+            plt.tight_layout()
 
         true_long_path = os.path.join(validation_save_dir, f"true_long_df_{args.run_name}.parquet")
-        if args.rerun_validation or not os.path.exists(true_long_path):
+        if (
+            args.rerun_validation
+            or not os.path.exists(true_long_path)
+            or set(
+                pl.scan_parquet(true_long_path)
+                .select(
+                    pl.col("continuity_group")
+                    .filter(pl.col("continuity_group").is_in(cgs))
+                    .unique()
+                )
+                .collect()
+                .to_series()
+            )
+            != set(cgs)
+        ):
             test_data.drop("feat_static_cat").unpivot(
                 index=["time", "continuity_group", "prediction_timedelta"],
                 variable_name="feature",
@@ -2059,14 +2281,15 @@ if __name__ == "__main__":
             ax_indices = [v[1] for v in plotting_metrics_dirs]
             # plt.close()
 
+            # agg_df.filter((pl.col("test_idx") == -1) &
             totals_agg_df = (
-                agg_df.filter((pl.col("test_idx") == -1) & (pl.col("turbine_id") == "all"))
+                agg_df.filter(pl.col("turbine_id") == "all")
                 .group_by(["forecaster", "metric", "prediction_timedelta"])
                 .agg(pl.col("score").mean())
             )
 
             # generate scatterplot of metric vs prediction time for different models (different colors) and different metrics (different_styles) (crps, picp, pinaw, cwc, mse, mae)
-            if True:
+            if False:
                 plot_score_vs_prediction_dt(
                     totals_agg_df,
                     metrics=plotting_metrics,

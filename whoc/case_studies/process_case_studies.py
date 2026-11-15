@@ -276,8 +276,8 @@ def plot_agg_metrics_vs_forecaster(agg_df, save_dir, controller_labels, agg_metr
     # metric for each plot
     fig_labels = ["all_forecasters_power", "all_forecasters_yaw"]
     metric_labels = {
-        "FarmPower": "Farm Power Change\nvs. Persistence (%)",
-        "YawAngleChangeAbs": "Yaw Actuation Change\nvs. Persistence (%)",
+        "FarmPower": "Farm Power Change vs. Persistence (%)",
+        "YawAngleChangeAbs": "Yaw Actuation Change vs. Persistence (%)",
     }
     # metric_labels = {"FarmPowerMean": "Farm Power Change\nvs. Persistence (%)", "YawAngleChangeAbsMean": "Yaw Actuation Change\nvs. Persistence (%)"}
 
@@ -401,12 +401,14 @@ def plot_agg_metrics_vs_forecaster(agg_df, save_dir, controller_labels, agg_metr
             [controller_labels[l.get_text()] for l in ax.axes[0, 0].get_xticklabels()]
         )
         ax.axes[0, 0].set_ylabel("")
-        ax.axes[0, 0].set_xlabel("Forecaster")
+        ax.axes[0, 0].set_xlabel("Controller")
         # ax[c].set_title(f"{controller_labels[ctrl]} Mean Farm Power (MW)")
         # ax.axes[0, v].get_yaxis().set_visible(False)
         ax.axes[0, 0].set_title(f"{metric_labels[var]}")
 
         # for v, var in enumerate(reduced_agg_metrics):
+
+        ax._legend._legend_title_box._text.set_text("Forecaster")
         leg_vals = ax._legend.texts
         leg_vals = [
             " ".join(
@@ -451,7 +453,7 @@ def plot_agg_metrics_vs_forecaster(agg_df, save_dir, controller_labels, agg_metr
         fig = plt.gcf()
         fig.set_size_inches((15, 8))
         plt.tight_layout()
-        fig.subplots_adjust(right=0.825)
+        fig.subplots_adjust(right=0.8)
         ax.legend.set_title("")
         ax.legend.set_loc("upper right")
         ax.legend.set_bbox_to_anchor((0.0, 0.0, 1.0, 0.9))
@@ -1729,7 +1731,7 @@ def plot_yaw_power_ts(
                 label="Wind dir.",
                 color="black",
                 ax=ax[ax_idx],
-                alpha=0.25,
+                # alpha=0.25,
             )
             if include_filtered_wind_dir:
                 sns.lineplot(
@@ -1740,7 +1742,7 @@ def plot_yaw_power_ts(
                     color="black",
                     linestyle="--",
                     ax=ax[ax_idx],
-                    alpha=0.25,
+                    # alpha=0.25,
                 )
 
         # Direction

@@ -2245,7 +2245,7 @@ def initialize_simulations(
                     continue
 
     # delete any input files/time series files that don't belong
-    if run_simulations:
+    if False and run_simulations:
         pattern = "(?<=input_config_case_)(.*)(?=\\.pkl)"
         ts_filenames = [
             tuple([csk, f"time_series_results_case_{case_name}_seed_{wind_case_idx}.csv"])

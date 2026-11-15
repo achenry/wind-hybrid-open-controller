@@ -226,58 +226,82 @@ class LookupBasedWakeSteeringController(ControllerBase):
 
             # np.where((np.vstack(df_lut["yaw_angles_opt"].values).sum(axis=1) != 0) & (df_lut["wd_stddev"].values != 0))
             # start LUT inspection code
-            # import seaborn as sns
-            # import matplotlib.pyplot as plt
+            if False:
+                import seaborn as sns
+                import matplotlib.pyplot as plt
 
-            # factor = 3
-            # # factor = 3.0 # single column
-            # plt.rc('font', size=12*factor)          # controls default text sizes
-            # plt.rc('axes', titlesize=20*factor)     # fontsize of the axes title
-            # plt.rc('axes', labelsize=15*factor)     # fontsize of the x and y labels
-            # plt.rc('xtick', labelsize=12*factor)    # fontsize of the xtick labels
-            # plt.rc('ytick', labelsize=12*factor)    # fontsize of the ytick labels
-            # plt.rc('legend', fontsize=12*factor)    # legend fontsize
-            # plt.rc('legend', title_fontsize=14*factor)  # legend title fontsize
+                factor = 3
+                # factor = 3.0 # single column
+                plt.rc("font", size=12 * factor)  # controls default text sizes
+                plt.rc("axes", titlesize=20 * factor)  # fontsize of the axes title
+                plt.rc("axes", labelsize=15 * factor)  # fontsize of the x and y labels
+                plt.rc("xtick", labelsize=12 * factor)  # fontsize of the xtick labels
+                plt.rc("ytick", labelsize=12 * factor)  # fontsize of the ytick labels
+                plt.rc("legend", fontsize=10 * factor)  # legend fontsize
+                plt.rc("legend", title_fontsize=12 * factor)  # legend title fontsize
 
-            # # for dynamic lut case
-            # find suspicious negative offsets
-            # df_plot.loc[(df_plot["Turbine"] == 1) & (df_plot["YawOffset"] < -1) & (df_plot["wind_direction"] > 142.5), :]
-            # lut_path = lut_path.replace("uncertainFalse", "uncertainTrue")
-            # df_lut = pd.read_csv(lut_path, index_col=0)
-            # df_lut["yaw_angles_opt"] = df_lut["yaw_angles_opt"].apply(lambda s: np.array(re.findall(r"-*\d+\.\d*", s), dtype=float))
-            # # # df_lut.loc[(df_lut["wind_speed"].isin(pd.unique(df_lut["wind_speed"]))) & (df_lut["wind_direction"].isin(pd.unique(df_lut["wind_direction"]))), "yaw_angles_opt"]
-            # df_plot = df_lut.drop(columns=["yaw_angles_opt", "farm_power_opt", "farm_power_baseline"])
-            # yaw_angles_opt = np.vstack(df_lut["yaw_angles_opt"].values)
-            # df_plot = pd.concat([df_plot.assign(YawOffset=yaw_angles_opt[:, i], Turbine=i) for i in range(yaw_angles_opt.shape[1])], axis=0)
-            # df_plot.loc[(df_plot["wind_direction"] > 150) & (df_plot["YawOffset"] < 0) & (df_plot["Turbine"] == 1), :]
+                # for dynamic lut case
+                # find suspicious negative offsets
+                # df_plot.loc[(df_plot["Turbine"] == 1) & (df_plot["YawOffset"] < -1) & (df_plot["wind_direction"] > 142.5), :]
+                # lut_path = lut_path.replace("uncertainFalse", "uncertainTrue")
+                # df_lut = pd.read_csv(lut_path, index_col=0)
+                # df_lut["yaw_angles_opt"] = df_lut["yaw_angles_opt"].apply(lambda s: np.array(re.findall(r"-*\d+\.\d*", s), dtype=float))
+                # # # df_lut.loc[(df_lut["wind_speed"].isin(pd.unique(df_lut["wind_speed"]))) & (df_lut["wind_direction"].isin(pd.unique(df_lut["wind_direction"]))), "yaw_angles_opt"]
+                df_plot = df_lut.drop(
+                    columns=["yaw_angles_opt", "farm_power_opt", "farm_power_baseline"]
+                )
+                yaw_angles_opt = np.vstack(df_lut["yaw_angles_opt"].values)
+                df_plot = pd.concat(
+                    [
+                        df_plot.assign(YawOffset=yaw_angles_opt[:, i], Turbine=i)
+                        for i in range(yaw_angles_opt.shape[1])
+                    ],
+                    axis=0,
+                )
+                # df_plot.loc[(df_plot["wind_direction"] > 150) & (df_plot["YawOffset"] < 0) & (df_plot["Turbine"] == 1), :]
 
-            # ax = sns.lineplot(df_plot.loc[df_plot["YawOffset"] != 0, :], x="wind_direction", y="YawOffset",
-            #   hue="wd_stddev", style="Turbine",
-            # #   estimator=lambda arr: max(arr.min(), arr.max(), key=abs),
-            # # estimator=lambda arr: np.mean(arr[arr != 0]),
-            # estimator=lambda arr: np.sign(arr.values[np.argmax(np.abs(arr))]) * np.abs(arr).max(),
-            # #  errorbar=lambda x: (x.min(), x.max())
-            # #  estimator="median",
-            # errorbar=("pi", 95)
-            # )
-            # df_plot.loc[(df_plot["Turbine"] == 1) & (df_plot["YawOffset"] < 0.0) & (df_plot["wind_direction"] > 141.0), :]
+                ax = sns.lineplot(
+                    df_plot.loc[df_plot["YawOffset"] != 0, :],
+                    x="wind_direction",
+                    y="YawOffset",
+                    hue="wd_stddev",
+                    style="Turbine",
+                    #   estimator=lambda arr: max(arr.min(), arr.max(), key=abs),
+                    # estimator=lambda arr: np.mean(arr[arr != 0]),
+                    estimator=lambda arr: (
+                        np.sign(arr.values[np.argmax(np.abs(arr))]) * np.abs(arr).max()
+                    ),
+                    #  errorbar=lambda x: (x.min(), x.max())
+                    #  estimator="median",
+                    errorbar=("pi", 95),
+                )
+                df_plot.loc[
+                    (df_plot["Turbine"] == 1)
+                    & (df_plot["YawOffset"] < 0.0)
+                    & (df_plot["wind_direction"] > 141.0),
+                    :,
+                ]
 
-            # cond = (df_plot["Turbine"] == 0) & (df_plot["wind_speed"] == 5.0)
-            # ax.plot(df_plot.loc[cond, "wind_direction"], df_plot.loc[cond, "YawOffset"], color="black")
-            # h, l = ax.get_legend_handles_labels()
-            # l[0] = "Wind Direction \nStandard Deviation ($^\\circ$)"
-            # l[1] = "Static LUT"
+                cond = (df_plot["Turbine"] == 0) & (df_plot["wind_speed"] == 5.0)
+                ax.plot(
+                    df_plot.loc[cond, "wind_direction"],
+                    df_plot.loc[cond, "YawOffset"],
+                    color="black",
+                )
+                h, l = ax.get_legend_handles_labels()
+                l[0] = "Wind Direction \nStandard Deviation"
+                l[1] = "Static LUT ($0^\\circ$)"
 
-            # ax.set_xlabel("Wind Direction ($^\\circ$)")
-            # ax.set_ylabel("Yaw Offset ($^\\circ$)")
+                ax.set_xlabel("Wind Direction ($^\\circ$)")
+                ax.set_ylabel("Yaw Offset ($^\\circ$)")
 
-            # l = [ll[:-2] if ".0" in ll else ll for ll in l]
-            # l[-2] = "Downstream"
-            # l[-1] = "Upstream"
-            # ax.legend(h, l, loc="upper right", bbox_to_anchor=(1.0, 1.05))
-            # ax.set_xlim((110, 220))
-            # plt.tight_layout()
-            # plt.savefig(os.path.join(os.path.dirname(lut_path), "uncertain_lut_reduced.png"))
+                l = [f"${ll[:-2]}^\\circ$" if ".0" in ll else ll for ll in l]
+                l[-2] = "Downstream"
+                l[-1] = "Upstream"
+                ax.legend(h, l, loc="upper right", bbox_to_anchor=(1.0, 1.025))
+                ax.set_xlim((110, 220))
+                plt.tight_layout()
+                plt.savefig(os.path.join(os.path.dirname(lut_path), "uncertain_lut_reduced.png"))
 
             # for static lut case
             # ax = sns.lineplot(df_plot, x="wind_direction", hue="wind_speed", y="YawOffset", style="Turbine")
