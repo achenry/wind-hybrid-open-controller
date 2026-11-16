@@ -2122,6 +2122,311 @@ if __name__ == "__main__":
             glob=True,
         ).collect()
 
+        if True:
+            from scipy.signal import lfilter, welch
+
+            def _first_ord_filter(s: pl.Series, alpha: float):
+                b = [1 - alpha]
+                a = [1, -alpha]
+                return pl.Series(lfilter(b, a, s), dtype=pl.Float32)
+
+            def _welch(s: pl.Series) -> pl.Series:
+                _, pxx = welch(s, fs=fs, nperseg=nperseg, detrend="linear")
+                return pl.Series([pxx.astype("float64").tolist()], dtype=pl.List(pl.Float64))
+
+            wind_mag_lpf_time_const = 30
+            simulation_dt = 5
+            wind_mag_lpf_alpha = np.exp(-(1 / wind_mag_lpf_time_const) * simulation_dt)
+
+            nperseg = 256
+            max_lag = 60
+            fs = 1.0 / simulation_dt
+            n_freq = nperseg // 2 + 1
+            freqs = np.fft.rfftfreq(nperseg, d=simulation_dt)
+            fig, (ax_psd, ax_xc) = plt.subplots(1, 2, figsize=(12, 4.5))
+
+            def plot_psd(ax, psd: pl.DataFrame, label: str, band: bool = True, **plot_kw):
+                """
+                Add one PSD curve to `ax`: mean across turbines (line) and, optionally, the
+                10th-90th percentile range across turbines (shaded). Skips f = 0.
+                """
+                summary = (
+                    psd.filter(pl.col("frequency_hz") > 0)
+                    .group_by("frequency_hz")
+                    .agg(
+                        pl.col("psd").mean().alias("mean"),
+                        pl.col("psd").quantile(0.1).alias("q10"),
+                        pl.col("psd").quantile(0.9).alias("q90"),
+                    )
+                    .sort("frequency_hz")
+                )
+                (line,) = ax.loglog(
+                    summary["frequency_hz"], summary["mean"], label=label, **plot_kw
+                )
+                if band:
+                    ax.fill_between(
+                        summary["frequency_hz"],
+                        summary["q10"],
+                        summary["q90"],
+                        color=line.get_color(),
+                        alpha=0.15,
+                        linewidth=0,
+                    )
+                return line
+
+            def plot_xcorr(ax, xcorr: pl.DataFrame, label: str, band: bool = True, **plot_kw):
+                """
+                Add one correlation-vs-lag curve to `ax`: mean across turbines (line),
+                optionally the 10th-90th percentile range across turbines (shaded), and a
+                marker at the lag of maximum mean correlation. Lag in seconds; positive =
+                forecast lags truth.
+                """
+                summary = (
+                    xcorr.group_by("lag")
+                    .agg(
+                        pl.col("corr").mean().alias("mean"),
+                        pl.col("corr").quantile(0.1).alias("q10"),
+                        pl.col("corr").quantile(0.9).alias("q90"),
+                    )
+                    .sort("lag")
+                    .with_columns((pl.col("lag") * simulation_dt).alias("lag_s"))
+                )
+                (line,) = ax.plot(summary["lag_s"], summary["mean"], label=label, **plot_kw)
+                if band:
+                    ax.fill_between(
+                        summary["lag_s"],
+                        summary["q10"],
+                        summary["q90"],
+                        color=line.get_color(),
+                        alpha=0.15,
+                        linewidth=0,
+                    )
+                peak = summary.row(summary["mean"].arg_max(), named=True)
+                ax.plot(peak["lag_s"], peak["mean"], "o", color=line.get_color())
+                return line
+
+            score_tables = []
+            # Before the loop: single-entry cache for the true data, which depends only on
+            # prediction_timedelta (iterate forecasters grouped by prediction_timedelta to
+            # get the most reuse).
+            cached_td, true_df, filt_true_df = None, None, None
+
+            # Low-pass filter applied per continuity group without group_by/agg/explode
+            lpf_expr = (
+                cs.starts_with("ws_")
+                .map_batches(
+                    lambda s: _first_ord_filter(s, wind_mag_lpf_alpha),
+                    return_dtype=pl.Float32,
+                )
+                .over("continuity_group")
+            )
+            cg = pl.col("continuity_group")
+
+            for f, forecaster in enumerate(forecasters):
+                prediction_timedelta = forecaster.prediction_timedelta.total_seconds()
+                forecaster_name = (
+                    forecaster.__class__.__name__
+                    if forecaster.__class__.__name__ != "MLForecast"
+                    else f"{forecaster.model_key.capitalize()}Forecast"
+                )
+                save_dir = os.path.join(
+                    validation_save_dir, forecaster_name, str(int(prediction_timedelta))
+                )
+                cgs = unique_cgs[prediction_timedelta]
+
+                # Lazy scan: filter is pushed down into the parquet reader; sort once here
+                # and rely on that order everywhere below.
+                forecast_df = (
+                    pl.scan_parquet(os.path.join(save_dir, "forecast_*.parquet"))
+                    .filter(cg.is_in(cgs))
+                    .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
+                    .sort("continuity_group", "time")
+                    .collect()
+                )
+                ws_cols = forecast_df.select(cs.starts_with("ws_")).columns
+
+                # Collect, sort, and filter the true data once per prediction_timedelta
+                if prediction_timedelta != cached_td:
+                    true_df = (
+                        test_data.filter(cg.is_in(cgs))
+                        .select("continuity_group", "time", cs.starts_with("ws_"))
+                        .sort("continuity_group", "time")
+                        .collect()
+                    )
+                    filt_true_df = true_df.with_columns(lpf_expr)
+                    cached_td = prediction_timedelta
+
+                filt_forecast_df = forecast_df.with_columns(lpf_expr)
+
+                target_cols = (
+                    data_module.target_cols
+                    if forecaster.target_turbine_indices is None
+                    else [
+                        f"{pfx}_{forecaster.idx2tid_mapping[idx]}"
+                        for pfx in data_module.target_prefixes
+                        for idx in forecaster.target_turbine_indices
+                    ]
+                )
+
+                # Filtered and unfiltered score summaries in one lazy query
+                scores = (
+                    pl.concat(
+                        [
+                            generate_forecaster_agg_results(
+                                forecaster,
+                                filt_forecast_df,
+                                filt_true_df,
+                                target_cols,
+                                args.prediction_type,
+                            )
+                            .lazy()
+                            .with_columns(filtered=pl.lit("Filtered")),
+                            pl.scan_parquet(
+                                os.path.join(save_dir, "agg_metrics.parquet"),
+                                schema={
+                                    "turbine_id": pl.String,
+                                    "continuity_group": pl.Int32,
+                                    "metric": pl.String,
+                                    "feature_type": pl.String,
+                                    "score": pl.Float32,
+                                },
+                            ).with_columns(filtered=pl.lit("Unfiltered")),
+                        ],
+                        how="diagonal_relaxed",
+                    )
+                    .filter((pl.col("turbine_id") == "all") & (pl.col("metric") == "MAE"))
+                    .group_by("filtered", "continuity_group", "feature_type")
+                    .agg(pl.col("score").first())
+                    .group_by("filtered", "feature_type")
+                    .agg(
+                        pl.col("score").min().alias("score_min"),
+                        pl.col("score").mean().alias("score_mean"),
+                        pl.col("score").max().alias("score_max"),
+                    )
+                    .with_columns(forecaster=pl.lit(forecaster_name))
+                    .sort("filtered", "feature_type")
+                    .collect()
+                )
+                score_tables.append(scores)
+                logging.info(
+                    f"Filtered and unfiltered forecast vs. true MAE for forecaster "
+                    f"{forecaster_name}:\n{scores}"
+                )
+
+                # Power spectra of forecasts (forecast_df is already sorted)
+                psd = (
+                    forecast_df.filter(pl.len().over("continuity_group") >= nperseg)
+                    .group_by("continuity_group")
+                    .agg(
+                        # number of 50%-overlap Welch segments in this group
+                        ((pl.len() - nperseg) // (nperseg // 2) + 1).alias("n_seg"),
+                        cs.starts_with("ws_").map_batches(
+                            _welch, return_dtype=pl.List(pl.Float64), returns_scalar=True
+                        ),
+                    )
+                    .with_columns(pl.int_ranges(0, n_freq).alias("freq_idx"))
+                    .explode(cs.starts_with("ws_") | cs.by_name("freq_idx"))
+                    .group_by("freq_idx")
+                    .agg((cs.starts_with("ws_") * pl.col("n_seg")).sum() / pl.col("n_seg").sum())
+                    .sort("freq_idx")
+                    .with_columns(pl.Series("frequency_hz", freqs))
+                    .drop("freq_idx")
+                    .unpivot(index="frequency_hz", variable_name="column", value_name="psd")
+                )
+                line = plot_psd(ax_psd, psd, forecaster_name)
+
+                # Cross-correlation vs. lag: join only the needed columns (both frames are
+                # sorted, so keep the left order instead of re-sorting), then evaluate every
+                # (lag, column) correlation in ONE parallel query. Shifting is kept within
+                # continuity groups by masking rows whose shifted row comes from another
+                # group, which avoids a window (.over) group-by per lag and column.
+                joined = true_df.select("continuity_group", "time", *ws_cols).join(
+                    forecast_df.select("continuity_group", "time", *ws_cols),
+                    on=["continuity_group", "time"],
+                    how="inner",
+                    suffix="_fcst",
+                    maintain_order="left",
+                )
+                xcorr = (
+                    joined.lazy()
+                    .select(
+                        pl.corr(
+                            pl.col(c),
+                            pl.when(cg == cg.shift(-k)).then(pl.col(f"{c}_fcst").shift(-k)),
+                        ).alias(f"{k}|{c}")
+                        for k in range(-max_lag, max_lag + 1)
+                        for c in ws_cols
+                    )
+                    .collect()
+                    .unpivot(variable_name="key", value_name="corr")
+                    .with_columns(
+                        pl.col("key")
+                        .str.split_exact("|", 1)
+                        .struct.rename_fields(["lag", "column"])
+                    )
+                    .unnest("key")
+                    .with_columns(pl.col("lag").cast(pl.Int32))
+                )
+                best_xcorr = (
+                    xcorr.group_by("column")
+                    .agg(
+                        pl.col("lag").get(pl.col("corr").arg_max()).alias("best_lag_samples"),
+                        pl.col("corr").max().alias("max_corr"),
+                        pl.col("corr").filter(pl.col("lag") == 0).first().alias("corr_at_zero"),
+                    )
+                    .with_columns((pl.col("best_lag_samples") * simulation_dt).alias("best_lag_s"))
+                    .sort("column")
+                )
+                plot_xcorr(ax_xc, xcorr, forecaster_name, color=line.get_color())
+                logging.info(f"Best lags for forecaster {forecaster_name}:\n{best_xcorr}")
+
+            ax_psd.set_xlabel("Frequency [Hz]")
+            ax_psd.set_ylabel(r"PSD [(m/s)$^2$/Hz]")
+            ax_psd.grid(True, which="both", alpha=0.3)
+            ax_psd.legend()
+
+            ax_xc.axvline(0, color="k", linewidth=0.8)
+            ax_xc.set_xlabel("Lag [s] (positive = forecast lags truth)")
+            ax_xc.set_ylabel("Correlation with true values")
+            ax_xc.grid(True, alpha=0.3)
+            ax_xc.legend()
+
+            fig.tight_layout()
+
+            score_tables = pl.concat(score_tables)
+
+            forecasters = score_tables["forecaster"].unique(maintain_order=True).to_list()
+            variants = score_tables["filtered"].unique(maintain_order=True).to_list()
+            features = score_tables["feature_type"].unique(maintain_order=True).to_list()
+            width = 0.8 / len(variants)
+            x = np.arange(len(forecasters))
+
+            score_fig, axes = plt.subplots(
+                1, len(features), figsize=(5 * len(features), 4), sharey=True
+            )
+            axes = np.atleast_1d(axes)
+            for ax, feat in zip(axes, features):
+                for i, var in enumerate(variants):
+                    d = score_tables.filter(
+                        pl.col("feature_type") == feat, pl.col("filtered") == var
+                    ).join(pl.DataFrame({"forecaster": forecasters}), on="forecaster", how="right")
+                    mean = d["score_mean"].to_numpy()
+                    err = [mean - d["score_min"].to_numpy(), d["score_max"].to_numpy() - mean]
+                    ax.bar(
+                        x + (i - (len(variants) - 1) / 2) * width,
+                        mean,
+                        width,
+                        yerr=err,
+                        capsize=3,
+                        label=var,
+                    )
+                ax.set_xticks(x, forecasters, rotation=30, ha="right")
+                ax.set_title(feat)
+                ax.grid(axis="y", alpha=0.3)
+            axes[0].set_ylabel("Score")
+            axes[0].legend()
+            score_fig.tight_layout()
+
         # plot continuity group with best rmse score
         PLOT_INDIVIDUAL = True
         forecasts_long = []
